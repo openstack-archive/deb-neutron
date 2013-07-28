@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+if [ "${1}" = "purge" ] ; then
+	rm -rf /etc/neutron/api-paste.ini /etc/neutron/neutron.conf
+	[ -d /etc/neutron ] && rmdir --ignore-fail-on-non-empty /etc/neutron
+        rm -rf /var/lib/neutron
+        rm -rf /var/log/neutron
+fi
+
+#DEBHELPER#

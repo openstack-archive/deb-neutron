@@ -1,0 +1,48 @@
+# These templates have been reviewed by the debian-l10n-english
+# team
+#
+# If modifications/additions/rewording are needed, please ask
+# debian-l10n-english@lists.debian.org for advice.
+#
+# Even minor modifications require translation updates and such
+# changes should be coordinated with translators and reviewers.
+
+Template: neutron/register-endpoint
+Type: boolean
+Default: false
+_Description: Register Neutron in the Keystone endpoint catalog?
+ Each OpenStack service (each API) should be registered in order to be
+ accessible. This is done using "keystone service-create" and "keystone
+ endpoint-create". This can be done automatically now.
+ .
+ Note that you will need to have an up and running Keystone server on which to
+ connect using the Keystone authentication token.
+
+Template: neutron/keystone-ip
+Type: string
+_Description: Keystone server IP address:
+ Please enter the IP address of the Keystone server, so that neutron-api can
+ contact Keystone to do the Neutron service and endpoint creation.
+
+Template: neutron/keystone-auth-token
+Type: password
+_Description: Keystone authentication token:
+ To configure its endpoint in Keystone, neutron-server needs the Keystone auth
+ token.
+
+Template: neutron/endpoint-ip
+Type: string
+_Description: Neutron endpoint IP address:
+ Please enter the IP address that will be used to contact Neutron.
+ .
+ This IP address should be accessible from the clients that will use this
+ service, so if you are installing a public cloud, this should be a public
+ IP address.
+
+Template: neutron/region-name
+Type: string
+Default: regionOne
+_Description: Name of the region to register:
+ OpenStack supports using availability zones, with each region representing
+ a location. Please enter the zone that you wish to use when registering the
+ endpoint.

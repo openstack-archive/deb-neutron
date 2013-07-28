@@ -1,0 +1,7 @@
+bin/* usr/bin
+debian/neutron_sudoers	/etc/sudoers.d
+etc/api-paste.ini	/usr/share/neutron-common
+etc/policy.json		/etc/neutron
+etc/neutron.conf	/usr/share/neutron-common
+etc/neutron/rootwrap.d/* /etc/neutron/rootwrap.d
+etc/rootwrap.conf	/etc/neutron

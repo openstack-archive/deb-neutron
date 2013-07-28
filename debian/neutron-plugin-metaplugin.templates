@@ -1,0 +1,32 @@
+# These templates have been reviewed by the debian-l10n-english
+# team
+#
+# If modifications/additions/rewording are needed, please ask
+# debian-l10n-english@lists.debian.org for advice.
+#
+# Even minor modifications require translation updates and such
+# changes should be coordinated with translators and reviewers.
+
+Template: neutron-plugin-metaplugin/auth-host
+Type: string
+Default: 127.0.0.1
+_Description: Authentication server hostname:
+ Please specify the hostname of the authentication server. Typically
+ this is also the hostname of the OpenStack Identity Service (Keystone).
+
+Template: neutron-plugin-metaplugin/admin-tenant-name
+Type: string
+Default: admin
+_Description: Authentication server tenant name:
+ Please specify the authentication server tenant name.
+
+Template: neutron-plugin-metaplugin/admin-user
+Type: string
+Default: admin
+_Description: Authentication server username:
+ Please specify the username to use with the authentication server.
+
+Template: neutron-plugin-metaplugin/admin-password
+Type: password
+_Description: Authentication server password:
+ Please specify the password to use with the authentication server.

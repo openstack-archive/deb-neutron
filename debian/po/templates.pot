@@ -1,0 +1,355 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: neutron\n"
+"Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
+"POT-Creation-Date: 2013-07-27 16:15+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:2001
+#: ../neutron-plugin-metaplugin.templates:2001
+msgid "Authentication server hostname:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:2001
+msgid ""
+"Please specify the hostname of your Neutron authentication server. Typically "
+"this is also the hostname of your OpenStack Identity Service (Keystone)."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:3001
+#: ../neutron-plugin-metaplugin.templates:3001
+msgid "Authentication server tenant name:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:3001
+#: ../neutron-plugin-metaplugin.templates:3001
+msgid "Please specify the authentication server tenant name."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:4001
+#: ../neutron-plugin-metaplugin.templates:4001
+msgid "Authentication server username:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:4001
+#: ../neutron-plugin-metaplugin.templates:4001
+msgid "Please specify the username to use with the authentication server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:5001
+#: ../neutron-plugin-metaplugin.templates:5001
+msgid "Authentication server password:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:5001
+#: ../neutron-plugin-metaplugin.templates:5001
+msgid "Please specify the password to use with the authentication server."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:2001
+msgid "Set up a database for neutron-plugin-openvswitch?"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:2001
+msgid ""
+"No database has been set up for neutron-plugin-openvswitch to use. Before "
+"continuing, you should make sure you have the following information:"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:2001
+msgid ""
+" * the type of database that you want to use;\n"
+" * the database server hostname (that server must allow TCP connections from "
+"this\n"
+"   machine);\n"
+" * a username and password to access the database."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:2001
+msgid ""
+"If some of these requirements are missing, do not choose this option and run "
+"with regular SQLite support."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:2001
+msgid ""
+"You can change this setting later on by running \"dpkg-reconfigure -plow "
+"neutron-plugin-openvswitch\"."
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-plugin-openvswitch.templates:3001
+msgid "local"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-plugin-openvswitch.templates:3001
+msgid "gre"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-plugin-openvswitch.templates:3001
+msgid "vlan"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-plugin-openvswitch.templates:3001
+msgid "none"
+msgstr ""
+
+#. Type: select
+#. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it parenthezised. Example for French:
+#. locataire ("tenant")
+#: ../neutron-plugin-openvswitch.templates:3002
+msgid "Type of network to allocate for tenant networks:"
+msgstr ""
+
+#. Type: select
+#. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it parenthezised. Example for French:
+#. locataire ("tenant")
+#: ../neutron-plugin-openvswitch.templates:3002
+msgid ""
+"The value \"local\" is useful only for single-box testing. In order for "
+"tenant networks to provide connectivity between hosts, it is necessary to "
+"either choose \"vlan\" and then configure \"network_vlan_ranges\" or to "
+"choose \"gre\" and then configure \"tunnel_id_ranges\". Choose \"none\" to "
+"disable creation of tenant networks."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:4001
+msgid "Enable tunneling?"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-plugin-openvswitch.templates:4001
+msgid ""
+"Please choose whether support should be activated for GRE networks on the "
+"server and agents. This requires kernel support for OVS patch ports and GRE "
+"tunneling."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-plugin-openvswitch.templates:5001
+msgid "Tunnel id ranges:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-plugin-openvswitch.templates:5001
+msgid ""
+"Please enter a comma-separated list of <tun_min>:<tun_max> tuples "
+"enumerating ranges of GRE tunnel IDs that are available for tenant network "
+"allocation if tenant_network_type is \"gre\"."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-plugin-openvswitch.templates:6001
+msgid "Local IP address of this hypervisor:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-plugin-openvswitch.templates:6001
+msgid "Please enter the local IP address for this hypervisor."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid "Register Neutron in the Keystone endpoint catalog?"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid ""
+"Each OpenStack service (each API) should be registered in order to be "
+"accessible. This is done using \"keystone service-create\" and \"keystone "
+"endpoint-create\". This can be done automatically now."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid ""
+"Note that you will need to have an up and running Keystone server on which "
+"to connect using the Keystone authentication token."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:3001
+msgid "Keystone server IP address:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:3001
+msgid ""
+"Please enter the IP address of the Keystone server, so that neutron-api can "
+"contact Keystone to do the Neutron service and endpoint creation."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:4001
+msgid "Keystone authentication token:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:4001
+msgid ""
+"To configure its endpoint in Keystone, neutron-server needs the Keystone "
+"auth token."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid "Neutron endpoint IP address:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid "Please enter the IP address that will be used to contact Neutron."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid ""
+"This IP address should be accessible from the clients that will use this "
+"service, so if you are installing a public cloud, this should be a public IP "
+"address."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:6001
+msgid "Name of the region to register:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:6001
+msgid ""
+"OpenStack supports using availability zones, with each region representing a "
+"location. Please enter the zone that you wish to use when registering the "
+"endpoint."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-plugin-metaplugin.templates:2001
+msgid ""
+"Please specify the hostname of the authentication server. Typically this is "
+"also the hostname of the OpenStack Identity Service (Keystone)."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:2001
+msgid "Auth server hostname:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:2001
+msgid ""
+"Please specify the URL of your Neutron authentication server. Typically this "
+"is also the URL of your OpenStack Identity Service (Keystone)."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:3001
+msgid "Auth server tenant name:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:4001
+msgid "Auth server username:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:5001
+msgid "Auth server password:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:6001
+msgid "Name of the region to be used by the metadata server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:6001
+msgid ""
+"Openstack can be used using availability zones, with each region "
+"representing a location. Please enter the zone that the metadata server "
+"should use."
+msgstr ""

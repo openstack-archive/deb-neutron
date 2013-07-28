@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -e
+
+QAPI_CONF=/etc/neutron/api-paste.ini
+Q_CONF=/etc/neutron/neutron.conf
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
+	. /usr/share/debconf/confmodule
+
+	pkgos_var_user_group neutron
+	chmod 755 /var/lib/neutron
+	pkgos_write_new_conf neutron api-paste.ini
+	pkgos_write_new_conf neutron neutron.conf
+	pkgos_write_admin_creds ${Q_CONF} keystone_authtoken neutron
+	db_stop
+
+	chown -R neutron:adm /var/log/neutron/
+	chmod 0700 /etc/neutron
+	chmod 0750 /var/log/neutron/
+	chown root:root /etc/neutron/rootwrap.conf
+	chown root:root /etc/neutron/rootwrap.d
+	chmod 0755 /etc/neutron/rootwrap.d
+
+	if [ -f /etc/sudoers.d/neutron_sudoers ] ; then
+		chmod 0440 /etc/sudoers.d/neutron_sudoers
+	fi
+fi
+
+#DEBHELPER#

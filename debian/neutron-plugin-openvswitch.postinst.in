@@ -1,0 +1,35 @@
+#!/bin/sh
+
+set -e
+
+OVS_CONF=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ] ; then
+	. /usr/share/debconf/confmodule
+	. /usr/share/dbconfig-common/dpkg/postinst
+
+	pkgos_var_user_group neutron
+	chmod 755 /var/lib/neutron
+
+	if [ ! -e ${OVS_CONF} ] ; then
+		install -D -m 0640 -o neutron -g neutron /usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini ${OVS_CONF}
+	fi
+	pkgos_dbc_postinst --suite neutron ${OVS_CONF} DATABASE sql_connection neutron-plugin-openvswitch $@
+
+	db_get neutron-plugin-openvswitch/tenant_network_type
+	pkgos_inifile set ${OVS_CONF} OVS tenant_network_type "${RET}"
+	db_get neutron-plugin-openvswitch/enable_tunneling
+	pkgos_inifile set ${OVS_CONF} OVS enable_tunneling "${RET}"
+	db_get neutron-plugin-openvswitch/tunnel_id_ranges
+	pkgos_inifile set ${OVS_CONF} OVS tunnel_id_ranges "${RET}"
+	db_get neutron-plugin-openvswitch/local_ip
+	pkgos_inifile set ${OVS_CONF} OVS local_ip "${RET}"
+
+	db_stop
+fi
+
+#DEBHELPER#
+
+exit 0

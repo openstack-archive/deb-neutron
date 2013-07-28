@@ -1,0 +1,68 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE=1
+
+include /usr/share/openstack-pkg-tools/pkgos.make
+
+export OSLO_PACKAGE_VERSION=$(VERSION)
+
+%:
+	dh $@ --with python2
+
+override_dh_auto_install:
+	dh_auto_install
+	find . -type d -name tests | xargs rm -fr
+	for i in neutron/db/migration/alembic_migrations/versions/*.py ; do \
+		install -D -m 0664 $$i debian/tmp/usr/lib/python2.6/dist-packages/$$i ; \
+		install -D -m 0664 $$i debian/tmp/usr/lib/python2.7/dist-packages/$$i ; \
+	done
+
+override_dh_install:
+	dh_install --fail-missing -X/usr/etc -X/usr/bin
+
+	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini       $(CURDIR)/debian/neutron-plugin-openvswitch/usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini
+	sed -i -e 's|^# Example: tenant_network_type = gre|tenant_network_type = gre|'	$(CURDIR)/debian/neutron-plugin-openvswitch/usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini
+	sed -i -e 's|^# Default: enable_tunneling = False|enable_tunneling = True|'	$(CURDIR)/debian/neutron-plugin-openvswitch/usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini
+	sed -i -e 's|^# Example: tunnel_id_ranges = 1:1000|tunnel_id_ranges = 1:1000|'	$(CURDIR)/debian/neutron-plugin-openvswitch/usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini
+	sed -i -e 's|^# Default: local_ip = 10.0.0.3|local_ip = 192.168.1.10|'		$(CURDIR)/debian/neutron-plugin-openvswitch/usr/share/neutron-plugin-openvswitch/ovs_neutron_plugin.ini
+
+	install -D -m 0640 etc/metadata_agent.ini					$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+	sed -i -e 's|^# nova_metadata_ip = 127.0.0.1|nova_metadata_ip = 127.0.0.1|'	$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f neutron/vcsversion.py
+	find . -type f -name "*.pyc" | xargs rm -fr
+	rm -rf build neutron.egg-info
+	rm -rf setuptools_git-*-py*.egg/
+	rm -f debian/neutron-common.config \
+		debian/neutron-common.postinst \
+		debian/neutron-plugin-openvswitch.config \
+		debian/neutron-plugin-openvswitch.postinst \
+		debian/neutron-server.config \
+		debian/neutron-server.postinst \
+		debian/neutron-plugin-metaplugin.config \
+		debian/neutron-plugin-metaplugin.postinst \
+		debian/neutron-dhcp-agent.postinst \
+		debian/neutron-metadata-agent.config \
+		debian/neutron-metadata-agent.postinst
+
+ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
+override_dh_auto_test:
+	./run_tests.sh -N -P || true
+endif
+
+override_dh_auto_build:
+	dh_auto_build
+
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-common.config
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-common.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-plugin-openvswitch.config
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-plugin-openvswitch.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-server.config
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-server.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-plugin-metaplugin.config
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-plugin-metaplugin.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-dhcp-agent.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-metadata-agent.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func neutron-metadata-agent.config

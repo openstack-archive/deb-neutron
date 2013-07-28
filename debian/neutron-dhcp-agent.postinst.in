@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -e
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ]; then
+	pkgos_var_user_group neutron
+	chmod 755 /var/lib/neutron
+
+	chown root:root /etc/neutron/rootwrap.d/dhcp.filters
+fi
+
+#DEBHELPER#
+
+exit 0

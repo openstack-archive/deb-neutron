@@ -1,0 +1,7 @@
+/var/log/neutron/metadata-agent.log {
+    daily
+    missingok
+    compress
+    delaycompress
+    notifempty
+}

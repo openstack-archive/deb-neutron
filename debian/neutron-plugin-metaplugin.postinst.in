@@ -1,0 +1,25 @@
+#!/bin/sh
+
+set -e
+
+META_CONF="/etc/neutron/metadata_agent.ini"
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ]; then
+	. /usr/share/debconf/confmodule
+
+	pkgos_var_user_group neutron
+	chmod 755 /var/lib/neutron
+	if [ ! -d /etc/neutron ] ; then
+		mkdir -p /etc/neutron
+	fi
+	if [ ! -e "${META_CONF}" ] ; then
+		install -D -m 640 -o neutron -g neutron /usr/share/neutron-plugin-metaplugin/metadata_agent.ini ${META_CONF}
+	fi
+	pkgos_write_admin_creds ${META_CONF} DEFAULT neutron-plugin-metaplugin
+fi
+
+#DEBHELPER#
+
+exit 0

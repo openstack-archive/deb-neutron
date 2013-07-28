@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+
+. /usr/share/debconf/confmodule
+
+META_CONF=/etc/neutron/metadata_agent.ini
+
+#PKGOS-INCLUDE#
+
+pkgos_var_user_group neutron
+chmod 755 /var/lib/neutron
+pkgos_read_admin_creds ${META_CONF} DEFAULT neutron-plugin-metaplugin
+
+exit 0

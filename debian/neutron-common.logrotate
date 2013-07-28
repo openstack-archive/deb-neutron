@@ -1,0 +1,6 @@
+/var/log/neutron/neutron-ns-metadata-proxy*.log {
+    daily
+    missingok
+    compress
+    delaycompress
+}

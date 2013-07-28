@@ -1,0 +1,9 @@
+# You should choose one of this configuration file accord the installed backend
+
+# NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/nicira/nvp.ini"
+# NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini"
+# NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/nec/nec.ini"
+# NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/ryu/ryu.ini"
+# NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini"
+
+NEUTRON_PLUGIN_CONFIG="/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini"

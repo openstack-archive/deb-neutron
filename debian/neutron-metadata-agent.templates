@@ -1,0 +1,36 @@
+# These templates have been reviewed by the debian-l10n-english
+# team
+#
+# If modifications/additions/rewording are needed, please ask
+# debian-l10n-english@lists.debian.org for advice.
+#
+# Even minor modifications require translation updates and such
+# changes should be coordinated with translators and reviewers.
+
+Template: neutron/auth-host
+Type: string
+Default: 127.0.0.1
+_Description: Auth server hostname:
+ Please specify the URL of your Neutron authentication server. Typically
+ this is also the URL of your OpenStack Identity Service (Keystone).
+
+Template: neutron/admin-tenant-name
+Type: string
+Default: admin
+_Description: Auth server tenant name:
+
+Template: neutron/admin-user
+Type: string
+Default: admin
+_Description: Auth server username:
+
+Template: neutron/admin-password
+Type: password
+_Description: Auth server password:
+
+Template: neutron/region-name
+Type: string
+Default: regionOne
+_Description: Name of the region to be used by the metadata server:
+ Openstack can be used using availability zones, with each region representing
+ a location. Please enter the zone that the metadata server should use.

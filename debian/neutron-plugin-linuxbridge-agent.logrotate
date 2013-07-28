@@ -1,0 +1,7 @@
+/var/log/neutron/linuxbridge-agent.log {
+    daily
+    missingok
+    compress
+    delaycompress
+    notifempty
+}
