@@ -59,6 +59,7 @@ Build-Depends-Indep: alembic (>= 0.4.1),
                      python-unittest2,
                      python-webob (>= 1.2.3),
                      python-webtest,
+                     subunit,
                      testrepository (>= 0.0.13)
 Standards-Version: 3.9.4
 Homepage: http://neutron.openstack.org/
