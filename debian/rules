@@ -9,13 +9,13 @@ export OSLO_PACKAGE_VERSION=$(VERSION)
 %:
 	dh $@ --with python2
 
-override_dh_auto_install:
-	dh_auto_install
-	find . -type d -name tests | xargs rm -fr
-	for i in neutron/db/migration/alembic_migrations/versions/*.py ; do \
-		install -D -m 0664 $$i debian/tmp/usr/lib/python2.6/dist-packages/$$i ; \
-		install -D -m 0664 $$i debian/tmp/usr/lib/python2.7/dist-packages/$$i ; \
-	done
+#override_dh_auto_install:
+#	dh_auto_install
+#	find . -type d -name tests | xargs rm -fr
+#	for i in neutron/db/migration/alembic_migrations/versions/*.py ; do \
+#		install -D -m 0664 $$i debian/tmp/usr/lib/python2.6/dist-packages/$$i ; \
+#		install -D -m 0664 $$i debian/tmp/usr/lib/python2.7/dist-packages/$$i ; \
+#	done
 
 override_dh_install:
 	dh_install --fail-missing -X/usr/etc -X/usr/bin
