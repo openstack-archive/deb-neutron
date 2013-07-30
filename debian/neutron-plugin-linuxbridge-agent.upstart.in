@@ -1,4 +1,4 @@
-description "Quantum server"
+description "Neutron server"
 author "Chuck Short <zulcss@ubuntu.com>"
 
 start on runlevel [2345]

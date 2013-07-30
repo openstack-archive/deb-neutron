@@ -1,4 +1,4 @@
-# Periodically cleans Neutron's network namespaces on behalf of the Quantum
+# Periodically cleans Neutron's network namespaces on behalf of the Neutron
 # DHCP agent.
 30 * * * * neutron if [ -x /usr/bin/neutron-netns-cleanup ] ; then \
                      /usr/bin/neutron-netns-cleanup \

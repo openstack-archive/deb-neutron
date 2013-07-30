@@ -13,7 +13,7 @@ end script
 
 script
         [ -r /etc/default/neutron-server ] && . /etc/default/neutron-server
-        [ -r "$QUANTUM_PLUGIN_CONFIG" ] && CONF_ARG="--config-file $QUANTUM_PLUGIN_CONFIG"
+        [ -r "$NEUTRON_PLUGIN_CONFIG" ] && CONF_ARG="--config-file $NEUTRON_PLUGIN_CONFIG"
         exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-server -- \
             --config-file /etc/neutron/neutron.conf \
             --log-file /var/log/neutron/server.log $CONF_ARG

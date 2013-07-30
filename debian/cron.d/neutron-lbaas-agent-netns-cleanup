@@ -1,4 +1,5 @@
-# Periodically cleans Quantum's network namespaces on behalf of the Quantum LBaaS agent.
+# Periodically cleans Neutron's network namespaces on behalf of the Neutron LBaaS agent.
+
 0 * * * * neutron if [ -x /usr/bin/neutron-netns-cleanup ] ; then \
                     /usr/bin/neutron-netns-cleanup \
                     --config-file=/etc/neutron/neutron.conf  \

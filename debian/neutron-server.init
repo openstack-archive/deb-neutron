@@ -28,8 +28,8 @@ DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
 
 if [ -r /etc/default/neutron-server ] ; then
 	. /etc/default/neutron-server
-	if [ -n "${QUANTUM_PLUGIN_CONFIG}" ] ; then
-		DAEMON_ARGS="${DAEMON_ARGS} --config-file=${QUANTUM_PLUGIN_CONFIG}"
+	if [ -n "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+		DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
 	fi
 fi
 
