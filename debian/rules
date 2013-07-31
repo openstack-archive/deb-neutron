@@ -32,6 +32,10 @@ override_dh_install:
 	# Install the default file
 	install -D -m 0640 debian/neutron.mydefault $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron-default
 
+	# Move the OVS config file, since we use debconf for it
+	rm $(CURDIR)/debian/neutron-common/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini $(CURDIR)/debian/neutron-common/usr/share/neutron-common/ovs_neutron_plugin.ini
+
 override_dh_auto_clean:
 	dh_auto_clean
 	rm -f neutron/vcsversion.py

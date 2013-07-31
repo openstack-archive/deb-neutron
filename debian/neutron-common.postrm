@@ -3,6 +3,23 @@
 set -e
 
 if [ "${1}" = "purge" ] ; then
+	if [ -f /usr/share/debconf/confmodule ] ; then
+		. /usr/share/debconf/confmodule
+		db_get neutron/configure_db
+		if [ "$RET" = "true" ] ; then
+			if [ -f /usr/share/dbconfig-common/dpkg/postrm ] ; then
+				. /usr/share/dbconfig-common/dpkg/postrm
+				dbc_go neutron-plugin-openvswitch $@
+			else
+				rm -f /etc/dbconfig-common/neutron-common.conf
+				if which ucf >/dev/null 2>&1; then
+					ucf --purge /etc/dbconfig-common/neutron-common.conf
+					ucfr --purge neutron-common /etc/dbconfig-common/neutron-common.conf
+				fi
+			fi
+		fi
+	fi
+
 	rm -rf /etc/default/neutron
 	rm -rf /etc/neutron/api-paste.ini /etc/neutron/neutron.conf
 	[ -d /etc/neutron ] && rmdir --ignore-fail-on-non-empty /etc/neutron

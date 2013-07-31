@@ -3,6 +3,7 @@
 set -e
 
 N_CONF=/etc/neutron/neutron.conf
+OVS_CONF=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
 #PKGOS-INCLUDE#
 
@@ -16,12 +17,34 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 		install -D -m 0664 /usr/share/neutron-common/neutron-default /etc/default/neutron
 	fi
 	db_get neutron/plugin-select
+	NEUTRON_plugin_path=${RET}
 	if [ -n "${RET}" ] ; then
 		pkgos_inifile -shinc set /etc/default/neutron NO_SECTION NEUTRON_plugin_path ${RET}
 	fi
 	pkgos_write_new_conf neutron api-paste.ini
 	pkgos_write_new_conf neutron neutron.conf
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
+
+        pkgos_dbc_postinst --suite neutron ${OVS_CONF} DATABASE sql_connection neutron $@
+
+	# Maintain the OVS config
+        if [ ! -e ${OVS_CONF} ] ; then
+                install -D -m 0640 -o neutron -g neutron /usr/share/neutron-common/ovs_neutron_plugin.ini ${OVS_CONF}
+        fi
+
+	if [ "${NEUTRON_plugin_path}" = "openvswitch/ovs_neutron_plugin.ini" ] ; then
+		db_get neutron-plugin-openvswitch/tenant_network_type
+		pkgos_inifile set ${OVS_CONF} OVS tenant_network_type "${RET}"
+
+		db_get neutron-plugin-openvswitch/enable_tunneling
+		pkgos_inifile set ${OVS_CONF} OVS enable_tunneling "${RET}"
+
+		db_get neutron-plugin-openvswitch/tunnel_id_ranges
+		pkgos_inifile set ${OVS_CONF} OVS tunnel_id_ranges "${RET}"
+
+		db_get neutron-plugin-openvswitch/local_ip
+		pkgos_inifile set ${OVS_CONF} OVS local_ip "${RET}"
+	fi
 	db_stop
 
 	chown -R neutron:adm /var/log/neutron/
