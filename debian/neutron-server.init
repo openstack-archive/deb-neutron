@@ -26,9 +26,10 @@ DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
 
 . /lib/lsb/init-functions
 
-if [ -r /etc/default/neutron-server ] ; then
-	. /etc/default/neutron-server
-	if [ -n "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+if [ -r /etc/default/neutron ] ; then
+	. /etc/default/neutron
+	if [ -n "${NEUTRON_plugin_path}" ] ; then
+		NEUTRON_PLUGIN_CONFIG=/etc/neutron/plugins/${NEUTRON_plugin_path}
 		DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
 	fi
 fi

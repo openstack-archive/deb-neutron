@@ -11,6 +11,14 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 
 	pkgos_var_user_group neutron
 	chmod 755 /var/lib/neutron
+
+	if [ ! -e /etc/default/neutron ] ; then
+		install -D -m 0664 /usr/share/neutron-common/neutron-default /etc/default/neutron
+	fi
+	db_get neutron/plugin-select
+	if [ -n "${RET}" ] ; then
+		pkgos_inifile -shinc set /etc/default/neutron NO_SECTION NEUTRON_plugin_path ${RET}
+	fi
 	pkgos_write_new_conf neutron api-paste.ini
 	pkgos_write_new_conf neutron neutron.conf
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron

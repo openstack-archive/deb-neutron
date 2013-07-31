@@ -29,6 +29,9 @@ override_dh_install:
 	install -D -m 0640 etc/metadata_agent.ini					$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 	sed -i -e 's|^# nova_metadata_ip = 127.0.0.1|nova_metadata_ip = 127.0.0.1|'	$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 
+	# Install the default file
+	install -D -m 0640 debian/neutron.mydefault $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron-default
+
 override_dh_auto_clean:
 	dh_auto_clean
 	rm -f neutron/vcsversion.py

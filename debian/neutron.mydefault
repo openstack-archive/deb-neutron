@@ -1,0 +1,33 @@
+# Default configuration file for Neutron. Currently only there to be able to
+# select which plugin to use, and configure neutron-server accordingly. You
+# can edit the file if you don't break its (shell script) syntax, or use:
+#  dpkg-reconfigure -plow neutron-server
+
+# Select the path to the configuration file for the plugin which you wish to
+# use with Neutron. The path is what's after /etc/neutron/plugins. For example,
+# for using /etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini in the
+# command line of the neutron-server, you should only set:
+#   openvswitch/ovs_neutron_plugin.ini
+#
+# Possible values are (currently):
+#
+# brocade/brocade.ini
+# nicira/nvp.ini
+# openvswitch/ovs_neutron_plugin.ini
+# midonet/midonet.ini
+# nec/nec.ini
+# mlnx/mlnx_conf.ini
+# hyperv/hyperv_neutron_plugin.ini
+# ryu/ryu.ini
+# ml2/ml2_conf.ini
+# metaplugin/metaplugin.ini
+# bigswitch/restproxy.ini
+# linuxbridge/linuxbridge_conf.ini
+# cisco/cisco_plugins.ini
+# plumgrid/plumgrid.ini
+#
+# If more plugins were to come, then simply editing this file is not enough,
+# the debconf template will need to be edited to add the new value, otherwise
+# this will break on upgrades.
+
+NEUTRON_plugin_path=openvswitch/ovs_neutron_plugin.ini

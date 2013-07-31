@@ -12,4 +12,6 @@ pkgos_var_user_group neutron
 chmod 755 /var/lib/neutron
 pkgos_read_admin_creds ${N_CONF} keystone_authtoken neutron
 
+pkgos_read_config -p high /etc/default/neutron-server NO_SECTION NEUTRON_plugin_path neutron/plugin-select
+
 exit 0
