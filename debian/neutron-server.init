@@ -26,11 +26,61 @@ DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
 
 . /lib/lsb/init-functions
 
+neutron_plugin_ini_path () {
+	PLUG_INI_BASE=/etc/neutron/plugins/
+	case ${1} in
+	"OpenVSwitch")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}openvswitch/ovs_neutron_plugin.ini
+	;;
+	"LinuxBridge")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}linuxbridge/linuxbridge_conf.ini
+	;;
+	"RYU")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ryu/ryu.ini
+	;;
+	"PLUMgrid")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}plumgrid/plumgrid.ini
+	;;
+	"Brocade")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}brocade/brocade.ini
+	;;
+	"Hyper-V")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}hyperv/hyperv_neutron_plugin.ini
+	;;
+	"BigSwitch")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}bigswitch/restproxy.ini
+	;;
+	"Cisco")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}cisco/cisco_plugins.ini
+	;;
+	"Nicira")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}nicira/nvp.ini
+	;;
+	"Midonet")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}midonet/midonet.ini
+	;;
+	"Nec")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}nec/nec.ini
+	;;
+	"MetaPlugin")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}metaplugin/metaplugin.ini
+	;;
+	"Mellanox")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}mlnx/mlnx_conf.ini
+	;;
+	*)
+		NEUTRON_PLUGIN_CONFIG=""
+	;;
+	esac
+}
+
 if [ -r /etc/default/neutron ] ; then
 	. /etc/default/neutron
-	if [ -n "${NEUTRON_plugin_path}" ] ; then
-		NEUTRON_PLUGIN_CONFIG=/etc/neutron/plugins/${NEUTRON_plugin_path}
-		DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
+	if [ -n "${NEUTRON_plugin}" ] ; then
+		neutron_plugin_ini_path ${NEUTRON_plugin}
+		if [ -n "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+			DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
+		fi
 	fi
 fi
 

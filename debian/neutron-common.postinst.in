@@ -7,32 +7,90 @@ OVS_CONF=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
 #PKGOS-INCLUDE#
 
+neutron_core_plugin_class () {
+	case ${1} in
+	"OpenVSwitch")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
+	;;
+	"LinuxBridge")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2
+	;;
+	"RYU")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2
+	;;
+	"PLUMgrid")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2
+	;;
+	"Brocade")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2
+	;;
+	"Hyper-V")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin
+	;;
+	"BigSwitch")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.bigswitch.plugin.NeutronRestProxyV2
+	;;
+	"Cisco")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.cisco.network_plugin.PluginV2
+	;;
+	"Nicira")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
+	;;
+	"Midonet")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.midonet.plugin.MidonetPluginV2
+	;;
+	"Nec")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.nec.nec_plugin.NECPluginV2
+	;;
+	"MetaPlugin")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2
+	;;
+	"Mellanox")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin
+	;;
+	*)
+		NEUTRON_PLUGIN_CLASS=""
+	;;
+	esac
+}
+
+
+
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
 
 	pkgos_var_user_group neutron
 	chmod 755 /var/lib/neutron
 
+	pkgos_write_new_conf neutron api-paste.ini
+	pkgos_write_new_conf neutron neutron.conf
+
+	# Maintain the /etc/default/neutron plugin type selection
+	# and fill-out the core_plugin class path in /etc/neutron/neutron.conf
+	# according to what's in /etc/default/neutron.
 	if [ ! -e /etc/default/neutron ] ; then
 		install -D -m 0664 /usr/share/neutron-common/neutron-default /etc/default/neutron
 	fi
 	db_get neutron/plugin-select
-	NEUTRON_plugin_path=${RET}
+	NEUTRON_plugin=${RET}
 	if [ -n "${RET}" ] ; then
-		pkgos_inifile -shinc set /etc/default/neutron NO_SECTION NEUTRON_plugin_path ${RET}
+		pkgos_inifile -shinc set /etc/default/neutron NO_SECTION NEUTRON_plugin ${RET}
+		neutron_core_plugin_class ${NEUTRON_plugin}
+		pkgos_inifile set DEFAULT ${N_CONF} ${NEUTRON_PLUGIN_CLASS}
 	fi
-	pkgos_write_new_conf neutron api-paste.ini
-	pkgos_write_new_conf neutron neutron.conf
+
+	# Set the keystone_authtoken directive
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
 
-        pkgos_dbc_postinst --suite neutron ${OVS_CONF} DATABASE sql_connection neutron $@
+	# Set the sql_connection directive
+        pkgos_dbc_postinst --suite neutron ${N_CONF} DATABASE sql_connection neutron $@
 
 	# Maintain the OVS config
         if [ ! -e ${OVS_CONF} ] ; then
                 install -D -m 0640 -o neutron -g neutron /usr/share/neutron-common/ovs_neutron_plugin.ini ${OVS_CONF}
         fi
 
-	if [ "${NEUTRON_plugin_path}" = "openvswitch/ovs_neutron_plugin.ini" ] ; then
+	if [ "${NEUTRON_plugin_path}" = "OpenVSwitch" ] ; then
 		db_get neutron-plugin-openvswitch/tenant_network_type
 		pkgos_inifile set ${OVS_CONF} OVS tenant_network_type "${RET}"
 

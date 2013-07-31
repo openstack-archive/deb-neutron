@@ -33,14 +33,15 @@ _Description: Authentication server password:
 
 Template: neutron/plugin-select
 Type: select
-__Choices: brocade/brocade.ini, nicira/nvp.ini, openvswitch/ovs_neutron_plugin.ini, midonet/midonet.ini, nec/nec.ini, mlnx/mlnx_conf.ini, hyperv/hyperv_neutron_plugin.ini, ryu/ryu.ini, ml2/ml2_conf.ini, metaplugin/metaplugin.ini, bigswitch/restproxy.ini, linuxbridge/linuxbridge_conf.ini, cisco/cisco_plugins.ini, plumgrid/plumgrid.ini
-Choices-C: brocade/brocade.ini, nicira/nvp.ini, openvswitch/ovs_neutron_plugin.ini, midonet/midonet.ini, nec/nec.ini, mlnx/mlnx_conf.ini, hyperv/hyperv_neutron_plugin.ini, ryu/ryu.ini, ml2/ml2_conf.ini, metaplugin/metaplugin.ini, bigswitch/restproxy.ini, linuxbridge/linuxbridge_conf.ini, cisco/cisco_plugins.ini, plumgrid/plumgrid.ini
-Default: openvswitch/ovs_neutron_plugin.ini
-_Description: Plugin configuration to load:
+__Choices: OpenVSwitch, LinuxBridge, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, ml2/ml2_conf.ini, MetaPlugin, BigSwitch, Cisco, PLUMgrid
+Choices-C: OpenVSwitch, LinuxBridge, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, ml2/ml2_conf.ini, MetaPlugin, BigSwitch, Cisco, PLUMgrid
+Default: OpenVSwitch
+_Description: Neutron plugin:
  Neutron uses a plugin architecture to manage networking. When starting the
  Neutron server daemon, the configuration file corresponding to the plugin you
- wish to use needs to be loaded. Please select which plugin configuration file
- should be given as parameter when starting the Neutron server daemon.
+ wish to use needs to be loaded, by giving it as a parameter when starting the
+ neutron-server daemon. Also, the core_plugin directive needs to match. Please
+ select which plugin to use.
 
 Template: neutron/configure_db
 Type: boolean 

@@ -22,7 +22,7 @@ pkgos_read_admin_creds ${N_CONF} keystone_authtoken neutron
 pkgos_read_config -p high /etc/default/neutron-server NO_SECTION NEUTRON_plugin_path neutron/plugin-select
 
 # OVS specific configurations (if that's the one selected)
-if [ "${RET}" = "openvswitch/ovs_neutron_plugin.ini" ] ;
+if [ "${RET}" = "OpenVSwitch" ] ;
 	# Various network config...
 	pkgos_read_config ${OVS_CONF} OVS tenant_network_type   neutron-plugin-openvswitch/tenant_network_type
 	pkgos_read_config ${OVS_CONF} OVS enable_tunneling      neutron-plugin-openvswitch/enable_tunneling
