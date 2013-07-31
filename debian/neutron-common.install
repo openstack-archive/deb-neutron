@@ -5,3 +5,4 @@ etc/policy.json		/etc/neutron
 etc/neutron.conf	/usr/share/neutron-common
 etc/neutron/rootwrap.d/* /etc/neutron/rootwrap.d
 etc/rootwrap.conf	/etc/neutron
+etc/neutron/plugins	/etc/neutron
