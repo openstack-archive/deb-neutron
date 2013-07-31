@@ -1,2 +1,0 @@
-etc/metadata_agent.ini usr/share/neutron-plugin-metaplugin
-etc/neutron/plugins/metaplugin/* etc/neutron/plugins/metaplugin

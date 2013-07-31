@@ -144,7 +144,6 @@ Depends: adduser,
          debconf,
          lsb-base,
          neutron-common (= ${source:Version}),
-         neutron-plugin-openvswitch | neutron-plugin,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
@@ -182,48 +181,11 @@ Description: OpenStack virtual network service - common files
  .
  This package provides the common files.
 
-Package: neutron-plugin-cisco
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: python-quantum
-Replaces: python-quantum
-Description: OpenStack virtual network service - Cisco plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the plugin to use with Cisco hardware.
-
-Package: neutron-plugin-nec
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: python-quantum
-Replaces: python-quantum
-Description: OpenStack virtual network service - NEC plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the NEC plugin.
-
 Package: neutron-plugin-nec-agent
 Architecture: all
 Provides: neutron-plugin
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: neutron-common (= ${source:Version}),
-         neutron-plugin-nec,
          sudo,
          ${misc:Depends},
          ${python:Depends},
@@ -237,105 +199,6 @@ Description: OpenStack virtual network service - NEC agent
  network capabilities, including QoS, ACLs, and network monitoring.
  .
  This package provides the NEC plugin agent.
-
-Package: neutron-plugin-bigswitch
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Description: Neutron virtual network service - BigSwitch plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the BigSwitch plugin.
-
-Package: neutron-plugin-hyperv
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Description: Neutron virtual network service - Hyper-V plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Hyper-V plugin.
-
-Package: neutron-plugin-brocade
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Description: Neutron is a virtual network service for Openstack - Brocade plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Brocade plugin.
-
-Package: neutron-plugin-plumgrid
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Description: Neutron virtual network service - PLUMgrid plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the PLUMgrid plugin.
-
-Package: neutron-plugin-metaplugin
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: adduser,
-         neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Description: Neutron virtual network service - metaplugin plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Metaplugin plugin.
-
-Package: neutron-plugin-nicira
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: python-quantum
-Replaces: python-quantum
-Description: OpenStack virtual network service - Nicira NVP plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the plugin to use with Nicira Network Virtualization
- Platform (NVP) controllers.
 
 Package: neutron-l3-agent
 Architecture: all
@@ -412,35 +275,11 @@ Description: OpenStack virtual network service - LBaaS agent
  .
  This package provides the Load Balancing as a Service (LBaaS) agent.
 
-Package: neutron-plugin-openvswitch
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: adduser,
-         dbconfig-common,
-         debconf,
-         neutron-common (= ${source:Version}),
-         sqlite3,
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: python-quantum
-Replaces: python-quantum
-Recommends: openvswitch-datapath-dkms
-Description: OpenStack virtual network service - Open vSwitch plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the plugin to use with Open vSwitch.
-
 Package: neutron-plugin-openvswitch-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch
 Depends: openvswitch-switch,
          neutron-common (= ${source:Version}),
-         neutron-plugin-openvswitch,
          sudo,
          ${misc:Depends},
          ${python:Depends},
@@ -457,31 +296,11 @@ Description: OpenStack virtual network service - Open vSwitch agent
  This package provides the Open vSwitch agent. If you choose to use the Open
  vSwitch plugin on neutron-server, this agent should run on each compute node.
 
-Package: neutron-plugin-linuxbridge
-Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: bridge-utils,
-         neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: python-quantum
-Replaces: python-quantum
-Description: OpenStack virtual network service - Linux bridge plugin
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Linux bridge plugin.
-
 Package: neutron-plugin-linuxbridge-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: bridge-utils,
          neutron-common (= ${source:Version}),
-         neutron-plugin-linuxbridge,
          sudo,
          ${misc:Depends},
          ${python:Depends},
