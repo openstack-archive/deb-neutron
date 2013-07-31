@@ -4,13 +4,12 @@ set -e
 
 . /usr/share/debconf/confmodule
 
-QAPI_CONF=/etc/neutron/api-paste.ini
-Q_CONF=/etc/neutron/neutron.conf
+N_CONF=/etc/neutron/neutron.conf
 
 #PKGOS-INCLUDE#
 
 pkgos_var_user_group neutron
 chmod 755 /var/lib/neutron
-pkgos_read_admin_creds ${Q_CONF} keystone_authtoken neutron
+pkgos_read_admin_creds ${N_CONF} keystone_authtoken neutron
 
 exit 0

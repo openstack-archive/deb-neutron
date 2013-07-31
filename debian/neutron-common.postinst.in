@@ -2,8 +2,7 @@
 
 set -e
 
-QAPI_CONF=/etc/neutron/api-paste.ini
-Q_CONF=/etc/neutron/neutron.conf
+N_CONF=/etc/neutron/neutron.conf
 
 #PKGOS-INCLUDE#
 
@@ -14,7 +13,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	chmod 755 /var/lib/neutron
 	pkgos_write_new_conf neutron api-paste.ini
 	pkgos_write_new_conf neutron neutron.conf
-	pkgos_write_admin_creds ${Q_CONF} keystone_authtoken neutron
+	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
 	db_stop
 
 	chown -R neutron:adm /var/log/neutron/
