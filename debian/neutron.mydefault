@@ -19,7 +19,8 @@
 # Mellanox
 #
 # If more plugins were to come, then simply editing this file is not enough,
-# the debconf template will need to be edited to add the new value, otherwise
-# this will break on upgrades.
+# the debconf template will need to be edited to add the new value,
+# debian/neutron-server.init, debian/neutron-server.postinst.in will also
+# need edition, otherwise this will break on upgrades.
 
 NEUTRON_plugin=OpenVSwitch

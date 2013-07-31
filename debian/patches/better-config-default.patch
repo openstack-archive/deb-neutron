@@ -1,0 +1,111 @@
+Description: A configuration that should work by default
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: not-needed
+Last-Update: 2013-08-01
+
+--- neutron-2013.2~b2.orig/etc/neutron.conf
++++ neutron-2013.2~b2/etc/neutron.conf
+@@ -45,7 +45,7 @@ bind_port = 9696
+ # api_extensions_path =
+ 
+ # Quantum plugin provider module
+-# core_plugin =
++core_plugin=neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
+ 
+ # Advanced service modules
+ # service_plugins =
+@@ -300,7 +300,7 @@ notification_topics = notifications
+ # Use "sudo quantum-rootwrap /etc/quantum/rootwrap.conf" to use the real
+ # root filter facility.
+ # Change to "sudo" to skip the filtering and just run the comand directly
+-# root_helper = sudo
++root_helper = sudo neutron-rootwrap /etc/neutron/rootwrap.conf
+ 
+ # =========== items for agent management extension =============
+ # seconds between nodes reporting state to server, should be less than
+@@ -330,7 +330,7 @@ signing_dir = /var/lib/quantum/keystone-
+ # connection = mysql://root:pass@127.0.0.1:3306/quantum
+ # Replace 127.0.0.1 above with the IP address of the database used by the
+ # main quantum server. (Leave it as is if the database runs on this host.)
+-# connection = sqlite://
++connection = sqlite:///var/lib/neutron/neutrondb
+ 
+ # The SQLAlchemy connection string used to connect to the slave database
+ # slave_connection =
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+@@ -7,9 +7,9 @@
+ # tenant networks to provide connectivity between hosts. Set to 'none'
+ # to disable creation of tenant networks.
+ #
+-# tenant_network_type = local
+ # Example: tenant_network_type = gre
+ # Example: tenant_network_type = vxlan
++tenant_network_type = local
+ 
+ # (ListOpt) Comma-separated list of
+ # <physical_network>[:<vlan_min>:<vlan_max>] tuples enumerating ranges
+@@ -30,22 +30,22 @@
+ #          point setting tunnel_type below will be required to enable
+ #          tunneling.
+ #
+-# enable_tunneling = False
++enable_tunneling = False
+ 
+ # (StrOpt) The type of tunnel network, if any, supported by the plugin. If
+ # this is set, it will cause tunneling to be enabled. If this is not set and
+ # the option enable_tunneling is set, this will default to 'gre'.
+ #
+-# tunnel_type =
+ # Example: tunnel_type = gre
+ # Example: tunnel_type = vxlan
++tunnel_type = gre
+ 
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples
+ # enumerating ranges of GRE or VXLAN tunnel IDs that are available for
+ # tenant network allocation if tenant_network_type is 'gre' or 'vxlan'.
+ #
+-# tunnel_id_ranges =
+ # Example: tunnel_id_ranges = 1:1000
++tunnel_id_ranges = 1:1000
+ 
+ # Do not change this parameter unless you have a good reason to.
+ # This is the name of the OVS integration bridge. There is one per hypervisor.
+@@ -70,7 +70,7 @@
+ # empty for the server. Set local-ip to be the local IP address of
+ # this hypervisor.
+ #
+-# local_ip =
++local_ip = 192.168.2.99
+ 
+ # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
+ # mapping physical network names to the agent's node-specific OVS
+@@ -111,28 +111,3 @@
+ # Firewall driver for realizing quantum security group function.
+ # firewall_driver = quantum.agent.firewall.NoopFirewallDriver
+ # Example: firewall_driver = quantum.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+-
+-#-----------------------------------------------------------------------------
+-# Sample Configurations.
+-#-----------------------------------------------------------------------------
+-#
+-# 1. With VLANs on eth1.
+-# [database]
+-# connection = mysql://root:nova@127.0.0.1:3306/ovs_quantum
+-# [OVS]
+-# network_vlan_ranges = default:2000:3999
+-# tunnel_id_ranges =
+-# integration_bridge = br-int
+-# bridge_mappings = default:br-eth1
+-# [AGENT]
+-# Add the following setting, if you want to log to a file
+-#
+-# 2. With tunneling.
+-# [database]
+-# connection = mysql://root:nova@127.0.0.1:3306/ovs_quantum
+-# [OVS]
+-# network_vlan_ranges =
+-# tunnel_id_ranges = 1:1000
+-# integration_bridge = br-int
+-# tunnel_bridge = br-tun
+-# local_ip = 10.0.0.3
