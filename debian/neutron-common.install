@@ -1,4 +1,4 @@
-bin/* usr/bin
+usr/bin/neutron*
 debian/neutron_sudoers	/etc/sudoers.d
 etc/api-paste.ini	/usr/share/neutron-common
 etc/policy.json		/etc/neutron
