@@ -12,10 +12,7 @@ PYTHONS:=$(shell pyversions -vr)
 	dh $@ --buildsystem=python_distutils --with python2
 
 override_dh_auto_install:
-	set -e ; for pyvers in $(PYTHONS) ; do \
-		python$$pyvers setup.py build ; \
-		python$$pyvers setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp ; \
-	done
+	echo "Nothing to do!"
 #	dh_auto_install
 #	find . -type d -name tests | xargs rm -fr
 #	for i in neutron/db/migration/alembic_migrations/versions/*.py ; do \
@@ -24,6 +21,10 @@ override_dh_auto_install:
 #	done
 
 override_dh_install:
+	set -e ; for pyvers in $(PYTHONS) ; do \
+		python$$pyvers setup.py build ; \
+		python$$pyvers setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp ; \
+	done
 	dh_install -O--buildsystem=python_distutils --fail-missing -X/usr/etc -X/usr/bin
 
 	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini       $(CURDIR)/debian/neutron-common/usr/share/neutron-common/ovs_neutron_plugin.ini
