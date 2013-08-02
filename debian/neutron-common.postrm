@@ -3,6 +3,7 @@
 set -e
 
 if [ "${1}" = "purge" ] ; then
+	# Purge db on purge
 	if [ -f /usr/share/debconf/confmodule ] ; then
 		. /usr/share/debconf/confmodule
 		db_get neutron/configure_db
@@ -20,9 +21,12 @@ if [ "${1}" = "purge" ] ; then
 		fi
 	fi
 
-	rm -rf /etc/default/neutron
-	rm -rf /etc/neutron/api-paste.ini /etc/neutron/neutron.conf
-	[ -d /etc/neutron ] && rmdir --ignore-fail-on-non-empty /etc/neutron
+	# Clean /etc/neutron on purge
+	rm -f /etc/default/neutron /etc/neutron/api-paste.ini /etc/neutron/neutron.conf \
+			/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+	[ -d /etc/neutron/plugins/openvswitch ] && rmdir --ignore-fail-on-non-empty /etc/neutron/plugins/openvswitch
+	[ -d /etc/neutron/plugins ] 		&& rmdir --ignore-fail-on-non-empty /etc/neutron/plugins
+	[ -d /etc/neutron ] 			&& rmdir --ignore-fail-on-non-empty /etc/neutron
         rm -rf /var/lib/neutron
         rm -rf /var/log/neutron
 fi
