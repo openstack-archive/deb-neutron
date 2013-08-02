@@ -84,7 +84,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
 
 	# Set the sql_connection directive
-        pkgos_dbc_postinst --suite neutron ${N_CONF} DATABASE sql_connection neutron $@
+        pkgos_dbc_postinst --suite neutron ${N_CONF} database connection neutron $@
 
 	# Maintain the OVS config
         if [ ! -e ${OVS_CONF} ] ; then
