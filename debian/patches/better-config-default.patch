@@ -1,7 +1,7 @@
 Description: A configuration that should work by default
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
-Last-Update: 2013-08-01
+Last-Update: 2013-08-02
 
 --- neutron-2013.2~b2.orig/etc/neutron.conf
 +++ neutron-2013.2~b2/etc/neutron.conf
@@ -10,7 +10,7 @@ Last-Update: 2013-08-01
  
  # Quantum plugin provider module
 -# core_plugin =
-+core_plugin=neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
++core_plugin = neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
  
  # Advanced service modules
  # service_plugins =
@@ -23,8 +23,13 @@ Last-Update: 2013-08-01
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server, should be less than
-@@ -330,7 +330,7 @@ signing_dir = /var/lib/quantum/keystone-
- # connection = mysql://root:pass@127.0.0.1:3306/quantum
+@@ -326,11 +326,10 @@ signing_dir = /var/lib/quantum/keystone-
+ 
+ [database]
+ # This line MUST be changed to actually run the plugin.
+-# Example:
+-# connection = mysql://root:pass@127.0.0.1:3306/quantum
++# Example: connection = mysql://root:pass@127.0.0.1:3306/quantum
  # Replace 127.0.0.1 above with the IP address of the database used by the
  # main quantum server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
@@ -34,17 +39,6 @@ Last-Update: 2013-08-01
  # slave_connection =
 --- neutron-2013.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 +++ neutron-2013.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-@@ -7,9 +7,9 @@
- # tenant networks to provide connectivity between hosts. Set to 'none'
- # to disable creation of tenant networks.
- #
--# tenant_network_type = local
- # Example: tenant_network_type = gre
- # Example: tenant_network_type = vxlan
-+tenant_network_type = local
- 
- # (ListOpt) Comma-separated list of
- # <physical_network>[:<vlan_min>:<vlan_max>] tuples enumerating ranges
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -76,7 +70,7 @@ Last-Update: 2013-08-01
  # this hypervisor.
  #
 -# local_ip =
-+local_ip = 192.168.2.99
++local_ip = 127.0.0.1
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
