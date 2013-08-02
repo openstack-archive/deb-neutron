@@ -28,6 +28,9 @@ override_dh_install:
 		cp -auxf neutron $(CURDIR)/debian/python-neutron/usr/lib/python$$pyvers/dist-packages ; \
 	done
 	dh_install -O--buildsystem=python_distutils --fail-missing -X/usr/etc -X/usr/bin
+	rm -rf $(CURDIR)/debian/neutron-common/usr/lib
+	rm -rf $(CURDIR)/debian/neutron-common/usr/bin/quantum*
+	rm -rf $(CURDIR)/debian/neutron-common/usr/etc
 
 	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini       $(CURDIR)/debian/neutron-common/usr/share/neutron-common/ovs_neutron_plugin.ini
 
