@@ -64,6 +64,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 
 	pkgos_write_new_conf neutron api-paste.ini
 	pkgos_write_new_conf neutron neutron.conf
+	chmod 0660 /etc/neutron/neutron.conf
 
 	# Maintain the /etc/default/neutron plugin type selection
 	# and fill-out the core_plugin class path in /etc/neutron/neutron.conf
