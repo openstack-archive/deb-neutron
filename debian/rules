@@ -22,7 +22,10 @@ override_dh_auto_install:
 
 override_dh_install:
 	set -e ; for pyvers in $(PYTHONS) ; do \
+		python$$pyvers setup.py install --install-layout=deb --root=$(CURDIR)/debian/neutron-common ; \
 		python$$pyvers setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp ; \
+		mkdir -p $(CURDIR)/debian/python-neutron/usr/lib/python$$pyvers/dist-packages ; \
+		cp -auxf neutron $(CURDIR)/debian/python-neutron/usr/lib/python$$pyvers/dist-packages ; \
 	done
 	dh_install -O--buildsystem=python_distutils --fail-missing -X/usr/etc -X/usr/bin
 
