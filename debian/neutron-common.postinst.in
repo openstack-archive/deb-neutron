@@ -86,6 +86,9 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	# Set the sql_connection directive
         pkgos_dbc_postinst --suite neutron ${N_CONF} database connection neutron $@
 
+	# Migrating to latest release of the db
+	neutron-db-manage --config-file /etc/neutron/neutron.conf upgrade head
+
 	# Maintain the OVS config
         if [ ! -e ${OVS_CONF} ] ; then
                 install -D -m 0640 -o neutron -g neutron /usr/share/neutron-common/ovs_neutron_plugin.ini ${OVS_CONF}
