@@ -46,9 +46,9 @@ _Description: Neutron plugin:
 Template: neutron/configure_db
 Type: boolean 
 Default: true
-_Description: Set up a database for neutron-plugin-openvswitch?
- No database has been set up for neutron-plugin-openvswitch to use. Before
- continuing, you should make sure you have the following information:
+_Description: Set up a database for Neutron?
+ No database has been set up for Neutron to use. Before continuing, you should
+ make sure you have the following information:
  .
   * the type of database that you want to use;
   * the database server hostname (that server must allow TCP connections from this
@@ -59,9 +59,9 @@ _Description: Set up a database for neutron-plugin-openvswitch?
  regular SQLite support.
  .
  You can change this setting later on by running "dpkg-reconfigure -plow
- neutron-plugin-openvswitch".
+ neutron".
 
-Template: neutron-plugin-openvswitch/tenant_network_type
+Template: neutron/tenant_network_type
 Type: select
 __Choices: local, gre, vlan, none
 Choices-C: local, gre, vlan, none
@@ -80,7 +80,7 @@ _Description: Type of network to allocate for tenant networks:
  choose "gre" and then configure "tunnel_id_ranges". Choose "none" to
  disable creation of tenant networks.
 
-Template: neutron-plugin-openvswitch/enable_tunneling
+Template: neutron/enable_tunneling
 Type: boolean
 Default: true
 _Description: Enable tunneling?
@@ -88,7 +88,7 @@ _Description: Enable tunneling?
  server and agents. This requires kernel support for OVS patch ports and
  GRE tunneling.
 
-Template: neutron-plugin-openvswitch/tunnel_id_ranges
+Template: neutron/tunnel_id_ranges
 Type: string
 Default: 1:1000
 _Description: Tunnel id ranges:
@@ -96,7 +96,7 @@ _Description: Tunnel id ranges:
  ranges of GRE tunnel IDs that are available for tenant network allocation
  if tenant_network_type is "gre".
 
-Template: neutron-plugin-openvswitch/local_ip
+Template: neutron/local_ip
 Type: string
 _Description: Local IP address of this hypervisor:
  Please enter the local IP address for this hypervisor.

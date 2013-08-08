@@ -26,6 +26,55 @@ DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
 
 . /lib/lsb/init-functions
 
+### Guess the plugin name depending on the class of the plugin in /etc/neutron/neutron.conf ###
+neutron_core_plugin_to_plugin_name () {
+	case ${1} in
+	"neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2")
+		NEUTRON_PLUGIN_NAME=OpenVSwitch
+	;;
+	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
+		NEUTRON_PLUGIN_NAME=LinuxBridge
+	;;
+	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
+		NEUTRON_PLUGIN_NAME=RYU
+	;;
+	"neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2")
+		NEUTRON_PLUGIN_NAME=PLUMgrid
+	;;
+	"neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2")
+		NEUTRON_PLUGIN_NAME=Brocade
+	;;
+	"neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin")
+		NEUTRON_PLUGIN_NAME=Hyper-V
+	;;
+	"neutron.plugins.bigswitch.plugin.NeutronRestProxyV2")
+		NEUTRON_PLUGIN_NAME=BigSwitch
+	;;
+	"neutron.plugins.cisco.network_plugin.PluginV2")
+		NEUTRON_PLUGIN_NAME=Cisco
+	;;
+	"neutron.plugins.nicira.NeutronPlugin.NvpPluginV2")
+		NEUTRON_PLUGIN_NAME=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
+	;;
+	"neutron.plugins.midonet.plugin.MidonetPluginV2")
+		NEUTRON_PLUGIN_NAME=Midonet
+	;;
+	"neutron.plugins.nec.nec_plugin.NECPluginV2")
+		NEUTRON_PLUGIN_NAME=Nec
+	;;
+	"neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2")
+		NEUTRON_PLUGIN_NAME=MetaPlugin
+	;;
+	"neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin")
+		NEUTRON_PLUGIN_NAME=Mellanox
+	;;
+	*)
+		NEUTRON_PLUGIN_NAME="other"
+	;;
+	esac
+}
+
+### Guess the path of the plugin .ini file depending on the plugin name ###
 neutron_plugin_ini_path () {
 	PLUG_INI_BASE=/etc/neutron/plugins/
 	case ${1} in
@@ -74,16 +123,27 @@ neutron_plugin_ini_path () {
 	esac
 }
 
-if [ -r /etc/default/neutron ] ; then
-	. /etc/default/neutron
-	if [ -n "${NEUTRON_plugin}" ] ; then
-		neutron_plugin_ini_path ${NEUTRON_plugin}
-		if [ -n "${NEUTRON_PLUGIN_CONFIG}" ] ; then
-			DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
-		fi
-	fi
+### Maintain the plugin selection so that we can load the corresponding .ini file ###
+if ! [ -r /etc/neutron/neutron.conf ] ; then
+	echo "Cloud not read /etc/neutron/neutron.conf: exiting"
+	exit 0
 fi
 
+CURRENT_PLUGIN=`grep "^[ \t]*core_plugin[ \t]*=[ \t]*[._a-zA-Z0-9]*\$" /etc/neutron/neutron.conf | sed -e 's/^[ \t]*core_plugin[ \t]*=[ \t]*//'`
+if [ -z "${CURRENT_PLUGIN}" ] ; then
+	echo "No core_plugin= value found: please set it and try again"
+	exit 0
+fi
+neutron_core_plugin_to_plugin_name ${CURRENT_PLUGIN}
+neutron_plugin_ini_path ${NEUTRON_PLUGIN_NAME}
+if [ -z "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+	echo "Plugin not recognized: please edit /etc/init.d/neutron-server to select the correct .ini file to load for your plugin"
+else
+	DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
+	DESC="${DESC} with ${NEUTRON_PLUGIN_NAME} plugin"
+fi
+
+### Neutron folders creation ###
 make_neutron_folder () {
 	if [ ! -e ${1} ] ; then
 		mkdir -p ${1}
@@ -99,6 +159,7 @@ for i in /var/run/neutron /var/log/neutron /var/lib/neutron/tmp ; do
 done
 export TMPDIR=/var/lib/neutron/tmp
 
+### Standard init script start/stop/etc. stuff ###
 do_start () {
 	start-stop-daemon --start --quiet --background --chuid neutron:neutron --chdir $DAEMON_DIR --make-pidfile --pidfile $PIDFILE --startas $DAEMON --test > /dev/null \
 		|| return 1

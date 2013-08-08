@@ -54,8 +54,6 @@ neutron_core_plugin_class () {
 	esac
 }
 
-
-
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
 
@@ -66,16 +64,10 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_new_conf neutron neutron.conf
 	chmod 0660 /etc/neutron/neutron.conf
 
-	# Maintain the /etc/default/neutron plugin type selection
-	# and fill-out the core_plugin class path in /etc/neutron/neutron.conf
-	# according to what's in /etc/default/neutron.
-	if [ ! -e /etc/default/neutron ] ; then
-		install -D -m 0664 /usr/share/neutron-common/neutron-default /etc/default/neutron
-	fi
+	# Sets the core_plugin directive according to the value in debconf
 	db_get neutron/plugin-select
 	NEUTRON_plugin=${RET}
 	if [ -n "${RET}" ] ; then
-		pkgos_inifile -shinc set /etc/default/neutron NO_SECTION NEUTRON_plugin ${RET}
 		neutron_core_plugin_class ${NEUTRON_plugin}
 		pkgos_inifile set DEFAULT ${N_CONF} ${NEUTRON_PLUGIN_CLASS}
 	fi
@@ -95,16 +87,16 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
         fi
 
 	if [ "${NEUTRON_plugin_path}" = "OpenVSwitch" ] ; then
-		db_get neutron-plugin-openvswitch/tenant_network_type
+		db_get neutron/tenant_network_type
 		pkgos_inifile set ${OVS_CONF} OVS tenant_network_type "${RET}"
 
-		db_get neutron-plugin-openvswitch/enable_tunneling
+		db_get neutron/enable_tunneling
 		pkgos_inifile set ${OVS_CONF} OVS enable_tunneling "${RET}"
 
-		db_get neutron-plugin-openvswitch/tunnel_id_ranges
+		db_get neutron/tunnel_id_ranges
 		pkgos_inifile set ${OVS_CONF} OVS tunnel_id_ranges "${RET}"
 
-		db_get neutron-plugin-openvswitch/local_ip
+		db_get neutron/local_ip
 		pkgos_inifile set ${OVS_CONF} OVS local_ip "${RET}"
 	fi
 	db_stop
