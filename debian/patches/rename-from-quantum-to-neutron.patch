@@ -1,0 +1,278 @@
+Description: In lots of places, there's still reference to Quantum
+ Fix all the different configuration files.
+Author: Thomas Goirand <zigo@debian.org>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- neutron-2013.2~b2.orig/etc/neutron.conf
++++ neutron-2013.2~b2/etc/neutron.conf
+@@ -7,7 +7,7 @@
+ 
+ # Where to store Quantum state files.  This directory must be writable by the
+ # user executing the agent.
+-# state_path = /var/lib/quantum
++# state_path = /var/lib/neutron
+ 
+ # Where to store lock files
+ lock_path = $state_path/lock
+@@ -40,7 +40,7 @@ bind_port = 9696
+ # Path to the extensions.  Note that this can be a colon-separated list of
+ # paths.  For example:
+ # api_extensions_path = extensions:/path/to/more/extensions:/even/more/extensions
+-# The __path__ of quantum.extensions is appended to this, so if your
++# The __path__ of neutron.extensions is appended to this, so if your
+ # extensions are in there you don't need to specify them here
+ # api_extensions_path =
+ 
+@@ -90,7 +90,7 @@ api_paste_config = api-paste.ini
+ 
+ # RPC configuration options. Defined in rpc __init__
+ # The messaging module to use, defaults to kombu.
+-# rpc_backend = quantum.openstack.common.rpc.impl_kombu
++# rpc_backend = neutron.openstack.common.rpc.impl_kombu
+ # Size of RPC thread pool
+ # rpc_thread_pool_size = 64,
+ # Size of RPC connection pool
+@@ -101,9 +101,9 @@ api_paste_config = api-paste.ini
+ # rpc_cast_timeout = 30
+ # Modules of exceptions that are permitted to be recreated
+ # upon receiving exception data from an rpc call.
+-# allowed_rpc_exception_modules = quantum.openstack.common.exception, nova.exception
++# allowed_rpc_exception_modules = neutron.openstack.common.exception, nova.exception
+ # AMQP exchange to connect to if using RabbitMQ or QPID
+-control_exchange = quantum
++control_exchange = neutron
+ 
+ # If passed, use a fake RabbitMQ provider
+ # fake_rabbit = False
+@@ -141,7 +141,7 @@ control_exchange = quantum
+ # rabbit_ha_queues = false
+ 
+ # QPID
+-# rpc_backend=quantum.openstack.common.rpc.impl_qpid
++# rpc_backend=neutron.openstack.common.rpc.impl_qpid
+ # Qpid broker hostname
+ # qpid_hostname = localhost
+ # Qpid broker port
+@@ -163,7 +163,7 @@ control_exchange = quantum
+ # qpid_tcp_nodelay = True
+ 
+ # ZMQ
+-# rpc_backend=quantum.openstack.common.rpc.impl_zmq
++# rpc_backend=neutron.openstack.common.rpc.impl_zmq
+ # ZeroMQ bind address. Should be a wildcard (*), an ethernet interface, or IP.
+ # The "host" option should point or resolve to this address.
+ # rpc_zmq_bind_address = *
+@@ -177,11 +177,11 @@ control_exchange = quantum
+ 
+ # Notification_driver can be defined multiple times
+ # Do nothing driver
+-# notification_driver = quantum.openstack.common.notifier.no_op_notifier
++# notification_driver = neutron.openstack.common.notifier.no_op_notifier
+ # Logging driver
+-# notification_driver = quantum.openstack.common.notifier.log_notifier
++# notification_driver = neutron.openstack.common.notifier.log_notifier
+ # RPC driver. DHCP agents needs it.
+-notification_driver = quantum.openstack.common.notifier.rpc_notifier
++notification_driver = neutron.openstack.common.notifier.rpc_notifier
+ 
+ # default_notification_level is used to form actual topic name(s) or to set logging level
+ default_notification_level = INFO
+@@ -217,17 +217,17 @@ notification_topics = notifications
+ 
+ # =========== items for agent scheduler extension =============
+ # Driver to use for scheduling network to DHCP agent
+-# network_scheduler_driver = quantum.scheduler.dhcp_agent_scheduler.ChanceScheduler
++# network_scheduler_driver = neutron.scheduler.dhcp_agent_scheduler.ChanceScheduler
+ # Driver to use for scheduling router to a default L3 agent
+-# router_scheduler_driver = quantum.scheduler.l3_agent_scheduler.ChanceScheduler
++# router_scheduler_driver = neutron.scheduler.l3_agent_scheduler.ChanceScheduler
+ 
+ # Allow auto scheduling networks to DHCP agent. It will schedule non-hosted
+ # networks to first DHCP agent which sends get_active_networks message to
+-# quantum server
++# neutron server
+ # network_auto_schedule = True
+ 
+ # Allow auto scheduling routers to L3 agent. It will schedule non-hosted
+-# routers to first L3 agent which sends sync_routers message to quantum server
++# routers to first L3 agent which sends sync_routers message to neutron server
+ # router_auto_schedule = True
+ 
+ # Number of DHCP agents scheduled to host a network. This enables redundant
+@@ -286,7 +286,7 @@ notification_topics = notifications
+ # quota_security_group_rule = 100
+ 
+ # default driver to use for quota checks
+-# quota_driver = quantum.quota.ConfDriver
++# quota_driver = neutron.quota.ConfDriver
+ 
+ [default_servicetype]
+ # Description of the default service type (optional)
+@@ -297,7 +297,7 @@ notification_topics = notifications
+ # <service>:<plugin>[:driver]
+ 
+ [agent]
+-# Use "sudo quantum-rootwrap /etc/quantum/rootwrap.conf" to use the real
++# Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
+ # root filter facility.
+ # Change to "sudo" to skip the filtering and just run the comand directly
+ root_helper = sudo neutron-rootwrap /etc/neutron/rootwrap.conf
+@@ -316,19 +316,19 @@ auth_protocol = http
+ admin_tenant_name = %SERVICE_TENANT_NAME%
+ admin_user = %SERVICE_USER%
+ admin_password = %SERVICE_PASSWORD%
+-signing_dir = /var/lib/quantum/keystone-signing
++signing_dir = /var/lib/neutron/keystone-signing
+ 
+ [lbaas]
+ # ==================================================================================================
+ # driver_fqn is the fully qualified name of the lbaas driver that will be loaded by the lbass plugin
+ # ==================================================================================================
+-#driver_fqn = quantum.services.loadbalancer.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver
++#driver_fqn = neutron.services.loadbalancer.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver
+ 
+ [database]
+ # This line MUST be changed to actually run the plugin.
+-# Example: connection = mysql://root:pass@127.0.0.1:3306/quantum
++# Example: connection = mysql://root:pass@127.0.0.1:3306/neutrondb
+ # Replace 127.0.0.1 above with the IP address of the database used by the
+-# main quantum server. (Leave it as is if the database runs on this host.)
++# main neutron server. (Leave it as is if the database runs on this host.)
+ connection = sqlite:///var/lib/neutron/neutrondb
+ 
+ # The SQLAlchemy connection string used to connect to the slave database
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/brocade/brocade.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/brocade/brocade.ini
+@@ -24,7 +24,7 @@
+ 
+ [agent]
+ # Example:
+-# root_helper = sudo /usr/local/bin/quantum-rootwrap /etc/quantum/rootwrap.conf
++# root_helper = sudo /usr/bin/neutron-rootwrap /etc/neutron/rootwrap.conf
+ 
+ [linux_bridge]
+ # physical_interface_mappings = <physical network name>:<local interface>
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+@@ -108,6 +108,6 @@ local_ip = 127.0.0.1
+ # Example: vxlan_udp_port = 8472
+ 
+ [securitygroup]
+-# Firewall driver for realizing quantum security group function.
+-# firewall_driver = quantum.agent.firewall.NoopFirewallDriver
+-# Example: firewall_driver = quantum.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++# Firewall driver for realizing neutron security group function.
++# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
++# Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/nec/nec.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/nec/nec.ini
+@@ -11,20 +11,20 @@ integration_bridge = br-int
+ [agent]
+ # Agent's polling interval in seconds
+ polling_interval = 2
+-# Use "sudo quantum-rootwrap /etc/quantum/rootwrap.conf" to use the real
++# Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
+ # root filter facility.
+ # Change to "sudo" to skip the filtering and just run the comand directly
+ root_helper = sudo
+ 
+ [securitygroup]
+-# Firewall driver for realizing quantum security group function
+-firewall_driver = quantum.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++# Firewall driver for realizing neutron security group function
++firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ 
+ [ofc]
+ # Specify OpenFlow Controller Host, Port and Driver to connect.
+ host = 127.0.0.1
+ port = 8888
+-# Drivers are in quantum/plugins/nec/drivers/ .
++# Drivers are in neutron/plugins/nec/drivers/ .
+ driver = trema
+ # PacketFilter is available when it's enabled in this configuration
+ # and supported by the driver.
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/hyperv/hyperv_neutron_plugin.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/hyperv/hyperv_neutron_plugin.ini
+@@ -46,7 +46,7 @@
+ # Quantum server:
+ #
+ # [database]
+-# connection = mysql://root:nova@127.0.0.1:3306/hyperv_quantum
++# connection = mysql://root:nova@127.0.0.1:3306/hyperv_neutron
+ # [HYPERV]
+ # tenant_network_type = vlan
+ # network_vlan_ranges = default:2000:3999
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/ryu/ryu.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/ryu/ryu.ini
+@@ -33,8 +33,8 @@ tunnel_interface = eth0
+ ovsdb_interface = eth0
+ 
+ [securitygroup]
+-# Firewall driver for realizing quantum security group function
+-# firewall_driver = quantum.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++# Firewall driver for realizing neutron security group function
++# firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ 
+ [agent]
+ # Agent's polling interval in seconds
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -1,7 +1,7 @@
+ 
+ [ml2]
+ # (ListOpt) List of network type driver entrypoints to be loaded from
+-# the quantum.ml2.type_drivers namespace.
++# the neutron.ml2.type_drivers namespace.
+ #
+ # type_drivers = local,flat,vlan,gre,vxlan
+ # Example: type_drivers = flat,vlan,gre,vxlan
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/metaplugin/metaplugin.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/metaplugin/metaplugin.ini
+@@ -1,9 +1,9 @@
+ 
+ [meta]
+-## This is list of flavor:quantum_plugins
++## This is list of flavor:neutron_plugins
+ # extension method is used in the order of this list
+-plugin_list= 'openvswitch:quantum.plugins.openvswitch.ovs_quantum_plugin.OVSQuantumPluginV2,linuxbridge:quantum.plugins.linuxbridge.lb_quantum_plugin.LinuxBridgePluginV2'
+-l3_plugin_list= 'openvswitch:quantum.plugins.openvswitch.ovs_quantum_plugin.OVSQuantumPluginV2,linuxbridge:quantum.plugins.linuxbridge.lb_quantum_plugin.LinuxBridgePluginV2'
++plugin_list= 'openvswitch:neutron.plugins.openvswitch.ovs_neutron_plugin.OVSQuantumPluginV2,linuxbridge:neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2'
++l3_plugin_list= 'openvswitch:neutron.plugins.openvswitch.ovs_neutron_plugin.OVSQuantumPluginV2,linuxbridge:neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2'
+ 
+ # Default value of flavor
+ default_flavor = 'openvswitch'
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/bigswitch/restproxy.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/bigswitch/restproxy.ini
+@@ -1,4 +1,4 @@
+-# Config file for quantum-proxy-plugin.
++# Config file for neutron-proxy-plugin.
+ 
+ [restproxy]
+ # All configuration for this plugin is in section '[restproxy]'
+--- neutron-2013.2~b2.orig/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini
++++ neutron-2013.2~b2/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini
+@@ -42,6 +42,6 @@
+ # Example: rpc_support_old_agents = False
+ 
+ [securitygroup]
+-# Firewall driver for realizing quantum security group function
+-# firewall_driver = quantum.agent.firewall.NoopFirewallDriver
+-# Example: firewall_driver = quantum.agent.linux.iptables_firewall.IptablesFirewallDriver
++# Firewall driver for realizing neutron security group function
++# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
++# Example: firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
+--- neutron-2013.2~b2.orig/etc/neutron/rootwrap.d/l3.filters
++++ neutron-2013.2~b2/etc/neutron/rootwrap.d/l3.filters
+@@ -20,7 +20,7 @@ metadata_proxy: CommandFilter, neutron-n
+ metadata_proxy_quantum: CommandFilter, quantum-ns-metadata-proxy, root
+ # If installed from source (say, by devstack), the prefix will be
+ # /usr/local instead of /usr/bin.
+-metadata_proxy_local: CommandFilter, /usr/local/bin/neuton-ns-metadata-proxy, root
++metadata_proxy_local: CommandFilter, /usr/local/bin/neutron-ns-metadata-proxy, root
+ metadata_proxy_local_quantum: CommandFilter, /usr/local/bin/quantum-ns-metadata-proxy, root
+ # RHEL invocation of the metadata proxy will report /usr/bin/python
+ kill_metadata: KillFilter, root, /usr/bin/python, -9
