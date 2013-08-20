@@ -68,12 +68,12 @@ _Description: IP address of your RabbitMQ host:
  In order to interoperate with other components of OpenStack, this package
  needs to connect to a central RabbitMQ server.
  .
- Please specify the IP address of the server running it.
+ Please specify the IP address of that server.
 
 Template: neutron/rabbit_userid
 Type: string
 Default: guest
-_Description: Username to connect to RabbitMQ server:
+_Description: Username for connection to the RabbitMQ server:
  In order to interoperate with other components of OpenStack, this package
  needs to connect to a central RabbitMQ server.
  .
@@ -81,7 +81,7 @@ _Description: Username to connect to RabbitMQ server:
 
 Template: neutron/rabbit_password
 Type: password
-_Description: Password to connect to RabbitMQ server:
+_Description: Password for connection to the RabbitMQ server:
  In order to interoperate with other components of OpenStack, this package
  needs to connect to a central RabbitMQ server.
  .
