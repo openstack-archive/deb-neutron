@@ -61,6 +61,32 @@ _Description: Set up a database for Neutron?
  You can change this setting later on by running "dpkg-reconfigure -plow
  neutron".
 
+Template: neutron/rabbit_host
+Type: string
+Default: localhost
+_Description: IP address of your RabbitMQ host:
+ In order to interoperate with other components of OpenStack, this package
+ needs to connect to a central RabbitMQ server.
+ .
+ Please specify the IP address of the server running it.
+
+Template: neutron/rabbit_userid
+Type: string
+Default: guest
+_Description: Username to connect to RabbitMQ server:
+ In order to interoperate with other components of OpenStack, this package
+ needs to connect to a central RabbitMQ server.
+ .
+ Please specify the username used to connect to the RabbitMQ server.
+
+Template: neutron/rabbit_password
+Type: password
+_Description: Password to connect to RabbitMQ server:
+ In order to interoperate with other components of OpenStack, this package
+ needs to connect to a central RabbitMQ server.
+ .
+ Please specify the password used to connect to the RabbitMQ server.
+
 Template: neutron/tenant_network_type
 Type: select
 __Choices: local, gre, vlan, none
