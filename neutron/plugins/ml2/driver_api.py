@@ -20,6 +20,7 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 # neutron.extensions.providernet so that drivers don't need to change
 # if/when providernet moves to the core API.
 #
+ID = 'id'
 NETWORK_TYPE = 'network_type'
 PHYSICAL_NETWORK = 'physical_network'
 SEGMENTATION_ID = 'segmentation_id'
@@ -67,7 +68,6 @@ class TypeDriver(object):
         """Validate attributes of a provider network segment.
 
         :param segment: segment dictionary using keys defined above
-        :returns: segment dictionary with any defaulted attributes added
         :raises: neutron.common.exceptions.InvalidInput if invalid
 
         Called outside transaction context to validate the provider
@@ -165,6 +165,38 @@ class NetworkContext(object):
         pass
 
 
+class SubnetContext(object):
+    """Context passed to MechanismDrivers for changes to subnet resources.
+
+    A SubnetContext instance wraps a subnet resource. It provides
+    helper methods for accessing other relevant information. Results
+    from expensive operations are cached so that other
+    MechanismDrivers can freely access the same information.
+    """
+
+    __metaclass__ = ABCMeta
+
+    @abstractproperty
+    def current(self):
+        """Return the current state of the subnet.
+
+        Return the current state of the subnet, as defined by
+        NeutronPluginBaseV2.create_subnet and all extensions in the
+        ml2 plugin.
+        """
+        pass
+
+    @abstractproperty
+    def original(self):
+        """Return the original state of the subnet.
+
+        Return the original state of the subnet, prior to a call to
+        update_subnet. Method is only valid within calls to
+        update_subnet_precommit and update_subnet_postcommit.
+        """
+        pass
+
+
 class PortContext(object):
     """Context passed to MechanismDrivers for changes to port resources.
 
@@ -201,6 +233,34 @@ class PortContext(object):
         """Return the NetworkContext associated with this port."""
         pass
 
+    @abstractproperty
+    def bound_segment(self):
+        """Return the currently bound segment dictionary."""
+        pass
+
+    @abstractmethod
+    def host_agents(self, agent_type):
+        """Get agents of the specified type on port's host.
+
+        :param agent_type: Agent type identifier
+        :returns: List of agents_db.Agent records
+        """
+        pass
+
+    @abstractmethod
+    def set_binding(self, segment_id, vif_type, cap_port_filter):
+        """Set the binding for the port.
+
+        :param segment_id: Network segment bound for the port.
+        :param vif_type: The VIF type for the bound port.
+        :param cap_port_filter: True if the bound port filters.
+
+        Called by MechanismDriver.bind_port to indicate success and
+        specify binding details to use for port. The segment_id must
+        identify an item in network.network_segments.
+        """
+        pass
+
 
 class MechanismDriver(object):
     """Define stable abstract interface for ML2 mechanism drivers.
@@ -222,8 +282,6 @@ class MechanismDriver(object):
     update network/port case, all data validation must be done within
     methods that are part of the database transaction.
     """
-
-    # TODO(apech): add calls for subnets
 
     __metaclass__ = ABCMeta
 
@@ -327,6 +385,96 @@ class MechanismDriver(object):
         """
         pass
 
+    def create_subnet_precommit(self, context):
+        """Allocate resources for a new subnet.
+
+        :param context: SubnetContext instance describing the new
+        subnet.
+
+        Create a new subnet, allocating resources as necessary in the
+        database. Called inside transaction context on session. Call
+        cannot block.  Raising an exception will result in a rollback
+        of the current transaction.
+        """
+        pass
+
+    def create_subnet_postcommit(self, context):
+        """Create a subnet.
+
+        :param context: SubnetContext instance describing the new
+        subnet.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+        """
+        pass
+
+    def update_subnet_precommit(self, context):
+        """Update resources of a subnet.
+
+        :param context: SubnetContext instance describing the new
+        state of the subnet, as well as the original state prior
+        to the update_subnet call.
+
+        Update values of a subnet, updating the associated resources
+        in the database. Called inside transaction context on session.
+        Raising an exception will result in rollback of the
+        transaction.
+
+        update_subnet_precommit is called for all changes to the
+        subnet state. It is up to the mechanism driver to ignore
+        state or state changes that it does not know or care about.
+        """
+        pass
+
+    def update_subnet_postcommit(self, context):
+        """Update a subnet.
+
+        :param context: SubnetContext instance describing the new
+        state of the subnet, as well as the original state prior
+        to the update_subnet call.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Raising an exception will
+        cause the deletion of the resource.
+
+        update_subnet_postcommit is called for all changes to the
+        subnet state.  It is up to the mechanism driver to ignore
+        state or state changes that it does not know or care about.
+        """
+        pass
+
+    def delete_subnet_precommit(self, context):
+        """Delete resources for a subnet.
+
+        :param context: SubnetContext instance describing the current
+        state of the subnet, prior to the call to delete it.
+
+        Delete subnet resources previously allocated by this
+        mechanism driver for a subnet. Called inside transaction
+        context on session. Runtime errors are not expected, but
+        raising an exception will result in rollback of the
+        transaction.
+        """
+        pass
+
+    def delete_subnet_postcommit(self, context):
+        """Delete a subnet.
+
+        :param context: SubnetContext instance describing the current
+        state of the subnet, prior to the call to delete it.
+
+        Called after the transaction commits. Call can block, though
+        will block the entire process so care should be taken to not
+        drastically affect performance. Runtime errors are not
+        expected, and will not prevent the resource from being
+        deleted.
+        """
+        pass
+
     def create_port_precommit(self, context):
         """Allocate resources for a new port.
 
@@ -409,5 +557,41 @@ class MechanismDriver(object):
         drastically affect performance.  Runtime errors are not
         expected, and will not prevent the resource from being
         deleted.
+        """
+        pass
+
+    def bind_port(self, context):
+        """Attempt to bind a port.
+
+        :param context: PortContext instance describing the port
+
+        Called inside transaction context on session, prior to
+        create_network_precommit or update_network_precommit, to
+        attempt to establish a port binding. If the driver is able to
+        bind the port, it calls context.set_binding with the binding
+        details.
+        """
+        pass
+
+    def validate_port_binding(self, context):
+        """Check whether existing port binding is still valid.
+
+        :param context: PortContext instance describing the port
+        :returns: True if binding is valid, otherwise False
+
+        Called inside transaction context on session to validate that
+        the MechanismDriver's existing binding for the port is still
+        valid.
+        """
+        return False
+
+    def unbind_port(self, context):
+        """Undo existing port binding.
+
+        :param context: PortContext instance describing the port
+
+        Called inside transaction context on session to notify the
+        MechanismDriver that its existing binding for the port is no
+        longer valid.
         """
         pass

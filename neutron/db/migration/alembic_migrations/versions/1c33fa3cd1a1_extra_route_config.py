@@ -15,7 +15,7 @@
 #    under the License.
 #
 
-"""Support routring table configration on Router
+"""Support routing table configuration on Router
 
 Revision ID: 1c33fa3cd1a1
 Revises: 45680af419f9
@@ -43,8 +43,8 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.rename_table(
@@ -63,8 +63,8 @@ def upgrade(active_plugin=None, options=None):
     )
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.rename_table(

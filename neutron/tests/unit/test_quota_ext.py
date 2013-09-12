@@ -1,3 +1,20 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
+# Copyright 2012 OpenStack Foundation.
+# All Rights Reserved.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
 import mock
 from oslo.config import cfg
 import testtools
@@ -54,7 +71,7 @@ class QuotaExtensionTestCase(testlib_api.WebTestCase):
         self._plugin_patcher = mock.patch(TARGET_PLUGIN, autospec=True)
         self.plugin = self._plugin_patcher.start()
         self.plugin.return_value.supported_extension_aliases = ['quotas']
-        # QUOTAS will regester the items in conf when starting
+        # QUOTAS will register the items in conf when starting
         # extra1 here is added later, so have to do it manually
         quota.QUOTAS.register_resource_by_name('extra1')
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()

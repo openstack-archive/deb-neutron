@@ -86,7 +86,7 @@ class MetadataProxyHandler(object):
         )
         return qclient
 
-    @webob.dec.wsgify(RequestClass=wsgi.Request)
+    @webob.dec.wsgify(RequestClass=webob.Request)
     def __call__(self, req):
         try:
             LOG.debug(_("Request: %s"), req)
@@ -180,7 +180,7 @@ class UnixDomainHttpProtocol(eventlet.wsgi.HttpProtocol):
     def __init__(self, request, client_address, server):
         if client_address == '':
             client_address = ('<local>', 0)
-        # base class is old-style, no super does not work properly
+        # base class is old-style, so super does not work properly
         eventlet.wsgi.HttpProtocol.__init__(self, request, client_address,
                                             server)
 

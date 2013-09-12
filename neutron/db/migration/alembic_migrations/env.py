@@ -37,8 +37,11 @@ neutron_config = config.neutron_config
 fileConfig(config.config_file_name)
 
 plugin_class_path = neutron_config.core_plugin
+active_plugins = [plugin_class_path]
+active_plugins += neutron_config.service_plugins
 
-plugin_klass = importutils.import_class(plugin_class_path)
+for class_path in active_plugins:
+    importutils.import_class(class_path)
 
 # set the target for 'autogenerate' support
 target_metadata = model_base.BASEV2.metadata
@@ -59,7 +62,7 @@ def run_migrations_offline():
     context.configure(url=neutron_config.database.connection)
 
     with context.begin_transaction():
-        context.run_migrations(active_plugin=plugin_class_path,
+        context.run_migrations(active_plugins=active_plugins,
                                options=build_options())
 
 
@@ -82,7 +85,7 @@ def run_migrations_online():
 
     try:
         with context.begin_transaction():
-            context.run_migrations(active_plugin=plugin_class_path,
+            context.run_migrations(active_plugins=active_plugins,
                                    options=build_options())
     finally:
         connection.close()

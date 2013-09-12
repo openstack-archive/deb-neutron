@@ -27,12 +27,14 @@ Create Date: 2012-12-03 09:14:50.579765
 PLUGINS = {
     'bigswitch': 'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2',
     'cisco': 'neutron.plugins.cisco.network_plugin.PluginV2',
-    'lbr': 'neutron.plugins.linuxbridge.lb_neutronplugin.LinuxBridgePluginV2',
+    'lbr': 'neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2',
     'meta': 'neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2',
-    'ml2': 'neutron.plugins.ml2.ml2_plugin.Ml2Plugin',
+    'ml2': 'neutron.plugins.ml2.plugin.Ml2Plugin',
     'nec': 'neutron.plugins.nec.nec_plugin.NECPluginV2',
     'nvp': 'neutron.plugins.nicira.NeutronPlugin.NvpPluginV2',
     'ovs': 'neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2',
+    'plumgrid': 'neutron.plugins.plumgrid.plumgrid_plugin.plumgrid_plugin.'
+                'NeutronPluginPLUMgridV2',
     'ryu': 'neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2',
 }
 
@@ -43,6 +45,7 @@ L3_CAPABLE = [
     PLUGINS['nec'],
     PLUGINS['ovs'],
     PLUGINS['ryu'],
+    PLUGINS['plumgrid'],
 ]
 
 FOLSOM_QUOTA = [
@@ -64,29 +67,29 @@ from neutron.db.migration.alembic_migrations import common_ext_ops
 # NOTE: This is a special migration that creates a Folsom compatible database.
 
 
-def upgrade(active_plugin=None, options=None):
+def upgrade(active_plugins=None, options=None):
     # general model
     upgrade_base()
 
-    if active_plugin in L3_CAPABLE:
+    if set(active_plugins) & set(L3_CAPABLE):
         common_ext_ops.upgrade_l3()
 
-    if active_plugin in FOLSOM_QUOTA:
+    if set(active_plugins) & set(FOLSOM_QUOTA):
         common_ext_ops.upgrade_quota(options)
 
-    if active_plugin == PLUGINS['lbr']:
+    if PLUGINS['lbr'] in active_plugins:
         upgrade_linuxbridge()
-    elif active_plugin == PLUGINS['ovs']:
+    elif PLUGINS['ovs'] in active_plugins:
         upgrade_ovs()
-    elif active_plugin == PLUGINS['cisco']:
+    elif PLUGINS['cisco'] in active_plugins:
         upgrade_cisco()
         # Cisco plugin imports OVS models too
         upgrade_ovs()
-    elif active_plugin == PLUGINS['meta']:
+    elif PLUGINS['meta'] in active_plugins:
         upgrade_meta()
-    elif active_plugin == PLUGINS['nec']:
+    elif PLUGINS['nec'] in active_plugins:
         upgrade_nec()
-    elif active_plugin == PLUGINS['ryu']:
+    elif PLUGINS['ryu'] in active_plugins:
         upgrade_ryu()
 
 
@@ -428,26 +431,26 @@ def upgrade_cisco():
     )
 
 
-def downgrade(active_plugin=None, options=None):
-    if active_plugin == PLUGINS['lbr']:
+def downgrade(active_plugins=None, options=None):
+    if PLUGINS['lbr'] in active_plugins:
         downgrade_linuxbridge()
-    elif active_plugin == PLUGINS['ovs']:
+    elif PLUGINS['ovs'] in active_plugins:
         downgrade_ovs()
-    elif active_plugin == PLUGINS['cisco']:
+    elif PLUGINS['cisco'] in active_plugins:
         # Cisco plugin imports OVS models too
         downgrade_ovs()
         downgrade_cisco()
-    elif active_plugin == PLUGINS['meta']:
+    elif PLUGINS['meta'] in active_plugins:
         downgrade_meta()
-    elif active_plugin == PLUGINS['nec']:
+    elif PLUGINS['nec'] in active_plugins:
         downgrade_nec()
-    elif active_plugin == PLUGINS['ryu']:
+    elif PLUGINS['ryu'] in active_plugins:
         downgrade_ryu()
 
-    if active_plugin in FOLSOM_QUOTA:
+    if set(active_plugins) & set(FOLSOM_QUOTA):
         common_ext_ops.downgrade_quota(options)
 
-    if active_plugin in L3_CAPABLE:
+    if set(active_plugins) & set(L3_CAPABLE):
         common_ext_ops.downgrade_l3()
 
     downgrade_base()

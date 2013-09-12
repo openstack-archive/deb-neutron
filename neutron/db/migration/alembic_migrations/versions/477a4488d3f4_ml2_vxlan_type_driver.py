@@ -40,8 +40,8 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.create_table(
@@ -55,14 +55,14 @@ def upgrade(active_plugin=None, options=None):
     op.create_table(
         'ml2_vxlan_endpoints',
         sa.Column('ip_address', sa.String(length=64)),
-        sa.Column('udp_port', sa.Integer(), nullable=False),
-        sa.PrimaryKeyConstraint('ip_address'),
-        sa.PrimaryKeyConstraint('udp_port')
+        sa.Column('udp_port', sa.Integer(), nullable=False,
+                  autoincrement=False),
+        sa.PrimaryKeyConstraint('ip_address', 'udp_port')
     )
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.drop_table('ml2_vxlan_allocations')

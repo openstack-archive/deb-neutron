@@ -36,14 +36,18 @@ from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
+from neutron.db import allowedaddresspairs_db as addr_pair_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
+from neutron.db import extradhcpopt_db
 from neutron.db import extraroute_db
 from neutron.db import l3_gwmode_db
 from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.extensions import allowedaddresspairs as addr_pair
+from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
 from neutron.openstack.common import importutils
@@ -222,7 +226,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                          sg_db_rpc.SecurityGroupServerRpcMixin,
                          agentschedulers_db.L3AgentSchedulerDbMixin,
                          agentschedulers_db.DhcpAgentSchedulerDbMixin,
-                         portbindings_db.PortBindingMixin):
+                         portbindings_db.PortBindingMixin,
+                         extradhcpopt_db.ExtraDhcpOptMixin,
+                         addr_pair_db.AllowedAddressPairsMixin):
 
     """Implement the Neutron abstractions using Open vSwitch.
 
@@ -252,7 +258,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                     "binding", "quotas", "security-group",
                                     "agent", "extraroute",
                                     "l3_agent_scheduler",
-                                    "dhcp_agent_scheduler"]
+                                    "dhcp_agent_scheduler",
+                                    "extra_dhcp_opt",
+                                    "allowed-address-pairs"]
 
     @property
     def supported_extension_aliases(self):
@@ -263,7 +271,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         return self._aliases
 
     def __init__(self, configfile=None):
-        self.extra_binding_dict = {
+        self.base_binding_dict = {
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_OVS,
             portbindings.CAPABILITIES: {
                 portbindings.CAP_PORT_FILTER:
@@ -309,8 +317,12 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.topic = topics.PLUGIN
         self.conn = rpc.create_connection(new=True)
         self.notifier = AgentNotifierApi(topics.AGENT)
-        self.dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        self.l3_agent_notifier = l3_rpc_agent_api.L3AgentNotify
+        self.agent_notifiers[q_const.AGENT_TYPE_DHCP] = (
+            dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        )
+        self.agent_notifiers[q_const.AGENT_TYPE_L3] = (
+            l3_rpc_agent_api.L3AgentNotify
+        )
         self.callbacks = OVSRpcCallbacks(self.notifier, self.tunnel_type)
         self.dispatcher = self.callbacks.create_rpc_dispatcher()
         self.conn.create_consumer(self.topic, self.dispatcher,
@@ -532,10 +544,17 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         with session.begin(subtransactions=True):
             self._ensure_default_security_group_on_port(context, port)
             sgids = self._get_security_groups_on_port(context, port)
+            dhcp_opts = port['port'].get(edo_ext.EXTRADHCPOPTS, [])
             port = super(OVSNeutronPluginV2, self).create_port(context, port)
             self._process_portbindings_create_and_update(context,
                                                          port_data, port)
             self._process_port_create_security_group(context, port, sgids)
+            self._process_port_create_extra_dhcp_opts(context, port,
+                                                      dhcp_opts)
+            port[addr_pair.ADDRESS_PAIRS] = (
+                self._process_create_allowed_address_pairs(
+                    context, port,
+                    port_data.get(addr_pair.ADDRESS_PAIRS)))
         self.notify_security_groups_member_updated(context, port)
         return port
 
@@ -547,11 +566,21 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 context, id)
             updated_port = super(OVSNeutronPluginV2, self).update_port(
                 context, id, port)
-            need_port_update_notify = self.update_security_group_on_port(
+            if addr_pair.ADDRESS_PAIRS in port['port']:
+                self._delete_allowed_address_pairs(context, id)
+                self._process_create_allowed_address_pairs(
+                    context, updated_port,
+                    port['port'][addr_pair.ADDRESS_PAIRS])
+                need_port_update_notify = True
+
+            need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, original_port, updated_port)
             self._process_portbindings_create_and_update(context,
                                                          port['port'],
                                                          updated_port)
+            need_port_update_notify |= self._update_extra_dhcp_opts_on_port(
+                context, id, port, updated_port)
+
         need_port_update_notify |= self.is_security_group_member_updated(
             context, original_port, updated_port)
         if original_port['admin_state_up'] != updated_port['admin_state_up']:

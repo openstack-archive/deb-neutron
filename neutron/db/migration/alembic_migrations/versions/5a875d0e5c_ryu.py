@@ -44,18 +44,18 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.create_table(
         'tunnelkeys',
         sa.Column('network_id', sa.String(length=36), nullable=False),
-        sa.Column('last_key', sa.Integer(), autoincrement=False,
+        sa.Column('tunnel_key', sa.Integer(), autoincrement=False,
                   nullable=False),
         sa.ForeignKeyConstraint(['network_id'], ['networks.id'],
                                 ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('last_key')
+        sa.PrimaryKeyConstraint('tunnel_key')
     )
 
     op.create_table(
@@ -66,8 +66,8 @@ def upgrade(active_plugin=None, options=None):
     )
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.drop_table('tunnelkeylasts')

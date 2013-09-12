@@ -21,6 +21,12 @@ from neutron.common import exceptions as qexc
 class OFCException(qexc.NeutronException):
     message = _("An OFC exception has occurred: %(reason)s")
 
+    def __init__(self, **kwargs):
+        super(OFCException, self).__init__(**kwargs)
+        self.status = kwargs.get('status')
+        self.err_msg = kwargs.get('err_msg')
+        self.err_code = kwargs.get('err_code')
+
 
 class NECDBException(qexc.NeutronException):
     message = _("An exception occurred in NECPluginV2 DB: %(reason)s")
@@ -33,3 +39,33 @@ class OFCConsistencyBroken(qexc.NeutronException):
 
 class PortInfoNotFound(qexc.NotFound):
     message = _("PortInfo %(id)s could not be found")
+
+
+class ProfilePortInfoInvalidDataPathId(qexc.InvalidInput):
+    message = _('Invalid input for operation: '
+                'portinfo:datapath_id should be a hex string '
+                'with at most 8 bytes')
+
+
+class ProfilePortInfoInvalidPortNo(qexc.InvalidInput):
+    message = _('Invalid input for operation: '
+                'portinfo:port_no should be [0:65535]')
+
+
+class RouterExternalGatewayNotSupported(qexc.BadRequest):
+    message = _("Router (provider=%(provider)s) does not support "
+                "an external network")
+
+
+class ProviderNotFound(qexc.NotFound):
+    message = _("Provider %(provider)s could not be found")
+
+
+class RouterOverLimit(qexc.Conflict):
+    message = _("Cannot create more routers with provider=%(provider)s")
+
+
+class RouterProviderMismatch(qexc.Conflict):
+    message = _("Provider of Router %(router_id)s is %(provider)s. "
+                "This operation is supported only for router provider "
+                "%(expected_provider)s.")

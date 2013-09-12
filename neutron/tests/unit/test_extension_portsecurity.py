@@ -23,7 +23,6 @@ from neutron.db import securitygroups_db
 from neutron.extensions import portsecurity as psec
 from neutron.extensions import securitygroup as ext_sg
 from neutron.manager import NeutronManager
-from neutron import policy
 from neutron.tests.unit import test_db_plugin
 
 DB_PLUGIN_KLASS = ('neutron.tests.unit.test_extension_portsecurity.'
@@ -53,11 +52,6 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
     """
 
     supported_extension_aliases = ["security-group", "port-security"]
-    port_security_enabled_create = "create_port:port_security_enabled"
-    port_security_enabled_update = "update_port:port_security_enabled"
-
-    def _enforce_set_auth(self, context, resource, action):
-        return policy.enforce(context, action, resource)
 
     def create_network(self, context, network):
         tenant_id = self._get_tenant_id_for_create(context, network['network'])
@@ -66,9 +60,8 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             neutron_db = super(PortSecurityTestPlugin, self).create_network(
                 context, network)
             neutron_db.update(network['network'])
-            self._process_network_create_port_security(
-                context, neutron_db)
-            self._extend_network_port_security_dict(context, neutron_db)
+            self._process_network_port_security_create(
+                context, network['network'], neutron_db)
         return neutron_db
 
     def update_network(self, context, id, network):
@@ -76,23 +69,17 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             neutron_db = super(PortSecurityTestPlugin, self).update_network(
                 context, id, network)
             if psec.PORTSECURITY in network['network']:
-                self._update_network_security_binding(
-                    context, id, network['network'][psec.PORTSECURITY])
-            self._extend_network_port_security_dict(
-                context, neutron_db)
+                self._process_network_port_security_update(
+                    context, network['network'], neutron_db)
         return neutron_db
 
     def get_network(self, context, id, fields=None):
         with context.session.begin(subtransactions=True):
             net = super(PortSecurityTestPlugin, self).get_network(
                 context, id)
-            self._extend_network_port_security_dict(context, net)
         return self._fields(net, fields)
 
     def create_port(self, context, port):
-        if attr.is_attr_set(port['port'][psec.PORTSECURITY]):
-            self._enforce_set_auth(context, port,
-                                   self.port_security_enabled_create)
         p = port['port']
         with context.session.begin(subtransactions=True):
             p[ext_sg.SECURITYGROUPS] = self._get_security_groups_on_port(
@@ -104,7 +91,7 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             (port_security, has_ip) = self._determine_port_security_and_has_ip(
                 context, p)
             p[psec.PORTSECURITY] = port_security
-            self._process_port_security_create(context, p)
+            self._process_port_port_security_create(context, p, neutron_db)
 
             if (attr.is_attr_set(p.get(ext_sg.SECURITYGROUPS)) and
                 not (port_security and has_ip)):
@@ -118,13 +105,9 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                 self._process_port_create_security_group(
                     context, p, p[ext_sg.SECURITYGROUPS])
 
-            self._extend_port_port_security_dict(context, p)
-
         return port['port']
 
     def update_port(self, context, id, port):
-        self._enforce_set_auth(context, port,
-                               self.port_security_enabled_update)
         delete_security_groups = self._check_update_deletes_security_groups(
             port)
         has_security_groups = self._check_update_has_security_groups(port)
@@ -170,10 +153,8 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                          ret_port, sgids)
 
             if psec.PORTSECURITY in port['port']:
-                self._update_port_security_binding(
-                    context, id, ret_port[psec.PORTSECURITY])
-
-            self._extend_port_port_security_dict(context, ret_port)
+                self._process_port_port_security_update(
+                    context, port['port'], ret_port)
 
         return ret_port
 

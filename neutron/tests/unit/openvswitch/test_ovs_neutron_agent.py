@@ -103,6 +103,12 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch('neutron.plugins.openvswitch.agent.ovs_neutron_agent.'
                        'OVSNeutronAgent.setup_integration_br',
                        return_value=mock.Mock()),
+            mock.patch('neutron.plugins.openvswitch.agent.ovs_neutron_agent.'
+                       'OVSNeutronAgent.setup_ancillary_bridges',
+                       return_value=[]),
+            mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                       'get_local_port_mac',
+                       return_value='00:00:00:00:00:01'),
             mock.patch('neutron.agent.linux.utils.get_interface_mac',
                        return_value='00:00:00:00:00:01')):
             self.agent = ovs_neutron_agent.OVSNeutronAgent(**kwargs)
@@ -113,9 +119,12 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         port = mock.Mock()
         port.ofport = ofport
         net_uuid = 'my-net-uuid'
-        with mock.patch.object(self.agent.int_br,
-                               'delete_flows') as delete_flows_func:
-            self.agent.port_bound(port, net_uuid, 'local', None, None)
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with mock.patch.object(self.agent.int_br,
+                                   'delete_flows') as delete_flows_func:
+                self.agent.port_bound(port, net_uuid, 'local', None, None)
         self.assertEqual(delete_flows_func.called, ofport != -1)
 
     def test_port_bound_deletes_flows_for_valid_ofport(self):
@@ -125,9 +134,12 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self._mock_port_bound(ofport=-1)
 
     def test_port_dead(self):
-        with mock.patch.object(self.agent.int_br,
-                               'add_flow') as add_flow_func:
-            self.agent.port_dead(mock.Mock())
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with mock.patch.object(self.agent.int_br,
+                                   'add_flow') as add_flow_func:
+                self.agent.port_dead(mock.Mock())
         self.assertTrue(add_flow_func.called)
 
     def mock_update_ports(self, vif_port_set=None, registered_ports=None):
@@ -219,18 +231,16 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                 self.assertTrue(device_removed.called)
 
     def test_report_state(self):
-        with contextlib.nested(
-            mock.patch.object(self.agent.int_br, "get_vif_port_set"),
-            mock.patch.object(self.agent.state_rpc, "report_state")
-        ) as (get_vif_fn, report_st):
-            get_vif_fn.return_value = ["vif123", "vif234"]
+        with mock.patch.object(self.agent.state_rpc,
+                               "report_state") as report_st:
+            self.agent.int_br_device_count = 5
             self.agent._report_state()
-            self.assertTrue(get_vif_fn.called)
             report_st.assert_called_with(self.agent.context,
                                          self.agent.agent_state)
             self.assertNotIn("start_flag", self.agent.agent_state)
             self.assertEqual(
-                self.agent.agent_state["configurations"]["devices"], 2
+                self.agent.agent_state["configurations"]["devices"],
+                self.agent.int_br_device_count
             )
 
     def test_network_delete(self):
@@ -311,10 +321,11 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(self.agent.int_br, "delete_port"),
             mock.patch.object(ip_lib.IPWrapper, "add_veth"),
             mock.patch.object(ip_lib.IpLinkCommand, "delete"),
-            mock.patch.object(ip_lib.IpLinkCommand, "set_up")
+            mock.patch.object(ip_lib.IpLinkCommand, "set_up"),
+            mock.patch.object(ip_lib.IpLinkCommand, "set_mtu")
         ) as (devex_fn, sysexit_fn, remflows_fn, ovs_addfl_fn,
               ovs_addport_fn, ovs_delport_fn, br_addport_fn,
-              br_delport_fn, addveth_fn, linkdel_fn, linkset_fn):
+              br_delport_fn, addveth_fn, linkdel_fn, linkset_fn, linkmtu_fn):
             devex_fn.return_value = True
             addveth_fn.return_value = (ip_lib.IPDevice("int-br-eth1"),
                                        ip_lib.IPDevice("phy-br-eth1"))
@@ -327,17 +338,13 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                              "int_ofport")
 
     def test_port_unbound(self):
-        with contextlib.nested(
-            mock.patch.object(self.agent.tun_br, "delete_flows"),
-            mock.patch.object(self.agent, "reclaim_local_vlan")
-        ) as (delfl_fn, reclvl_fn):
+        with mock.patch.object(self.agent, "reclaim_local_vlan") as reclvl_fn:
             self.agent.enable_tunneling = True
             lvm = mock.Mock()
             lvm.network_type = "gre"
             lvm.vif_ports = {"vif1": mock.Mock()}
             self.agent.local_vlan_map["netuid12345"] = lvm
             self.agent.port_unbound("vif1", "netuid12345")
-            self.assertTrue(delfl_fn.called)
             self.assertTrue(reclvl_fn.called)
             reclvl_fn.called = False
 
@@ -366,7 +373,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                                         root_helper='sudo')
                     version_ok = True
                 except SystemExit as e:
-                    self.assertEquals(e.code, 1)
+                    self.assertEqual(e.code, 1)
                     version_ok = False
             self.assertEqual(version_ok, expecting_ok)
 
@@ -394,3 +401,60 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self._check_ovs_vxlan_version('1.10', '1.9',
                                       constants.MINIMUM_OVS_VXLAN_VERSION,
                                       expecting_ok=False)
+
+
+class AncillaryBridgesTest(base.BaseTestCase):
+
+    def setUp(self):
+        super(AncillaryBridgesTest, self).setUp()
+        self.addCleanup(cfg.CONF.reset)
+        self.addCleanup(mock.patch.stopall)
+        notifier_p = mock.patch(NOTIFIER)
+        notifier_cls = notifier_p.start()
+        self.notifier = mock.Mock()
+        notifier_cls.return_value = self.notifier
+        # Avoid rpc initialization for unit tests
+        cfg.CONF.set_override('rpc_backend',
+                              'neutron.openstack.common.rpc.impl_fake')
+        cfg.CONF.set_override('report_interval', 0, 'AGENT')
+        self.kwargs = ovs_neutron_agent.create_agent_config_map(cfg.CONF)
+
+    def _test_ancillary_bridges(self, bridges, ancillary):
+        device_ids = ancillary[:]
+
+        def pullup_side_effect(self, *args):
+            result = device_ids.pop(0)
+            return result
+
+        with contextlib.nested(
+            mock.patch('neutron.plugins.openvswitch.agent.ovs_neutron_agent.'
+                       'OVSNeutronAgent.setup_integration_br',
+                       return_value=mock.Mock()),
+            mock.patch('neutron.agent.linux.utils.get_interface_mac',
+                       return_value='00:00:00:00:00:01'),
+            mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                       'get_local_port_mac',
+                       return_value='00:00:00:00:00:01'),
+            mock.patch('neutron.agent.linux.ovs_lib.get_bridges',
+                       return_value=bridges),
+            mock.patch(
+                'neutron.agent.linux.ovs_lib.get_bridge_external_bridge_id',
+                side_effect=pullup_side_effect)):
+            self.agent = ovs_neutron_agent.OVSNeutronAgent(**self.kwargs)
+            self.assertEqual(len(ancillary), len(self.agent.ancillary_brs))
+            if ancillary:
+                bridges = [br.br_name for br in self.agent.ancillary_brs]
+                for br in ancillary:
+                    self.assertIn(br, bridges)
+
+    def test_ancillary_bridges_single(self):
+        bridges = ['br-int', 'br-ex']
+        self._test_ancillary_bridges(bridges, ['br-ex'])
+
+    def test_ancillary_bridges_none(self):
+        bridges = ['br-int']
+        self._test_ancillary_bridges(bridges, [])
+
+    def test_ancillary_bridges_multiple(self):
+        bridges = ['br-int', 'br-ex1', 'br-ex2']
+        self._test_ancillary_bridges(bridges, ['br-ex1', 'br-ex2'])

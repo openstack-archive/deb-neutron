@@ -29,7 +29,7 @@ from neutron.db import models_v2
 from neutron.openstack.common import importutils
 from neutron.plugins.cisco.common import cisco_constants as const
 from neutron.plugins.cisco.common import cisco_exceptions as cexc
-from neutron.plugins.cisco.common import config  # noqa
+from neutron.plugins.cisco.common import config
 from neutron.plugins.cisco.db import network_db_v2 as cdb
 
 LOG = logging.getLogger(__name__)
@@ -37,7 +37,6 @@ LOG = logging.getLogger(__name__)
 
 class PluginV2(db_base_plugin_v2.NeutronDbPluginV2):
     """Meta-Plugin with v2 API support for multiple sub-plugins."""
-
     supported_extension_aliases = ["Cisco Credential", "Cisco qos"]
     _methods_to_delegate = ['create_network',
                             'delete_network', 'update_network', 'get_network',
@@ -282,12 +281,7 @@ class PluginV2(db_base_plugin_v2.NeutronDbPluginV2):
     def get_qos_details(self, tenant_id, qos_id):
         """Get QoS Details."""
         LOG.debug(_("get_qos_details() called"))
-        try:
-            qos_level = cdb.get_qos(tenant_id, qos_id)
-        except Exception:
-            raise cexc.QosNotFound(tenant_id=tenant_id,
-                                   qos_id=qos_id)
-        return qos_level
+        return cdb.get_qos(tenant_id, qos_id)
 
     def create_qos(self, tenant_id, qos_name, qos_desc):
         """Create a QoS level."""
@@ -298,68 +292,36 @@ class PluginV2(db_base_plugin_v2.NeutronDbPluginV2):
     def delete_qos(self, tenant_id, qos_id):
         """Delete a QoS level."""
         LOG.debug(_("delete_qos() called"))
-        try:
-            cdb.get_qos(tenant_id, qos_id)
-        except Exception:
-            raise cexc.QosNotFound(tenant_id=tenant_id,
-                                   qos_id=qos_id)
         return cdb.remove_qos(tenant_id, qos_id)
 
     def rename_qos(self, tenant_id, qos_id, new_name):
         """Rename QoS level."""
         LOG.debug(_("rename_qos() called"))
-        try:
-            cdb.get_qos(tenant_id, qos_id)
-        except Exception:
-            raise cexc.QosNotFound(tenant_id=tenant_id,
-                                   qos_id=qos_id)
-        qos = cdb.update_qos(tenant_id, qos_id, new_name)
-        return qos
+        return cdb.update_qos(tenant_id, qos_id, new_name)
 
-    def get_all_credentials(self, tenant_id):
+    def get_all_credentials(self):
         """Get all credentials."""
         LOG.debug(_("get_all_credentials() called"))
-        credential_list = cdb.get_all_credentials(tenant_id)
+        credential_list = cdb.get_all_credentials()
         return credential_list
 
-    def get_credential_details(self, tenant_id, credential_id):
+    def get_credential_details(self, credential_id):
         """Get a particular credential."""
         LOG.debug(_("get_credential_details() called"))
         try:
-            credential = cdb.get_credential(tenant_id, credential_id)
-        except Exception:
-            raise cexc.CredentialNotFound(tenant_id=tenant_id,
-                                          credential_id=credential_id)
+            credential = cdb.get_credential(credential_id)
+        except exc.NotFound:
+            raise cexc.CredentialNotFound(credential_id=credential_id)
         return credential
 
-    def create_credential(self, tenant_id, credential_name, user_name,
-                          password):
-        """Create a new credential."""
-        LOG.debug(_("create_credential() called"))
-        credential = cdb.add_credential(tenant_id, credential_name,
-                                        user_name, password)
-        return credential
-
-    def delete_credential(self, tenant_id, credential_id):
-        """Delete a credential."""
-        LOG.debug(_("delete_credential() called"))
-        try:
-            credential = cdb.get_credential(tenant_id, credential_id)
-        except Exception:
-            raise cexc.CredentialNotFound(tenant_id=tenant_id,
-                                          credential_id=credential_id)
-        credential = cdb.remove_credential(tenant_id, credential_id)
-        return credential
-
-    def rename_credential(self, tenant_id, credential_id, new_name):
+    def rename_credential(self, credential_id, new_name):
         """Rename the particular credential resource."""
         LOG.debug(_("rename_credential() called"))
         try:
-            credential = cdb.get_credential(tenant_id, credential_id)
-        except Exception:
-            raise cexc.CredentialNotFound(tenant_id=tenant_id,
-                                          credential_id=credential_id)
-        credential = cdb.update_credential(tenant_id, credential_id, new_name)
+            credential = cdb.get_credential(credential_id)
+        except exc.NotFound:
+            raise cexc.CredentialNotFound(credential_id=credential_id)
+        credential = cdb.update_credential(credential_id, new_name)
         return credential
 
     def schedule_host(self, tenant_id, instance_id, instance_desc):

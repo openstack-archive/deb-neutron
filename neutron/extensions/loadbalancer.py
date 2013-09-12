@@ -49,6 +49,16 @@ class HealthMonitorNotFound(qexception.NotFound):
     message = _("Health_monitor %(monitor_id)s could not be found")
 
 
+class PoolMonitorAssociationNotFound(qexception.NotFound):
+    message = _("Monitor %(monitor_id)s is not associated "
+                "with Pool %(pool_id)s")
+
+
+class PoolMonitorAssociationExists(qexception.Conflict):
+    message = _('health_monitor %(monitor_id)s is already associated '
+                'with pool %(pool_id)s')
+
+
 class StateInvalid(qexception.NeutronException):
     message = _("Invalid state %(state)s of Loadbalancer resource %(id)s")
 
@@ -124,7 +134,9 @@ RESOURCE_ATTRIBUTE_MAP = {
                            'convert_to': attr.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
-                   'is_visible': True}
+                   'is_visible': True},
+        'status_description': {'allow_post': False, 'allow_put': False,
+                               'is_visible': True}
     },
     'pools': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -150,6 +162,9 @@ RESOURCE_ATTRIBUTE_MAP = {
         'protocol': {'allow_post': True, 'allow_put': False,
                      'validate': {'type:values': ['TCP', 'HTTP', 'HTTPS']},
                      'is_visible': True},
+        'provider': {'allow_post': True, 'allow_put': False,
+                     'validate': {'type:string': None},
+                     'is_visible': True, 'default': attr.ATTR_NOT_SPECIFIED},
         'lb_method': {'allow_post': True, 'allow_put': True,
                       'validate': {'type:string': None},
                       'is_visible': True},
@@ -160,12 +175,16 @@ RESOURCE_ATTRIBUTE_MAP = {
                             'validate': {'type:uuid_list': None},
                             'convert_to': attr.convert_to_list,
                             'is_visible': True},
+        'health_monitors_status': {'allow_post': False, 'allow_put': False,
+                                   'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
                            'convert_to': attr.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
-                   'is_visible': True}
+                   'is_visible': True},
+        'status_description': {'allow_post': False, 'allow_put': False,
+                               'is_visible': True}
     },
     'members': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -196,7 +215,9 @@ RESOURCE_ATTRIBUTE_MAP = {
                            'convert_to': attr.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
-                   'is_visible': True}
+                   'is_visible': True},
+        'status_description': {'allow_post': False, 'allow_put': False,
+                               'is_visible': True}
     },
     'health_monitors': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -240,7 +261,11 @@ RESOURCE_ATTRIBUTE_MAP = {
                            'convert_to': attr.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
-                   'is_visible': True}
+                   'is_visible': True},
+        'status_description': {'allow_post': False, 'allow_put': False,
+                               'is_visible': True},
+        'pools': {'allow_post': False, 'allow_put': False,
+                  'is_visible': True}
     }
 }
 
@@ -285,6 +310,7 @@ class Loadbalancer(extensions.ExtensionDescriptor):
     @classmethod
     def get_resources(cls):
         my_plurals = [(key, key[:-1]) for key in RESOURCE_ATTRIBUTE_MAP.keys()]
+        my_plurals.append(('health_monitors_status', 'health_monitor_status'))
         attr.PLURALS.update(dict(my_plurals))
         resources = []
         plugin = manager.NeutronManager.get_service_plugins()[

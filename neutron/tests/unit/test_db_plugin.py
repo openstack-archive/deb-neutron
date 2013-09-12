@@ -40,6 +40,7 @@ from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import models_v2
 from neutron.manager import NeutronManager
+from neutron.openstack.common import importutils
 from neutron.openstack.common import timeutils
 from neutron.tests import base
 from neutron.tests.unit import test_extensions
@@ -76,7 +77,8 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
     fmt = 'json'
     resource_prefix_map = {}
 
-    def setUp(self, plugin=None, service_plugins=None):
+    def setUp(self, plugin=None, service_plugins=None,
+              ext_mgr=None):
         super(NeutronDbPluginV2TestCase, self).setUp()
 
         # Make sure at each test a new instance of the plugin is returned
@@ -118,7 +120,8 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
         cfg.CONF.set_override('allow_pagination', True)
         cfg.CONF.set_override('allow_sorting', True)
         self.api = APIRouter()
-        # Set the defualt port status
+        # Set the defualt status
+        self.net_create_status = 'ACTIVE'
         self.port_create_status = 'ACTIVE'
 
         def _is_native_bulk_supported():
@@ -148,8 +151,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
                             native_sorting_attr_name, False))
 
         self._skip_native_sorting = not _is_native_sorting_support()
-
-        ext_mgr = test_config.get('extension_manager', None)
+        ext_mgr = ext_mgr or test_config.get('extension_manager')
         if ext_mgr:
             self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
 
@@ -200,10 +202,14 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
             'GET', resource, None, fmt, params=params, subresource=subresource
         )
 
-    def new_show_request(self, resource, id, fmt=None, subresource=None):
-        return self._req(
-            'GET', resource, None, fmt, id=id, subresource=subresource
-        )
+    def new_show_request(self, resource, id, fmt=None,
+                         subresource=None, fields=None):
+        if fields:
+            params = "&".join(["fields=%s" % x for x in fields])
+        else:
+            params = None
+        return self._req('GET', resource, None, fmt, id=id,
+                         params=params, subresource=subresource)
 
     def new_delete_request(self, resource, id, fmt=None, subresource=None,
                            sub_id=None):
@@ -307,8 +313,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
                            'cidr': cidr,
                            'ip_version': 4,
                            'tenant_id': self._tenant_id}}
-        for arg in ('allocation_pools',
-                    'ip_version', 'tenant_id',
+        for arg in ('ip_version', 'tenant_id',
                     'enable_dhcp', 'allocation_pools',
                     'dns_nameservers', 'host_routes',
                     'shared'):
@@ -481,7 +486,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
     def _do_side_effect(self, patched_plugin, orig, *args, **kwargs):
         """Invoked by test cases for injecting failures in plugin."""
         def second_call(*args, **kwargs):
-            raise q_exc.NeutronException
+            raise q_exc.NeutronException()
         patched_plugin.side_effect = second_call
         return orig(*args, **kwargs)
 
@@ -569,84 +574,96 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
                 if not no_delete:
                     self._delete('ports', port['port']['id'])
 
-    def _test_list_with_sort(self, collection, items, sorts, query_params=''):
+    def _test_list_with_sort(self, resource,
+                             items, sorts, resources=None, query_params=''):
         query_str = query_params
         for key, direction in sorts:
             query_str = query_str + "&sort_key=%s&sort_dir=%s" % (key,
                                                                   direction)
-        req = self.new_list_request('%ss' % collection,
+        if not resources:
+            resources = '%ss' % resource
+        req = self.new_list_request(resources,
                                     params=query_str)
-        api = self._api_for_resource('%ss' % collection)
+        api = self._api_for_resource(resources)
         res = self.deserialize(self.fmt, req.get_response(api))
-        collection = collection.replace('-', '_')
-        expected_res = [item[collection]['id'] for item in items]
-        self.assertEqual(sorted([n['id'] for n in res["%ss" % collection]]),
+        resource = resource.replace('-', '_')
+        resources = resources.replace('-', '_')
+        expected_res = [item[resource]['id'] for item in items]
+        self.assertEqual(sorted([n['id'] for n in res[resources]]),
                          sorted(expected_res))
 
-    def _test_list_with_pagination(self, collection, items, sort,
-                                   limit, expected_page_num, query_params='',
+    def _test_list_with_pagination(self, resource, items, sort,
+                                   limit, expected_page_num,
+                                   resources=None,
+                                   query_params='',
                                    verify_key='id'):
+        if not resources:
+            resources = '%ss' % resource
         query_str = query_params + '&' if query_params else ''
         query_str = query_str + ("limit=%s&sort_key=%s&"
                                  "sort_dir=%s") % (limit, sort[0], sort[1])
-        req = self.new_list_request("%ss" % collection, params=query_str)
+        req = self.new_list_request(resources, params=query_str)
         items_res = []
         page_num = 0
-        api = self._api_for_resource('%ss' % collection)
-        collection = collection.replace('-', '_')
+        api = self._api_for_resource(resources)
+        resource = resource.replace('-', '_')
+        resources = resources.replace('-', '_')
         while req:
             page_num = page_num + 1
             res = self.deserialize(self.fmt, req.get_response(api))
-            self.assertThat(len(res["%ss" % collection]),
+            self.assertThat(len(res[resources]),
                             matchers.LessThan(limit + 1))
-            items_res = items_res + res["%ss" % collection]
+            items_res = items_res + res[resources]
             req = None
-            if '%ss_links' % collection in res:
-                for link in res['%ss_links' % collection]:
+            if '%s_links' % resources in res:
+                for link in res['%s_links' % resources]:
                     if link['rel'] == 'next':
                         content_type = 'application/%s' % self.fmt
                         req = testlib_api.create_request(link['href'],
                                                          '', content_type)
-                        self.assertEqual(len(res["%ss" % collection]),
+                        self.assertEqual(len(res[resources]),
                                          limit)
         self.assertEqual(page_num, expected_page_num)
         self.assertEqual(sorted([n[verify_key] for n in items_res]),
-                         sorted([item[collection][verify_key]
+                         sorted([item[resource][verify_key]
                                 for item in items]))
 
-    def _test_list_with_pagination_reverse(self, collection, items, sort,
+    def _test_list_with_pagination_reverse(self, resource, items, sort,
                                            limit, expected_page_num,
+                                           resources=None,
                                            query_params=''):
-        resources = '%ss' % collection
-        collection = collection.replace('-', '_')
+        if not resources:
+            resources = '%ss' % resource
+        resource = resource.replace('-', '_')
         api = self._api_for_resource(resources)
-        marker = items[-1][collection]['id']
+        marker = items[-1][resource]['id']
         query_str = query_params + '&' if query_params else ''
         query_str = query_str + ("limit=%s&page_reverse=True&"
                                  "sort_key=%s&sort_dir=%s&"
                                  "marker=%s") % (limit, sort[0], sort[1],
                                                  marker)
         req = self.new_list_request(resources, params=query_str)
-        item_res = [items[-1][collection]]
+        item_res = [items[-1][resource]]
         page_num = 0
+        resources = resources.replace('-', '_')
         while req:
             page_num = page_num + 1
             res = self.deserialize(self.fmt, req.get_response(api))
-            self.assertThat(len(res["%ss" % collection]),
+            self.assertThat(len(res[resources]),
                             matchers.LessThan(limit + 1))
-            res["%ss" % collection].reverse()
-            item_res = item_res + res["%ss" % collection]
+            res[resources].reverse()
+            item_res = item_res + res[resources]
             req = None
-            if '%ss_links' % collection in res:
-                for link in res['%ss_links' % collection]:
+            if '%s_links' % resources in res:
+                for link in res['%s_links' % resources]:
                     if link['rel'] == 'previous':
                         content_type = 'application/%s' % self.fmt
                         req = testlib_api.create_request(link['href'],
                                                          '', content_type)
-                        self.assertEqual(len(res["%ss" % collection]),
+                        self.assertEqual(len(res[resources]),
                                          limit)
         self.assertEqual(page_num, expected_page_num)
-        expected_res = [item[collection]['id'] for item in items]
+        expected_res = [item[resource]['id'] for item in items]
         expected_res.reverse()
         self.assertEqual(sorted([n['id'] for n in item_res]),
                          sorted(expected_res))
@@ -1178,7 +1195,7 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                 self.assertEqual(ips[1]['subnet_id'], subnet['subnet']['id'])
 
     def test_update_port_update_ips(self):
-        """Update IP and generate new IP on port.
+        """Update IP and associate new IP on port.
 
         Check a port update with the specified subnet_id's. A IP address
         will be allocated for each subnet_id.
@@ -1187,7 +1204,8 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             with self.port(subnet=subnet) as port:
                 data = {'port': {'admin_state_up': False,
                                  'fixed_ips': [{'subnet_id':
-                                                subnet['subnet']['id']}]}}
+                                                subnet['subnet']['id'],
+                                                'ip_address': '10.0.0.3'}]}}
                 req = self.new_update_request('ports', data,
                                               port['port']['id'])
                 res = self.deserialize(self.fmt, req.get_response(self.api))
@@ -1214,9 +1232,9 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                                  data['port']['admin_state_up'])
                 ips = res['port']['fixed_ips']
                 self.assertEqual(len(ips), 2)
-                self.assertEqual(ips[0]['ip_address'], '10.0.0.3')
+                self.assertEqual(ips[0]['ip_address'], '10.0.0.2')
                 self.assertEqual(ips[0]['subnet_id'], subnet['subnet']['id'])
-                self.assertEqual(ips[1]['ip_address'], '10.0.0.4')
+                self.assertEqual(ips[1]['ip_address'], '10.0.0.3')
                 self.assertEqual(ips[1]['subnet_id'], subnet['subnet']['id'])
 
     def test_requested_duplicate_mac(self):
@@ -1621,57 +1639,6 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             res = port_req.get_response(self.api)
             self.assertEqual(res.status_int, 400)
 
-    def test_default_allocation_expiration(self):
-        cfg.CONF.set_override('dhcp_lease_duration', 120)
-        reference = datetime.datetime(2012, 8, 13, 23, 11, 0)
-
-        with mock.patch.object(timeutils, 'utcnow') as mock_utcnow:
-            mock_utcnow.return_value = reference
-
-            plugin = NeutronManager.get_plugin()
-            expires = plugin._default_allocation_expiration()
-            self.assertEqual(expires,
-                             reference + datetime.timedelta(seconds=120))
-
-    def test_update_fixed_ip_lease_expiration(self):
-        cfg.CONF.set_override('dhcp_lease_duration', 10)
-        plugin = NeutronManager.get_plugin()
-        with self.subnet() as subnet:
-            with self.port(subnet=subnet) as port:
-                update_context = context.Context('', port['port']['tenant_id'])
-                plugin.update_fixed_ip_lease_expiration(
-                    update_context,
-                    subnet['subnet']['network_id'],
-                    port['port']['fixed_ips'][0]['ip_address'],
-                    500)
-
-                q = update_context.session.query(models_v2.IPAllocation)
-                q = q.filter_by(
-                    port_id=port['port']['id'],
-                    ip_address=port['port']['fixed_ips'][0]['ip_address'])
-
-                ip_allocation = q.one()
-
-                self.assertThat(
-                    ip_allocation.expiration - timeutils.utcnow(),
-                    matchers.GreaterThan(datetime.timedelta(seconds=10)))
-
-    def test_port_delete_holds_ip(self):
-        base_class = db_base_plugin_v2.NeutronDbPluginV2
-        with mock.patch.object(base_class, '_hold_ip') as hold_ip:
-            with self.subnet() as subnet:
-                with self.port(subnet=subnet, no_delete=True) as port:
-                    req = self.new_delete_request('ports', port['port']['id'])
-                    res = req.get_response(self.api)
-                    self.assertEqual(res.status_int, 204)
-
-                    hold_ip.assert_called_once_with(
-                        mock.ANY,
-                        port['port']['network_id'],
-                        port['port']['fixed_ips'][0]['subnet_id'],
-                        port['port']['id'],
-                        port['port']['fixed_ips'][0]['ip_address'])
-
     def test_update_fixed_ip_lease_expiration_invalid_address(self):
         cfg.CONF.set_override('dhcp_lease_duration', 10)
         plugin = NeutronManager.get_plugin()
@@ -1686,67 +1653,27 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                         120)
                     self.assertTrue(log.mock_calls)
 
-    def test_hold_ip_address(self):
+    def test_recycle_ip_address_without_allocation_pool(self):
         plugin = NeutronManager.get_plugin()
-        with self.subnet() as subnet:
-            with self.port(subnet=subnet) as port:
+        allocation_pools = [{"start": '10.0.0.10',
+                             "end": '10.0.0.50'}]
+        with self.subnet(cidr='10.0.0.0/24',
+                         allocation_pools=allocation_pools) as subnet:
+            network_id = subnet['subnet']['network_id']
+            subnet_id = subnet['subnet']['id']
+            fixed_ips = [{"subnet_id": subnet_id,
+                          "ip_address": '10.0.0.100'}]
+            with self.port(subnet=subnet, fixed_ips=fixed_ips) as port:
                 update_context = context.Context('', port['port']['tenant_id'])
-                port_id = port['port']['id']
-                with mock.patch.object(db_base_plugin_v2, 'LOG') as log:
-                    ip_address = port['port']['fixed_ips'][0]['ip_address']
-                    plugin._hold_ip(
-                        update_context,
-                        subnet['subnet']['network_id'],
-                        subnet['subnet']['id'],
-                        port_id,
-                        ip_address)
-                    self.assertTrue(log.mock_calls)
+                ip_address = port['port']['fixed_ips'][0]['ip_address']
+                plugin._recycle_ip(update_context,
+                                   network_id,
+                                   subnet_id,
+                                   ip_address)
 
-                    q = update_context.session.query(models_v2.IPAllocation)
-                    q = q.filter_by(port_id=None, ip_address=ip_address)
-
-                self.assertEqual(q.count(), 1)
-
-    def test_recycle_held_ip_address(self):
-        plugin = NeutronManager.get_plugin()
-        with self.subnet() as subnet:
-            with self.port(subnet=subnet) as port:
-                update_context = context.Context('', port['port']['tenant_id'])
-                port_id = port['port']['id']
-                port_obj = plugin._get_port(update_context, port_id)
-
-                for fixed_ip in port_obj.fixed_ips:
-                    fixed_ip.active = False
-                    fixed_ip.expiration = datetime.datetime.utcnow()
-
-                with mock.patch.object(plugin, '_recycle_ip') as rc:
-                    plugin._recycle_expired_ip_allocations(
-                        update_context, subnet['subnet']['network_id'])
-                    rc.assertEqual(len(rc.mock_calls), 1)
-                    self.assertEqual(update_context._recycled_networks,
-                                     set([subnet['subnet']['network_id']]))
-
-    def test_recycle_expired_previously_run_within_context(self):
-        plugin = NeutronManager.get_plugin()
-        with self.subnet() as subnet:
-            with self.port(subnet=subnet) as port:
-                update_context = context.Context('', port['port']['tenant_id'])
-                port_id = port['port']['id']
-                port_obj = plugin._get_port(update_context, port_id)
-
-                update_context._recycled_networks = set(
-                    [subnet['subnet']['network_id']])
-
-                for fixed_ip in port_obj.fixed_ips:
-                    fixed_ip.active = False
-                    fixed_ip.expiration = datetime.datetime.utcnow()
-
-                with mock.patch.object(plugin, '_recycle_ip') as rc:
-                    plugin._recycle_expired_ip_allocations(
-                        update_context, subnet['subnet']['network_id'])
-                    rc.assertFalse(rc.called)
-                    self.assertEqual(update_context._recycled_networks,
-                                     set([subnet['subnet']['network_id']]))
+                q = update_context.session.query(models_v2.IPAllocation)
+                q = q.filter_by(subnet_id=subnet_id)
+                self.assertEqual(q.count(), 0)
 
     def test_max_fixed_ips_exceeded(self):
         with self.subnet(gateway_ip='10.0.0.3',
@@ -1787,7 +1714,7 @@ class TestNetworksV2(NeutronDbPluginV2TestCase):
     def test_create_network(self):
         name = 'net1'
         keys = [('subnets', []), ('name', name), ('admin_state_up', True),
-                ('status', 'ACTIVE'), ('shared', False)]
+                ('status', self.net_create_status), ('shared', False)]
         with self.network(name=name) as net:
             for k, v in keys:
                 self.assertEqual(net['network'][k], v)
@@ -1795,7 +1722,7 @@ class TestNetworksV2(NeutronDbPluginV2TestCase):
     def test_create_public_network(self):
         name = 'public_net'
         keys = [('subnets', []), ('name', name), ('admin_state_up', True),
-                ('status', 'ACTIVE'), ('shared', True)]
+                ('status', self.net_create_status), ('shared', True)]
         with self.network(name=name, shared=True) as net:
             for k, v in keys:
                 self.assertEqual(net['network'][k], v)
@@ -3019,10 +2946,10 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
             req = self.new_update_request('subnets', data,
                                           res['subnet']['id'])
             res = self.deserialize(self.fmt, req.get_response(self.api))
-            self.assertEquals(sorted(res['subnet']['host_routes']),
-                              sorted(host_routes))
-            self.assertEquals(sorted(res['subnet']['dns_nameservers']),
-                              sorted(dns_nameservers))
+            self.assertEqual(sorted(res['subnet']['host_routes']),
+                             sorted(host_routes))
+            self.assertEqual(sorted(res['subnet']['dns_nameservers']),
+                             sorted(dns_nameservers))
 
     def test_update_subnet_shared_returns_400(self):
         with self.network(shared=True) as network:
@@ -3042,6 +2969,23 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
                                               subnet['subnet']['id'])
                 res = req.get_response(self.api)
                 self.assertEqual(res.status_int, 400)
+
+    def test_update_subnet_gw_ip_in_use_returns_409(self):
+        with self.network() as network:
+            with self.subnet(
+                network=network,
+                allocation_pools=[{'start': '10.0.0.100',
+                                   'end': '10.0.0.253'}]) as subnet:
+                subnet_data = subnet['subnet']
+                with self.port(
+                    subnet=subnet,
+                    fixed_ips=[{'subnet_id': subnet_data['id'],
+                                'ip_address': subnet_data['gateway_ip']}]):
+                    data = {'subnet': {'gateway_ip': '10.0.0.99'}}
+                    req = self.new_update_request('subnets', data,
+                                                  subnet_data['id'])
+                    res = req.get_response(self.api)
+                    self.assertEqual(res.status_int, 409)
 
     def test_update_subnet_inconsistent_ipv4_gatewayv6(self):
         with self.network() as network:
@@ -3510,6 +3454,37 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
         res = req.get_response(self.api)
         self.assertEqual(res.status_int, 204)
 
+    def _helper_test_validate_subnet(self, option, exception):
+        cfg.CONF.set_override(option, 0)
+        with self.network() as network:
+            subnet = {'network_id': network['network']['id'],
+                      'cidr': '10.0.2.0/24',
+                      'ip_version': 4,
+                      'tenant_id': network['network']['tenant_id'],
+                      'gateway_ip': '10.0.2.1',
+                      'dns_nameservers': ['8.8.8.8'],
+                      'host_routes': [{'destination': '135.207.0.0/16',
+                                       'nexthop': '1.2.3.4'}]}
+            plugin = NeutronManager.get_plugin()
+            e = self.assertRaises(exception,
+                                  plugin._validate_subnet,
+                                  context.get_admin_context(
+                                      load_admin_roles=False),
+                                  subnet)
+            self.assertThat(
+                str(e),
+                matchers.Not(matchers.Contains('built-in function id')))
+
+    def test_validate_subnet_dns_nameservers_exhausted(self):
+        self._helper_test_validate_subnet(
+            'max_dns_nameservers',
+            q_exc.DNSNameServersExhausted)
+
+    def test_validate_subnet_host_routes_exhausted(self):
+        self._helper_test_validate_subnet(
+            'max_subnet_host_routes',
+            q_exc.HostRoutesExhausted)
+
 
 class DbModelTestCase(base.BaseTestCase):
     """DB model tests."""
@@ -3525,6 +3500,42 @@ class DbModelTestCase(base.BaseTestCase):
                         "admin_state_up=True, shared=None}>")
         final_exp = exp_start_with + exp_middle + exp_end_with
         self.assertEqual(actual_repr_output, final_exp)
+
+
+class NeutronDbPluginV2AsMixinTestCase(base.BaseTestCase):
+    """Tests for NeutronDbPluginV2 as Mixin.
+
+    While NeutronDbPluginV2TestCase checks NeutronDbPlugin and all plugins as
+    a complete plugin, this test case verifies abilities of NeutronDbPlugin
+    which are provided to other plugins (e.g. DB operations). This test case
+    may include tests only for NeutronDbPlugin, so this should not be used in
+    unit tests for other plugins.
+    """
+
+    def setUp(self):
+        super(NeutronDbPluginV2AsMixinTestCase, self).setUp()
+        self.plugin = importutils.import_object(DB_PLUGIN_KLASS)
+        self.context = context.get_admin_context()
+        self.net_data = {'network': {'id': 'fake-id',
+                                     'name': 'net1',
+                                     'admin_state_up': True,
+                                     'tenant_id': 'test-tenant',
+                                     'shared': False}}
+        self.addCleanup(db.clear_db)
+
+    def test_create_network_with_default_status(self):
+        net = self.plugin.create_network(self.context, self.net_data)
+        default_net_create_status = 'ACTIVE'
+        expected = [('id', 'fake-id'), ('name', 'net1'),
+                    ('admin_state_up', True), ('tenant_id', 'test-tenant'),
+                    ('shared', False), ('status', default_net_create_status)]
+        for k, v in expected:
+            self.assertEqual(net[k], v)
+
+    def test_create_network_with_status_BUILD(self):
+        self.net_data['network']['status'] = 'BUILD'
+        net = self.plugin.create_network(self.context, self.net_data)
+        self.assertEqual(net['status'], 'BUILD')
 
 
 class TestBasicGetXML(TestBasicGet):

@@ -45,7 +45,6 @@ RESOURCE_ATTRIBUTE_MAP = {
         'service_type': {'allow_post': True,
                          'allow_put': False,
                          'validate': {'type:servicetype_ref': None},
-                         'convert_to': servicetype.set_default_svctype_id,
                          'is_visible': True,
                          'default': None}
     }
@@ -95,6 +94,7 @@ class DummyServicePlugin(ServicePluginBase):
     """
 
     supported_extension_aliases = ['dummy', servicetype.EXT_ALIAS]
+    agent_notifiers = {'dummy': 'dummy_agent_notifier'}
 
     def __init__(self):
         self.svctype_mgr = servicetype_db.ServiceTypeManager.get_instance()

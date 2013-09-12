@@ -16,11 +16,9 @@
 # @author: Salvatore Orlando, VMware
 
 import mock
-import os
 
 from neutron.common import constants
 from neutron.common import exceptions
-import neutron.plugins.nicira as nvp_plugin
 from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions as nvp_exc
 from neutron.plugins.nicira import nvp_cluster
@@ -28,9 +26,11 @@ from neutron.plugins.nicira import NvpApiClient
 from neutron.plugins.nicira import nvplib
 from neutron.tests import base
 from neutron.tests.unit.nicira import fake_nvpapiclient
+from neutron.tests.unit.nicira import NVPAPI_NAME
+from neutron.tests.unit.nicira import STUBS_PATH
 from neutron.tests.unit import test_api_v2
 
-NICIRA_PKG_PATH = nvp_plugin.__name__
+
 _uuid = test_api_v2._uuid
 
 
@@ -38,13 +38,11 @@ class NvplibTestCase(base.BaseTestCase):
 
     def setUp(self):
         # mock nvp api client
-        etc_path = os.path.join(os.path.dirname(__file__), 'etc')
-        self.fc = fake_nvpapiclient.FakeClient(etc_path)
-        self.mock_nvpapi = mock.patch('%s.NvpApiClient.NVPApiHelper'
-                                      % NICIRA_PKG_PATH, autospec=True)
+        self.fc = fake_nvpapiclient.FakeClient(STUBS_PATH)
+        self.mock_nvpapi = mock.patch(NVPAPI_NAME, autospec=True)
         instance = self.mock_nvpapi.start()
         instance.return_value.login.return_value = "the_cookie"
-        fake_version = getattr(self, 'fake_version', "2.9")
+        fake_version = getattr(self, 'fake_version', "3.0")
         instance.return_value.get_nvp_version.return_value = (
             NvpApiClient.NVPVersion(fake_version))
 
@@ -104,16 +102,15 @@ class NvplibNegativeTests(base.BaseTestCase):
 
     def setUp(self):
         # mock nvp api client
-        etc_path = os.path.join(os.path.dirname(__file__), 'etc')
-        self.fc = fake_nvpapiclient.FakeClient(etc_path)
-        self.mock_nvpapi = mock.patch('%s.NvpApiClient.NVPApiHelper'
-                                      % NICIRA_PKG_PATH, autospec=True)
+        self.fc = fake_nvpapiclient.FakeClient(STUBS_PATH)
+        self.mock_nvpapi = mock.patch(NVPAPI_NAME, autospec=True)
         instance = self.mock_nvpapi.start()
         instance.return_value.login.return_value = "the_cookie"
-        # Choose 2.9, but the version is irrelevant for the aim of
+        # Choose 3.0, but the version is irrelevant for the aim of
         # these tests as calls are throwing up errors anyway
-        self.fake_version = NvpApiClient.NVPVersion('2.9')
-        instance.return_value.get_nvp_version.return_value = self.fake_version
+        fake_version = getattr(self, 'fake_version', "3.0")
+        instance.return_value.get_nvp_version.return_value = (
+            NvpApiClient.NVPVersion(fake_version))
 
         def _faulty_request(*args, **kwargs):
             raise nvplib.NvpApiClient.NvpApiException
@@ -258,8 +255,10 @@ class TestNvplibL2Gateway(NvplibTestCase):
     def test_plug_l2_gw_port_attachment(self):
         tenant_id = 'pippo'
         node_uuid = _uuid()
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster, tenant_id,
-                                        'fake-switch')
+                                        'fake-switch', transport_zones_config)
         gw_id = self._create_gw_service(node_uuid, 'fake-gw')['uuid']
         lport = nvplib.create_lport(self.fake_cluster,
                                     lswitch['uuid'],
@@ -287,9 +286,12 @@ class TestNvplibLogicalSwitches(NvplibTestCase):
 
     def test_create_and_get_lswitches_single(self):
         tenant_id = 'pippo'
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
                                         tenant_id,
-                                        'fake-switch')
+                                        'fake-switch',
+                                        transport_zones_config)
         res_lswitch = nvplib.get_lswitches(self.fake_cluster,
                                            lswitch['uuid'])
         self.assertEqual(len(res_lswitch), 1)
@@ -298,9 +300,12 @@ class TestNvplibLogicalSwitches(NvplibTestCase):
 
     def test_create_and_get_lswitches_single_name_exceeds_40_chars(self):
         tenant_id = 'pippo'
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
                                         tenant_id,
-                                        '*' * 50)
+                                        '*' * 50,
+                                        transport_zones_config)
         res_lswitch = nvplib.get_lswitches(self.fake_cluster,
                                            lswitch['uuid'])
         self.assertEqual(len(res_lswitch), 1)
@@ -309,12 +314,16 @@ class TestNvplibLogicalSwitches(NvplibTestCase):
 
     def test_create_and_get_lswitches_multiple(self):
         tenant_id = 'pippo'
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         main_lswitch = nvplib.create_lswitch(
             self.fake_cluster, tenant_id, 'fake-switch',
+            transport_zones_config,
             tags=[{'scope': 'multi_lswitch', 'tag': 'True'}])
         # Create secondary lswitch
         nvplib.create_lswitch(
             self.fake_cluster, tenant_id, 'fake-switch-2',
+            transport_zones_config,
             neutron_net_id=main_lswitch['uuid'])
         res_lswitch = nvplib.get_lswitches(self.fake_cluster,
                                            main_lswitch['uuid'])
@@ -333,9 +342,12 @@ class TestNvplibLogicalSwitches(NvplibTestCase):
     def test_update_lswitch(self):
         new_name = 'new-name'
         new_tags = [{'scope': 'new_tag', 'tag': 'xxx'}]
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
                                         'pippo',
-                                        'fake-switch')
+                                        'fake-switch',
+                                        transport_zones_config)
         nvplib.update_lswitch(self.fake_cluster, lswitch['uuid'],
                               new_name, tags=new_tags)
         res_lswitch = nvplib.get_lswitches(self.fake_cluster,
@@ -353,9 +365,12 @@ class TestNvplibLogicalSwitches(NvplibTestCase):
                           'foo', 'bar')
 
     def test_delete_networks(self):
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
                                         'pippo',
-                                        'fake-switch')
+                                        'fake-switch',
+                                        transport_zones_config)
         nvplib.delete_networks(self.fake_cluster, lswitch['uuid'],
                                [lswitch['uuid']])
         self.assertRaises(exceptions.NotFound,
@@ -380,7 +395,7 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
 
         router = {'display_name': router_name,
                   'uuid': router_id,
-                  'tags': [{'scope': 'quantum', 'tag': '2013.1'},
+                  'tags': [{'scope': 'quantum', 'tag': nvplib.NEUTRON_VERSION},
                            {'scope': 'os_tid', 'tag': '%s' % tenant_id}],
                   'distributed': False,
                   'routing_config': {'type': 'RoutingTableRoutingConfig',
@@ -420,7 +435,8 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                          'type': 'RouterNextHop'},
                     'type': 'SingleDefaultRouteImplicitRoutingConfig'},
                     'tags': [{'scope': 'os_tid', 'tag': 'fake_tenant_id'},
-                             {'scope': 'quantum', 'tag': '2013.1'}],
+                             {'scope': 'quantum',
+                              'tag': nvplib.NEUTRON_VERSION}],
                     'type': 'LogicalRouterConfig'}
         self.assertEqual(expected, body)
 
@@ -433,7 +449,8 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
         expected = {'display_name': 'fake_router_name',
                     'routing_config': {'type': 'RoutingTableRoutingConfig'},
                     'tags': [{'scope': 'os_tid', 'tag': 'fake_tenant_id'},
-                             {'scope': 'quantum', 'tag': '2013.1'}],
+                             {'scope': 'quantum',
+                              'tag': nvplib.NEUTRON_VERSION}],
                     'type': 'LogicalRouterConfig'}
         self.assertEqual(expected, body)
 
@@ -556,7 +573,8 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                         expected_uuid,
                         expected_display_name,
                         expected_nexthop,
-                        expected_tenant_id):
+                        expected_tenant_id,
+                        expected_distributed=None):
         self.assertEqual(res_lrouter['uuid'], expected_uuid)
         nexthop = (res_lrouter['routing_config']
                    ['default_route_next_hop']['gateway_ip_address'])
@@ -565,6 +583,9 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         self.assertIn('os_tid', router_tags)
         self.assertEqual(res_lrouter['display_name'], expected_display_name)
         self.assertEqual(expected_tenant_id, router_tags['os_tid'])
+        if expected_distributed is not None:
+            self.assertEqual(expected_distributed,
+                             res_lrouter['distributed'])
 
     def test_get_lrouters(self):
         lrouter_uuids = [nvplib.create_lrouter(
@@ -574,15 +595,32 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         for router in routers:
             self.assertIn(router['uuid'], lrouter_uuids)
 
-    def test_create_and_get_lrouter(self):
-        lrouter = nvplib.create_lrouter(self.fake_cluster,
-                                        'pippo',
-                                        'fake-lrouter',
-                                        '10.0.0.1')
-        res_lrouter = nvplib.get_lrouter(self.fake_cluster,
-                                         lrouter['uuid'])
-        self._verify_lrouter(res_lrouter, lrouter['uuid'],
+    def _create_lrouter(self, version, distributed=None):
+        with mock.patch.object(
+            self.fake_cluster.api_client, 'get_nvp_version',
+            return_value=NvpApiClient.NVPVersion(version)):
+                lrouter = nvplib.create_lrouter(
+                    self.fake_cluster, 'pippo', 'fake-lrouter',
+                    '10.0.0.1', distributed=distributed)
+                return nvplib.get_lrouter(self.fake_cluster,
+                                          lrouter['uuid'])
+
+    def test_create_and_get_lrouter_v30(self):
+        res_lrouter = self._create_lrouter('3.0')
+        self._verify_lrouter(res_lrouter, res_lrouter['uuid'],
                              'fake-lrouter', '10.0.0.1', 'pippo')
+
+    def test_create_and_get_lrouter_v31_centralized(self):
+        res_lrouter = self._create_lrouter('3.1', distributed=False)
+        self._verify_lrouter(res_lrouter, res_lrouter['uuid'],
+                             'fake-lrouter', '10.0.0.1', 'pippo',
+                             expected_distributed=False)
+
+    def test_create_and_get_lrouter_v31_distributed(self):
+        res_lrouter = self._create_lrouter('3.1', distributed=True)
+        self._verify_lrouter(res_lrouter, res_lrouter['uuid'],
+                             'fake-lrouter', '10.0.0.1', 'pippo',
+                             expected_distributed=True)
 
     def test_create_and_get_lrouter_name_exceeds_40chars(self):
         display_name = '*' * 50
@@ -844,8 +882,11 @@ class TestNvplibLogicalRouters(NvplibTestCase):
 
     def test_plug_lrouter_port_patch_attachment(self):
         tenant_id = 'pippo'
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
-                                        tenant_id, 'fake-switch')
+                                        tenant_id, 'fake-switch',
+                                        transport_zones_config)
         lport = nvplib.create_lport(self.fake_cluster, lswitch['uuid'],
                                     tenant_id, 'xyz',
                                     'name', 'device_id', True)
@@ -906,7 +947,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
             'name', True, ['192.168.0.1'])
-        self.assertRaises(Exception,
+        self.assertRaises(nvp_exc.NvpInvalidAttachmentType,
                           nvplib.plug_router_port_attachment,
                           self.fake_cluster, lrouter['uuid'],
                           lrouter_port['uuid'], 'gw_att', 'BadType')
@@ -969,7 +1010,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         with mock.patch.object(self.fake_cluster.api_client,
                                'get_nvp_version',
                                new=lambda: '2.0'):
-            self.assertRaises(Exception,
+            self.assertRaises(AttributeError,
                               nvplib.create_lrouter_snat_rule,
                               self.fake_cluster, lrouter['uuid'],
                               '10.0.0.2', '10.0.0.2', order=200,
@@ -1217,8 +1258,11 @@ class TestNvplibLogicalPorts(NvplibTestCase):
 
     def _create_switch_and_port(self, tenant_id='pippo',
                                 neutron_port_id='whatever'):
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
-                                        tenant_id, 'fake-switch')
+                                        tenant_id, 'fake-switch',
+                                        transport_zones_config)
         lport = nvplib.create_lport(self.fake_cluster, lswitch['uuid'],
                                     tenant_id, neutron_port_id,
                                     'name', 'device_id', True)
@@ -1254,8 +1298,10 @@ class TestNvplibLogicalPorts(NvplibTestCase):
     def test_get_port_by_tag_not_found_returns_None(self):
         tenant_id = 'pippo'
         neutron_port_id = 'whatever'
+        transport_zones_config = [{'zone_uuid': _uuid(),
+                                   'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster, tenant_id,
-                                        'fake-switch')
+                                        'fake-switch', transport_zones_config)
         lport = nvplib.get_port_by_neutron_tag(self.fake_cluster,
                                                lswitch['uuid'],
                                                neutron_port_id)
@@ -1269,7 +1315,7 @@ class TestNvplibLogicalPorts(NvplibTestCase):
         self.assertEqual(constants.PORT_STATUS_ACTIVE, status)
 
     def test_get_port_status_non_existent_raises(self):
-        self.assertRaises(exceptions.PortNotFound,
+        self.assertRaises(exceptions.PortNotFoundOnNetwork,
                           nvplib.get_port_status,
                           self.fake_cluster,
                           'boo', 'boo')
@@ -1290,7 +1336,7 @@ class TestNvplibLogicalPorts(NvplibTestCase):
         self.assertIn('vm_id', port_tags)
 
     def test_update_non_existent_port_raises(self):
-        self.assertRaises(exceptions.PortNotFound,
+        self.assertRaises(exceptions.PortNotFoundOnNetwork,
                           nvplib.update_port, self.fake_cluster,
                           'boo', 'boo', 'boo', 'boo', 'boo', 'boo', False)
 
@@ -1298,13 +1344,13 @@ class TestNvplibLogicalPorts(NvplibTestCase):
         lswitch, lport = self._create_switch_and_port()
         nvplib.delete_port(self.fake_cluster,
                            lswitch['uuid'], lport['uuid'])
-        self.assertRaises(exceptions.PortNotFound,
+        self.assertRaises(exceptions.PortNotFoundOnNetwork,
                           nvplib.get_port, self.fake_cluster,
                           lswitch['uuid'], lport['uuid'])
 
     def test_delete_non_existent_port_raises(self):
         lswitch = self._create_switch_and_port()[0]
-        self.assertRaises(exceptions.PortNotFound,
+        self.assertRaises(exceptions.PortNotFoundOnNetwork,
                           nvplib.delete_port, self.fake_cluster,
                           lswitch['uuid'], 'bad_port_uuid')
 
@@ -1322,7 +1368,7 @@ class TestNvplibLogicalPorts(NvplibTestCase):
             self.assertIn(res_port['uuid'], switch_port_uuids)
 
 
-class TestNvplibClusterVersion(NvplibTestCase):
+class TestNvplibClusterManagement(NvplibTestCase):
 
     def test_get_cluster_version(self):
 
@@ -1334,7 +1380,6 @@ class TestNvplibClusterVersion(NvplibTestCase):
                 return {'result_count': 1,
                         'results': [{'uuid': 'xyz'}]}
 
-        # mock do_request
         with mock.patch.object(nvplib, 'do_request', new=fakedorequest):
             version = nvplib.get_cluster_version('whatever')
             self.assertEqual(version, '3.0')
@@ -1345,10 +1390,56 @@ class TestNvplibClusterVersion(NvplibTestCase):
             if 'node' in uri:
                 return {'result_count': 0}
 
-        # mock do_request
         with mock.patch.object(nvplib, 'do_request', new=fakedorequest):
             version = nvplib.get_cluster_version('whatever')
             self.assertIsNone(version)
+
+    def test_cluster_in_readonly_mode(self):
+        with mock.patch.object(self.fake_cluster.api_client,
+                               'request',
+                               side_effect=NvpApiClient.ReadOnlyMode):
+            self.assertRaises(nvp_exc.MaintenanceInProgress,
+                              nvplib.do_request, cluster=self.fake_cluster)
+
+    def test_cluster_method_not_implemetned(self):
+        self.assertRaises(NvpApiClient.NvpApiException,
+                          nvplib.do_request,
+                          nvplib.HTTP_GET,
+                          nvplib._build_uri_path('MY_FAKE_RESOURCE',
+                                                 resource_id='foo'),
+                          cluster=self.fake_cluster)
+
+
+class TestNvplibVersioning(base.BaseTestCase):
+
+    def test_function_handling_missing_minor(self):
+        version = NvpApiClient.NVPVersion('2.0')
+        function = nvplib.get_function_by_version('create_lrouter', version)
+        self.assertEqual(nvplib.create_implicit_routing_lrouter,
+                         function)
+
+    def test_function_handling_with_both_major_and_minor(self):
+        version = NvpApiClient.NVPVersion('3.2')
+        function = nvplib.get_function_by_version('create_lrouter', version)
+        self.assertEqual(nvplib.create_explicit_routing_lrouter,
+                         function)
+
+    def test_function_handling_with_newer_major(self):
+        version = NvpApiClient.NVPVersion('5.2')
+        function = nvplib.get_function_by_version('create_lrouter', version)
+        self.assertEqual(nvplib.create_explicit_routing_lrouter,
+                         function)
+
+    def test_function_handling_with_obsolete_major(self):
+        version = NvpApiClient.NVPVersion('1.2')
+        self.assertRaises(NotImplementedError,
+                          nvplib.get_function_by_version,
+                          'create_lrouter', version)
+
+    def test_function_handling_with_unknown_version(self):
+        self.assertRaises(NvpApiClient.ServiceUnavailable,
+                          nvplib.get_function_by_version,
+                          'create_lrouter', None)
 
 
 def _nicira_method(method_name, module_name='nvplib'):

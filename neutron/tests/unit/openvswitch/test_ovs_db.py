@@ -1,24 +1,30 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+#
 # Copyright (c) 2012 OpenStack Foundation.
 #
-# Licensed under the Apache License, Version 2.0 (the 'License');
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
 import testtools
 from testtools import matchers
 
 from neutron.common import exceptions as q_exc
 from neutron.db import api as db
+from neutron.openstack.common.db import exception as db_exc
+from neutron.openstack.common.db.sqlalchemy import session
 from neutron.plugins.openvswitch import ovs_db_v2
+from neutron.plugins.openvswitch import ovs_models_v2 as ovs_models
 from neutron.tests import base
 from neutron.tests.unit import test_db_plugin as test_plugin
 
@@ -233,10 +239,10 @@ class TunnelAllocationsTest(base.BaseTestCase):
     def test_add_tunnel_endpoints(self):
         tun_1 = ovs_db_v2.add_tunnel_endpoint('192.168.0.1')
         tun_2 = ovs_db_v2.add_tunnel_endpoint('192.168.0.2')
-        self.assertEquals(1, tun_1.id)
-        self.assertEquals('192.168.0.1', tun_1.ip_address)
-        self.assertEquals(2, tun_2.id)
-        self.assertEquals('192.168.0.2', tun_2.ip_address)
+        self.assertEqual(1, tun_1.id)
+        self.assertEqual('192.168.0.1', tun_1.ip_address)
+        self.assertEqual(2, tun_2.id)
+        self.assertEqual('192.168.0.2', tun_2.ip_address)
 
     def test_specific_tunnel_inside_pool(self):
         tunnel_id = TUN_MIN + 5
@@ -261,6 +267,30 @@ class TunnelAllocationsTest(base.BaseTestCase):
 
         ovs_db_v2.release_tunnel(self.session, tunnel_id, TUNNEL_RANGES)
         self.assertIsNone(ovs_db_v2.get_tunnel_allocation(tunnel_id))
+
+    def test_add_tunnel_endpoint_create_new_endpoint(self):
+        addr = '10.0.0.1'
+        ovs_db_v2.add_tunnel_endpoint(addr)
+        self.assertIsNotNone(self.session.query(ovs_models.TunnelEndpoint).
+                             filter_by(ip_address=addr).first())
+
+    def test_add_tunnel_endpoint_retrieve_an_existing_endpoint(self):
+        addr = '10.0.0.1'
+        self.session.add(ovs_models.TunnelEndpoint(ip_address=addr, id=1))
+        self.session.flush()
+
+        tunnel = ovs_db_v2.add_tunnel_endpoint(addr)
+        self.assertEqual(tunnel.id, 1)
+        self.assertEqual(tunnel.ip_address, addr)
+
+    def test_add_tunnel_endpoint_handle_duplicate_error(self):
+        with mock.patch.object(session.Session, 'query') as query_mock:
+            error = db_exc.DBDuplicateEntry(['id'])
+            query_mock.side_effect = error
+
+            with testtools.ExpectedException(q_exc.NeutronException):
+                ovs_db_v2.add_tunnel_endpoint('10.0.0.1', 5)
+            self.assertEqual(query_mock.call_count, 5)
 
 
 class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):

@@ -38,7 +38,7 @@ BALANCE_MAP = {
 }
 
 STATS_MAP = {
-    constants.STATS_CURRENT_CONNECTIONS: 'qcur',
+    constants.STATS_ACTIVE_CONNECTIONS: 'qcur',
     constants.STATS_MAX_CONNECTIONS: 'qmax',
     constants.STATS_CURRENT_SESSIONS: 'scur',
     constants.STATS_MAX_SESSIONS: 'smax',
@@ -158,7 +158,11 @@ def _get_first_ip_from_port(port):
 def _get_server_health_option(config):
     """return the first active health option."""
     for monitor in config['healthmonitors']:
-        if monitor['status'] == ACTIVE and monitor['admin_state_up']:
+        # not checking the status of healthmonitor for two reasons:
+        # 1) status field is absent in HealthMonitor model
+        # 2) only active HealthMonitors are fetched with
+        # LoadBalancerCallbacks.get_logical_device
+        if monitor['admin_state_up']:
             break
     else:
         return '', []

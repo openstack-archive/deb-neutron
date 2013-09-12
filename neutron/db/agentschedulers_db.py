@@ -15,6 +15,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo.config import cfg
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
@@ -30,6 +31,25 @@ from neutron.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
+
+AGENTS_SCHEDULER_OPTS = [
+    cfg.StrOpt('network_scheduler_driver',
+               default='neutron.scheduler.'
+                       'dhcp_agent_scheduler.ChanceScheduler',
+               help=_('Driver to use for scheduling network to DHCP agent')),
+    cfg.StrOpt('router_scheduler_driver',
+               default='neutron.scheduler.l3_agent_scheduler.ChanceScheduler',
+               help=_('Driver to use for scheduling '
+                      'router to a default L3 agent')),
+    cfg.BoolOpt('network_auto_schedule', default=True,
+                help=_('Allow auto scheduling networks to DHCP agent.')),
+    cfg.BoolOpt('router_auto_schedule', default=True,
+                help=_('Allow auto scheduling routers to L3 agent.')),
+    cfg.IntOpt('dhcp_agents_per_network', default=1,
+               help=_('Number of DHCP agents scheduled to host a network.')),
+]
+
+cfg.CONF.register_opts(AGENTS_SCHEDULER_OPTS)
 
 
 class NetworkDhcpAgentBinding(model_base.BASEV2):
@@ -59,8 +79,13 @@ class RouterL3AgentBinding(model_base.BASEV2, models_v2.HasId):
 class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
     """Common class for agent scheduler mixins."""
 
-    dhcp_agent_notifier = None
-    l3_agent_notifier = None
+    # agent notifiers to handle agent update operations;
+    # should be updated by plugins;
+    agent_notifiers = {
+        constants.AGENT_TYPE_DHCP: None,
+        constants.AGENT_TYPE_L3: None,
+        constants.AGENT_TYPE_LOADBALANCER: None,
+    }
 
     @staticmethod
     def is_eligible_agent(active, agent):
@@ -80,18 +105,13 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
         result = super(AgentSchedulerDbMixin, self).update_agent(
             context, id, agent)
         agent_data = agent['agent']
-        if ('admin_state_up' in agent_data and
+        agent_notifier = self.agent_notifiers.get(original_agent['agent_type'])
+        if (agent_notifier and
+            'admin_state_up' in agent_data and
             original_agent['admin_state_up'] != agent_data['admin_state_up']):
-            if (original_agent['agent_type'] == constants.AGENT_TYPE_DHCP and
-                self.dhcp_agent_notifier):
-                self.dhcp_agent_notifier.agent_updated(
-                    context, agent_data['admin_state_up'],
-                    original_agent['host'])
-            elif (original_agent['agent_type'] == constants.AGENT_TYPE_L3 and
-                  self.l3_agent_notifier):
-                self.l3_agent_notifier.agent_updated(
-                    context, agent_data['admin_state_up'],
-                    original_agent['host'])
+            agent_notifier.agent_updated(context,
+                                         agent_data['admin_state_up'],
+                                         original_agent['host'])
         return result
 
 
@@ -112,12 +132,11 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 raise l3agentscheduler.InvalidL3Agent(id=id)
             query = context.session.query(RouterL3AgentBinding)
             try:
-                binding = query.filter(
-                    RouterL3AgentBinding.l3_agent_id == agent_db.id,
-                    RouterL3AgentBinding.router_id == router_id).one()
-                if binding:
-                    raise l3agentscheduler.RouterHostedByL3Agent(
-                        router_id=router_id, agent_id=id)
+                binding = query.filter_by(router_id=router_id).one()
+
+                raise l3agentscheduler.RouterHostedByL3Agent(
+                    router_id=router_id,
+                    agent_id=binding.l3_agent_id)
             except exc.NoResultFound:
                 pass
 
@@ -128,8 +147,9 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 raise l3agentscheduler.RouterSchedulingFailed(
                     router_id=router_id, agent_id=id)
 
-        if self.l3_agent_notifier:
-            self.l3_agent_notifier.router_added_to_agent(
+        l3_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_L3)
+        if l3_notifier:
+            l3_notifier.router_added_to_agent(
                 context, [router_id], agent_db.host)
 
     def remove_router_from_l3_agent(self, context, id, router_id):
@@ -150,8 +170,9 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 raise l3agentscheduler.RouterNotHostedByL3Agent(
                     router_id=router_id, agent_id=id)
             context.session.delete(binding)
-        if self.l3_agent_notifier:
-            self.l3_agent_notifier.router_removed_from_agent(
+        l3_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_L3)
+        if l3_notifier:
+            l3_notifier.router_removed_from_agent(
                 context, router_id, agent.host)
 
     def list_routers_on_l3_agent(self, context, id):
@@ -207,7 +228,7 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             l3_agents = [l3_agent for l3_agent in
                          l3_agents if not
                          agents_db.AgentDbMixin.is_agent_down(
-                         l3_agent['heartbeat_timestamp'])]
+                             l3_agent['heartbeat_timestamp'])]
         return l3_agents
 
     def _get_l3_bindings_hosting_routers(self, context, router_ids):
@@ -336,8 +357,9 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
             binding.dhcp_agent_id = id
             binding.network_id = network_id
             context.session.add(binding)
-        if self.dhcp_agent_notifier:
-            self.dhcp_agent_notifier.network_added_to_agent(
+        dhcp_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_DHCP)
+        if dhcp_notifier:
+            dhcp_notifier.network_added_to_agent(
                 context, network_id, agent_db.host)
 
     def remove_network_from_dhcp_agent(self, context, id, network_id):
@@ -352,8 +374,9 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                 raise dhcpagentscheduler.NetworkNotHostedByDhcpAgent(
                     network_id=network_id, agent_id=id)
             context.session.delete(binding)
-        if self.dhcp_agent_notifier:
-            self.dhcp_agent_notifier.network_removed_from_agent(
+        dhcp_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_DHCP)
+        if dhcp_notifier:
+            dhcp_notifier.network_removed_from_agent(
                 context, network_id, agent.host)
 
     def list_networks_on_dhcp_agent(self, context, id):

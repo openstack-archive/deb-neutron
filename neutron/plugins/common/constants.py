@@ -19,26 +19,45 @@
 CORE = "CORE"
 DUMMY = "DUMMY"
 LOADBALANCER = "LOADBALANCER"
+FIREWALL = "FIREWALL"
+VPN = "VPN"
+METERING = "METERING"
 
 #maps extension alias to service type
 EXT_TO_SERVICE_MAPPING = {
     'dummy': DUMMY,
-    'lbaas': LOADBALANCER
+    'lbaas': LOADBALANCER,
+    'fwaas': FIREWALL,
+    'vpnaas': VPN,
+    'metering': METERING,
 }
 
 # TODO(salvatore-orlando): Move these (or derive them) from conf file
-ALLOWED_SERVICES = [CORE, DUMMY, LOADBALANCER]
+ALLOWED_SERVICES = [CORE, DUMMY, LOADBALANCER, FIREWALL, VPN, METERING]
 
 COMMON_PREFIXES = {
     CORE: "",
     DUMMY: "/dummy_svc",
     LOADBALANCER: "/lb",
+    FIREWALL: "/fw",
+    VPN: "/vpn",
+    METERING: "/metering",
 }
 
 # Service operation status constants
 ACTIVE = "ACTIVE"
+DOWN = "DOWN"
 PENDING_CREATE = "PENDING_CREATE"
 PENDING_UPDATE = "PENDING_UPDATE"
 PENDING_DELETE = "PENDING_DELETE"
 INACTIVE = "INACTIVE"
 ERROR = "ERROR"
+
+# FWaaS firewall rule action
+FWAAS_ALLOW = "allow"
+FWAAS_DENY = "deny"
+
+# L3 Protocol name constants
+TCP = "tcp"
+UDP = "udp"
+ICMP = "icmp"

@@ -77,14 +77,11 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.plugin_api = mock.Mock()
         l3pluginApi_cls.return_value = self.plugin_api
 
-    def tearDown(self):
-        self.device_exists_p.stop()
-        self.l3pluginApi_cls_p.stop()
-        self.ip_cls_p.stop()
-        self.dvr_cls_p.stop()
-        self.utils_exec_p.stop()
-        self.external_process_p.stop()
-        super(TestBasicRouterOperations, self).tearDown()
+        self.looping_call_p = mock.patch(
+            'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
+        self.looping_call_p.start()
+
+        self.addCleanup(mock.patch.stopall)
 
     def testRouterInfoCreate(self):
         id = _uuid()
@@ -355,7 +352,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
             else:
                 self.assertIn(r.rule, expected_rules)
 
-    def _prepare_router_data(self, enable_snat=True, num_internal_ports=1):
+    def _prepare_router_data(self, enable_snat=None, num_internal_ports=1):
         router_id = _uuid()
         ex_gw_port = {'id': _uuid(),
                       'network_id': _uuid(),
@@ -377,9 +374,10 @@ class TestBasicRouterOperations(base.BaseTestCase):
         router = {
             'id': router_id,
             l3_constants.INTERFACE_KEY: int_ports,
-            'enable_snat': enable_snat,
             'routes': [],
             'gw_port': ex_gw_port}
+        if enable_snat is not None:
+            router['enable_snat'] = enable_snat
         return router
 
     def testProcessRouter(self):
@@ -412,7 +410,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
     def test_process_router_snat_disabled(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
-        router = self._prepare_router_data()
+        router = self._prepare_router_data(enable_snat=True)
         ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
                                  self.conf.use_namespaces, router=router)
         # Process with NAT
@@ -435,10 +433,10 @@ class TestBasicRouterOperations(base.BaseTestCase):
         router = self._prepare_router_data(enable_snat=False)
         ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
                                  self.conf.use_namespaces, router=router)
-        # Process with NAT
+        # Process without NAT
         agent.process_router(ri)
         orig_nat_rules = ri.iptables_manager.ipv4['nat'].rules[:]
-        # Reprocess without NAT
+        # Reprocess with NAT
         router['enable_snat'] = True
         # Reassign the router object to RouterInfo
         ri.router = router
@@ -498,6 +496,23 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.assertEqual(len(nat_rules_delta), 1)
         self._verify_snat_rules(nat_rules_delta, router, negate=True)
 
+    def test_handle_router_snat_rules_add_back_jump(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        ri = mock.MagicMock()
+        port = {'fixed_ips': [{'ip_address': '192.168.1.4'}]}
+
+        agent._handle_router_snat_rules(ri, port, [], "iface", "add_rules")
+
+        nat = ri.iptables_manager.ipv4['nat']
+        nat.empty_chain.assert_any_call('snat')
+        nat.add_rule.assert_any_call('snat', '-j $float-snat')
+        for call in nat.mock_calls:
+            name, args, kwargs = call
+            if name == 'add_rule':
+                self.assertEquals(args, ('snat', '-j $float-snat'))
+                self.assertEquals(kwargs, {})
+                break
+
     def testRoutersWithAdminStateDown(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         self.plugin_api.get_external_network_id.return_value = None
@@ -513,25 +528,25 @@ class TestBasicRouterOperations(base.BaseTestCase):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.router_deleted(None, FAKE_ID)
         # verify that will set fullsync
-        self.assertTrue(FAKE_ID in agent.removed_routers)
+        self.assertIn(FAKE_ID, agent.removed_routers)
 
     def test_routers_updated(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.routers_updated(None, [FAKE_ID])
         # verify that will set fullsync
-        self.assertTrue(FAKE_ID in agent.updated_routers)
+        self.assertIn(FAKE_ID, agent.updated_routers)
 
     def test_removed_from_agent(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.router_removed_from_agent(None, {'router_id': FAKE_ID})
         # verify that will set fullsync
-        self.assertTrue(FAKE_ID in agent.removed_routers)
+        self.assertIn(FAKE_ID, agent.removed_routers)
 
     def test_added_to_agent(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.router_added_to_agent(None, [FAKE_ID])
         # verify that will set fullsync
-        self.assertTrue(FAKE_ID in agent.updated_routers)
+        self.assertIn(FAKE_ID, agent.updated_routers)
 
     def test_process_router_delete(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -631,41 +646,35 @@ class TestL3AgentEventHandler(base.BaseTestCase):
         cfg.CONF.set_override('use_namespaces', True)
         agent_config.register_root_helper(cfg.CONF)
 
-        self.device_exists_p = mock.patch(
+        device_exists_p = mock.patch(
             'neutron.agent.linux.ip_lib.device_exists')
-        self.device_exists = self.device_exists_p.start()
+        device_exists_p.start()
 
-        self.utils_exec_p = mock.patch(
+        utils_exec_p = mock.patch(
             'neutron.agent.linux.utils.execute')
-        self.utils_exec = self.utils_exec_p.start()
+        utils_exec_p.start()
 
-        self.drv_cls_p = mock.patch('neutron.agent.linux.interface.NullDriver')
-        driver_cls = self.drv_cls_p.start()
-        self.mock_driver = mock.MagicMock()
-        self.mock_driver.DEV_NAME_LEN = (
+        drv_cls_p = mock.patch('neutron.agent.linux.interface.NullDriver')
+        driver_cls = drv_cls_p.start()
+        mock_driver = mock.MagicMock()
+        mock_driver.DEV_NAME_LEN = (
             interface.LinuxInterfaceDriver.DEV_NAME_LEN)
-        driver_cls.return_value = self.mock_driver
+        driver_cls.return_value = mock_driver
 
-        self.l3_plugin_p = mock.patch(
+        l3_plugin_p = mock.patch(
             'neutron.agent.l3_agent.L3PluginApi')
-        l3_plugin_cls = self.l3_plugin_p.start()
-        self.plugin_api = mock.Mock()
-        l3_plugin_cls.return_value = self.plugin_api
+        l3_plugin_cls = l3_plugin_p.start()
+        l3_plugin_cls.return_value = mock.Mock()
 
         self.external_process_p = mock.patch(
             'neutron.agent.linux.external_process.ProcessManager'
         )
-        self.external_process = self.external_process_p.start()
-
+        self.external_process_p.start()
+        looping_call_p = mock.patch(
+            'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
+        looping_call_p.start()
         self.agent = l3_agent.L3NATAgent(HOSTNAME)
-
-    def tearDown(self):
-        self.device_exists_p.stop()
-        self.utils_exec_p.stop()
-        self.drv_cls_p.stop()
-        self.l3_plugin_p.stop()
-        self.external_process_p.stop()
-        super(TestL3AgentEventHandler, self).tearDown()
+        self.addCleanup(mock.patch.stopall)
 
     def test_spawn_metadata_proxy(self):
         router_id = _uuid()
@@ -691,6 +700,7 @@ class TestL3AgentEventHandler(base.BaseTestCase):
                     ),
                     mock.call().netns.execute([
                         'neutron-ns-metadata-proxy',
+                        mock.ANY,
                         mock.ANY,
                         '--router_id=%s' % router_id,
                         mock.ANY,

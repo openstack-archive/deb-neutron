@@ -33,6 +33,7 @@ migration_for_plugins = [
     'neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin',
     'neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2',
     'neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2',
+    'neutron.plugins.ml2.plugin.Ml2Plugin',
     'neutron.plugins.nec.nec_plugin.NECPluginV2',
     'neutron.plugins.nicira.NeutronPlugin.NvpPluginV2',
     'neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2',
@@ -46,8 +47,8 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.add_column('routers', sa.Column('enable_snat', sa.Boolean(),
@@ -56,8 +57,8 @@ def upgrade(active_plugin=None, options=None):
     op.execute("UPDATE routers SET enable_snat=True")
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.drop_column('routers', 'enable_snat')

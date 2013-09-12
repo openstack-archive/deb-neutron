@@ -170,7 +170,8 @@ class Controller(object):
                 try:
                     resource = self._item(request, id, True)
                 except exceptions.PolicyNotAuthorized:
-                    raise webob.exc.HTTPNotFound()
+                    msg = _('The resource could not be found.')
+                    raise webob.exc.HTTPNotFound(msg)
                 body = kwargs.pop('body', None)
                 # Explicit comparison with None to distinguish from {}
                 if body is not None:
@@ -291,7 +292,8 @@ class Controller(object):
         except exceptions.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
-            raise webob.exc.HTTPNotFound()
+            msg = _('The resource could not be found.')
+            raise webob.exc.HTTPNotFound(msg)
 
     def _emulate_bulk_create(self, obj_creator, request, body, parent_id=None):
         objs = []
@@ -423,7 +425,8 @@ class Controller(object):
         except exceptions.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
-            raise webob.exc.HTTPNotFound()
+            msg = _('The resource could not be found.')
+            raise webob.exc.HTTPNotFound(msg)
 
         obj_deleter = getattr(self._plugin, action)
         obj_deleter(request.context, id, **kwargs)
@@ -460,8 +463,8 @@ class Controller(object):
         # but pass only attributes in the original body and required
         # by the policy engine to the policy 'brain'
         field_list = [name for (name, value) in self._attr_info.iteritems()
-                      if ('required_by_policy' in value and
-                          value['required_by_policy'] or
+                      if (value.get('required_by_policy') or
+                          value.get('primary_key') or
                           'default' not in value)]
         orig_obj = self._item(request, id, field_list=field_list,
                               parent_id=parent_id)
@@ -473,7 +476,8 @@ class Controller(object):
         except exceptions.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
-            raise webob.exc.HTTPNotFound()
+            msg = _('The resource could not be found.')
+            raise webob.exc.HTTPNotFound(msg)
 
         obj_updater = getattr(self._plugin, action)
         kwargs = {self._resource: body}
@@ -548,7 +552,6 @@ class Controller(object):
             raise webob.exc.HTTPBadRequest(msg)
 
         Controller._populate_tenant_id(context, res_dict, is_create)
-
         Controller._verify_attributes(res_dict, attr_info)
 
         if is_create:  # POST

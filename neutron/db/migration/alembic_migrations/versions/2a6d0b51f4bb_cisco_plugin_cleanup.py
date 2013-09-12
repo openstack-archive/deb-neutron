@@ -39,18 +39,17 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
-    op.drop_table(u'port_bindings')
-    op.drop_table(u'services_bindings')
-    op.drop_table(u'portprofiles')
     op.drop_table(u'portprofile_bindings')
+    op.drop_table(u'portprofiles')
+    op.drop_table(u'port_bindings')
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.create_table(
@@ -66,16 +65,6 @@ def downgrade(active_plugin=None, options=None):
         sa.Column(u'qos', sa.String(255), nullable=True),
         sa.Column(u'tenant_id', sa.String(255), nullable=True),
         sa.Column(u'vif_id', sa.String(255), nullable=True),
-        sa.PrimaryKeyConstraint(u'id')
-    )
-    op.create_table(
-        u'service_bindings',
-        sa.Column(u'id', sa.Integer(), autoincrement=True,
-                  nullable=False),
-        sa.Column(u'service_id', sa.String(255), nullable=True),
-        sa.Column(u'mnget_id', sa.String(255), nullable=True),
-        sa.Column(u'nbnet_id', sa.String(255), nullable=True),
-        sa.Column(u'sbnet_id', sa.String(255), nullable=True),
         sa.PrimaryKeyConstraint(u'id')
     )
     op.create_table(

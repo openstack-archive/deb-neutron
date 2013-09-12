@@ -16,6 +16,7 @@
 # @author: Ryota MIBU
 
 import sqlalchemy as sa
+from sqlalchemy import orm
 
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -46,6 +47,10 @@ class OFCPortMapping(model_base.BASEV2, NeutronId, OFCId):
     """Represents a Port on OpenFlow Network/Controller."""
 
 
+class OFCRouterMapping(model_base.BASEV2, NeutronId, OFCId):
+    """Represents a router on OpenFlow Network/Controller."""
+
+
 class OFCFilterMapping(model_base.BASEV2, NeutronId, OFCId):
     """Represents a Filter on OpenFlow Network/Controller."""
 
@@ -74,9 +79,17 @@ class OFCFilter(model_base.BASEV2, models_v2.HasId, HasNeutronId):
     """Represents a Filter on OpenFlow Network/Controller."""
 
 
-class PortInfo(model_base.BASEV2, models_v2.HasId):
+class PortInfo(model_base.BASEV2):
     """Represents a Virtual Interface."""
+    id = sa.Column(sa.String(36),
+                   sa.ForeignKey('ports.id', ondelete="CASCADE"),
+                   primary_key=True)
     datapath_id = sa.Column(sa.String(36), nullable=False)
     port_no = sa.Column(sa.Integer, nullable=False)
     vlan_id = sa.Column(sa.Integer, nullable=False)
     mac = sa.Column(sa.String(32), nullable=False)
+    port = orm.relationship(
+        models_v2.Port,
+        backref=orm.backref("portinfo",
+                            lazy='joined', uselist=False,
+                            cascade='delete'))

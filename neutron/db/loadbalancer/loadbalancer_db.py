@@ -25,6 +25,7 @@ from neutron.common import exceptions as q_exc
 from neutron.db import db_base_plugin_v2 as base_db
 from neutron.db import model_base
 from neutron.db import models_v2
+from neutron.db import servicetype_db as st_db
 from neutron.extensions import loadbalancer
 from neutron.extensions.loadbalancer import LoadBalancerPluginBase
 from neutron import manager
@@ -32,6 +33,7 @@ from neutron.openstack.common.db import exception
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
+from neutron.services.loadbalancer import constants as lb_const
 
 
 LOG = logging.getLogger(__name__)
@@ -71,7 +73,8 @@ class PoolStatistics(model_base.BASEV2):
         return value
 
 
-class Vip(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class Vip(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+          models_v2.HasStatusDescription):
     """Represents a v2 neutron loadbalancer vip."""
 
     name = sa.Column(sa.String(255))
@@ -85,13 +88,13 @@ class Vip(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
                                            uselist=False,
                                            backref="vips",
                                            cascade="all, delete-orphan")
-    status = sa.Column(sa.String(16), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
     connection_limit = sa.Column(sa.Integer)
     port = orm.relationship(models_v2.Port)
 
 
-class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+             models_v2.HasStatusDescription):
     """Represents a v2 neutron loadbalancer member."""
 
     pool_id = sa.Column(sa.String(36), sa.ForeignKey("pools.id"),
@@ -99,11 +102,11 @@ class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     address = sa.Column(sa.String(64), nullable=False)
     protocol_port = sa.Column(sa.Integer, nullable=False)
     weight = sa.Column(sa.Integer, nullable=False)
-    status = sa.Column(sa.String(16), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
 
 
-class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
+           models_v2.HasStatusDescription):
     """Represents a v2 neutron loadbalancer pool."""
 
     vip_id = sa.Column(sa.String(36), sa.ForeignKey("vips.id"))
@@ -117,7 +120,6 @@ class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
                                   "SOURCE_IP",
                                   name="pools_lb_method"),
                           nullable=False)
-    status = sa.Column(sa.String(16), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
     stats = orm.relationship(PoolStatistics,
                              uselist=False,
@@ -128,6 +130,14 @@ class Pool(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     monitors = orm.relationship("PoolMonitorAssociation", backref="pools",
                                 cascade="all, delete-orphan")
     vip = orm.relationship(Vip, backref='pool')
+
+    provider = orm.relationship(
+        st_db.ProviderResourceAssociation,
+        uselist=False,
+        lazy="joined",
+        primaryjoin="Pool.id==ProviderResourceAssociation.resource_id",
+        foreign_keys=[st_db.ProviderResourceAssociation.resource_id]
+    )
 
 
 class HealthMonitor(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
@@ -142,17 +152,16 @@ class HealthMonitor(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     http_method = sa.Column(sa.String(16))
     url_path = sa.Column(sa.String(255))
     expected_codes = sa.Column(sa.String(64))
-    status = sa.Column(sa.String(16), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
 
     pools = orm.relationship(
-        "PoolMonitorAssociation",
-        backref="healthmonitor",
-        cascade="all"
+        "PoolMonitorAssociation", backref="healthmonitor",
+        cascade="all", lazy="joined"
     )
 
 
-class PoolMonitorAssociation(model_base.BASEV2):
+class PoolMonitorAssociation(model_base.BASEV2,
+                             models_v2.HasStatusDescription):
     """Many-to-many association between pool and healthMonitor classes."""
 
     pool_id = sa.Column(sa.String(36),
@@ -175,10 +184,17 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
     def _core_plugin(self):
         return manager.NeutronManager.get_plugin()
 
-    def update_status(self, context, model, id, status):
+    def update_status(self, context, model, id, status,
+                      status_description=None):
         with context.session.begin(subtransactions=True):
             v_db = self._get_resource(context, model, id)
-            v_db.update({'status': status})
+            if v_db.status != status:
+                v_db.status = status
+            # update status_description in two cases:
+            # - new value is passed
+            # - old value is not None (needs to be updated anyway)
+            if status_description or v_db['status_description']:
+                v_db.status_description = status_description
 
     def _get_resource(self, context, model, id):
         try:
@@ -219,7 +235,8 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                'pool_id': vip['pool_id'],
                'connection_limit': vip['connection_limit'],
                'admin_state_up': vip['admin_state_up'],
-               'status': vip['status']}
+               'status': vip['status'],
+               'status_description': vip['status_description']}
 
         if vip['session_persistence']:
             s_p = {
@@ -448,7 +465,13 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                'vip_id': pool['vip_id'],
                'lb_method': pool['lb_method'],
                'admin_state_up': pool['admin_state_up'],
-               'status': pool['status']}
+               'status': pool['status'],
+               'status_description': pool['status_description'],
+               'provider': ''
+               }
+
+        if pool.provider:
+            res['provider'] = pool.provider.provider_name
 
         # Get the associated members
         res['members'] = [member['id'] for member in pool['members']]
@@ -456,15 +479,25 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
         # Get the associated health_monitors
         res['health_monitors'] = [
             monitor['monitor_id'] for monitor in pool['monitors']]
-
+        res['health_monitors_status'] = [
+            {'monitor_id': monitor['monitor_id'],
+             'status': monitor['status'],
+             'status_description': monitor['status_description']}
+            for monitor in pool['monitors']]
         return self._fields(res, fields)
 
-    def _update_pool_stats(self, context, pool_id, data=None):
+    def update_pool_stats(self, context, pool_id, data=None):
         """Update a pool with new stats structure."""
+        data = data or {}
         with context.session.begin(subtransactions=True):
             pool_db = self._get_resource(context, Pool, pool_id)
             self.assert_modification_allowed(pool_db)
             pool_db.stats = self._create_pool_stats(context, pool_id, data)
+
+            for member, stats in data.get('members', {}).items():
+                stats_status = stats.get(lb_const.STATS_STATUS)
+                if stats_status:
+                    self.update_status(context, Member, member, stats_status)
 
     def _create_pool_stats(self, context, pool_id, data=None):
         # This is internal method to add pool statistics. It won't
@@ -473,10 +506,10 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
             data = {}
         stats_db = PoolStatistics(
             pool_id=pool_id,
-            bytes_in=data.get("bytes_in", 0),
-            bytes_out=data.get("bytes_out", 0),
-            active_connections=data.get("active_connections", 0),
-            total_connections=data.get("total_connections", 0)
+            bytes_in=data.get(lb_const.STATS_IN_BYTES, 0),
+            bytes_out=data.get(lb_const.STATS_OUT_BYTES, 0),
+            active_connections=data.get(lb_const.STATS_ACTIVE_CONNECTIONS, 0),
+            total_connections=data.get(lb_const.STATS_TOTAL_CONNECTIONS, 0)
         )
         return stats_db
 
@@ -508,12 +541,10 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
             pool_db.stats = self._create_pool_stats(context, pool_db['id'])
             context.session.add(pool_db)
 
-        pool_db = self._get_resource(context, Pool, pool_db['id'])
         return self._make_pool_dict(pool_db)
 
     def update_pool(self, context, id, pool):
         p = pool['pool']
-
         with context.session.begin(subtransactions=True):
             pool_db = self._get_resource(context, Pool, id)
             self.assert_modification_allowed(pool_db)
@@ -548,19 +579,27 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
             pool = self._get_resource(context, Pool, pool_id)
             stats = pool['stats']
 
-        res = {'bytes_in': stats['bytes_in'],
-               'bytes_out': stats['bytes_out'],
-               'active_connections': stats['active_connections'],
-               'total_connections': stats['total_connections']}
+        res = {lb_const.STATS_IN_BYTES: stats['bytes_in'],
+               lb_const.STATS_OUT_BYTES: stats['bytes_out'],
+               lb_const.STATS_ACTIVE_CONNECTIONS: stats['active_connections'],
+               lb_const.STATS_TOTAL_CONNECTIONS: stats['total_connections']}
         return {'stats': res}
 
     def create_pool_health_monitor(self, context, health_monitor, pool_id):
         monitor_id = health_monitor['health_monitor']['id']
         with context.session.begin(subtransactions=True):
+            assoc_qry = context.session.query(PoolMonitorAssociation)
+            assoc = assoc_qry.filter_by(pool_id=pool_id,
+                                        monitor_id=monitor_id).first()
+            if assoc:
+                raise loadbalancer.PoolMonitorAssociationExists(
+                    monitor_id=monitor_id, pool_id=pool_id)
+
             pool = self._get_resource(context, Pool, pool_id)
 
             assoc = PoolMonitorAssociation(pool_id=pool_id,
-                                           monitor_id=monitor_id)
+                                           monitor_id=monitor_id,
+                                           status=constants.PENDING_CREATE)
             pool.monitors.append(assoc)
             monitors = [monitor['monitor_id'] for monitor in pool['monitors']]
 
@@ -569,19 +608,25 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
 
     def delete_pool_health_monitor(self, context, id, pool_id):
         with context.session.begin(subtransactions=True):
+            assoc = self.get_pool_health_monitor(context, id, pool_id)
             pool = self._get_resource(context, Pool, pool_id)
-            try:
-                monitor_qry = context.session.query(PoolMonitorAssociation)
-                monitor = monitor_qry.filter_by(monitor_id=id,
-                                                pool_id=pool_id).one()
-                pool.monitors.remove(monitor)
-            except exc.NoResultFound:
-                raise loadbalancer.HealthMonitorNotFound(monitor_id=id)
+            pool.monitors.remove(assoc)
 
     def get_pool_health_monitor(self, context, id, pool_id, fields=None):
-        # TODO(markmcclain) look into why pool_id is ignored
-        healthmonitor = self._get_resource(context, HealthMonitor, id)
-        return self._make_health_monitor_dict(healthmonitor, fields)
+        try:
+            assoc_qry = context.session.query(PoolMonitorAssociation)
+            return assoc_qry.filter_by(monitor_id=id, pool_id=pool_id).one()
+        except exc.NoResultFound:
+            raise loadbalancer.PoolMonitorAssociationNotFound(
+                monitor_id=id, pool_id=pool_id)
+
+    def update_pool_health_monitor(self, context, id, pool_id,
+                                   status, status_description=None):
+        with context.session.begin(subtransactions=True):
+            assoc = self.get_pool_health_monitor(context, id, pool_id)
+            self.assert_modification_allowed(assoc)
+            assoc.status = status
+            assoc.status_description = status_description
 
     ########################################################
     # Member DB access
@@ -593,7 +638,9 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                'protocol_port': member['protocol_port'],
                'weight': member['weight'],
                'admin_state_up': member['admin_state_up'],
-               'status': member['status']}
+               'status': member['status'],
+               'status_description': member['status_description']}
+
         return self._fields(res, fields)
 
     def create_member(self, context, member):
@@ -649,20 +696,23 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                'delay': health_monitor['delay'],
                'timeout': health_monitor['timeout'],
                'max_retries': health_monitor['max_retries'],
-               'admin_state_up': health_monitor['admin_state_up'],
-               'status': health_monitor['status']}
+               'admin_state_up': health_monitor['admin_state_up']}
         # no point to add the values below to
         # the result if the 'type' is not HTTP/S
         if res['type'] in ['HTTP', 'HTTPS']:
             for attr in ['url_path', 'http_method', 'expected_codes']:
                 res[attr] = health_monitor[attr]
-
+        res['pools'] = [{'pool_id': p['pool_id'],
+                         'status': p['status'],
+                         'status_description': p['status_description']}
+                        for p in health_monitor.pools]
         return self._fields(res, fields)
 
     def create_health_monitor(self, context, health_monitor):
         v = health_monitor['health_monitor']
         tenant_id = self._get_tenant_id_for_create(context, v)
         with context.session.begin(subtransactions=True):
+            # setting ACTIVE status sinse healthmon is shared DB object
             monitor_db = HealthMonitor(id=uuidutils.generate_uuid(),
                                        tenant_id=tenant_id,
                                        type=v['type'],
@@ -672,8 +722,7 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                                        http_method=v['http_method'],
                                        url_path=v['url_path'],
                                        expected_codes=v['expected_codes'],
-                                       admin_state_up=v['admin_state_up'],
-                                       status=constants.PENDING_CREATE)
+                                       admin_state_up=v['admin_state_up'])
             context.session.add(monitor_db)
         return self._make_health_monitor_dict(monitor_db)
 

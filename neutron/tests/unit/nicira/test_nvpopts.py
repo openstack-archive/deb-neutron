@@ -14,9 +14,9 @@
 #
 
 import fixtures
-import os
 import testtools
 
+import mock
 from oslo.config import cfg
 
 from neutron.common import config as q_config
@@ -24,20 +24,17 @@ from neutron.manager import NeutronManager
 from neutron.openstack.common import uuidutils
 from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions
+from neutron.plugins.nicira.common import sync
 from neutron.plugins.nicira import nvp_cluster
+from neutron.tests.unit.nicira import get_fake_conf
+from neutron.tests.unit.nicira import PLUGIN_NAME
 
-BASE_CONF_PATH = os.path.join(os.path.dirname(__file__),
-                              '../../etc/neutron.conf.test')
-NVP_BASE_CONF_PATH = os.path.join(os.path.dirname(__file__),
-                                  'etc/neutron.conf.test')
-NVP_INI_PATH = os.path.join(os.path.dirname(__file__),
-                            'etc/nvp.ini.basic.test')
-NVP_INI_FULL_PATH = os.path.join(os.path.dirname(__file__),
-                                 'etc/nvp.ini.full.test')
-NVP_INI_DEPR_PATH = os.path.join(os.path.dirname(__file__),
-                                 'etc/nvp.ini.grizzly.test')
-NVP_PLUGIN_PATH = ('neutron.plugins.nicira.nicira_nvp_plugin.'
-                   'NeutronPlugin.NvpPluginV2')
+BASE_CONF_PATH = get_fake_conf('neutron.conf.test')
+NVP_BASE_CONF_PATH = get_fake_conf('neutron.conf.test')
+NVP_INI_PATH = get_fake_conf('nvp.ini.basic.test')
+NVP_INI_FULL_PATH = get_fake_conf('nvp.ini.full.test')
+NVP_INI_DEPR_PATH = get_fake_conf('nvp.ini.grizzly.test')
+NVP_INI_AGENTLESS_PATH = get_fake_conf('nvp.ini.agentless.test')
 
 
 class NVPClusterTest(testtools.TestCase):
@@ -86,6 +83,10 @@ class ConfigurationTest(testtools.TestCase):
         self.useFixture(fixtures.MonkeyPatch(
                         'neutron.manager.NeutronManager._instance',
                         None))
+        # Avoid runs of the synchronizer looping call
+        patch_sync = mock.patch.object(sync, '_start_loopingcall')
+        patch_sync.start()
+        self.addCleanup(patch_sync.stop)
 
     def _assert_required_options(self, cluster):
         self.assertEqual(cluster.nvp_controllers, ['fake_1:443', 'fake_2:443'])
@@ -105,7 +106,7 @@ class ConfigurationTest(testtools.TestCase):
     def test_load_plugin_with_full_options(self):
         q_config.parse(['--config-file', BASE_CONF_PATH,
                         '--config-file', NVP_INI_FULL_PATH])
-        cfg.CONF.set_override('core_plugin', NVP_PLUGIN_PATH)
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
         plugin = NeutronManager().get_plugin()
         cluster = plugin.cluster
         self._assert_required_options(cluster)
@@ -114,7 +115,7 @@ class ConfigurationTest(testtools.TestCase):
     def test_load_plugin_with_required_options_only(self):
         q_config.parse(['--config-file', BASE_CONF_PATH,
                         '--config-file', NVP_INI_PATH])
-        cfg.CONF.set_override('core_plugin', NVP_PLUGIN_PATH)
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
         plugin = NeutronManager().get_plugin()
         self._assert_required_options(plugin.cluster)
 
@@ -141,10 +142,35 @@ class ConfigurationTest(testtools.TestCase):
     def test_load_api_extensions(self):
         q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
                         '--config-file', NVP_INI_FULL_PATH])
-        cfg.CONF.set_override('core_plugin', NVP_PLUGIN_PATH)
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
         # Load the configuration, and initialize the plugin
         NeutronManager().get_plugin()
         self.assertIn('extensions', cfg.CONF.api_extensions_path)
+
+    def test_agentless_extensions(self):
+        self.skipTest('Enable once agentless support is added')
+        q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
+                        '--config-file', NVP_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.assertEqual(config.AgentModes.AGENTLESS,
+                         cfg.CONF.NVP.agent_mode)
+        plugin = NeutronManager().get_plugin()
+        self.assertNotIn('agent',
+                         plugin.supported_extension_aliases)
+        self.assertNotIn('dhcp_agent_scheduler',
+                         plugin.supported_extension_aliases)
+
+    def test_agent_extensions(self):
+        q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
+                        '--config-file', NVP_INI_FULL_PATH])
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.assertEqual(config.AgentModes.AGENT,
+                         cfg.CONF.NVP.agent_mode)
+        plugin = NeutronManager().get_plugin()
+        self.assertIn('agent',
+                      plugin.supported_extension_aliases)
+        self.assertIn('dhcp_agent_scheduler',
+                      plugin.supported_extension_aliases)
 
 
 class OldConfigurationTest(testtools.TestCase):
@@ -155,6 +181,10 @@ class OldConfigurationTest(testtools.TestCase):
         self.useFixture(fixtures.MonkeyPatch(
                         'neutron.manager.NeutronManager._instance',
                         None))
+        # Avoid runs of the synchronizer looping call
+        patch_sync = mock.patch.object(sync, '_start_loopingcall')
+        patch_sync.start()
+        self.addCleanup(patch_sync.stop)
 
     def _assert_required_options(self, cluster):
         self.assertEqual(cluster.nvp_controllers, ['fake_1:443', 'fake_2:443'])
@@ -165,7 +195,7 @@ class OldConfigurationTest(testtools.TestCase):
     def test_load_plugin_with_deprecated_options(self):
         q_config.parse(['--config-file', BASE_CONF_PATH,
                         '--config-file', NVP_INI_DEPR_PATH])
-        cfg.CONF.set_override('core_plugin', NVP_PLUGIN_PATH)
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
         plugin = NeutronManager().get_plugin()
         cluster = plugin.cluster
         self._assert_required_options(cluster)

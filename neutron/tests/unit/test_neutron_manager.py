@@ -47,6 +47,11 @@ class MultiServiceCorePlugin(object):
     supported_extension_aliases = ['lbaas', 'dummy']
 
 
+class CorePluginWithAgentNotifiers(object):
+    agent_notifiers = {'l3': 'l3_agent_notifier',
+                       'dhcp': 'dhcp_agent_notifier'}
+
+
 class NeutronManagerTestCase(base.BaseTestCase):
 
     def setUp(self):
@@ -106,6 +111,9 @@ class NeutronManagerTestCase(base.BaseTestCase):
         self.assertIn(constants.DUMMY, svc_plugins.keys())
 
     def test_post_plugin_validation(self):
+        cfg.CONF.import_opt('dhcp_agents_per_network',
+                            'neutron.db.agentschedulers_db')
+
         self.assertIsNone(validate_post_plugin_load())
         cfg.CONF.set_override('dhcp_agents_per_network', 2)
         self.assertIsNone(validate_post_plugin_load())
@@ -118,3 +126,16 @@ class NeutronManagerTestCase(base.BaseTestCase):
         self.assertIsNotNone(validate_pre_plugin_load())
         cfg.CONF.set_override('core_plugin', 'dummy.plugin')
         self.assertIsNone(validate_pre_plugin_load())
+
+    def test_manager_gathers_agent_notifiers_from_service_plugins(self):
+        cfg.CONF.set_override("service_plugins",
+                              ["neutron.tests.unit.dummy_plugin."
+                               "DummyServicePlugin"])
+        cfg.CONF.set_override("core_plugin",
+                              "neutron.tests.unit.test_neutron_manager."
+                              "CorePluginWithAgentNotifiers")
+        expected = {'l3': 'l3_agent_notifier',
+                    'dhcp': 'dhcp_agent_notifier',
+                    'dummy': 'dummy_agent_notifier'}
+        core_plugin = NeutronManager.get_plugin()
+        self.assertEqual(expected, core_plugin.agent_notifiers)

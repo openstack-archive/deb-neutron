@@ -19,12 +19,10 @@
 Neutron base exception handling.
 """
 
-from neutron.openstack.common.exception import Error
-from neutron.openstack.common.exception import InvalidContentType  # noqa
-from neutron.openstack.common.exception import OpenstackException
+_FATAL_EXCEPTION_FORMAT_ERRORS = False
 
 
-class NeutronException(OpenstackException):
+class NeutronException(Exception):
     """Base Neutron Exception.
 
     To correctly use this class, inherit from it and define
@@ -32,6 +30,16 @@ class NeutronException(OpenstackException):
     with the keyword arguments provided to the constructor.
     """
     message = _("An unknown exception occurred.")
+
+    def __init__(self, **kwargs):
+        try:
+            super(NeutronException, self).__init__(self.message % kwargs)
+        except Exception:
+            if _FATAL_EXCEPTION_FORMAT_ERRORS:
+                raise
+            else:
+                # at least get the core message out if something happened
+                super(NeutronException, self).__init__(self.message)
 
 
 class BadRequest(NeutronException):
@@ -51,7 +59,7 @@ class NotAuthorized(NeutronException):
 
 
 class ServiceUnavailable(NeutronException):
-    message = _("The service is unailable")
+    message = _("The service is unavailable")
 
 
 class AdminRequired(NotAuthorized):
@@ -71,6 +79,10 @@ class SubnetNotFound(NotFound):
 
 
 class PortNotFound(NotFound):
+    message = _("Port %(port_id)s could not be found")
+
+
+class PortNotFoundOnNetwork(NotFound):
     message = _("Port %(port_id)s could not be found "
                 "on network %(net_id)s")
 
@@ -166,13 +178,7 @@ class NoNetworkAvailable(ResourceExhausted):
                 "No tenant network is available for allocation.")
 
 
-class AlreadyAttached(Conflict):
-    message = _("Unable to plug the attachment %(att_id)s into port "
-                "%(port_id)s for network %(net_id)s. The attachment is "
-                "already plugged into port %(att_port_id)s")
-
-
-class SubnetMismatchForPort(Conflict):
+class SubnetMismatchForPort(BadRequest):
     message = _("Subnet on port %(port_id)s does not match "
                 "the requested subnet %(subnet_id)s")
 
@@ -181,8 +187,10 @@ class MalformedRequestBody(BadRequest):
     message = _("Malformed request body: %(reason)s")
 
 
-class Invalid(Error):
-    pass
+class Invalid(NeutronException):
+    def __init__(self, message=None):
+        self.message = message
+        super(Invalid, self).__init__()
 
 
 class InvalidInput(BadRequest):
@@ -201,10 +209,6 @@ class OverlappingAllocationPools(Conflict):
 class OutOfBoundsAllocationPool(BadRequest):
     message = _("The allocation pool %(pool)s spans "
                 "beyond the subnet cidr %(subnet_cidr)s.")
-
-
-class NotImplementedError(Error):
-    pass
 
 
 class MacAddressGenerationFailure(ServiceUnavailable):
@@ -253,6 +257,10 @@ class InvalidExtensionEnv(BadRequest):
     message = _("Invalid extension environment: %(reason)s")
 
 
+class InvalidContentType(NeutronException):
+    message = "Invalid content type %(content_type)s"
+
+
 class ExternalIpAddressExhausted(BadRequest):
     message = _("Unable to find any IP address on external "
                 "network %(net_id)s.")
@@ -270,6 +278,11 @@ class InvalidConfigurationOption(NeutronException):
 class GatewayConflictWithAllocationPools(InUse):
     message = _("Gateway ip %(ip_address)s conflicts with "
                 "allocation pool %(pool)s")
+
+
+class GatewayIpInUse(InUse):
+    message = _("Current gateway ip %(ip_address)s already in use "
+                "by port %(port_id)s. Unable to update.")
 
 
 class NetworkVlanRangeError(NeutronException):

@@ -16,7 +16,18 @@
 
 from oslo.config import cfg
 
-from neutron import scheduler
+
+class AgentModes:
+    AGENT = 'agent'
+    # TODO(armando-migliaccio): support to be added, maybe we could add a
+    # mixed mode to support no-downtime migrations?
+    AGENTLESS = 'agentless'
+
+
+class MetadataModes:
+    DIRECT = 'access_network'
+    INDIRECT = 'dhcp_host_route'
+
 
 nvp_opts = [
     cfg.IntOpt('max_lp_per_bridged_ls', default=64,
@@ -30,7 +41,7 @@ nvp_opts = [
     cfg.IntOpt('nvp_gen_timeout', default=-1,
                help=_("Number of seconds a generation id should be valid for "
                       "(default -1 meaning do not time out)")),
-    cfg.StrOpt('metadata_mode', default='access_network',
+    cfg.StrOpt('metadata_mode', default=MetadataModes.DIRECT,
                help=_("If set to access_network this enables a dedicated "
                       "connection to the metadata proxy for metadata server "
                       "access via Neutron router. If set to dhcp_host_route "
@@ -38,12 +49,28 @@ nvp_opts = [
                       "This option is only useful if running on a host that "
                       "does not support namespaces otherwise access_network "
                       "should be used.")),
-    cfg.BoolOpt('enable_metadata_access_network', default=True,
-                help=_("Enables dedicated connection to the metadata proxy "
-                       "for metadata server access via Neutron router")),
     cfg.StrOpt('default_transport_type', default='stt',
                help=_("The default network tranport type to use (stt, gre, "
                       "bridge, ipsec_gre, or ipsec_stt)")),
+    cfg.StrOpt('agent_mode', default=AgentModes.AGENT,
+               help=_("The mode used to implement DHCP/metadata services."))
+]
+
+sync_opts = [
+    cfg.IntOpt('state_sync_interval', default=120,
+               help=_("Interval in seconds between runs of the state "
+                      "synchronization task. Set it to 0 to disable it")),
+    cfg.IntOpt('max_random_sync_delay', default=0,
+               help=_("Maximum value for the additional random "
+                      "delay in seconds between runs of the state "
+                      "synchronization task")),
+    cfg.IntOpt('min_sync_req_delay', default=10,
+               help=_('Minimum delay, in seconds, between two state '
+                      'synchronization queries to NVP. It must not '
+                      'exceed state_sync_interval')),
+    cfg.IntOpt('min_chunk_size', default=500,
+               help=_('Minimum number of resources to be retrieved from NVP '
+                      'during state synchronization'))
 ]
 
 connection_opts = [
@@ -93,11 +120,43 @@ cluster_opts = [
                       "network connection")),
 ]
 
+DEFAULT_STATUS_CHECK_INTERVAL = 2000
+
+vcns_opts = [
+    cfg.StrOpt('user',
+               default='admin',
+               help=_('User name for vsm')),
+    cfg.StrOpt('password',
+               default='default',
+               secret=True,
+               help=_('Password for vsm')),
+    cfg.StrOpt('manager_uri',
+               help=_('uri for vsm')),
+    cfg.StrOpt('datacenter_moid',
+               help=_('Optional parameter identifying the ID of datacenter '
+                      'to deploy NSX Edges')),
+    cfg.StrOpt('deployment_container_id',
+               help=_('Optional parameter identifying the ID of datastore to '
+                      'deploy NSX Edges')),
+    cfg.StrOpt('resource_pool_id',
+               help=_('Optional parameter identifying the ID of resource to '
+                      'deploy NSX Edges')),
+    cfg.StrOpt('datastore_id',
+               help=_('Optional parameter identifying the ID of datastore to '
+                      'deploy NSX Edges')),
+    cfg.StrOpt('external_network',
+               help=_('Network ID for physical network connectivity')),
+    cfg.IntOpt('task_status_check_interval',
+               default=DEFAULT_STATUS_CHECK_INTERVAL,
+               help=_("Task status check interval"))
+]
+
 # Register the configuration options
 cfg.CONF.register_opts(connection_opts)
 cfg.CONF.register_opts(cluster_opts)
 cfg.CONF.register_opts(nvp_opts, "NVP")
-cfg.CONF.register_opts(scheduler.AGENTS_SCHEDULER_OPTS)
+cfg.CONF.register_opts(sync_opts, "NVP_SYNC")
+cfg.CONF.register_opts(vcns_opts, group="vcns")
 # NOTE(armando-migliaccio): keep the following code until we support
 # NVP configuration files in older format (Grizzly or older).
 # ### BEGIN

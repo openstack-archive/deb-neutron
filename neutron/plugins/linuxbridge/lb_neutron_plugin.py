@@ -232,7 +232,7 @@ class LinuxBridgePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         return self._aliases
 
     def __init__(self):
-        self.extra_binding_dict = {
+        self.base_binding_dict = {
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_BRIDGE,
             portbindings.CAPABILITIES: {
                 portbindings.CAP_PORT_FILTER:
@@ -268,8 +268,12 @@ class LinuxBridgePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
         self.notifier = AgentNotifierApi(topics.AGENT)
-        self.dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        self.l3_agent_notifier = l3_rpc_agent_api.L3AgentNotify
+        self.agent_notifiers[q_const.AGENT_TYPE_DHCP] = (
+            dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        )
+        self.agent_notifiers[q_const.AGENT_TYPE_L3] = (
+            l3_rpc_agent_api.L3AgentNotify
+        )
 
     def _parse_network_vlan_ranges(self):
         try:

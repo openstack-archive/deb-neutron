@@ -143,11 +143,13 @@ class ConfDriver(object):
 
     @staticmethod
     def delete_tenant_quota(context, tenant_id):
-        raise webob.exc.HTTPForbidden()
+        msg = _('Access to this resource was denied.')
+        raise webob.exc.HTTPForbidden(msg)
 
     @staticmethod
     def update_quota_limit(context, tenant_id, resource, limit):
-        raise webob.exc.HTTPForbidden()
+        msg = _('Access to this resource was denied.')
+        raise webob.exc.HTTPForbidden(msg)
 
 
 class BaseResource(object):
@@ -300,7 +302,7 @@ def _count_resource(context, plugin, resources, tenant_id):
     try:
         obj_count_getter = getattr(plugin, count_getter_name)
         return obj_count_getter(context, filters={'tenant_id': [tenant_id]})
-    except (exceptions.NotImplementedError, AttributeError):
+    except (NotImplementedError, AttributeError):
         obj_getter = getattr(plugin, "get_%s" % resources)
         obj_list = obj_getter(context, filters={'tenant_id': [tenant_id]})
         return len(obj_list) if obj_list else 0

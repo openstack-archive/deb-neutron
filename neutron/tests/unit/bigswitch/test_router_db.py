@@ -26,11 +26,15 @@ from oslo.config import cfg
 from webob import exc
 
 from neutron.common.test_lib import test_config
+from neutron import context
 from neutron.extensions import l3
 from neutron.manager import NeutronManager
 from neutron.openstack.common.notifier import api as notifier_api
 from neutron.openstack.common.notifier import test_notifier
 from neutron.plugins.bigswitch.extensions import routerrule
+from neutron.tests.unit.bigswitch import fake_server
+from neutron.tests.unit import test_api_v2
+from neutron.tests.unit import test_extension_extradhcpopts as test_extradhcp
 from neutron.tests.unit import test_l3_plugin
 
 
@@ -53,33 +57,6 @@ def new_L3_setUp(self):
 origSetUp = test_l3_plugin.L3NatDBTestCase.setUp
 
 
-class HTTPResponseMock():
-    status = 200
-    reason = 'OK'
-
-    def __init__(self, sock, debuglevel=0, strict=0, method=None,
-                 buffering=False):
-        pass
-
-    def read(self):
-        return "{'status': '200 OK'}"
-
-
-class HTTPConnectionMock():
-
-    def __init__(self, server, port, timeout):
-        pass
-
-    def request(self, action, uri, body, headers):
-        return
-
-    def getresponse(self):
-        return HTTPResponseMock(None)
-
-    def close(self):
-        pass
-
-
 class RouterRulesTestExtensionManager(object):
 
     def get_resources(self):
@@ -94,11 +71,22 @@ class RouterRulesTestExtensionManager(object):
         return []
 
 
+class DHCPOptsTestCase(test_extradhcp.TestExtraDhcpOpt):
+
+    def setUp(self, plugin=None):
+        self.httpPatch = patch('httplib.HTTPConnection', create=True,
+                               new=fake_server.HTTPConnectionMock)
+        self.httpPatch.start()
+        self.addCleanup(self.httpPatch.stop)
+        p_path = 'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2'
+        super(test_extradhcp.ExtraDhcpOptDBTestCase, self).setUp(plugin=p_path)
+
+
 class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
 
     def setUp(self):
         self.httpPatch = patch('httplib.HTTPConnection', create=True,
-                               new=HTTPConnectionMock)
+                               new=fake_server.HTTPConnectionMock)
         self.httpPatch.start()
         test_l3_plugin.L3NatDBTestCase.setUp = new_L3_setUp
         super(RouterDBTestCase, self).setUp()
@@ -112,7 +100,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
         cfg.CONF.reset()
         test_l3_plugin.L3NatDBTestCase.setUp = origSetUp
 
-    def test_router_remove_router_interface_wrong_subnet_returns_409(self):
+    def test_router_remove_router_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
             with self.subnet() as s:
                 with self.subnet(cidr='10.0.10.0/24') as s1:
@@ -125,7 +113,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
                                                       r['router']['id'],
                                                       s['subnet']['id'],
                                                       p['port']['id'],
-                                                      exc.HTTPConflict.code)
+                                                      exc.HTTPBadRequest.code)
                         #remove properly to clean-up
                         self._router_interface_action('remove',
                                                       r['router']['id'],
@@ -213,7 +201,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
                     subnet['subnet']['network_id'],
                     expected_code=exc.HTTPConflict.code)
 
-    def test_router_remove_interface_wrong_subnet_returns_409(self):
+    def test_router_remove_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.10.0/24') as s:
                 with self.port(no_delete=True) as p:
@@ -225,7 +213,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
                                                   r['router']['id'],
                                                   s['subnet']['id'],
                                                   p['port']['id'],
-                                                  exc.HTTPConflict.code)
+                                                  exc.HTTPBadRequest.code)
                     #remove properly to clean-up
                     self._router_interface_action('remove',
                                                   r['router']['id'],
@@ -467,6 +455,44 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
             self._update('routers', r['router']['id'],
                          {'router': {'router_rules': rules}},
                          expected_code=exc.HTTPBadRequest.code)
+
+    def test_rollback_on_router_create(self):
+        tid = test_api_v2._uuid()
+        self.errhttpPatch = patch('httplib.HTTPConnection', create=True,
+                                  new=fake_server.HTTPConnectionMock500)
+        self.errhttpPatch.start()
+        self._create_router('json', tid)
+        self.errhttpPatch.stop()
+        self.assertTrue(len(self._get_routers(tid)) == 0)
+
+    def test_rollback_on_router_update(self):
+        with self.router() as r:
+            data = {'router': {'name': 'aNewName'}}
+            self.errhttpPatch = patch('httplib.HTTPConnection', create=True,
+                                      new=fake_server.HTTPConnectionMock500)
+            self.errhttpPatch.start()
+            self.new_update_request('routers', data,
+                                    r['router']['id']).get_response(self.api)
+            self.errhttpPatch.stop()
+            updatedr = self._get_routers(r['router']['tenant_id'])[0]
+            # name should have stayed the same due to failure
+            self.assertEqual(r['router']['name'], updatedr['name'])
+
+    def test_rollback_on_router_delete(self):
+        with self.router() as r:
+            self.errhttpPatch = patch('httplib.HTTPConnection', create=True,
+                                      new=fake_server.HTTPConnectionMock500)
+            self.errhttpPatch.start()
+            self._delete('routers', r['router']['id'],
+                         expected_code=exc.HTTPInternalServerError.code)
+            self.errhttpPatch.stop()
+            self.assertEqual(r['router']['id'],
+                             self._get_routers(r['router']['tenant_id']
+                                               )[0]['id'])
+
+    def _get_routers(self, tenant_id):
+        ctx = context.Context('', tenant_id)
+        return self.plugin_obj.get_routers(ctx)
 
 
 def _strip_rule_ids(rules):

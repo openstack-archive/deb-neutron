@@ -3,14 +3,14 @@
 # Copyright (c) 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
-#    Licensed under the Apache License, Version 2.0 (the 'License'); you may
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
 #
 #         http://www.apache.org/licenses/LICENSE-2.0
 #
 #    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an 'AS IS' BASIS, WITHOUT
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
@@ -29,6 +29,9 @@ LOG = logging.getLogger(__name__)
 ATTR_NOT_SPECIFIED = object()
 # Defining a constant to avoid repeating string literal in several modules
 SHARED = 'shared'
+
+# Used by range check to indicate no limit for a bound.
+UNLIMITED = None
 
 
 def _verify_dict_keys(expected_keys, target_dict, strict=True):
@@ -94,13 +97,30 @@ def _validate_boolean(data, valid_values=None):
 
 
 def _validate_range(data, valid_values=None):
+    """Check that integer value is within a range provided.
+
+    Test is inclusive. Allows either limit to be ignored, to allow
+    checking ranges where only the lower or upper limit matter.
+    It is expected that the limits provided are valid integers or
+    the value None.
+    """
+
     min_value = valid_values[0]
     max_value = valid_values[1]
-    if not min_value <= data <= max_value:
-        msg = _("'%(data)s' is not in range %(min_value)s through "
-                "%(max_value)s") % {'data': data,
-                                    'min_value': min_value,
-                                    'max_value': max_value}
+    try:
+        data = int(data)
+    except (ValueError, TypeError):
+        msg = _("'%s' is not an integer") % data
+        LOG.debug(msg)
+        return msg
+    if min_value is not UNLIMITED and data < min_value:
+        msg = _("'%(data)s' is too small - must be at least "
+                "'%(limit)d'") % {'data': data, 'limit': min_value}
+        LOG.debug(msg)
+        return msg
+    if max_value is not UNLIMITED and data > max_value:
+        msg = _("'%(data)s' is too large - must be no larger than "
+                "'%(limit)d'") % {'data': data, 'limit': max_value}
         LOG.debug(msg)
         return msg
 
@@ -261,6 +281,23 @@ def _validate_subnet(data, valid_values=None):
     return msg
 
 
+def _validate_subnet_list(data, valid_values=None):
+    if not isinstance(data, list):
+        msg = _("'%s' is not a list") % data
+        LOG.debug(msg)
+        return msg
+
+    if len(set(data)) != len(data):
+        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
+        LOG.debug(msg)
+        return msg
+
+    for item in data:
+        msg = _validate_subnet(item)
+        if msg:
+            return msg
+
+
 def _validate_regex(data, valid_values=None):
     try:
         if re.match(valid_values, data):
@@ -303,6 +340,29 @@ def _validate_uuid_list(data, valid_values=None):
         return msg
 
 
+def _validate_dict_item(key, key_validator, data):
+    # Find conversion function, if any, and apply it
+    conv_func = key_validator.get('convert_to')
+    if conv_func:
+        data[key] = conv_func(data.get(key))
+    # Find validator function
+    # TODO(salv-orlando): Structure of dict attributes should be improved
+    # to avoid iterating over items
+    val_func = val_params = None
+    for (k, v) in key_validator.iteritems():
+        if k.startswith('type:'):
+            # ask forgiveness, not permission
+            try:
+                val_func = validators[k]
+            except KeyError:
+                return _("Validator '%s' does not exist.") % k
+            val_params = v
+            break
+    # Process validation
+    if val_func:
+        return val_func(data.get(key), val_params)
+
+
 def _validate_dict(data, key_specs=None):
     if not isinstance(data, dict):
         msg = _("'%s' is not a dictionary") % data
@@ -322,25 +382,14 @@ def _validate_dict(data, key_specs=None):
             LOG.debug(msg)
             return msg
 
-    # Perform validation of all values according to the specifications.
+    # Perform validation and conversion of all values
+    # according to the specifications.
     for key, key_validator in [(k, v) for k, v in key_specs.iteritems()
                                if k in data]:
-
-        for val_name in [n for n in key_validator.iterkeys()
-                         if n.startswith('type:')]:
-            # Check whether specified validator exists.
-            if val_name not in validators:
-                msg = _("Validator '%s' does not exist.") % val_name
-                LOG.debug(msg)
-                return msg
-
-            val_func = validators[val_name]
-            val_params = key_validator[val_name]
-
-            msg = val_func(data.get(key), val_params)
-            if msg:
-                LOG.debug(msg)
-                return msg
+        msg = _validate_dict_item(key, key_validator, data)
+        if msg:
+            LOG.debug(msg)
+            return msg
 
 
 def _validate_dict_or_none(data, key_specs=None):
@@ -474,6 +523,7 @@ validators = {'type:dict': _validate_dict,
               'type:regex': _validate_regex,
               'type:string': _validate_string,
               'type:subnet': _validate_subnet,
+              'type:subnet_list': _validate_subnet_list,
               'type:uuid': _validate_uuid,
               'type:uuid_or_none': _validate_uuid_or_none,
               'type:uuid_list': _validate_uuid_list,

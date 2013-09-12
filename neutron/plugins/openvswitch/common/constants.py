@@ -1,13 +1,13 @@
 # Copyright (c) 2012 OpenStack Foundation.
 #
-# Licensed under the Apache License, Version 2.0 (the 'License');
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied.
 # See the License for the specific language governing permissions and
@@ -38,3 +38,13 @@ MINIMUM_OVS_VXLAN_VERSION = "1.10"
 
 # The different types of tunnels
 TUNNEL_NETWORK_TYPES = [TYPE_GRE, TYPE_VXLAN]
+
+# Various tables for tunneling flows
+PATCH_LV_TO_TUN = 1
+GRE_TUN_TO_LV = 2
+VXLAN_TUN_TO_LV = 3
+LEARN_FROM_TUN = 10
+UCAST_TO_TUN = 20
+FLOOD_TO_TUN = 21
+# Map tunnel types to tables number
+TUN_TABLE = {TYPE_GRE: GRE_TUN_TO_LV, TYPE_VXLAN: VXLAN_TUN_TO_LV}

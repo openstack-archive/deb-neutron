@@ -25,9 +25,12 @@ UPDATE = 'update'
 AGENT = 'q-agent-notifier'
 PLUGIN = 'q-plugin'
 DHCP = 'q-dhcp-notifer'
+FIREWALL_PLUGIN = 'q-firewall-plugin'
+METERING_PLUGIN = 'q-metering-plugin'
 
 L3_AGENT = 'l3_agent'
 DHCP_AGENT = 'dhcp_agent'
+METERING_AGENT = 'metering_agent'
 
 
 def get_topic_name(prefix, table, operation):

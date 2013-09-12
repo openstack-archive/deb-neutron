@@ -18,20 +18,22 @@
 """Add portbindings db
 
 Revision ID: 176a85fc7d79
-Revises: grizzly
+Revises: f489cf14a79c
 Create Date: 2013-03-21 14:59:53.052600
 
 """
 
 # revision identifiers, used by Alembic.
 revision = '176a85fc7d79'
-down_revision = 'grizzly'
+down_revision = 'f489cf14a79c'
 
 # Change to ['*'] if this migration applies to all plugins
 
 migration_for_plugins = [
     'neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2',
     'neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2',
+    'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2',
+    'neutron.plugins.nicira.NeutronPlugin.NvpPluginV2',
 ]
 
 from alembic import op
@@ -40,8 +42,8 @@ import sqlalchemy as sa
 from neutron.db import migration
 
 
-def upgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def upgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
 
     op.create_table(
@@ -53,7 +55,7 @@ def upgrade(active_plugin=None, options=None):
     )
 
 
-def downgrade(active_plugin=None, options=None):
-    if not migration.should_run(active_plugin, migration_for_plugins):
+def downgrade(active_plugins=None, options=None):
+    if not migration.should_run(active_plugins, migration_for_plugins):
         return
     op.drop_table('portbindingports')

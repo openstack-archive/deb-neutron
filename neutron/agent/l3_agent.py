@@ -43,7 +43,7 @@ from neutron.openstack.common.rpc import common as rpc_common
 from neutron.openstack.common.rpc import proxy
 from neutron.openstack.common import service
 from neutron import service as neutron_service
-
+from neutron.services.firewall.agents.l3reference import firewall_l3_agent
 
 LOG = logging.getLogger(__name__)
 NS_PREFIX = 'qrouter-'
@@ -116,15 +116,15 @@ class RouterInfo(object):
         self._router = value
         if not self._router:
             return
+        # enable_snat by default if it wasn't specified by plugin
+        self._snat_enabled = self._router.get('enable_snat', True)
         # Set a SNAT action for the router
         if self._router.get('gw_port'):
-            self._snat_action = (
-                'add_rules' if self._router.get('enable_snat')
-                else 'remove_rules')
+            self._snat_action = ('add_rules' if self._snat_enabled
+                                 else 'remove_rules')
         elif self.ex_gw_port:
             # Gateway port was removed, remove rules
             self._snat_action = 'remove_rules'
-        self._snat_enabled = self._router.get('enable_snat')
 
     def ns_name(self):
         if self.use_namespaces:
@@ -138,7 +138,7 @@ class RouterInfo(object):
         self._snat_action = None
 
 
-class L3NATAgent(manager.Manager):
+class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
     """Manager for L3NatAgent
 
         API version history:
@@ -181,6 +181,10 @@ class L3NATAgent(manager.Manager):
                           "by the agents.")),
         cfg.BoolOpt('enable_metadata_proxy', default=True,
                     help=_("Allow running metadata proxy.")),
+        cfg.StrOpt('metadata_proxy_socket',
+                   default='$state_path/metadata_proxy',
+                   help=_('Location of Metadata Proxy UNIX domain '
+                          'socket')),
     ]
 
     def __init__(self, host, conf=None):
@@ -215,7 +219,7 @@ class L3NATAgent(manager.Manager):
         self.rpc_loop = loopingcall.FixedIntervalLoopingCall(
             self._rpc_loop)
         self.rpc_loop.start(interval=RPC_LOOP_INTERVAL)
-        super(L3NATAgent, self).__init__(host=self.conf.host)
+        super(L3NATAgent, self).__init__(conf=self.conf)
 
     def _destroy_router_namespaces(self, only_router_id=None):
         """Destroy router namespaces on the host to eliminate all stale
@@ -282,6 +286,7 @@ class L3NATAgent(manager.Manager):
         for c, r in self.metadata_nat_rules():
             ri.iptables_manager.ipv4['nat'].add_rule(c, r)
         ri.iptables_manager.apply()
+        super(L3NATAgent, self).process_router_add(ri)
         if self.conf.enable_metadata_proxy:
             self._spawn_metadata_proxy(ri)
 
@@ -303,8 +308,10 @@ class L3NATAgent(manager.Manager):
 
     def _spawn_metadata_proxy(self, router_info):
         def callback(pid_file):
+            metadata_proxy_socket = cfg.CONF.metadata_proxy_socket
             proxy_cmd = ['neutron-ns-metadata-proxy',
                          '--pid_file=%s' % pid_file,
+                         '--metadata_proxy_socket=%s' % metadata_proxy_socket,
                          '--router_id=%s' % router_info.router_id,
                          '--state_path=%s' % self.conf.state_path,
                          '--metadata_port=%s' % self.conf.metadata_port]
@@ -398,6 +405,10 @@ class L3NATAgent(manager.Manager):
         # each router's SNAT rules will be in their own namespace
         ri.iptables_manager.ipv4['nat'].empty_chain('POSTROUTING')
         ri.iptables_manager.ipv4['nat'].empty_chain('snat')
+
+        # Add back the jump to float-snat
+        ri.iptables_manager.ipv4['nat'].add_rule('snat', '-j $float-snat')
+
         # And add them back if the action if add_rules
         if action == 'add_rules' and ex_gw_port:
             # ex_gw_port should not be None in this case
@@ -700,6 +711,8 @@ class L3NATAgent(manager.Manager):
     @periodic_task.periodic_task
     @lockutils.synchronized('l3-agent', 'neutron-')
     def _sync_routers_task(self, context):
+        if self.services_sync:
+            super(L3NATAgent, self).process_services_sync(context)
         if not self.fullsync:
             return
         try:
@@ -815,7 +828,7 @@ class L3NATAgentWithStateReport(L3NATAgent):
         LOG.info(_("agent_updated by server side %s!"), payload)
 
 
-def main():
+def main(manager='neutron.agent.l3_agent.L3NATAgentWithStateReport'):
     eventlet.monkey_patch()
     conf = cfg.CONF
     conf.register_opts(L3NATAgent.OPTS)
@@ -830,5 +843,5 @@ def main():
         binary='neutron-l3-agent',
         topic=topics.L3_AGENT,
         report_interval=cfg.CONF.AGENT.report_interval,
-        manager='neutron.agent.l3_agent.L3NATAgentWithStateReport')
+        manager=manager)
     service.launch(server).wait()

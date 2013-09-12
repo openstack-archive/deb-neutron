@@ -37,6 +37,7 @@ import webob.exc
 from neutron.common import constants
 from neutron.common import exceptions as exception
 from neutron import context
+from neutron.openstack.common import gettextutils
 from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
 
@@ -298,6 +299,17 @@ class Request(webob.Request):
         if _type in allowed_types:
             return _type
         return None
+
+    def best_match_language(self):
+        """Determines best available locale from the Accept-Language header.
+
+        :returns: the best language match or None if the 'Accept-Language'
+                  header was not available in the request.
+        """
+        if not self.accept_language:
+            return None
+        all_languages = gettextutils.get_available_languages('neutron')
+        return self.accept_language.best_match(all_languages)
 
     @property
     def context(self):
@@ -945,7 +957,7 @@ class Router(object):
         return self._router
 
     @staticmethod
-    @webob.dec.wsgify
+    @webob.dec.wsgify(RequestClass=Request)
     def _dispatch(req):
         """Dispatch a Request.
 
@@ -955,7 +967,10 @@ class Router(object):
         """
         match = req.environ['wsgiorg.routing_args'][1]
         if not match:
-            return webob.exc.HTTPNotFound()
+            language = req.best_match_language()
+            msg = _('The resource could not be found.')
+            msg = gettextutils.get_localized_message(msg, language)
+            return webob.exc.HTTPNotFound(explanation=msg)
         app = match['controller']
         return app
 
@@ -1160,7 +1175,8 @@ class Controller(object):
         try:
             return serializer.serialize(data, content_type)
         except exception.InvalidContentType:
-            raise webob.exc.HTTPNotAcceptable()
+            msg = _('The requested content type %s is invalid.') % content_type
+            raise webob.exc.HTTPNotAcceptable(msg)
 
     def _deserialize(self, data, content_type):
         """Deserialize the request body to the specefied content type.

@@ -28,4 +28,4 @@ class PLUMgridException(base_exec.NeutronException):
 
 
 class PLUMgridConnectionFailed(PLUMgridException):
-    message = _("Connection failed with PLUMgrid NOS: %(err_msg)s")
+    message = _("Connection failed with PLUMgrid Director: %(err_msg)s")
