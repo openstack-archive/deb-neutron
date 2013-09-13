@@ -1,21 +1,21 @@
 Description: A configuration that should work by default
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
-Last-Update: 2013-08-02
+Last-Update: 2013-09-13
 
---- neutron-2013.2~b2.orig/etc/neutron.conf
-+++ neutron-2013.2~b2/etc/neutron.conf
-@@ -45,7 +45,7 @@ bind_port = 9696
+--- neutron-2013.2~b3.orig/etc/neutron.conf
++++ neutron-2013.2~b3/etc/neutron.conf
+@@ -45,7 +45,7 @@ lock_path = $state_path/lock
  # api_extensions_path =
  
- # Quantum plugin provider module
+ # Neutron plugin provider module
 -# core_plugin =
 +core_plugin = neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
  
  # Advanced service modules
  # service_plugins =
-@@ -300,7 +300,7 @@ notification_topics = notifications
- # Use "sudo quantum-rootwrap /etc/quantum/rootwrap.conf" to use the real
+@@ -294,7 +294,7 @@ notification_driver = neutron.openstack.
+ # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
 -# root_helper = sudo
@@ -23,23 +23,23 @@ Last-Update: 2013-08-02
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server, should be less than
-@@ -326,11 +326,10 @@ signing_dir = /var/lib/quantum/keystone-
+@@ -314,11 +314,10 @@ signing_dir = $state_path/keystone-signi
  
  [database]
  # This line MUST be changed to actually run the plugin.
 -# Example:
--# connection = mysql://root:pass@127.0.0.1:3306/quantum
-+# Example: connection = mysql://root:pass@127.0.0.1:3306/quantum
+-# connection = mysql://root:pass@127.0.0.1:3306/neutron
++# Example: connection = mysql://root:pass@127.0.0.1:3306/neutron
  # Replace 127.0.0.1 above with the IP address of the database used by the
- # main quantum server. (Leave it as is if the database runs on this host.)
+ # main neutron server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
 +connection = sqlite:///var/lib/neutron/neutrondb
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
---- neutron-2013.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2013.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-@@ -30,22 +30,22 @@
+--- neutron-2013.2~b3.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2013.2~b3/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+@@ -30,7 +30,7 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
  #
@@ -48,14 +48,7 @@ Last-Update: 2013-08-02
  
  # (StrOpt) The type of tunnel network, if any, supported by the plugin. If
  # this is set, it will cause tunneling to be enabled. If this is not set and
- # the option enable_tunneling is set, this will default to 'gre'.
- #
--# tunnel_type =
- # Example: tunnel_type = gre
- # Example: tunnel_type = vxlan
-+tunnel_type = gre
- 
- # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples
+@@ -44,8 +44,8 @@
  # enumerating ranges of GRE or VXLAN tunnel IDs that are available for
  # tenant network allocation if tenant_network_type is 'gre' or 'vxlan'.
  #
@@ -74,10 +67,10 @@ Last-Update: 2013-08-02
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -111,28 +111,3 @@
- # Firewall driver for realizing quantum security group function.
- # firewall_driver = quantum.agent.firewall.NoopFirewallDriver
- # Example: firewall_driver = quantum.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+@@ -117,28 +117,3 @@
+ # Firewall driver for realizing neutron security group function.
+ # firewall_driver = neutron.agent.firewall.NoopFirewallDriver
+ # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
 -
 -#-----------------------------------------------------------------------------
 -# Sample Configurations.
@@ -85,7 +78,7 @@ Last-Update: 2013-08-02
 -#
 -# 1. With VLANs on eth1.
 -# [database]
--# connection = mysql://root:nova@127.0.0.1:3306/ovs_quantum
+-# connection = mysql://root:nova@127.0.0.1:3306/ovs_neutron
 -# [OVS]
 -# network_vlan_ranges = default:2000:3999
 -# tunnel_id_ranges =
@@ -96,7 +89,7 @@ Last-Update: 2013-08-02
 -#
 -# 2. With tunneling.
 -# [database]
--# connection = mysql://root:nova@127.0.0.1:3306/ovs_quantum
+-# connection = mysql://root:nova@127.0.0.1:3306/ovs_neutron
 -# [OVS]
 -# network_vlan_ranges =
 -# tunnel_id_ranges = 1:1000
