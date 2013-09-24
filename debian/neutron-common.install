@@ -5,5 +5,6 @@ etc/neutron/plugins	/etc/neutron
 etc/neutron/rootwrap.d/* /etc/neutron/rootwrap.d
 etc/policy.json		/etc/neutron
 etc/rootwrap.conf	/etc/neutron
+etc/fwaas_driver.ini	/etc/neutron
 usr/bin/neutron*
 debian/plugin_guess_func	/usr/share/neutron-common
