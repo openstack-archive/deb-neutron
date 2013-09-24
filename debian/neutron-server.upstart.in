@@ -12,7 +12,7 @@ pre-start script
 end script
 
 script
-	[ -x /usr/share/neutron-common/plugin_guess_func ] || exit 0
+	[ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
 	. /usr/share/neutron-common/plugin_guess_func
 
 	if ! [ -r /etc/neutron/neutron.conf ] ; then

@@ -1,0 +1,16 @@
+description "Neutron Metering plugin agent"
+author "Thomas Goirand <zigo@debian.org>"
+
+start on runlevel [2345]
+stop on runlevel [016]
+
+chdir /var/run
+
+pre-start script
+	mkdir -p /var/run/neutron
+	chown neutron:root /var/run/neutron
+end script
+
+exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-metering-agent -- \
+            --config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/metering_agent.ini \
+            --log-file=/var/log/neutron/metering-agent.log

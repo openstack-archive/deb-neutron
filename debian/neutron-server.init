@@ -26,7 +26,7 @@ DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
 
 . /lib/lsb/init-functions
 
-[ -x /usr/share/neutron-common/plugin_guess_func ] || exit 0
+[ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
 . /usr/share/neutron-common/plugin_guess_func
 
 ### Maintain the plugin selection so that we can load the corresponding .ini file ###
