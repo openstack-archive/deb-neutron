@@ -301,6 +301,7 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
+Provides: neutron-plugin-metering-agent
 Breaks: quantum-server (<< 2013.2~)
 Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - metering agent
@@ -321,6 +322,7 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
+Provides: neutron-plugin-vpn-agent
 Breaks: quantum-server (<< 2013.2~)
 Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - VPN agent
