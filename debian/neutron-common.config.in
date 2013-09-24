@@ -16,6 +16,9 @@ neutron_core_plugin_to_plugin_name () {
 	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
 		NEUTRON_PLUGIN_NAME=LinuxBridge
 	;;
+	"neutron.plugins.ml2.plugin.Ml2Plugin")
+		NEUTRON_PLUGIN_NAME=ml2
+	;;
 	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
 		NEUTRON_PLUGIN_NAME=RYU
 	;;

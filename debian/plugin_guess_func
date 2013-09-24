@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Remember to also add any new plugin name into neutron-common.templates
+
 # Please remember this function is also duplicated in debian/neutron-common.config.in
 ### Guess the plugin name depending on the class of the plugin in /etc/neutron/neutron.conf ###
 neutron_core_plugin_to_plugin_name () {
@@ -9,6 +11,9 @@ neutron_core_plugin_to_plugin_name () {
 	;;
 	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
 		NEUTRON_PLUGIN_NAME=LinuxBridge
+	;;
+	"neutron.plugins.ml2.plugin.Ml2Plugin")
+		NEUTRON_PLUGIN_NAME=ml2
 	;;
 	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
 		NEUTRON_PLUGIN_NAME=RYU
@@ -59,6 +64,9 @@ neutron_plugin_ini_path () {
 	"LinuxBridge")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}linuxbridge/linuxbridge_conf.ini
 	;;
+	"ml2")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ml2/ml2_conf.ini
+	;;
 	"RYU")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ryu/ryu.ini
 	;;
@@ -106,6 +114,9 @@ neutron_core_plugin_to_plugin_name () {
 	;;
 	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
 		NEUTRON_PLUGIN_NAME=LinuxBridge
+	;;
+	"neutron.plugins.ml2.plugin.Ml2Plugin")
+		NEUTRON_PLUGIN_NAME=ml2
 	;;
 	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
 		NEUTRON_PLUGIN_NAME=RYU
