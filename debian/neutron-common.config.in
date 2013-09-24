@@ -7,6 +7,7 @@ set -e
 N_CONF=/etc/neutron/neutron.conf
 OVS_CONF=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
+# Please remember this function is also in debian/plugin_guess_func
 neutron_core_plugin_to_plugin_name () {
 	case ${1} in
 	"neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2")

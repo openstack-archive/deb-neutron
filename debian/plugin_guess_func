@@ -1,5 +1,6 @@
 #!/bin/sh
 
+# Please remember this function is also duplicated in debian/neutron-common.config.in
 ### Guess the plugin name depending on the class of the plugin in /etc/neutron/neutron.conf ###
 neutron_core_plugin_to_plugin_name () {
 	case ${1} in
