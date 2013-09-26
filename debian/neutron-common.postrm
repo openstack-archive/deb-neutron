@@ -10,7 +10,7 @@ if [ "${1}" = "purge" ] ; then
 		if [ "$RET" = "true" ] ; then
 			if [ -f /usr/share/dbconfig-common/dpkg/postrm ] ; then
 				. /usr/share/dbconfig-common/dpkg/postrm
-				dbc_go neutron-plugin-openvswitch $@
+				dbc_go neutron-common $@
 			else
 				rm -f /etc/dbconfig-common/neutron-common.conf
 				if which ucf >/dev/null 2>&1; then
