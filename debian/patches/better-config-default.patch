@@ -1,8 +1,21 @@
-Description: A configuration that should work by default
+Description: Better config default
+ The default of Neutron make it so that it's not usable by default, and hard to
+ parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
-Forwarded: not-needed
-Last-Update: 2013-09-13
+Forwarded: no
+Last-Update: 2013-09-26
 
+--- neutron-2013.2~b3.orig/etc/l3_agent.ini
++++ neutron-2013.2~b3/etc/l3_agent.ini
+@@ -8,7 +8,7 @@
+ 
+ # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
+ # that supports L3 agent
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
 --- neutron-2013.2~b3.orig/etc/neutron.conf
 +++ neutron-2013.2~b3/etc/neutron.conf
 @@ -45,7 +45,7 @@ lock_path = $state_path/lock
@@ -14,6 +27,26 @@ Last-Update: 2013-09-13
  
  # Advanced service modules
  # service_plugins =
+@@ -119,16 +119,16 @@ lock_path = $state_path/lock
+ # SSL certification authority file (valid only if SSL enabled)'
+ # kombu_ssl_ca_certs =
+ # IP address of the RabbitMQ installation
+-# rabbit_host = localhost
++rabbit_host = localhost
+ # Password of the RabbitMQ server
+-# rabbit_password = guest
++rabbit_password = guest
+ # Port where RabbitMQ server is running/listening
+ # rabbit_port = 5672
+ # RabbitMQ single or HA cluster (host:port pairs i.e: host1:5672, host2:5672)
+ # rabbit_hosts is defaulted to '$rabbit_host:$rabbit_port'
+ # rabbit_hosts = localhost:5672
+ # User ID used for RabbitMQ connections
+-# rabbit_userid = guest
++rabbit_userid = guest
+ # Location of a virtual RabbitMQ installation.
+ # rabbit_virtual_host = /
+ # Maximum retries with trying to connect to RabbitMQ
 @@ -294,7 +294,7 @@ notification_driver = neutron.openstack.
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
@@ -37,6 +70,17 @@ Last-Update: 2013-09-13
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
+--- neutron-2013.2~b3.orig/etc/lbaas_agent.ini
++++ neutron-2013.2~b3/etc/lbaas_agent.ini
+@@ -13,7 +13,7 @@
+ 
+ # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC, NVP,
+ # BigSwitch/Floodlight)
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
 --- neutron-2013.2~b3.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 +++ neutron-2013.2~b3/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,7 +30,7 @@
