@@ -1,3 +1,9 @@
+neutron (2013.2~rc1-2) experimental; urgency=low
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 06 Oct 2013 14:15:06 +0800
+
 neutron (2013.2~b3-1) experimental; urgency=low
 
   * Initial release. (Closes: #718037)
