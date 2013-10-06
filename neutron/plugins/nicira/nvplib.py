@@ -30,8 +30,8 @@ from neutron.common import constants
 from neutron.common import exceptions as exception
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log
-from neutron.plugins.nicira.common import (
-    exceptions as nvp_exc)
+from neutron.plugins.nicira.common import exceptions as nvp_exc
+from neutron.plugins.nicira.common import utils
 from neutron.plugins.nicira import NvpApiClient
 from neutron.version import version_info
 
@@ -55,8 +55,6 @@ LQUEUE_RESOURCE = "lqueue"
 GWSERVICE_RESOURCE = "gateway-service"
 # Current neutron version
 NEUTRON_VERSION = version_info.release_string()
-# Other constants for NVP resource
-MAX_DISPLAY_NAME_LEN = 40
 # Constants for NAT rules
 MATCH_KEYS = ["destination_ip_addresses", "destination_port_max",
               "destination_port_min", "source_ip_addresses",
@@ -76,6 +74,21 @@ taken_context_ids = []
 
 # XXX Only cache default for now
 _lqueue_cache = {}
+
+
+def device_id_to_vm_id(device_id, obfuscate=False):
+    # device_id can be longer than 40 characters, for example
+    # a device_id for a dhcp port is like the following:
+    #
+    # dhcp83b5fdeb-e3b4-5e18-ac5f-55161...80747326-47d7-46c2-a87a-cf6d5194877c
+    #
+    # To fit it into an NVP tag we need to hash it, however device_id
+    # used for ports associated to VM's are small enough so let's skip the
+    # hashing
+    if len(device_id) > utils.MAX_DISPLAY_NAME_LEN or obfuscate:
+        return hashlib.sha1(device_id).hexdigest()
+    else:
+        return device_id
 
 
 def version_dependent(wrapped_func):
@@ -132,14 +145,6 @@ def _build_uri_path(resource,
         if query_string:
             uri_path += "?%s" % query_string
     return uri_path
-
-
-def _check_and_truncate_name(display_name):
-    if display_name and len(display_name) > MAX_DISPLAY_NAME_LEN:
-        LOG.debug(_("Specified name:'%s' exceeds maximum length. "
-                    "It will be truncated on NVP"), display_name)
-        return display_name[:MAX_DISPLAY_NAME_LEN]
-    return display_name
 
 
 def get_cluster_version(cluster):
@@ -224,7 +229,7 @@ def create_lswitch(cluster, tenant_id, display_name,
                    neutron_net_id=None,
                    shared=None,
                    **kwargs):
-    lswitch_obj = {"display_name": _check_and_truncate_name(display_name),
+    lswitch_obj = {"display_name": utils.check_and_truncate(display_name),
                    "transport_zones": transport_zones_config,
                    "tags": [{"tag": tenant_id, "scope": "os_tid"},
                             {"tag": NEUTRON_VERSION, "scope": "quantum"}]}
@@ -246,7 +251,7 @@ def create_lswitch(cluster, tenant_id, display_name,
 def update_lswitch(cluster, lswitch_id, display_name,
                    tenant_id=None, **kwargs):
     uri = _build_uri_path(LSWITCH_RESOURCE, resource_id=lswitch_id)
-    lswitch_obj = {"display_name": _check_and_truncate_name(display_name),
+    lswitch_obj = {"display_name": utils.check_and_truncate(display_name),
                    "tags": [{"tag": tenant_id, "scope": "os_tid"},
                             {"tag": NEUTRON_VERSION, "scope": "quantum"}]}
     if "tags" in kwargs:
@@ -280,7 +285,7 @@ def create_l2_gw_service(cluster, tenant_id, display_name, devices):
                  "device_id": device['interface_name'],
                  "type": "L2Gateway"} for device in devices]
     gwservice_obj = {
-        "display_name": _check_and_truncate_name(display_name),
+        "display_name": utils.check_and_truncate(display_name),
         "tags": tags,
         "gateways": gateways,
         "type": "L2GatewayServiceConfig"
@@ -293,7 +298,7 @@ def create_l2_gw_service(cluster, tenant_id, display_name, devices):
 def _prepare_lrouter_body(name, tenant_id, router_type,
                           distributed=None, **kwargs):
     body = {
-        "display_name": _check_and_truncate_name(name),
+        "display_name": utils.check_and_truncate(name),
         "tags": [{"tag": tenant_id, "scope": "os_tid"},
                  {"tag": NEUTRON_VERSION, "scope": "quantum"}],
         "routing_config": {
@@ -444,7 +449,7 @@ def update_l2_gw_service(cluster, gateway_id, display_name):
     if not display_name:
         # Nothing to update
         return gwservice_obj
-    gwservice_obj["display_name"] = _check_and_truncate_name(display_name)
+    gwservice_obj["display_name"] = utils.check_and_truncate(display_name)
     return do_request("PUT", _build_uri_path(GWSERVICE_RESOURCE,
                                              resource_id=gateway_id),
                       json.dumps(gwservice_obj), cluster=cluster)
@@ -456,7 +461,7 @@ def update_implicit_routing_lrouter(cluster, r_id, display_name, nexthop):
         # Nothing to update
         return lrouter_obj
     # It seems that this is faster than the doing an if on display_name
-    lrouter_obj["display_name"] = (_check_and_truncate_name(display_name) or
+    lrouter_obj["display_name"] = (utils.check_and_truncate(display_name) or
                                    lrouter_obj["display_name"])
     if nexthop:
         nh_element = lrouter_obj["routing_config"].get(
@@ -530,9 +535,9 @@ def update_explicit_routes_lrouter(cluster, router_id, routes):
                                                      router_id, route)
                 added_routes.append(uuid)
     except NvpApiClient.NvpApiException:
-        LOG.exception(_('Cannot update NVP routes %(routes)s for'
-                        ' router %(router_id)s') % {'routes': routes,
-                                                    'router_id': router_id})
+        LOG.exception(_('Cannot update NVP routes %(routes)s for '
+                        'router %(router_id)s'),
+                      {'routes': routes, 'router_id': router_id})
         # Roll back to keep NVP in consistent state
         with excutils.save_and_reraise_exception():
             if nvp_routes:
@@ -653,6 +658,71 @@ def delete_port(cluster, switch, port):
         raise exception.NeutronException()
 
 
+def get_ports(cluster, networks=None, devices=None, tenants=None):
+    vm_filter_obsolete = ""
+    vm_filter = ""
+    tenant_filter = ""
+    # This is used when calling delete_network. Neutron checks to see if
+    # the network has any ports.
+    if networks:
+        # FIXME (Aaron) If we get more than one network_id this won't work
+        lswitch = networks[0]
+    else:
+        lswitch = "*"
+    if devices:
+        for device_id in devices:
+            vm_filter_obsolete = '&'.join(
+                ["tag_scope=vm_id",
+                 "tag=%s" % device_id_to_vm_id(device_id, obfuscate=True),
+                 vm_filter_obsolete])
+            vm_filter = '&'.join(
+                ["tag_scope=vm_id",
+                 "tag=%s" % device_id_to_vm_id(device_id),
+                 vm_filter])
+    if tenants:
+        for tenant in tenants:
+            tenant_filter = '&'.join(
+                ["tag_scope=os_tid",
+                 "tag=%s" % tenant,
+                 tenant_filter])
+
+    nvp_lports = {}
+    lport_fields_str = ("tags,admin_status_enabled,display_name,"
+                        "fabric_status_up")
+    try:
+        lport_query_path_obsolete = (
+            "/ws.v1/lswitch/%s/lport?fields=%s&%s%stag_scope=q_port_id"
+            "&relations=LogicalPortStatus" %
+            (lswitch, lport_fields_str, vm_filter_obsolete, tenant_filter))
+        lport_query_path = (
+            "/ws.v1/lswitch/%s/lport?fields=%s&%s%stag_scope=q_port_id"
+            "&relations=LogicalPortStatus" %
+            (lswitch, lport_fields_str, vm_filter, tenant_filter))
+        try:
+            # NOTE(armando-migliaccio): by querying with obsolete tag first
+            # current deployments won't take the performance hit of a double
+            # call. In release L-** or M-**, we might want to swap the calls
+            # as it's likely that ports with the new tag would outnumber the
+            # ones with the old tag
+            ports = get_all_query_pages(lport_query_path_obsolete, cluster)
+            if not ports:
+                ports = get_all_query_pages(lport_query_path, cluster)
+        except exception.NotFound:
+            LOG.warn(_("Lswitch %s not found in NVP"), lswitch)
+            ports = None
+
+        if ports:
+            for port in ports:
+                for tag in port["tags"]:
+                    if tag["scope"] == "q_port_id":
+                        nvp_lports[tag["tag"]] = port
+    except Exception:
+        err_msg = _("Unable to get ports")
+        LOG.exception(err_msg)
+        raise nvp_exc.NvpPluginException(err_msg=err_msg)
+    return nvp_lports
+
+
 def get_port_by_neutron_tag(cluster, lswitch_uuid, neutron_port_id):
     """Get port by neutron tag.
 
@@ -665,7 +735,7 @@ def get_port_by_neutron_tag(cluster, lswitch_uuid, neutron_port_id):
                           filters={'tag': neutron_port_id,
                                    'tag_scope': 'q_port_id'})
     LOG.debug(_("Looking for port with q_port_id tag '%(neutron_port_id)s' "
-                "on: '%(lswitch_uuid)s'") %
+                "on: '%(lswitch_uuid)s'"),
               {'neutron_port_id': neutron_port_id,
                'lswitch_uuid': lswitch_uuid})
     res = do_request(HTTP_GET, uri, cluster=cluster)
@@ -674,7 +744,7 @@ def get_port_by_neutron_tag(cluster, lswitch_uuid, neutron_port_id):
         if num_results > 1:
             LOG.warn(_("Found '%(num_ports)d' ports with "
                        "q_port_id tag: '%(neutron_port_id)s'. "
-                       "Only 1 was expected.") %
+                       "Only 1 was expected."),
                      {'num_ports': num_results,
                       'neutron_port_id': neutron_port_id})
         return res["results"][0]
@@ -726,14 +796,12 @@ def update_port(cluster, lswitch_uuid, lport_uuid, neutron_port_id, tenant_id,
                 mac_address=None, fixed_ips=None, port_security_enabled=None,
                 security_profiles=None, queue_id=None,
                 mac_learning_enabled=None, allowed_address_pairs=None):
-    # device_id can be longer than 40 so we rehash it
-    hashed_device_id = hashlib.sha1(device_id).hexdigest()
     lport_obj = dict(
         admin_status_enabled=admin_status_enabled,
-        display_name=_check_and_truncate_name(display_name),
+        display_name=utils.check_and_truncate(display_name),
         tags=[dict(scope='os_tid', tag=tenant_id),
               dict(scope='q_port_id', tag=neutron_port_id),
-              dict(scope='vm_id', tag=hashed_device_id),
+              dict(scope='vm_id', tag=device_id_to_vm_id(device_id)),
               dict(scope='quantum', tag=NEUTRON_VERSION)])
 
     _configure_extensions(lport_obj, mac_address, fixed_ips,
@@ -761,15 +829,13 @@ def create_lport(cluster, lswitch_uuid, tenant_id, neutron_port_id,
                  security_profiles=None, queue_id=None,
                  mac_learning_enabled=None, allowed_address_pairs=None):
     """Creates a logical port on the assigned logical switch."""
-    # device_id can be longer than 40 so we rehash it
-    hashed_device_id = hashlib.sha1(device_id).hexdigest()
-    display_name = _check_and_truncate_name(display_name)
+    display_name = utils.check_and_truncate(display_name)
     lport_obj = dict(
         admin_status_enabled=admin_status_enabled,
         display_name=display_name,
         tags=[dict(scope='os_tid', tag=tenant_id),
               dict(scope='q_port_id', tag=neutron_port_id),
-              dict(scope='vm_id', tag=hashed_device_id),
+              dict(scope='vm_id', tag=device_id_to_vm_id(device_id)),
               dict(scope='quantum', tag=NEUTRON_VERSION)],
     )
 
@@ -963,10 +1029,11 @@ def format_exception(etype, e, exception_locals):
     :param execption_locals: calling context local variable dict.
     :returns: a formatted string.
     """
-    msg = ["Error. %s exception: %s." % (etype, e)]
+    msg = [_("Error. %(type)s exception: %(exc)s.") %
+           {'type': etype, 'exc': e}]
     l = dict((k, v) for k, v in exception_locals.iteritems()
              if k != 'request')
-    msg.append("locals=[%s]" % str(l))
+    msg.append(_("locals=[%s]") % str(l))
     return ' '.join(msg)
 
 
@@ -1006,7 +1073,7 @@ def create_security_profile(cluster, tenant_id, security_profile):
     # Allow all dhcp responses and all ingress traffic
     hidden_rules = {'logical_port_egress_rules':
                     [{'ethertype': 'IPv4',
-                      'protocol': constants.UDP_PROTOCOL,
+                      'protocol': constants.PROTO_NUM_UDP,
                       'port_range_min': constants.DHCP_RESPONSE_PORT,
                       'port_range_max': constants.DHCP_RESPONSE_PORT,
                       'ip_prefix': '0.0.0.0/0'}],
@@ -1015,7 +1082,7 @@ def create_security_profile(cluster, tenant_id, security_profile):
                      {'ethertype': 'IPv6'}]}
     tags = [dict(scope='os_tid', tag=tenant_id),
             dict(scope='quantum', tag=NEUTRON_VERSION)]
-    display_name = _check_and_truncate_name(security_profile.get('name'))
+    display_name = utils.check_and_truncate(security_profile.get('name'))
     body = mk_body(
         tags=tags, display_name=display_name,
         logical_port_ingress_rules=(
@@ -1044,7 +1111,7 @@ def update_security_group_rules(cluster, spid, rules):
 
     # Allow all dhcp responses in
     rules['logical_port_egress_rules'].append(
-        {'ethertype': 'IPv4', 'protocol': constants.UDP_PROTOCOL,
+        {'ethertype': 'IPv4', 'protocol': constants.PROTO_NUM_UDP,
          'port_range_min': constants.DHCP_RESPONSE_PORT,
          'port_range_max': constants.DHCP_RESPONSE_PORT,
          'ip_prefix': '0.0.0.0/0'})
@@ -1104,6 +1171,11 @@ def create_lrouter_nosnat_rule_v2(cluster, _router_id, _match_criteria=None):
                "this version of the NVP platform"))
 
 
+def create_lrouter_nodnat_rule_v2(cluster, _router_id, _match_criteria=None):
+    LOG.info(_("No DNAT rules cannot be applied as they are not available in "
+               "this version of the NVP platform"))
+
+
 def create_lrouter_snat_rule_v2(cluster, router_id,
                                 min_src_ip, max_src_ip, match_criteria=None):
 
@@ -1132,6 +1204,18 @@ def create_lrouter_nosnat_rule_v3(cluster, router_id, order=None,
     nat_match_obj = _create_nat_match_obj(**match_criteria)
     nat_rule_obj = {
         "type": "NoSourceNatRule",
+        "match": nat_match_obj
+    }
+    if order:
+        nat_rule_obj['order'] = order
+    return _create_lrouter_nat_rule(cluster, router_id, nat_rule_obj)
+
+
+def create_lrouter_nodnat_rule_v3(cluster, router_id, order=None,
+                                  match_criteria=None):
+    nat_match_obj = _create_nat_match_obj(**match_criteria)
+    nat_rule_obj = {
+        "type": "NoDestinationNatRule",
         "match": nat_match_obj
     }
     if order:
@@ -1176,6 +1260,11 @@ def create_lrouter_snat_rule(cluster, *args, **kwargs):
 
 @version_dependent
 def create_lrouter_nosnat_rule(cluster, *args, **kwargs):
+    pass
+
+
+@version_dependent
+def create_lrouter_nodnat_rule(cluster, *args, **kwargs):
     pass
 
 
@@ -1266,6 +1355,9 @@ NVPLIB_FUNC_DICT = {
     'create_lrouter_nosnat_rule': {
         2: {DEFAULT: create_lrouter_nosnat_rule_v2, },
         3: {DEFAULT: create_lrouter_nosnat_rule_v3, }, },
+    'create_lrouter_nodnat_rule': {
+        2: {DEFAULT: create_lrouter_nodnat_rule_v2, },
+        3: {DEFAULT: create_lrouter_nodnat_rule_v3, }, },
     'get_default_route_explicit_routing_lrouter': {
         3: {DEFAULT: get_default_route_explicit_routing_lrouter_v32,
             2: get_default_route_explicit_routing_lrouter_v32, }, },
@@ -1326,8 +1418,8 @@ def config_helper(http_method, http_uri, cluster):
                           http_uri,
                           cluster=cluster)
     except Exception as e:
-        msg = ("Error '%s' when connecting to controller(s): %s."
-               % (str(e), ', '.join(cluster.nvp_controllers)))
+        msg = (_("Error '%(err)s' when connecting to controller(s): %(ctl)s.")
+               % {'err': str(e), 'ctl': ', '.join(cluster.nvp_controllers)})
         raise Exception(msg)
 
 

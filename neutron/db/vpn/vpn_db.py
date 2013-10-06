@@ -23,9 +23,9 @@ from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
 from neutron.common import constants as n_constants
-from neutron.db import agentschedulers_db as agent_db
 from neutron.db import api as qdbapi
 from neutron.db import db_base_plugin_v2 as base_db
+from neutron.db import l3_agentschedulers_db as l3_agent_db
 from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -110,7 +110,7 @@ class IPsecSiteConnection(model_base.BASEV2,
     __tablename__ = 'ipsec_site_connections'
     name = sa.Column(sa.String(255))
     description = sa.Column(sa.String(255))
-    peer_address = sa.Column(sa.String(64), nullable=False)
+    peer_address = sa.Column(sa.String(255), nullable=False)
     peer_id = sa.Column(sa.String(255), nullable=False)
     route_mode = sa.Column(sa.String(8), nullable=False)
     mtu = sa.Column(sa.Integer, nullable=False)
@@ -538,9 +538,28 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
                'status': vpnservice['status']}
         return self._fields(res, fields)
 
+    def _check_router(self, context, router_id):
+        l3_plugin = manager.NeutronManager.get_service_plugins().get(
+            constants.L3_ROUTER_NAT)
+        l3_plugin.get_router(context, router_id)
+
+    def _check_subnet_id(self, context, router_id, subnet_id):
+        core_plugin = manager.NeutronManager.get_plugin()
+        ports = core_plugin.get_ports(
+            context,
+            filters={
+                'fixed_ips': {'subnet_id': [subnet_id]},
+                'device_id': [router_id]})
+        if not ports:
+            raise vpnaas.SubnetIsNotConnectedToRouter(
+                subnet_id=subnet_id,
+                router_id=router_id)
+
     def create_vpnservice(self, context, vpnservice):
         vpns = vpnservice['vpnservice']
         tenant_id = self._get_tenant_id_for_create(context, vpns)
+        self._check_router(context, vpns['router_id'])
+        self._check_subnet_id(context, vpns['router_id'], vpns['subnet_id'])
         with context.session.begin(subtransactions=True):
             vpnservice_db = VPNService(id=uuidutils.generate_uuid(),
                                        tenant_id=tenant_id,
@@ -583,6 +602,14 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
                                     self._make_vpnservice_dict,
                                     filters=filters, fields=fields)
 
+    def check_router_in_use(self, context, router_id):
+        vpnservices = self.get_vpnservices(
+            context, filters={'router_id': [router_id]})
+        if vpnservices:
+            raise vpnaas.RouterInUseByVPNService(
+                router_id=router_id,
+                vpnservice_id=vpnservices[0]['id'])
+
 
 class VPNPluginRpcDbMixin():
     def _get_agent_hosting_vpn_services(self, context, host):
@@ -597,11 +624,11 @@ class VPNPluginRpcDbMixin():
         query = query.join(IKEPolicy)
         query = query.join(IPsecPolicy)
         query = query.join(IPsecPeerCidr)
-        query = query.join(agent_db.RouterL3AgentBinding,
-                           agent_db.RouterL3AgentBinding.router_id ==
+        query = query.join(l3_agent_db.RouterL3AgentBinding,
+                           l3_agent_db.RouterL3AgentBinding.router_id ==
                            VPNService.router_id)
         query = query.filter(
-            agent_db.RouterL3AgentBinding.l3_agent_id == agent.id)
+            l3_agent_db.RouterL3AgentBinding.l3_agent_id == agent.id)
         return query
 
     def update_status_by_agent(self, context, service_status_info_list):

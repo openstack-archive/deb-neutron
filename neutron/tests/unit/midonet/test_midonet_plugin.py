@@ -27,6 +27,7 @@ import sys
 import neutron.common.test_lib as test_lib
 import neutron.tests.unit.midonet.mock_lib as mock_lib
 import neutron.tests.unit.test_db_plugin as test_plugin
+import neutron.tests.unit.test_extension_security_group as sg
 
 
 MIDOKURA_PKG_PATH = "neutron.plugins.midonet.plugin"
@@ -59,6 +60,30 @@ class MidonetPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
 
 class TestMidonetNetworksV2(test_plugin.TestNetworksV2,
                             MidonetPluginV2TestCase):
+
+    pass
+
+
+class TestMidonetSecurityGroupsTestCase(sg.SecurityGroupDBTestCase):
+
+    _plugin_name = ('%s.MidonetPluginV2' % MIDOKURA_PKG_PATH)
+
+    def setUp(self):
+        self.mock_api = mock.patch(
+            'neutron.plugins.midonet.midonet_lib.MidoClient')
+        etc_path = os.path.join(os.path.dirname(__file__), 'etc')
+        test_lib.test_config['config_files'] = [os.path.join(
+            etc_path, 'midonet.ini.test')]
+
+        self.instance = self.mock_api.start()
+        mock_cfg = mock_lib.MidonetLibMockConfig(self.instance.return_value)
+        mock_cfg.setup()
+        super(TestMidonetSecurityGroupsTestCase, self).setUp(self._plugin_name)
+
+
+class TestMidonetSecurityGroup(sg.TestSecurityGroups,
+                               TestMidonetSecurityGroupsTestCase):
+
     pass
 
 
@@ -88,24 +113,6 @@ class TestMidonetSubnetsV2(test_plugin.TestSubnetsV2,
     def test_create_subnet_inconsistent_ipv6_gatewayv4(self):
         pass
 
-    # Multiple subnets in a network is not supported by MidoNet yet.  Ignore
-    # tests that attempt to create them.
-
-    def test_create_subnets_bulk_emulated(self):
-        pass
-
-    def test_create_two_subnets(self):
-        pass
-
-    def test_list_subnets(self):
-        pass
-
-    def test_list_subnets_with_parameter(self):
-        pass
-
-    def test_create_two_subnets_same_cidr_returns_400(self):
-        pass
-
 
 class TestMidonetPortsV2(test_plugin.TestPortsV2,
                          MidonetPluginV2TestCase):
@@ -115,9 +122,3 @@ class TestMidonetPortsV2(test_plugin.TestPortsV2,
 
     def test_requested_subnet_id_v4_and_v6(self):
         pass
-
-    # Multiple subnets in a network is not supported by MidoNet yet.  Ignore
-    # tests that attempt to create them.
-
-    def test_overlapping_subnets(self):
-            pass

@@ -18,6 +18,8 @@
 """
 Utility methods for working with WSGI servers
 """
+from __future__ import print_function
+
 import errno
 import os
 import socket
@@ -102,7 +104,7 @@ class Server(object):
             family = info[0]
             bind_addr = info[-1]
         except Exception:
-            LOG.exception(_("Unable to listen on %(host)s:%(port)s") %
+            LOG.exception(_("Unable to listen on %(host)s:%(port)s"),
                           {'host': host, 'port': port})
             sys.exit(1)
 
@@ -421,9 +423,12 @@ class XMLDictSerializer(DictSerializer):
             node.set(constants.ATOM_XMLNS, constants.ATOM_NAMESPACE)
         node.set(constants.XSI_NIL_ATTR, constants.XSI_NAMESPACE)
         ext_ns = self.metadata.get(constants.EXT_NS, {})
+        ext_ns_bc = self.metadata.get(constants.EXT_NS_COMP, {})
         for prefix in used_prefixes:
             if prefix in ext_ns:
                 node.set('xmlns:' + prefix, ext_ns[prefix])
+            if prefix in ext_ns_bc:
+                node.set('xmlns:' + prefix, ext_ns_bc[prefix])
 
     def _to_xml_node(self, parent, metadata, nodename, data, used_prefixes):
         """Recursive method to convert data members to XML nodes."""
@@ -605,6 +610,10 @@ class XMLDeserializer(TextDeserializer):
             if ns == self.xmlns:
                 return bare_tag
             for prefix, _ns in ext_ns.items():
+                if ns == _ns:
+                    return prefix + ":" + bare_tag
+            ext_ns_bc = self.metadata.get(constants.EXT_NS_COMP, {})
+            for prefix, _ns in ext_ns_bc.items():
                 if ns == _ns:
                     return prefix + ":" + bare_tag
         else:
@@ -887,15 +896,15 @@ class Debug(Middleware):
 
     @webob.dec.wsgify
     def __call__(self, req):
-        print ("*" * 40) + " REQUEST ENVIRON"
+        print(("*" * 40) + " REQUEST ENVIRON")
         for key, value in req.environ.items():
-            print key, "=", value
+            print(key, "=", value)
         print
         resp = req.get_response(self.application)
 
-        print ("*" * 40) + " RESPONSE HEADERS"
+        print(("*" * 40) + " RESPONSE HEADERS")
         for (key, value) in resp.headers.iteritems():
-            print key, "=", value
+            print(key, "=", value)
         print
 
         resp.app_iter = self.print_generator(resp.app_iter)
@@ -905,7 +914,7 @@ class Debug(Middleware):
     @staticmethod
     def print_generator(app_iter):
         """Print contents of a wrapper string iterator when iterated."""
-        print ("*" * 40) + " BODY"
+        print(("*" * 40) + " BODY")
         for part in app_iter:
             sys.stdout.write(part)
             sys.stdout.flush()

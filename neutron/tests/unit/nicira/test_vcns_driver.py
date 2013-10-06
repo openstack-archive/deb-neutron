@@ -125,9 +125,6 @@ class VcnsDriverTaskManagerTestCase(base.BaseTestCase):
 
         task.wait(TaskState.RESULT)
 
-        if 'error' in userdata:
-            print userdata['error']
-
         self.assertTrue(userdata['result'])
 
     def test_task_manager_task_sync_exec_process_state(self):
@@ -174,11 +171,6 @@ class VcnsDriverTaskManagerTestCase(base.BaseTestCase):
         last_task.wait(TaskState.RESULT)
 
         for task in tasks:
-            if 'error' in task.userdata:
-                print "Task %s failed: " % (
-                    tasks.name, tasks.userdata['error'])
-
-        for task in tasks:
             self.assertTrue(task.userdata['result'])
 
     def test_task_manager_task_parallel_process(self):
@@ -212,18 +204,25 @@ class VcnsDriverTaskManagerTestCase(base.BaseTestCase):
             task.wait(TaskState.RESULT)
             self.assertTrue(task.userdata['result'])
 
-    def test_task_manager_stop(self):
+    def _test_task_manager_stop(self, exec_wait=False, result_wait=False,
+                                stop_wait=0):
         def _exec(task):
+            if exec_wait:
+                greenthread.sleep(0.01)
             return TaskStatus.PENDING
 
         def _status(task):
-            greenthread.sleep(0.1)
+            greenthread.sleep(0.01)
             return TaskStatus.PENDING
 
         def _result(task):
+            if result_wait:
+                greenthread.sleep(0)
             pass
 
         manager = ts.TaskManager().start(100)
+        manager.stop()
+        manager.start(100)
 
         alltasks = {}
         for i in range(100):
@@ -235,11 +234,24 @@ class VcnsDriverTaskManagerTestCase(base.BaseTestCase):
                 tasks.append(task)
             alltasks[res] = tasks
 
-        greenthread.sleep(2)
+        greenthread.sleep(stop_wait)
         manager.stop()
+
         for res, tasks in alltasks.iteritems():
             for task in tasks:
                 self.assertEqual(task.status, TaskStatus.ABORT)
+
+    def test_task_manager_stop_1(self):
+        self._test_task_manager_stop(True, True, 0)
+
+    def test_task_manager_stop_2(self):
+        self._test_task_manager_stop(True, True, 1)
+
+    def test_task_manager_stop_3(self):
+        self._test_task_manager_stop(False, False, 0)
+
+    def test_task_manager_stop_4(self):
+        self._test_task_manager_stop(False, False, 1)
 
 
 class VcnsDriverTestCase(base.BaseTestCase):

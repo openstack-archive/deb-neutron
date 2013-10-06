@@ -47,14 +47,14 @@ def new_L3_setUp(self):
     cfg.CONF.set_default('allow_overlapping_ips', False)
     ext_mgr = RouterRulesTestExtensionManager()
     test_config['extension_manager'] = ext_mgr
-    super(test_l3_plugin.L3NatTestCaseBase, self).setUp()
+    super(test_l3_plugin.L3BaseForIntTests, self).setUp()
 
     # Set to None to reload the drivers
     notifier_api._drivers = None
     cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
 
 
-origSetUp = test_l3_plugin.L3NatDBTestCase.setUp
+origSetUp = test_l3_plugin.L3NatDBIntTestCase.setUp
 
 
 class RouterRulesTestExtensionManager(object):
@@ -82,13 +82,13 @@ class DHCPOptsTestCase(test_extradhcp.TestExtraDhcpOpt):
         super(test_extradhcp.ExtraDhcpOptDBTestCase, self).setUp(plugin=p_path)
 
 
-class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
+class RouterDBTestCase(test_l3_plugin.L3NatDBIntTestCase):
 
     def setUp(self):
         self.httpPatch = patch('httplib.HTTPConnection', create=True,
                                new=fake_server.HTTPConnectionMock)
         self.httpPatch.start()
-        test_l3_plugin.L3NatDBTestCase.setUp = new_L3_setUp
+        test_l3_plugin.L3NatDBIntTestCase.setUp = new_L3_setUp
         super(RouterDBTestCase, self).setUp()
         self.plugin_obj = NeutronManager.get_plugin()
 
@@ -98,7 +98,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
         del test_config['plugin_name_v2']
         del test_config['config_files']
         cfg.CONF.reset()
-        test_l3_plugin.L3NatDBTestCase.setUp = origSetUp
+        test_l3_plugin.L3NatDBIntTestCase.setUp = origSetUp
 
     def test_router_remove_router_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
@@ -327,7 +327,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBTestCase):
             rules = body['router']['router_rules']
             self.assertEqual(_strip_rule_ids(rules), router_rules)
             # Try after adding another rule
-            router_rules.append({'source': 'any',
+            router_rules.append({'source': 'external',
                                  'destination': '8.8.8.8/32',
                                  'action': 'permit', 'nexthops': []})
             body = self._update('routers', r['router']['id'],

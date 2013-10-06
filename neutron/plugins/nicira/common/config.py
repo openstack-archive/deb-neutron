@@ -30,14 +30,15 @@ class MetadataModes:
 
 
 nvp_opts = [
-    cfg.IntOpt('max_lp_per_bridged_ls', default=64,
+    cfg.IntOpt('max_lp_per_bridged_ls', default=5000,
                help=_("Maximum number of ports of a logical switch on a "
-                      "bridged transport zone (default 64)")),
+                      "bridged transport zone (default 5000)")),
     cfg.IntOpt('max_lp_per_overlay_ls', default=256,
                help=_("Maximum number of ports of a logical switch on an "
-                      "overlay transport zone (default 64)")),
-    cfg.IntOpt('concurrent_connections', default=5,
-               help=_("Maximum concurrent connections")),
+                      "overlay transport zone (default 256)")),
+    cfg.IntOpt('concurrent_connections', default=10,
+               help=_("Maximum concurrent connections to each NVP "
+                      "controller.")),
     cfg.IntOpt('nvp_gen_timeout', default=-1,
                help=_("Number of seconds a generation id should be valid for "
                       "(default -1 meaning do not time out)")),
@@ -70,7 +71,11 @@ sync_opts = [
                       'exceed state_sync_interval')),
     cfg.IntOpt('min_chunk_size', default=500,
                help=_('Minimum number of resources to be retrieved from NVP '
-                      'during state synchronization'))
+                      'during state synchronization')),
+    cfg.BoolOpt('always_read_status', default=False,
+                help=_('Always read operational status from backend on show '
+                       'operations. Enabling this option might slow down '
+                       'the system.'))
 ]
 
 connection_opts = [
@@ -175,7 +180,7 @@ def register_deprecated(conf):
     multi_parser = cfg.MultiConfigParser()
     read_ok = multi_parser.read(conf.config_file)
     if len(read_ok) != len(conf.config_file):
-        raise cfg.Error("Some config files were not parsed properly")
+        raise cfg.Error(_("Some config files were not parsed properly"))
 
     for parsed_file in multi_parser.parsed:
         for section in parsed_file.keys():

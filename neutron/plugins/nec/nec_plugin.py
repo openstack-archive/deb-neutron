@@ -25,19 +25,23 @@ from neutron.common import rpc as q_rpc
 from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
+from neutron.db import allowedaddresspairs_db as addr_pair_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
+from neutron.db import external_net_db
 from neutron.db import l3_rpc_base
 from neutron.db import portbindings_base
 from neutron.db import portbindings_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import portbindings
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.openstack.common.rpc import proxy
 from neutron.openstack.common import uuidutils
+from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.nec.common import config
 from neutron.plugins.nec.common import exceptions as nexc
 from neutron.plugins.nec.db import api as ndb
@@ -50,12 +54,14 @@ LOG = logging.getLogger(__name__)
 
 
 class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
+                  external_net_db.External_net_db_mixin,
                   nec_router.RouterMixin,
                   sg_db_rpc.SecurityGroupServerRpcMixin,
                   agentschedulers_db.DhcpAgentSchedulerDbMixin,
                   nec_router.L3AgentSchedulerDbMixin,
                   packet_filter.PacketFilterMixin,
-                  portbindings_db.PortBindingMixin):
+                  portbindings_db.PortBindingMixin,
+                  addr_pair_db.AllowedAddressPairsMixin):
     """NECPluginV2 controls an OpenFlow Controller.
 
     The Neutron NECPluginV2 maps L2 logical networks to L2 virtualized networks
@@ -69,8 +75,10 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     information to and from the plugin.
     """
     _supported_extension_aliases = ["agent",
+                                    "allowed-address-pairs",
                                     "binding",
                                     "dhcp_agent_scheduler",
+                                    "external-net",
                                     "ext-gw-mode",
                                     "extraroute",
                                     "l3_agent_scheduler",
@@ -127,7 +135,8 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         }
 
     def setup_rpc(self):
-        self.topic = topics.PLUGIN
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
+                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.conn = rpc.create_connection(new=True)
         self.notifier = NECPluginV2AgentNotifierApi(topics.AGENT)
         self.agent_notifiers[const.AGENT_TYPE_DHCP] = (
@@ -145,7 +154,8 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                      self.callback_sg,
                      agents_db.AgentExtRpcCallback()]
         self.dispatcher = q_rpc.PluginRpcDispatcher(callbacks)
-        self.conn.create_consumer(self.topic, self.dispatcher, fanout=False)
+        for svc_topic in self.service_topics.values():
+            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
 
@@ -273,7 +283,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 self.ofc.create_ofc_tenant(context, tenant_id)
             self.ofc.create_ofc_network(context, tenant_id, net_id, net_name)
         except (nexc.OFCException, nexc.OFCConsistencyBroken) as exc:
-            LOG.error(_("failed to create network id=%(id)s on "
+            LOG.error(_("Failed to create network id=%(id)s on "
                         "OFC: %(exc)s"), {'id': net_id, 'exc': exc})
             network['network']['status'] = const.NET_STATUS_ERROR
 
@@ -330,8 +340,8 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         of the tenant, delete unnessary ofc_tenant.
         """
         LOG.debug(_("NECPluginV2.delete_network() called, id=%s ."), id)
-        net = super(NECPluginV2, self).get_network(context, id)
-        tenant_id = net['tenant_id']
+        net_db = self._get_network(context, id)
+        tenant_id = net_db['tenant_id']
         ports = self.get_ports(context, filters={'network_id': [id]})
 
         # check if there are any tenant owned ports in-use
@@ -352,19 +362,16 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                       ','.join(_error_ports))
             raise nexc.OFCException(reason=reason)
 
-        # delete all packet_filters of the network
-        if self.packet_filter_enabled:
-            filters = dict(network_id=[id])
-            pfs = self.get_packet_filters(context, filters=filters)
-            for pf in pfs:
-                self.delete_packet_filter(context, pf['id'])
+        # delete all packet_filters of the network from the controller
+        for pf in net_db.packetfilters:
+            self.delete_packet_filter(context, pf['id'])
 
         try:
-            self.ofc.delete_ofc_network(context, id, net)
+            self.ofc.delete_ofc_network(context, id, net_db)
         except (nexc.OFCException, nexc.OFCConsistencyBroken) as exc:
             reason = _("delete_network() failed due to %s") % exc
             LOG.error(reason)
-            self._update_resource_status(context, "network", net['id'],
+            self._update_resource_status(context, "network", net_db['id'],
                                          const.NET_STATUS_ERROR)
             raise
 
@@ -510,6 +517,10 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self._process_portbindings_create(context, port_data, port)
             self._process_port_create_security_group(
                 context, port, sgids)
+            port[addr_pair.ADDRESS_PAIRS] = (
+                self._process_create_allowed_address_pairs(
+                    context, port,
+                    port_data.get(addr_pair.ADDRESS_PAIRS)))
         self.notify_security_groups_member_updated(context, port)
 
         handler = self._get_port_handler('create', port['device_owner'])
@@ -562,12 +573,22 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     "id=%(id)s port=%(port)s ."),
                   {'id': id, 'port': port})
         need_port_update_notify = False
+        changed_fixed_ips = 'fixed_ips' in port['port']
         with context.session.begin(subtransactions=True):
             old_port = super(NECPluginV2, self).get_port(context, id)
             new_port = super(NECPluginV2, self).update_port(context, id, port)
             portinfo_changed = self._process_portbindings_update(
                 context, port['port'], new_port)
-            need_port_update_notify = self.update_security_group_on_port(
+            if addr_pair.ADDRESS_PAIRS in port['port']:
+                self._delete_allowed_address_pairs(context, id)
+                self._process_create_allowed_address_pairs(
+                    context, new_port,
+                    port['port'][addr_pair.ADDRESS_PAIRS])
+                need_port_update_notify = True
+            elif changed_fixed_ips:
+                self._check_fixed_ips_and_address_pairs_no_overlap(
+                    context, new_port)
+            need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, old_port, new_port)
 
         need_port_update_notify |= self.is_security_group_member_updated(
@@ -585,21 +606,18 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         # ext_sg.SECURITYGROUPS attribute for the port is required
         # since notifier.security_groups_member_updated() need the attribute.
         # Thus we need to call self.get_port() instead of super().get_port()
-        port = self.get_port(context, id)
+        port_db = self._get_port(context, id)
+        port = self._make_port_dict(port_db)
 
         handler = self._get_port_handler('delete', port['device_owner'])
         port = handler(context, port)
-        # port = self.deactivate_port(context, port)
         if port['status'] == const.PORT_STATUS_ERROR:
             reason = _("Failed to delete port=%s from OFC.") % id
             raise nexc.OFCException(reason=reason)
 
-        # delete all packet_filters of the port
-        if self.packet_filter_enabled:
-            filters = dict(port_id=[id])
-            pfs = self.get_packet_filters(context, filters=filters)
-            for packet_filter in pfs:
-                self.delete_packet_filter(context, packet_filter['id'])
+        # delete all packet_filters of the port from the controller
+        for pf in port_db.packetfilters:
+            self.delete_packet_filter(context, pf['id'])
 
         # if needed, check to see if this is a port owned by
         # and l3-router.  If so, we should prevent deletion.

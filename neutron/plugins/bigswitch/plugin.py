@@ -63,8 +63,10 @@ from neutron import context as qcontext
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
+from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import l3_db
+from neutron.extensions import external_net
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import l3
 from neutron.extensions import portbindings
@@ -159,7 +161,7 @@ ROUTER_INTF_PATH = "/tenants/%s/routers/%s/interfaces/%s"
 SUCCESS_CODES = range(200, 207)
 FAILURE_CODES = [0, 301, 302, 303, 400, 401, 403, 404, 500, 501, 502, 503,
                  504, 505]
-SYNTAX_ERROR_MESSAGE = 'Syntax error in server config file, aborting plugin'
+SYNTAX_ERROR_MESSAGE = _('Syntax error in server config file, aborting plugin')
 BASE_URI = '/networkService/v1.1'
 ORCHESTRATION_SERVICE_ID = 'Neutron v2.0'
 METADATA_SERVER_IP = '169.254.169.254'
@@ -428,11 +430,12 @@ class RpcProxy(dhcp_rpc_base.DhcpRpcCallbackMixin):
 
 
 class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
+                         external_net_db.External_net_db_mixin,
                          routerrule_db.RouterRule_db_mixin,
                          extradhcpopt_db.ExtraDhcpOptMixin):
 
-    supported_extension_aliases = ["router", "binding", "router_rules",
-                                   "extra_dhcp_opt"]
+    supported_extension_aliases = ["external-net", "router", "binding",
+                                   "router_rules", "extra_dhcp_opt"]
 
     def __init__(self, server_timeout=None):
         LOG.info(_('NeutronRestProxy: Starting plugin. Version=%s'),
@@ -455,7 +458,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             timeout = server_timeout
 
         # validate config
-        assert servers is not None, 'Servers not defined. Aborting plugin'
+        assert servers is not None, _('Servers not defined. Aborting plugin')
         servers = tuple(s.rsplit(':', 1) for s in servers.split(','))
         servers = tuple((server, int(port)) for server, port in servers)
         assert all(len(s) == 2 for s in servers), SYNTAX_ERROR_MESSAGE
@@ -828,7 +831,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             orig_net = super(NeutronRestProxyV2,
                              self).get_network(context, net_id)
             # update network on network controller
-            self._send_update_network(orig_net)
+            self._send_update_network(orig_net, context)
         return new_subnet
 
     def update_subnet(self, context, id, subnet):
@@ -844,7 +847,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             orig_net = super(NeutronRestProxyV2,
                              self).get_network(context, net_id)
             # update network on network controller
-            self._send_update_network(orig_net)
+            self._send_update_network(orig_net, context)
             return new_subnet
 
     def delete_subnet(self, context, id):
@@ -857,7 +860,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             orig_net = super(NeutronRestProxyV2, self).get_network(context,
                                                                    net_id)
             # update network on network controller - exception will rollback
-            self._send_update_network(orig_net)
+            self._send_update_network(orig_net, context)
 
     def _get_tenant_default_router_rules(self, tenant):
         rules = cfg.CONF.ROUTER.tenant_default_router_rule
@@ -992,7 +995,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         # we will first get the interface identifier before deleting in the DB
         if not interface_info:
-            msg = "Either subnet_id or port_id must be specified"
+            msg = _("Either subnet_id or port_id must be specified")
             raise exceptions.BadRequest(resource='router', msg=msg)
         if 'port_id' in interface_info:
             port = self._get_port(context, interface_info['port_id'])
@@ -1001,7 +1004,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             subnet = self._get_subnet(context, interface_info['subnet_id'])
             interface_id = subnet['network_id']
         else:
-            msg = "Either subnet_id or port_id must be specified"
+            msg = _("Either subnet_id or port_id must be specified")
             raise exceptions.BadRequest(resource='router', msg=msg)
 
         with context.session.begin(subtransactions=True):
@@ -1029,7 +1032,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
                                                                    net_id)
             # create floatingip on the network controller
             try:
-                self._send_update_network(orig_net)
+                self._send_update_network(orig_net, context)
             except RemoteRestError as e:
                 with excutils.save_and_reraise_exception():
                     LOG.error(
@@ -1050,7 +1053,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             orig_net = super(NeutronRestProxyV2, self).get_network(context,
                                                                    net_id)
             # update network on network controller
-            self._send_update_network(orig_net)
+            self._send_update_network(orig_net, context)
             return new_fl_ip
 
     def delete_floatingip(self, context, id):
@@ -1066,7 +1069,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             orig_net = super(NeutronRestProxyV2, self).get_network(context,
                                                                    net_id)
             # update network on network controller
-            self._send_update_network(orig_net)
+            self._send_update_network(orig_net, context)
 
     def _send_all_data(self):
         """Pushes all data to network ctrl (networks/ports, ports/attachments).
@@ -1144,9 +1147,9 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             payload = {'subnet': updated_subnet}
             self._dhcp_agent_notifier.notify(context, payload,
                                              'subnet.update.end')
-            LOG.debug("Adding host route: ")
-            LOG.debug("destination:%s nexthop:%s" % (destination,
-                                                     nexthop))
+            LOG.debug(_("Adding host route: "))
+            LOG.debug(_("Destination:%(dst)s nexthop:%(next)s"),
+                      {'dst': destination, 'next': nexthop})
 
     def _get_network_with_floatingips(self, network, context=None):
         if context is None:
@@ -1192,12 +1195,12 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
                 break
         else:
             network['gateway'] = ''
-        network[l3.EXTERNAL] = self._network_is_external(context,
-                                                         network['id'])
+        network[external_net.EXTERNAL] = self._network_is_external(
+            context, network['id'])
 
         return network
 
-    def _send_update_network(self, network, context=None):
+    def _send_update_network(self, network, context):
         net_id = network['id']
         tenant_id = network['tenant_id']
         # update network on network controller

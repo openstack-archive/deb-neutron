@@ -91,8 +91,8 @@ class ExtraRoute_db_mixin(l3_db.L3_NAT_db_mixin):
         # nexthop belongs to one of cidrs of the router ports
         cidrs = []
         for port in ports:
-            cidrs += [self._get_subnet(context,
-                                       ip['subnet_id'])['cidr']
+            cidrs += [self._core_plugin._get_subnet(context,
+                                                    ip['subnet_id'])['cidr']
                       for ip in port['fixed_ips']]
         if not netaddr.all_matching_cidrs(nexthop, cidrs):
             raise extraroute.InvalidRoutes(
@@ -114,7 +114,7 @@ class ExtraRoute_db_mixin(l3_db.L3_NAT_db_mixin):
                 quota=cfg.CONF.max_routes)
 
         filters = {'device_id': [router_id]}
-        ports = self.get_ports(context, filters)
+        ports = self._core_plugin.get_ports(context, filters)
         for route in routes:
             self._validate_routes_nexthop(
                 context, ports, routes, route['nexthop'])
@@ -126,7 +126,7 @@ class ExtraRoute_db_mixin(l3_db.L3_NAT_db_mixin):
             context, router['id'])
         added, removed = utils.diff_list_of_dict(old_routes,
                                                  routes)
-        LOG.debug('Added routes are %s' % added)
+        LOG.debug(_('Added routes are %s'), added)
         for route in added:
             router_routes = RouterRoute(
                 router_id=router['id'],
@@ -134,7 +134,7 @@ class ExtraRoute_db_mixin(l3_db.L3_NAT_db_mixin):
                 nexthop=route['nexthop'])
             context.session.add(router_routes)
 
-        LOG.debug('Removed routes are %s' % removed)
+        LOG.debug(_('Removed routes are %s'), removed)
         for route in removed:
             del_context = context.session.query(RouterRoute)
             del_context.filter_by(router_id=router['id'],
@@ -171,7 +171,7 @@ class ExtraRoute_db_mixin(l3_db.L3_NAT_db_mixin):
                                              subnet_id):
         super(ExtraRoute_db_mixin, self)._confirm_router_interface_not_in_use(
             context, router_id, subnet_id)
-        subnet_db = self._get_subnet(context, subnet_id)
+        subnet_db = self._core_plugin._get_subnet(context, subnet_id)
         subnet_cidr = netaddr.IPNetwork(subnet_db['cidr'])
         extra_routes = self._get_extra_routes_by_router_id(context, router_id)
         for route in extra_routes:

@@ -1,3 +1,5 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
 # Copyright (c) 2013 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +17,14 @@
 #
 # @author: Salvatore Orlando, VMware
 
+import hashlib
 import mock
 
 from neutron.common import constants
 from neutron.common import exceptions
 from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions as nvp_exc
+from neutron.plugins.nicira.common import utils
 from neutron.plugins.nicira import nvp_cluster
 from neutron.plugins.nicira import NvpApiClient
 from neutron.plugins.nicira import nvplib
@@ -1257,7 +1261,8 @@ class TestNvplibLQueue(NvplibTestCase):
 class TestNvplibLogicalPorts(NvplibTestCase):
 
     def _create_switch_and_port(self, tenant_id='pippo',
-                                neutron_port_id='whatever'):
+                                neutron_port_id='whatever',
+                                name='name', device_id='device_id'):
         transport_zones_config = [{'zone_uuid': _uuid(),
                                    'transport_type': 'stt'}]
         lswitch = nvplib.create_lswitch(self.fake_cluster,
@@ -1265,7 +1270,7 @@ class TestNvplibLogicalPorts(NvplibTestCase):
                                         transport_zones_config)
         lport = nvplib.create_lport(self.fake_cluster, lswitch['uuid'],
                                     tenant_id, neutron_port_id,
-                                    'name', 'device_id', True)
+                                    name, device_id, True)
         return lswitch, lport
 
     def test_create_and_get_port(self):
@@ -1334,6 +1339,39 @@ class TestNvplibLogicalPorts(NvplibTestCase):
         self.assertIn('os_tid', port_tags)
         self.assertIn('q_port_id', port_tags)
         self.assertIn('vm_id', port_tags)
+
+    def test_create_port_device_id_less_than_40_chars(self):
+        lswitch, lport = self._create_switch_and_port()
+        lport_res = nvplib.get_port(self.fake_cluster,
+                                    lswitch['uuid'], lport['uuid'])
+        port_tags = self._build_tag_dict(lport_res['tags'])
+        self.assertEqual('device_id', port_tags['vm_id'])
+
+    def test_create_port_device_id_more_than_40_chars(self):
+        dev_id = "this_is_a_very_long_device_id_with_lots_of_characters"
+        lswitch, lport = self._create_switch_and_port(device_id=dev_id)
+        lport_res = nvplib.get_port(self.fake_cluster,
+                                    lswitch['uuid'], lport['uuid'])
+        port_tags = self._build_tag_dict(lport_res['tags'])
+        self.assertNotEqual(len(dev_id), len(port_tags['vm_id']))
+
+    def test_get_ports_with_obsolete_and_new_vm_id_tag(self):
+        def obsolete(device_id, obfuscate=False):
+            return hashlib.sha1(device_id).hexdigest()
+
+        with mock.patch.object(nvplib, 'device_id_to_vm_id', new=obsolete):
+            dev_id1 = "short-dev-id-1"
+            _, lport1 = self._create_switch_and_port(device_id=dev_id1)
+        dev_id2 = "short-dev-id-2"
+        _, lport2 = self._create_switch_and_port(device_id=dev_id2)
+
+        lports = nvplib.get_ports(self.fake_cluster, None, [dev_id1])
+        port_tags = self._build_tag_dict(lports['whatever']['tags'])
+        self.assertNotEqual(dev_id1, port_tags['vm_id'])
+
+        lports = nvplib.get_ports(self.fake_cluster, None, [dev_id2])
+        port_tags = self._build_tag_dict(lports['whatever']['tags'])
+        self.assertEqual(dev_id2, port_tags['vm_id'])
 
     def test_update_non_existent_port_raises(self):
         self.assertRaises(exceptions.PortNotFoundOnNetwork,
@@ -1440,6 +1478,24 @@ class TestNvplibVersioning(base.BaseTestCase):
         self.assertRaises(NvpApiClient.ServiceUnavailable,
                           nvplib.get_function_by_version,
                           'create_lrouter', None)
+
+
+class NvplibMiscTestCase(base.BaseTestCase):
+
+    def test_check_and_truncate_name_with_none(self):
+        name = None
+        result = utils.check_and_truncate(name)
+        self.assertEqual('', result)
+
+    def test_check_and_truncate_name_with_short_name(self):
+        name = 'foo_port_name'
+        result = utils.check_and_truncate(name)
+        self.assertEqual(name, result)
+
+    def test_check_and_truncate_name_long_name(self):
+        name = 'this_is_a_port_whose_name_is_longer_than_40_chars'
+        result = utils.check_and_truncate(name)
+        self.assertEqual(len(result), utils.MAX_DISPLAY_NAME_LEN)
 
 
 def _nicira_method(method_name, module_name='nvplib'):

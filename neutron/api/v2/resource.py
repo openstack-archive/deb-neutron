@@ -86,7 +86,10 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
                 netaddr.AddrFormatError) as e:
             LOG.exception(_('%s failed'), action)
             e = translate(e, language)
-            body = serializer.serialize({'NeutronError': e})
+            # following structure is expected by python-neutronclient
+            err_data = {'type': e.__class__.__name__,
+                        'message': e, 'detail': ''}
+            body = serializer.serialize({'NeutronError': err_data})
             kwargs = {'body': body, 'content_type': content_type}
             for fault in faults:
                 if isinstance(e, fault):
@@ -147,9 +150,12 @@ def translate(translatable, locale):
               was not translated
     """
     localize = gettextutils.get_localized_message
-    if isinstance(translatable, Exception):
+    if isinstance(translatable, exceptions.NeutronException):
+        translatable.msg = localize(translatable.msg, locale)
+    elif isinstance(translatable, webob.exc.HTTPError):
+        translatable.detail = localize(translatable.detail, locale)
+    elif isinstance(translatable, Exception):
         translatable.message = localize(translatable.message, locale)
-        if isinstance(translatable, webob.exc.HTTPError):
-            translatable.detail = localize(translatable.detail, locale)
-        return translatable
-    return localize(translatable, locale)
+    else:
+        return localize(translatable, locale)
+    return translatable

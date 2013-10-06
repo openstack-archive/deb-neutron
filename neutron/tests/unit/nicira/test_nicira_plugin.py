@@ -1,3 +1,5 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
 # Copyright (c) 2012 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +27,7 @@ from neutron.common import constants
 from neutron.common import exceptions as ntn_exc
 import neutron.common.test_lib as test_lib
 from neutron import context
+from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.extensions import l3_ext_gw_mode
 from neutron.extensions import multiprovidernet as mpnet
@@ -32,6 +35,7 @@ from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as secgrp
 from neutron import manager
+from neutron.manager import NeutronManager
 from neutron.openstack.common import uuidutils
 from neutron.plugins.nicira.common import exceptions as nvp_exc
 from neutron.plugins.nicira.common import sync
@@ -73,6 +77,13 @@ class NiciraPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
         data = {'network': {'name': name,
                             'admin_state_up': admin_state_up,
                             'tenant_id': self._tenant_id}}
+        # Fix to allow the router:external attribute and any other
+        # attributes containing a colon to be passed with
+        # a double underscore instead
+        kwargs = dict((k.replace('__', ':'), v) for k, v in kwargs.items())
+        if external_net.EXTERNAL in kwargs:
+            arg_list = (external_net.EXTERNAL, ) + (arg_list or ())
+
         attrs = kwargs
         if providernet_args:
             attrs.update(providernet_args)
@@ -113,8 +124,7 @@ class NiciraPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
                                                   ext_mgr=ext_mgr)
         cfg.CONF.set_override('metadata_mode', None, 'NVP')
         self.addCleanup(self.fc.reset_all)
-        self.addCleanup(self.mock_nvpapi.stop)
-        self.addCleanup(patch_sync.stop)
+        self.addCleanup(mock.patch.stopall)
 
 
 class TestNiciraBasicGet(test_plugin.TestBasicGet, NiciraPluginV2TestCase):
@@ -126,9 +136,37 @@ class TestNiciraV2HTTPResponse(test_plugin.TestV2HTTPResponse,
     pass
 
 
+class TestNiciraProvidernet(NiciraPluginV2TestCase):
+
+    def test_create_provider_network_default_physical_net(self):
+        data = {'network': {'name': 'net1',
+                            'admin_state_up': True,
+                            'tenant_id': 'admin',
+                            pnet.NETWORK_TYPE: 'vlan',
+                            pnet.SEGMENTATION_ID: 411}}
+        network_req = self.new_create_request('networks', data, self.fmt)
+        net = self.deserialize(self.fmt, network_req.get_response(self.api))
+        self.assertEqual(net['network'][pnet.NETWORK_TYPE], 'vlan')
+        self.assertEqual(net['network'][pnet.SEGMENTATION_ID], 411)
+
+    def test_create_provider_network(self):
+        data = {'network': {'name': 'net1',
+                            'admin_state_up': True,
+                            'tenant_id': 'admin',
+                            pnet.NETWORK_TYPE: 'vlan',
+                            pnet.SEGMENTATION_ID: 411,
+                            pnet.PHYSICAL_NETWORK: 'physnet1'}}
+        network_req = self.new_create_request('networks', data, self.fmt)
+        net = self.deserialize(self.fmt, network_req.get_response(self.api))
+        self.assertEqual(net['network'][pnet.NETWORK_TYPE], 'vlan')
+        self.assertEqual(net['network'][pnet.SEGMENTATION_ID], 411)
+        self.assertEqual(net['network'][pnet.PHYSICAL_NETWORK], 'physnet1')
+
+
 class TestNiciraPortsV2(NiciraPluginV2TestCase,
                         test_plugin.TestPortsV2,
-                        test_bindings.PortBindingsTestCase):
+                        test_bindings.PortBindingsTestCase,
+                        test_bindings.PortBindingsHostTestCaseMixin):
 
     VIF_TYPE = portbindings.VIF_TYPE_OVS
     HAS_PORT_FILTER = True
@@ -324,6 +362,15 @@ class TestNiciraNetworksV2(test_plugin.TestNetworksV2,
             self.assertEqual(webob.exc.HTTPServiceUnavailable.code,
                              res.status_int)
 
+    def test_update_network_with_admin_false(self):
+        data = {'network': {'admin_state_up': False}}
+        with self.network() as net:
+            plugin = manager.NeutronManager.get_plugin()
+            self.assertRaises(NotImplementedError,
+                              plugin.update_network,
+                              context.get_admin_context(),
+                              net['network']['id'], data)
+
 
 class NiciraPortSecurityTestCase(psec.PortSecurityDBTestCase):
 
@@ -427,24 +474,32 @@ class TestNiciraL3ExtensionManager(object):
         return []
 
 
-class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
-                              NiciraPluginV2TestCase):
+class NiciraL3NatTest(test_l3_plugin.L3BaseForIntTests,
+                      NiciraPluginV2TestCase):
 
     def _restore_l3_attribute_map(self):
         l3.RESOURCE_ATTRIBUTE_MAP = self._l3_attribute_map_bk
 
-    def setUp(self):
+    def setUp(self, plugin=None, ext_mgr=None, service_plugins=None):
         self._l3_attribute_map_bk = {}
         for item in l3.RESOURCE_ATTRIBUTE_MAP:
             self._l3_attribute_map_bk[item] = (
                 l3.RESOURCE_ATTRIBUTE_MAP[item].copy())
         cfg.CONF.set_override('api_extensions_path', NVPEXT_PATH)
         self.addCleanup(self._restore_l3_attribute_map)
-        super(TestNiciraL3NatTestCase, self).setUp(
-            ext_mgr=TestNiciraL3ExtensionManager())
+        ext_mgr = ext_mgr or TestNiciraL3ExtensionManager()
+        super(NiciraL3NatTest, self).setUp(
+            plugin=plugin, ext_mgr=ext_mgr, service_plugins=service_plugins)
+        plugin_instance = NeutronManager.get_plugin()
+        self._plugin_name = "%s.%s" % (
+            plugin_instance.__module__,
+            plugin_instance.__class__.__name__)
+        self._plugin_class = plugin_instance.__class__
 
-    def tearDown(self):
-        super(TestNiciraL3NatTestCase, self).tearDown()
+
+class TestNiciraL3NatTestCase(NiciraL3NatTest,
+                              test_l3_plugin.L3NatDBIntTestCase,
+                              NiciraPluginV2TestCase):
 
     def _create_l3_ext_network(self, vlan_id=None):
         name = 'l3_ext_net'
@@ -465,7 +520,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
         net_type = NeutronPlugin.NetworkTypes.L3_EXT
         expected = [('subnets', []), ('name', name), ('admin_state_up', True),
                     ('status', 'ACTIVE'), ('shared', False),
-                    (l3.EXTERNAL, True),
+                    (external_net.EXTERNAL, True),
                     (pnet.NETWORK_TYPE, net_type),
                     (pnet.PHYSICAL_NETWORK, 'l3_gw_uuid'),
                     (pnet.SEGMENTATION_ID, vlan_id)]
@@ -487,7 +542,8 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
     def test_create_l3_ext_network_without_vlan(self):
         self._test_create_l3_ext_network()
 
-    def _test_router_create_with_gwinfo_and_l3_ext_net(self, vlan_id=None):
+    def _test_router_create_with_gwinfo_and_l3_ext_net(self, vlan_id=None,
+                                                       validate_ext_gw=True):
         with self._create_l3_ext_network(vlan_id) as net:
             with self.subnet(network=net) as s:
                 data = {'router': {'tenant_id': 'whatever'}}
@@ -503,8 +559,9 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                         s['subnet']['network_id'],
                         (router['router']['external_gateway_info']
                          ['network_id']))
-                    self._nvp_validate_ext_gw(router['router']['id'],
-                                              'l3_gw_uuid', vlan_id)
+                    if validate_ext_gw:
+                        self._nvp_validate_ext_gw(router['router']['id'],
+                                                  'l3_gw_uuid', vlan_id)
                 finally:
                     self._delete('routers', router['router']['id'])
 
@@ -548,6 +605,17 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
     def test_router_create_distributed_returns_400(self):
         self._test_router_create_with_distributed(True, None, '3.0', 400)
 
+    def test_router_create_on_obsolete_platform(self):
+
+        def obsolete_response(*args, **kwargs):
+            response = nvplib._create_implicit_routing_lrouter(*args, **kwargs)
+            response.pop('distributed')
+            return response
+
+        with mock.patch.object(
+            nvplib, 'create_lrouter', new=obsolete_response):
+            self._test_router_create_with_distributed(None, False, '2.2')
+
     def test_router_create_nvp_error_returns_500(self, vlan_id=None):
         with mock.patch.object(nvplib,
                                'create_router_lport',
@@ -573,7 +641,8 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                 uuidutils.generate_uuid(),
                 expected_code=webob.exc.HTTPNotFound.code)
 
-    def _test_router_update_gateway_on_l3_ext_net(self, vlan_id=None):
+    def _test_router_update_gateway_on_l3_ext_net(self, vlan_id=None,
+                                                  validate_ext_gw=True):
         with self.router() as r:
             with self.subnet() as s1:
                 with self._create_l3_ext_network(vlan_id) as net:
@@ -598,8 +667,10 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                                       ['external_gateway_info']['network_id'])
                             self.assertEqual(net_id,
                                              s2['subnet']['network_id'])
-                            self._nvp_validate_ext_gw(body['router']['id'],
-                                                      'l3_gw_uuid', vlan_id)
+                            if validate_ext_gw:
+                                self._nvp_validate_ext_gw(
+                                    body['router']['id'],
+                                    'l3_gw_uuid', vlan_id)
                         finally:
                             # Cleanup
                             self._remove_external_gateway_from_router(
@@ -624,14 +695,10 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
         self._test_create_l3_ext_network(666)
 
     def test_floatingip_with_assoc_fails(self):
-        self._test_floatingip_with_assoc_fails(
-            'neutron.plugins.nicira.'
-            'NeutronPlugin.NvpPluginV2')
+        self._test_floatingip_with_assoc_fails(self._plugin_name)
 
     def test_floatingip_with_invalid_create_port(self):
-        self._test_floatingip_with_invalid_create_port(
-            'neutron.plugins.nicira.'
-            'NeutronPlugin.NvpPluginV2')
+        self._test_floatingip_with_invalid_create_port(self._plugin_name)
 
     def _nvp_metadata_setup(self):
         cfg.CONF.set_override('metadata_mode', 'access_network', 'NVP')
@@ -713,7 +780,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
         with self.router() as r:
             with self.subnet() as s:
                 # Raise a NeutronException (eg: NotFound)
-                with mock.patch.object(NeutronPlugin.NvpPluginV2,
+                with mock.patch.object(self._plugin_class,
                                        'create_subnet',
                                        side_effect=ntn_exc.NotFound):
                     self._router_interface_action(
@@ -735,7 +802,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                 # Raise a NeutronException when adding metadata subnet
                 # to router
                 # save function being mocked
-                real_func = NeutronPlugin.NvpPluginV2.add_router_interface
+                real_func = self._plugin_class.add_router_interface
                 plugin_instance = manager.NeutronManager.get_plugin()
 
                 def side_effect(*args):
@@ -745,7 +812,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                     # otherwise raise
                     raise NvpApiClient.NvpApiException()
 
-                with mock.patch.object(NeutronPlugin.NvpPluginV2,
+                with mock.patch.object(self._plugin_class,
                                        'add_router_interface',
                                        side_effect=side_effect):
                     self._router_interface_action(
@@ -806,7 +873,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                 # Raise a NeutronException when removing
                 # metadata subnet from router
                 # save function being mocked
-                real_func = NeutronPlugin.NvpPluginV2.remove_router_interface
+                real_func = self._plugin_class.remove_router_interface
                 plugin_instance = manager.NeutronManager.get_plugin()
 
                 def side_effect(*args):
@@ -816,7 +883,7 @@ class TestNiciraL3NatTestCase(test_l3_plugin.L3NatDBTestCase,
                     # otherwise raise
                     raise NvpApiClient.NvpApiException()
 
-                with mock.patch.object(NeutronPlugin.NvpPluginV2,
+                with mock.patch.object(self._plugin_class,
                                        'remove_router_interface',
                                        side_effect=side_effect):
                     self._router_interface_action('remove', r['router']['id'],
@@ -1126,14 +1193,16 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
 
 
 class NiciraExtGwModeTestCase(NiciraPluginV2TestCase,
-                              test_ext_gw_mode.ExtGwModeTestCase):
+                              test_ext_gw_mode.ExtGwModeIntTestCase):
     pass
 
 
 class NiciraNeutronNVPOutOfSync(NiciraPluginV2TestCase,
-                                test_l3_plugin.L3NatTestCaseBase):
+                                test_l3_plugin.L3NatTestCaseMixin):
 
     def setUp(self):
+        ext_mgr = test_l3_plugin.L3TestExtensionManager()
+        test_lib.test_config['extension_manager'] = ext_mgr
         super(NiciraNeutronNVPOutOfSync, self).setUp()
 
     def test_delete_network_not_in_nvp(self):
@@ -1235,7 +1304,7 @@ class NiciraNeutronNVPOutOfSync(NiciraPluginV2TestCase,
         net_id = net['network']['id']
         if external:
             self._update('networks', net_id,
-                         {'network': {l3.EXTERNAL: True}})
+                         {'network': {external_net.EXTERNAL: True}})
         sub_res = self._create_subnet('json', net_id, cidr)
         sub = self.deserialize('json', sub_res)
         return net_id, sub['subnet']['id']
