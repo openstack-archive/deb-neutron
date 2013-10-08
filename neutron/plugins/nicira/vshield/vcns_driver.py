@@ -18,13 +18,21 @@
 
 from oslo.config import cfg
 
-from neutron.plugins.nicira.common import config  # noqa
+from neutron.openstack.common import log as logging
+from neutron.plugins.nicira.common import config as nicira_cfg  # noqa
 from neutron.plugins.nicira.vshield import edge_appliance_driver
+from neutron.plugins.nicira.vshield import edge_firewall_driver
+from neutron.plugins.nicira.vshield import edge_loadbalancer_driver
 from neutron.plugins.nicira.vshield.tasks import tasks
 from neutron.plugins.nicira.vshield import vcns
 
+LOG = logging.getLogger(__name__)
 
-class VcnsDriver(edge_appliance_driver.EdgeApplianceDriver):
+
+class VcnsDriver(edge_appliance_driver.EdgeApplianceDriver,
+                 edge_firewall_driver.EdgeFirewallDriver,
+                 edge_loadbalancer_driver.EdgeLbDriver):
+
     def __init__(self, callbacks):
         super(VcnsDriver, self).__init__()
 
@@ -40,5 +48,4 @@ class VcnsDriver(edge_appliance_driver.EdgeApplianceDriver):
         interval = cfg.CONF.vcns.task_status_check_interval
         self.task_manager = tasks.TaskManager(interval)
         self.task_manager.start()
-
         self.vcns = vcns.Vcns(self.vcns_uri, self.vcns_user, self.vcns_passwd)

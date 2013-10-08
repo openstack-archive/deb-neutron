@@ -18,6 +18,7 @@ import random
 from neutron.common import constants
 from neutron.common import exceptions
 from neutron import context
+from neutron.db import external_net_db
 from neutron.db import l3_db
 from neutron.db import models_v2
 from neutron.openstack.common import jsonutils
@@ -363,9 +364,9 @@ class NvpSynchronizer():
         if not ext_networks:
             ext_networks = [net['id'] for net in context.session.query(
                 models_v2.Network).join(
-                    l3_db.ExternalNetwork,
+                    external_net_db.ExternalNetwork,
                     (models_v2.Network.id ==
-                     l3_db.ExternalNetwork.network_id))]
+                     external_net_db.ExternalNetwork.network_id))]
         if neutron_port_data['network_id'] in ext_networks:
             with context.session.begin(subtransactions=True):
                 neutron_port_data['status'] = constants.PORT_STATUS_ACTIVE
@@ -380,17 +381,19 @@ class NvpSynchronizer():
                     lswitchport = nvplib.get_port(
                         self._cluster, neutron_port_data['network_id'],
                         lp_uuid, relations='LogicalPortStatus')
-            except exceptions.PortNotFoundOnNetwork:
+            except (exceptions.PortNotFoundOnNetwork):
                 # NOTE(salv-orlando): We should be catching
-                # NvpApiClient.ResourceNotFound here
-                # The logical switch port was not found
+                # NvpApiClient.ResourceNotFound here instead
+                # of PortNotFoundOnNetwork when the id exists but
+                # the logical switch port was not found
                 LOG.warning(_("Logical switch port for neutron port %s "
                               "not found on NVP."), neutron_port_data['id'])
                 lswitchport = None
             else:
-                # Update the cache
-                self._nvp_cache.update_lswitchport(lswitchport)
-
+                # If lswitchport is not None, update the cache.
+                # It could be none if the port was deleted from the backend
+                if lswitchport:
+                    self._nvp_cache.update_lswitchport(lswitchport)
         # Note(salv-orlando): It might worth adding a check to verify neutron
         # resource tag in nvp entity matches Neutron id.
         # By default assume things go wrong
@@ -430,9 +433,9 @@ class NvpSynchronizer():
             # this query
             ext_nets = [net['id'] for net in ctx.session.query(
                 models_v2.Network).join(
-                    l3_db.ExternalNetwork,
+                    external_net_db.ExternalNetwork,
                     (models_v2.Network.id ==
-                     l3_db.ExternalNetwork.network_id))]
+                     external_net_db.ExternalNetwork.network_id))]
             for port in self._plugin._get_collection_query(
                 ctx, models_v2.Port, filters=filters):
                 lswitchport = neutron_port_mappings.get(port['id'])
@@ -457,24 +460,22 @@ class NvpSynchronizer():
             # API. In this case the request should be split in multiple
             # requests. This is not ideal, and therefore a log warning will
             # be emitted.
-            requests = range(0, page_size / (nvplib.MAX_PAGE_SIZE + 1) + 1)
-            if len(requests) > 1:
+            num_requests = page_size / (nvplib.MAX_PAGE_SIZE + 1) + 1
+            if num_requests > 1:
                 LOG.warn(_("Requested page size is %(cur_chunk_size)d."
                            "It might be necessary to do %(num_requests)d "
                            "round-trips to NVP for fetching data. Please "
                            "tune sync parameters to ensure chunk size "
                            "is less than %(max_page_size)d"),
                          {'cur_chunk_size': page_size,
-                          'num_requests': len(requests),
+                          'num_requests': num_requests,
                           'max_page_size': nvplib.MAX_PAGE_SIZE})
-            results = []
-            actual_size = 0
-            for _req in requests:
-                req_results, cursor, req_size = nvplib.get_single_query_page(
-                    uri, self._cluster, cursor,
-                    min(page_size, nvplib.MAX_PAGE_SIZE))
-                results.extend(req_results)
-                actual_size = actual_size + req_size
+            # Only the first request might return the total size,
+            # subsequent requests will definetely not
+            results, cursor, total_size = nvplib.get_single_query_page(
+                uri, self._cluster, cursor,
+                min(page_size, nvplib.MAX_PAGE_SIZE))
+            for _req in range(0, num_requests - 1):
                 # If no cursor is returned break the cycle as there is no
                 # actual need to perform multiple requests (all fetched)
                 # This happens when the overall size of resources exceeds
@@ -482,9 +483,13 @@ class NvpSynchronizer():
                 # resource type is below this threshold
                 if not cursor:
                     break
+                req_results, cursor = nvplib.get_single_query_page(
+                    uri, self._cluster, cursor,
+                    min(page_size, nvplib.MAX_PAGE_SIZE))[:2]
+                results.extend(req_results)
             # reset cursor before returning if we queried just to
             # know the number of entities
-            return results, cursor if page_size else 'start', actual_size
+            return results, cursor if page_size else 'start', total_size
         return [], cursor, None
 
     def _fetch_nvp_data_chunk(self, sp):

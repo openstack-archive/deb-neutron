@@ -34,12 +34,16 @@ class NeutronException(Exception):
     def __init__(self, **kwargs):
         try:
             super(NeutronException, self).__init__(self.message % kwargs)
+            self.msg = self.message % kwargs
         except Exception:
             if _FATAL_EXCEPTION_FORMAT_ERRORS:
                 raise
             else:
                 # at least get the core message out if something happened
                 super(NeutronException, self).__init__(self.message)
+
+    def __unicode__(self):
+        return unicode(self.msg)
 
 
 class BadRequest(NeutronException):
@@ -258,7 +262,7 @@ class InvalidExtensionEnv(BadRequest):
 
 
 class InvalidContentType(NeutronException):
-    message = "Invalid content type %(content_type)s"
+    message = _("Invalid content type %(content_type)s")
 
 
 class ExternalIpAddressExhausted(BadRequest):
@@ -293,3 +297,7 @@ class NetworkVlanRangeError(NeutronException):
         if isinstance(kwargs['vlan_range'], tuple):
             kwargs['vlan_range'] = "%d:%d" % kwargs['vlan_range']
         super(NetworkVlanRangeError, self).__init__(**kwargs)
+
+
+class NetworkVxlanPortRangeError(object):
+    message = _("Invalid network VXLAN port range: '%(vxlan_range)s'")

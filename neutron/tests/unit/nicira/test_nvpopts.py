@@ -1,3 +1,5 @@
+# vim: tabstop=4 shiftwidth=4 softtabstop=4
+
 # Copyright 2013 Nicira Networks, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -120,9 +122,9 @@ class ConfigurationTest(testtools.TestCase):
         self._assert_required_options(plugin.cluster)
 
     def test_defaults(self):
-        self.assertEqual(64, cfg.CONF.NVP.max_lp_per_bridged_ls)
+        self.assertEqual(5000, cfg.CONF.NVP.max_lp_per_bridged_ls)
         self.assertEqual(256, cfg.CONF.NVP.max_lp_per_overlay_ls)
-        self.assertEqual(5, cfg.CONF.NVP.concurrent_connections)
+        self.assertEqual(10, cfg.CONF.NVP.concurrent_connections)
         self.assertEqual('access_network', cfg.CONF.NVP.metadata_mode)
         self.assertEqual('stt', cfg.CONF.NVP.default_transport_type)
 

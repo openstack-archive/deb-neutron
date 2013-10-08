@@ -84,40 +84,43 @@ class TestPidfile(base.BaseTestCase):
         self.assertEqual(34, p.read())
 
     def test_is_running(self):
-        with mock.patch('neutron.agent.linux.utils.execute') as execute:
-            execute.return_value = 'python'
+        with mock.patch('__builtin__.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python')
+            mock_open.return_value.__enter__ = lambda s: s
+            mock_open.return_value.__exit__ = mock.Mock()
+            mock_open.return_value.readline.return_value = 'python'
 
             with mock.patch.object(p, 'read') as read:
                 read.return_value = 34
                 self.assertTrue(p.is_running())
 
-            execute.assert_called_once_with(
-                ['cat', '/proc/34/cmdline'], 'sudo')
+            mock_open.assert_called_once_with('/proc/34/cmdline', 'r')
 
     def test_is_running_uuid_true(self):
-        with mock.patch('neutron.agent.linux.utils.execute') as execute:
-            execute.return_value = 'python 1234'
+        with mock.patch('__builtin__.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python', uuid='1234')
+            mock_open.return_value.__enter__ = lambda s: s
+            mock_open.return_value.__exit__ = mock.Mock()
+            mock_open.return_value.readline.return_value = 'python 1234'
 
             with mock.patch.object(p, 'read') as read:
                 read.return_value = 34
                 self.assertTrue(p.is_running())
 
-            execute.assert_called_once_with(
-                ['cat', '/proc/34/cmdline'], 'sudo')
+            mock_open.assert_called_once_with('/proc/34/cmdline', 'r')
 
     def test_is_running_uuid_false(self):
-        with mock.patch('neutron.agent.linux.utils.execute') as execute:
-            execute.return_value = 'python 1234'
+        with mock.patch('__builtin__.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python', uuid='6789')
+            mock_open.return_value.__enter__ = lambda s: s
+            mock_open.return_value.__exit__ = mock.Mock()
+            mock_open.return_value.readline.return_value = 'python 1234'
 
             with mock.patch.object(p, 'read') as read:
                 read.return_value = 34
                 self.assertFalse(p.is_running())
 
-            execute.assert_called_once_with(
-                ['cat', '/proc/34/cmdline'], 'sudo')
+            mock_open.assert_called_once_with('/proc/34/cmdline', 'r')
 
 
 class TestDaemon(base.BaseTestCase):
@@ -160,13 +163,16 @@ class TestDaemon(base.BaseTestCase):
         d = daemon.Daemon('pidfile')
         with mock.patch.object(d, '_fork') as fork:
             with mock.patch.object(daemon, 'atexit') as atexit:
-                with mock.patch.object(daemon, 'sys') as sys:
-                    sys.stdin.fileno.return_value = 0
-                    sys.stdout.fileno.return_value = 1
-                    sys.stderr.fileno.return_value = 2
-                    d.daemonize()
-                    atexit.register.assert_called_once_with(d.delete_pid)
+                with mock.patch.object(daemon, 'signal') as signal:
+                    signal.SIGTERM = 15
+                    with mock.patch.object(daemon, 'sys') as sys:
+                        sys.stdin.fileno.return_value = 0
+                        sys.stdout.fileno.return_value = 1
+                        sys.stderr.fileno.return_value = 2
+                        d.daemonize()
 
+                    signal.signal.assert_called_once_with(15, d.handle_sigterm)
+                atexit.register.assert_called_once_with(d.delete_pid)
             fork.assert_has_calls([mock.call(), mock.call()])
 
         self.os.assert_has_calls([
@@ -184,6 +190,12 @@ class TestDaemon(base.BaseTestCase):
         d = daemon.Daemon('pidfile')
         d.delete_pid()
         self.os.remove.assert_called_once_with('pidfile')
+
+    def test_handle_sigterm(self):
+        d = daemon.Daemon('pidfile')
+        with mock.patch.object(daemon, 'sys') as sys:
+            d.handle_sigterm(15, 1234)
+            sys.exit.assert_called_once_with(0)
 
     def test_start(self):
         self.pidfile.return_value.is_running.return_value = False

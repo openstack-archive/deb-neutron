@@ -27,6 +27,7 @@ from oslo.config import cfg
 from neutron.api.v2 import attributes
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db import external_net_db
 from neutron.db import l3_db
 from neutron.db import portbindings_db
 from neutron.extensions import portbindings
@@ -37,7 +38,7 @@ from neutron.plugins.plumgrid.plumgrid_plugin.plugin_ver import VERSION
 
 LOG = logging.getLogger(__name__)
 PLUM_DRIVER = 'neutron.plugins.plumgrid.drivers.plumlib.Plumlib'
-ERR_MESSAGE = 'PLUMgrid Director communication failed'
+ERR_MESSAGE = _('PLUMgrid Director communication failed')
 
 director_server_opts = [
     cfg.StrOpt('director_server', default='localhost',
@@ -56,9 +57,10 @@ cfg.CONF.register_opts(director_server_opts, "PLUMgridDirector")
 
 class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
                               portbindings_db.PortBindingMixin,
+                              external_net_db.External_net_db_mixin,
                               l3_db.L3_NAT_db_mixin):
 
-    supported_extension_aliases = ["router", "binding"]
+    supported_extension_aliases = ["external-net", "router", "binding"]
 
     binding_view = "extension:port_binding:view"
     binding_set = "extension:port_binding:set"

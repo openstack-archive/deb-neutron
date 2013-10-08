@@ -39,8 +39,10 @@ from neutron.db import agentschedulers_db
 from neutron.db import allowedaddresspairs_db as addr_pair_db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
+from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import extraroute_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
 from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
@@ -54,6 +56,7 @@ from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.openstack.common.rpc import proxy
+from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.openvswitch.common import config  # noqa
 from neutron.plugins.openvswitch.common import constants
@@ -221,10 +224,11 @@ class AgentNotifierApi(proxy.RpcProxy,
 
 
 class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
+                         external_net_db.External_net_db_mixin,
                          extraroute_db.ExtraRoute_db_mixin,
                          l3_gwmode_db.L3_NAT_db_mixin,
                          sg_db_rpc.SecurityGroupServerRpcMixin,
-                         agentschedulers_db.L3AgentSchedulerDbMixin,
+                         l3_agentschedulers_db.L3AgentSchedulerDbMixin,
                          agentschedulers_db.DhcpAgentSchedulerDbMixin,
                          portbindings_db.PortBindingMixin,
                          extradhcpopt_db.ExtraDhcpOptMixin,
@@ -254,9 +258,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     __native_pagination_support = True
     __native_sorting_support = True
 
-    _supported_extension_aliases = ["provider", "router", "ext-gw-mode",
-                                    "binding", "quotas", "security-group",
-                                    "agent", "extraroute",
+    _supported_extension_aliases = ["provider", "external-net", "router",
+                                    "ext-gw-mode", "binding", "quotas",
+                                    "security-group", "agent", "extraroute",
                                     "l3_agent_scheduler",
                                     "dhcp_agent_scheduler",
                                     "extra_dhcp_opt",
@@ -314,7 +318,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def setup_rpc(self):
         # RPC support
-        self.topic = topics.PLUGIN
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
+                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.conn = rpc.create_connection(new=True)
         self.notifier = AgentNotifierApi(topics.AGENT)
         self.agent_notifiers[q_const.AGENT_TYPE_DHCP] = (
@@ -325,8 +330,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         )
         self.callbacks = OVSRpcCallbacks(self.notifier, self.tunnel_type)
         self.dispatcher = self.callbacks.create_rpc_dispatcher()
-        self.conn.create_consumer(self.topic, self.dispatcher,
-                                  fanout=False)
+        for svc_topic in self.service_topics.values():
+            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
 
@@ -561,6 +566,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     def update_port(self, context, id, port):
         session = context.session
         need_port_update_notify = False
+        changed_fixed_ips = 'fixed_ips' in port['port']
         with session.begin(subtransactions=True):
             original_port = super(OVSNeutronPluginV2, self).get_port(
                 context, id)
@@ -572,7 +578,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     context, updated_port,
                     port['port'][addr_pair.ADDRESS_PAIRS])
                 need_port_update_notify = True
-
+            elif changed_fixed_ips:
+                self._check_fixed_ips_and_address_pairs_no_overlap(
+                    context, updated_port)
             need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, original_port, updated_port)
             self._process_portbindings_create_and_update(context,

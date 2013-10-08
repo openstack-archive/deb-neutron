@@ -65,6 +65,10 @@ class VPNServiceInUse(qexception.InUse):
     message = _("VPNService %(vpnservice_id)s is still in use")
 
 
+class RouterInUseByVPNService(qexception.InUse):
+    message = _("Router %(router_id)s is used by VPNService %(vpnservice_id)s")
+
+
 class VPNStateInvalid(qexception.BadRequest):
     message = _("Invalid state %(state)s of vpnaas resource %(id)s")
 
@@ -75,6 +79,11 @@ class IPsecPolicyInUse(qexception.InUse):
 
 class DeviceDriverImportError(qexception.NeutronException):
     message = _("Can not load driver :%(device_driver)s")
+
+
+class SubnetIsNotConnectedToRouter(qexception.BadRequest):
+    message = _("Subnet %(subnet_id)s is not "
+                "connected to Router %(router_id)s")
 
 
 vpn_supported_initiators = ['bi-directional', 'response-only']

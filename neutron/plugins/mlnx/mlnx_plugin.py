@@ -29,7 +29,9 @@ from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agentschedulers_db
 from neutron.db import db_base_plugin_v2
+from neutron.db import external_net_db
 from neutron.db import extraroute_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
 from neutron.db import portbindings_db
 from neutron.db import quota_db  # noqa
@@ -39,6 +41,7 @@ from neutron.extensions import providernet as provider
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
+from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.mlnx import agent_notify_api
 from neutron.plugins.mlnx.common import constants
@@ -49,10 +52,11 @@ LOG = logging.getLogger(__name__)
 
 
 class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
+                            external_net_db.External_net_db_mixin,
                             extraroute_db.ExtraRoute_db_mixin,
                             l3_gwmode_db.L3_NAT_db_mixin,
                             sg_db_rpc.SecurityGroupServerRpcMixin,
-                            agentschedulers_db.L3AgentSchedulerDbMixin,
+                            l3_agentschedulers_db.L3AgentSchedulerDbMixin,
                             agentschedulers_db.DhcpAgentSchedulerDbMixin,
                             portbindings_db.PortBindingMixin):
     """Realization of Neutron API on Mellanox HCA embedded switch technology.
@@ -75,9 +79,9 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
     # is qualified by class
     __native_bulk_support = True
 
-    _supported_extension_aliases = ["provider", "router", "ext-gw-mode",
-                                    "binding", "quotas", "security-group",
-                                    "agent", "extraroute",
+    _supported_extension_aliases = ["provider", "external-net", "router",
+                                    "ext-gw-mode", "binding", "quotas",
+                                    "security-group", "agent", "extraroute",
                                     "l3_agent_scheduler",
                                     "dhcp_agent_scheduler"]
 
@@ -112,12 +116,13 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _setup_rpc(self):
         # RPC support
-        self.topic = topics.PLUGIN
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
+                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.conn = rpc.create_connection(new=True)
         self.callbacks = rpc_callbacks.MlnxRpcCallbacks()
         self.dispatcher = self.callbacks.create_rpc_dispatcher()
-        self.conn.create_consumer(self.topic, self.dispatcher,
-                                  fanout=False)
+        for svc_topic in self.service_topics.values():
+            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
         self.notifier = agent_notify_api.AgentNotifierApi(topics.AGENT)
@@ -240,7 +245,7 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                             constants.TYPE_FLAT]:
             if physical_network_set:
                 if physical_network not in self.network_vlan_ranges:
-                    msg = _("unknown provider:physical_network "
+                    msg = _("Unknown provider:physical_network "
                             "%s") % physical_network
                     raise q_exc.InvalidInput(error_message=msg)
             elif 'default' in self.network_vlan_ranges:
@@ -277,11 +282,11 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                     self.base_binding_dict[portbindings.VIF_TYPE] = vnic_type
                     return vnic_type
                 else:
-                    msg = (_("unsupported vnic type %(vnic_type)s "
+                    msg = (_("Unsupported vnic type %(vnic_type)s "
                              "for network type %(net_type)s") %
                            {'vnic_type': vnic_type, 'net_type': net_type})
             else:
-                msg = _("invalid vnic_type on port_create")
+                msg = _("Invalid vnic_type on port_create")
         else:
             msg = _("vnic_type is not defined in port profile")
         raise q_exc.InvalidInput(error_message=msg)
@@ -328,7 +333,7 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
             return net
 
     def update_network(self, context, net_id, network):
-        LOG.debug(_("update network"))
+        LOG.debug(_("Update network"))
         provider._raise_if_updates_provider_attributes(network['network'])
 
         session = context.session
@@ -341,7 +346,7 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return net
 
     def delete_network(self, context, net_id):
-        LOG.debug(_("delete network"))
+        LOG.debug(_("Delete network"))
         session = context.session
         with session.begin(subtransactions=True):
             binding = db.get_network_binding(session, net_id)

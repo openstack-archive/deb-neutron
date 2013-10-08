@@ -37,6 +37,7 @@ from neutron.db import agentschedulers_db
 from neutron.db import allowedaddresspairs_db as addr_pair_db
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
+from neutron.db import external_net_db
 from neutron.db import extraroute_db
 from neutron.db import l3_db
 from neutron.db import l3_gwmode_db
@@ -46,6 +47,7 @@ from neutron.db import portsecurity_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_db
 from neutron.extensions import allowedaddresspairs as addr_pair
+from neutron.extensions import external_net as ext_net_extn
 from neutron.extensions import extraroute
 from neutron.extensions import l3
 from neutron.extensions import multiprovidernet as mpnet
@@ -54,6 +56,7 @@ from neutron.extensions import portsecurity as psec
 from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
+from neutron.plugins.common import constants as plugin_const
 from neutron.plugins.nicira.common import config
 from neutron.plugins.nicira.common import exceptions as nvp_exc
 from neutron.plugins.nicira.common import securitygroups as nvp_sec
@@ -78,6 +81,7 @@ NVP_NOSNAT_RULES_ORDER = 10
 NVP_FLOATINGIP_NAT_RULES_ORDER = 224
 NVP_EXTGW_NAT_RULES_ORDER = 255
 NVP_EXT_PATH = os.path.join(os.path.dirname(__file__), 'extensions')
+NVP_DEFAULT_NEXTHOP = '1.1.1.1'
 
 
 # Provider network extension - allowed network types for the NVP Plugin
@@ -117,6 +121,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                   db_base_plugin_v2.NeutronDbPluginV2,
                   dhcpmeta_modes.DhcpMetadataAccess,
                   dist_rtr.DistributedRouter_mixin,
+                  external_net_db.External_net_db_mixin,
                   extraroute_db.ExtraRoute_db_mixin,
                   l3_gwmode_db.L3_NAT_db_mixin,
                   mac_db.MacLearningDbMixin,
@@ -146,6 +151,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                    "port-security",
                                    "provider",
                                    "quotas",
+                                   "external-net",
                                    "router",
                                    "security-group"]
 
@@ -424,7 +430,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                    port_data['fixed_ips'],
                                    port_data[psec.PORTSECURITY],
                                    port_data[ext_sg.SECURITYGROUPS],
-                                   port_data[ext_qos.QUEUE],
+                                   port_data.get(ext_qos.QUEUE),
                                    port_data.get(mac_ext.MAC_LEARNING),
                                    port_data.get(addr_pair.ADDRESS_PAIRS))
 
@@ -511,7 +517,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                        'net_id': port_data['network_id']})
 
         except q_exc.NotFound:
-            LOG.warning(_("port %s not found in NVP"), port_data['id'])
+            LOG.warning(_("Port %s not found in NVP"), port_data['id'])
 
     def _nvp_delete_router_port(self, context, port_data):
         # Delete logical router port
@@ -616,11 +622,13 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         ext_network = self.get_network(context, port_data['network_id'])
         if ext_network.get(pnet.NETWORK_TYPE) == NetworkTypes.L3_EXT:
             # Update attachment
+            physical_network = (ext_network[pnet.PHYSICAL_NETWORK] or
+                                self.cluster.default_l3_gw_service_uuid)
             self._update_router_port_attachment(
                 self.cluster, context, router_id, port_data,
                 lr_port['uuid'],
                 "L3GatewayAttachment",
-                ext_network[pnet.PHYSICAL_NETWORK],
+                physical_network,
                 ext_network[pnet.SEGMENTATION_ID])
 
         LOG.debug(_("_nvp_create_ext_gw_port completed on external network "
@@ -733,15 +741,15 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 cluster,
                 neutron_port['network_id'],
                 neutron_port['id'])
-            if nvp_port:
-                nicira_db.add_neutron_nvp_port_mapping(
-                    context.session,
-                    neutron_port['id'],
-                    nvp_port['uuid'])
-                return nvp_port['uuid']
-        except Exception:
+        except NvpApiClient.NvpApiException:
             LOG.exception(_("Unable to find NVP uuid for Neutron port %s"),
                           neutron_port['id'])
+
+        if nvp_port:
+            nicira_db.add_neutron_nvp_port_mapping(
+                context.session, neutron_port['id'],
+                nvp_port['uuid'])
+            return nvp_port['uuid']
 
     def _extend_fault_map(self):
         """Extends the Neutron Fault Map.
@@ -862,7 +870,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                       network['tenant_id'],
                                       tags=tags)
             transport_zone_config = self._convert_to_nvp_transport_zones(
-                cluster, bindings=network_bindings)
+                cluster, network, bindings=network_bindings)
             selected_lswitch = nvplib.create_lswitch(
                 cluster, network.tenant_id,
                 "%s-ext-%s" % (network.name, len(lswitches)),
@@ -921,7 +929,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 transport_entry['transport_type'] = transport_type
             transport_entry['zone_uuid'] = (
                 transport_zone[pnet.PHYSICAL_NETWORK] or
-                cluster.deafult_tz_uuid)
+                cluster.default_tz_uuid)
             nvp_transport_zones_config.append(transport_entry)
         return nvp_transport_zones_config
 
@@ -965,7 +973,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                           "network %s"), net_data.get('name', '<unknown>'))
         transport_zone_config = self._convert_to_nvp_transport_zones(
             self.cluster, net_data)
-        external = net_data.get(l3.EXTERNAL)
+        external = net_data.get(ext_net_extn.EXTERNAL)
         if (not attr.is_attr_set(external) or
             attr.is_attr_set(external) and not external):
             lswitch = nvplib.create_lswitch(
@@ -985,12 +993,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             # DB Operations for setting the network as external
             self._process_l3_create(context, new_net, net_data)
             # Process QoS queue extension
-            if network['network'].get(ext_qos.QUEUE):
-                new_net[ext_qos.QUEUE] = network['network'][ext_qos.QUEUE]
+            net_queue_id = net_data.get(ext_qos.QUEUE)
+            if net_queue_id:
                 # Raises if not found
-                self.get_qos_queue(context, new_net[ext_qos.QUEUE])
-                self._process_network_queue_mapping(context, new_net)
-                self._extend_network_qos_queue(context, new_net)
+                self.get_qos_queue(context, net_queue_id)
+                self._process_network_queue_mapping(
+                    context, new_net, net_queue_id)
 
             if (net_data.get(mpnet.SEGMENTS) and
                 isinstance(provider_type, bool)):
@@ -1062,17 +1070,16 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         with context.session.begin(subtransactions=True):
             # goto to the plugin DB and fetch the network
             network = self._get_network(context, id)
-            if fields and 'status' in fields:
+            if (self.nvp_sync_opts.always_read_status or
+                fields and 'status' in fields):
                 # External networks are not backed by nvp lswitches
                 if not network.external:
                     # Perform explicit state synchronization
-                    self._synchronizer.synchronize_network(
-                        context, network)
+                    self._synchronizer.synchronize_network(context, network)
             # Don't do field selection here otherwise we won't be able
             # to add provider networks fields
             net_result = self._make_network_dict(network)
             self._extend_network_dict_provider(context, net_result)
-            self._extend_network_qos_queue(context, net_result)
         return self._fields(net_result, fields)
 
     def get_networks(self, context, filters=None, fields=None):
@@ -1081,37 +1088,25 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             networks = super(NvpPluginV2, self).get_networks(context, filters)
             for net in networks:
                 self._extend_network_dict_provider(context, net)
-                self._extend_network_qos_queue(context, net)
         return [self._fields(network, fields) for network in networks]
 
     def update_network(self, context, id, network):
         pnet._raise_if_updates_provider_attributes(network['network'])
-        if network["network"].get("admin_state_up"):
-            if network['network']["admin_state_up"] is False:
-                raise q_exc.NotImplementedError(_("admin_state_up=False "
-                                                  "networks are not "
-                                                  "supported."))
+        if network["network"].get("admin_state_up") is False:
+            raise NotImplementedError(_("admin_state_up=False networks "
+                                        "are not supported."))
         with context.session.begin(subtransactions=True):
             net = super(NvpPluginV2, self).update_network(context, id, network)
             if psec.PORTSECURITY in network['network']:
                 self._process_network_port_security_update(
                     context, network['network'], net)
-            if network['network'].get(ext_qos.QUEUE):
-                net[ext_qos.QUEUE] = network['network'][ext_qos.QUEUE]
+            net_queue_id = network['network'].get(ext_qos.QUEUE)
+            if net_queue_id:
                 self._delete_network_queue_mapping(context, id)
-                self._process_network_queue_mapping(context, net)
+                self._process_network_queue_mapping(context, net, net_queue_id)
             self._process_l3_update(context, net, network['network'])
             self._extend_network_dict_provider(context, net)
-            self._extend_network_qos_queue(context, net)
         return net
-
-    def get_ports(self, context, filters=None, fields=None):
-        filters = filters or {}
-        with context.session.begin(subtransactions=True):
-            ports = super(NvpPluginV2, self).get_ports(context, filters)
-            for port in ports:
-                self._extend_port_qos_queue(context, port)
-        return [self._fields(port, fields) for port in ports]
 
     def create_port(self, context, port):
         # If PORTSECURITY is not the default value ATTR_NOT_SPECIFIED
@@ -1155,9 +1150,10 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             self._process_port_create_security_group(
                 context, port_data, port_data[ext_sg.SECURITYGROUPS])
             # QoS extension checks
-            port_data[ext_qos.QUEUE] = self._check_for_queue_and_create(
+            port_queue_id = self._check_for_queue_and_create(
                 context, port_data)
-            self._process_port_queue_mapping(context, port_data)
+            self._process_port_queue_mapping(
+                context, port_data, port_queue_id)
             if (isinstance(port_data.get(mac_ext.MAC_LEARNING), bool)):
                 self._create_mac_learning_state(context, port_data)
             elif mac_ext.MAC_LEARNING in port_data:
@@ -1166,11 +1162,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             LOG.debug(_("create_port completed on NVP for tenant "
                         "%(tenant_id)s: (%(id)s)"), port_data)
 
-            # remove since it will be added in extend based on policy
-            del port_data[ext_qos.QUEUE]
-            self._extend_port_qos_queue(context, port_data)
             self._process_portbindings_create_and_update(context,
-                                                         port, port_data)
+                                                         port['port'],
+                                                         port_data)
         # DB Operation is complete, perform NVP operation
         try:
             port_data = port['port'].copy()
@@ -1199,6 +1193,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         return port_data
 
     def update_port(self, context, id, port):
+        changed_fixed_ips = 'fixed_ips' in port['port']
         delete_security_groups = self._check_update_deletes_security_groups(
             port)
         has_security_groups = self._check_update_has_security_groups(port)
@@ -1213,7 +1208,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             # being updated or not
             old_mac_learning_state = ret_port.get(mac_ext.MAC_LEARNING)
             # copy values over - except fixed_ips as
-            # they've alreaby been processed
+            # they've already been processed
             port['port'].pop('fixed_ips', None)
             ret_port.update(port['port'])
             tenant_id = self._get_tenant_id_for_create(context, ret_port)
@@ -1240,6 +1235,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 self._delete_allowed_address_pairs(context, id)
                 self._process_create_allowed_address_pairs(
                     context, ret_port, ret_port[addr_pair.ADDRESS_PAIRS])
+            elif changed_fixed_ips:
+                self._check_fixed_ips_and_address_pairs_no_overlap(context,
+                                                                   ret_port)
             # checks if security groups were updated adding/modifying
             # security groups, port security is set and port has ip
             if not (has_ip and ret_port[psec.PORTSECURITY]):
@@ -1266,7 +1264,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 self._process_port_port_security_update(
                     context, port['port'], ret_port)
 
-            ret_port[ext_qos.QUEUE] = self._check_for_queue_and_create(
+            port_queue_id = self._check_for_queue_and_create(
                 context, ret_port)
             # Populate the mac learning attribute
             new_mac_learning_state = port['port'].get(mac_ext.MAC_LEARNING)
@@ -1276,7 +1274,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                                 new_mac_learning_state)
                 ret_port[mac_ext.MAC_LEARNING] = new_mac_learning_state
             self._delete_port_queue_mapping(context, ret_port['id'])
-            self._process_port_queue_mapping(context, ret_port)
+            self._process_port_queue_mapping(context, ret_port,
+                                             port_queue_id)
             LOG.warn(_("Update port request: %s"), port)
             nvp_port_id = self._nvp_get_port_id(
                 context, self.cluster, ret_port)
@@ -1311,12 +1310,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             else:
                 ret_port['status'] = constants.PORT_STATUS_ERROR
 
-            # remove since it will be added in extend based on policy
-            del ret_port[ext_qos.QUEUE]
-            self._extend_port_qos_queue(context, ret_port)
             self._process_portbindings_create_and_update(context,
                                                          port['port'],
-                                                         port)
+                                                         ret_port)
         return ret_port
 
     def delete_port(self, context, id, l3_port_check=True,
@@ -1360,19 +1356,19 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
 
     def get_port(self, context, id, fields=None):
         with context.session.begin(subtransactions=True):
-            if fields and 'status' in fields:
+            if (self.nvp_sync_opts.always_read_status or
+                fields and 'status' in fields):
                 # Perform explicit state synchronization
                 db_port = self._get_port(context, id)
                 self._synchronizer.synchronize_port(
                     context, db_port)
-                port = self._make_port_dict(db_port, fields)
+                return self._make_port_dict(db_port, fields)
             else:
-                port = super(NvpPluginV2, self).get_port(context, id, fields)
-            self._extend_port_qos_queue(context, port)
-        return port
+                return super(NvpPluginV2, self).get_port(context, id, fields)
 
     def get_router(self, context, id, fields=None):
-        if fields and 'status' in fields:
+        if (self.nvp_sync_opts.always_read_status or
+            fields and 'status' in fields):
             db_router = self._get_router(context, id)
             # Perform explicit state synchronization
             self._synchronizer.synchronize_router(
@@ -1380,6 +1376,45 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             return self._make_router_dict(db_router, fields)
         else:
             return super(NvpPluginV2, self).get_router(context, id, fields)
+
+    def _create_lrouter(self, context, router, nexthop):
+        tenant_id = self._get_tenant_id_for_create(context, router)
+        name = router['name']
+        distributed = router.get('distributed')
+        try:
+            lrouter = nvplib.create_lrouter(
+                self.cluster, tenant_id, name, nexthop,
+                distributed=attr.is_attr_set(distributed) and distributed)
+        except nvp_exc.NvpInvalidVersion:
+            msg = _("Cannot create a distributed router with the NVP "
+                    "platform currently in execution. Please, try "
+                    "without specifying the 'distributed' attribute.")
+            LOG.exception(msg)
+            raise q_exc.BadRequest(resource='router', msg=msg)
+        except NvpApiClient.NvpApiException:
+            raise nvp_exc.NvpPluginException(
+                err_msg=_("Unable to create logical router on NVP Platform"))
+
+        # Create the port here - and update it later if we have gw_info
+        try:
+            self._create_and_attach_router_port(
+                self.cluster, context, lrouter['uuid'], {'fake_ext_gw': True},
+                "L3GatewayAttachment",
+                self.cluster.default_l3_gw_service_uuid)
+        except nvp_exc.NvpPluginException:
+            LOG.exception(_("Unable to create L3GW port on logical router "
+                            "%(router_uuid)s. Verify Default Layer-3 Gateway "
+                            "service %(def_l3_gw_svc)s id is correct"),
+                          {'router_uuid': lrouter['uuid'],
+                           'def_l3_gw_svc':
+                           self.cluster.default_l3_gw_service_uuid})
+            # Try and remove logical router from NVP
+            nvplib.delete_lrouter(self.cluster, lrouter['uuid'])
+            # Return user a 500 with an apter message
+            raise nvp_exc.NvpPluginException(
+                err_msg=_("Unable to create router %s") % router['name'])
+        lrouter['status'] = plugin_const.ACTIVE
+        return lrouter
 
     def create_router(self, context, router):
         # NOTE(salvatore-orlando): We completely override this method in
@@ -1390,81 +1425,60 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         has_gw_info = False
         tenant_id = self._get_tenant_id_for_create(context, r)
         # default value to set - nvp wants it (even if we don't have it)
-        nexthop = '1.1.1.1'
-        try:
-            # if external gateway info are set, then configure nexthop to
-            # default external gateway
-            if 'external_gateway_info' in r and r.get('external_gateway_info'):
-                has_gw_info = True
-                gw_info = r['external_gateway_info']
-                del r['external_gateway_info']
-                # The following DB read will be performed again when updating
-                # gateway info. This is not great, but still better than
-                # creating NVP router here and updating it later
-                network_id = (gw_info.get('network_id', None) if gw_info
-                              else None)
-                if network_id:
-                    ext_net = self._get_network(context, network_id)
-                    if not ext_net.external:
-                        msg = (_("Network '%s' is not a valid external "
-                                 "network") % network_id)
-                        raise q_exc.BadRequest(resource='router', msg=msg)
-                    if ext_net.subnets:
-                        ext_subnet = ext_net.subnets[0]
-                        nexthop = ext_subnet.gateway_ip
-            distributed = r.get('distributed')
-            lrouter = nvplib.create_lrouter(
-                self.cluster, tenant_id, router['router']['name'], nexthop,
-                distributed=attr.is_attr_set(distributed) and distributed)
-            # Use NVP identfier for Neutron resource
-            r['id'] = lrouter['uuid']
-            # Update 'distributed' with value returned from NVP
-            # This will be useful for setting the value if the API request
-            # did not specify any value for the 'distributed' attribute
-            r['distributed'] = lrouter['distributed']
-        except nvp_exc.NvpInvalidVersion:
-            msg = _("Cannot create a distributed router with the NVP "
-                    "platform currently in execution. Please, try "
-                    "without specifying the 'distributed' attribute.")
-            LOG.exception(msg)
-            raise q_exc.BadRequest(resource='router', msg=msg)
-        except NvpApiClient.NvpApiException:
-            raise nvp_exc.NvpPluginException(
-                err_msg=_("Unable to create logical router on NVP Platform"))
-        # Create the port here - and update it later if we have gw_info
-        try:
-            self._create_and_attach_router_port(
-                self.cluster, context, lrouter['uuid'], {'fake_ext_gw': True},
-                "L3GatewayAttachment",
-                self.cluster.default_l3_gw_service_uuid)
-        except nvp_exc.NvpPluginException:
-            LOG.exception(_("Unable to create L3GW port on logical router  "
-                            "%(router_uuid)s. Verify Default Layer-3 Gateway "
-                            "service %(def_l3_gw_svc)s id is correct") %
-                          {'router_uuid': lrouter['uuid'],
-                           'def_l3_gw_svc':
-                           self.cluster.default_l3_gw_service_uuid})
-            # Try and remove logical router from NVP
-            nvplib.delete_lrouter(self.cluster, lrouter['uuid'])
-            # Return user a 500 with an apter message
-            raise nvp_exc.NvpPluginException(
-                err_msg=_("Unable to create router %s") % r['name'])
+        nexthop = NVP_DEFAULT_NEXTHOP
+        # if external gateway info are set, then configure nexthop to
+        # default external gateway
+        if 'external_gateway_info' in r and r.get('external_gateway_info'):
+            has_gw_info = True
+            gw_info = r['external_gateway_info']
+            del r['external_gateway_info']
+            # The following DB read will be performed again when updating
+            # gateway info. This is not great, but still better than
+            # creating NVP router here and updating it later
+            network_id = (gw_info.get('network_id', None) if gw_info
+                          else None)
+            if network_id:
+                ext_net = self._get_network(context, network_id)
+                if not ext_net.external:
+                    msg = (_("Network '%s' is not a valid external "
+                             "network") % network_id)
+                    raise q_exc.BadRequest(resource='router', msg=msg)
+                if ext_net.subnets:
+                    ext_subnet = ext_net.subnets[0]
+                    nexthop = ext_subnet.gateway_ip
+        lrouter = self._create_lrouter(context, r, nexthop)
+        # Use NVP identfier for Neutron resource
+        r['id'] = lrouter['uuid']
+        # Update 'distributed' with value returned from NVP
+        # This will be useful for setting the value if the API request
+        # did not specify any value for the 'distributed' attribute
+        # Platforms older than 3.x do not support the attribute
+        r['distributed'] = lrouter.get('distributed', False)
 
         with context.session.begin(subtransactions=True):
             # Transaction nesting is needed to avoid foreign key violations
-            # when processing the service provider binding
+            # when processing the distributed router binding
             with context.session.begin(subtransactions=True):
                 router_db = l3_db.Router(id=lrouter['uuid'],
                                          tenant_id=tenant_id,
                                          name=r['name'],
                                          admin_state_up=r['admin_state_up'],
-                                         status="ACTIVE")
-                self._process_distributed_router_create(context, router_db, r)
+                                         status=lrouter['status'])
+                self._process_nsx_router_create(context, router_db, r)
                 context.session.add(router_db)
             if has_gw_info:
                 self._update_router_gw_info(context, router_db['id'], gw_info)
         router = self._make_router_dict(router_db)
         return router
+
+    def _update_lrouter(self, context, router_id, name, nexthop, routes=None):
+        return nvplib.update_lrouter(
+            self.cluster, router_id, name,
+            nexthop, routes=routes)
+
+    def _update_lrouter_routes(self, router_id, routes):
+        nvplib.update_explicit_routes_lrouter(
+            self.cluster, router_id, routes)
 
     def update_router(self, context, router_id, router):
         # Either nexthop is updated or should be kept as it was before
@@ -1493,8 +1507,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                             "this must be updated through the default "
                             "gateway attribute")
                     raise q_exc.BadRequest(resource='router', msg=msg)
-            previous_routes = nvplib.update_lrouter(
-                self.cluster, router_id, r.get('name'),
+            previous_routes = self._update_lrouter(
+                context, router_id, r.get('name'),
                 nexthop, routes=r.get('routes'))
         # NOTE(salv-orlando): The exception handling below is not correct, but
         # unfortunately nvplib raises a neutron notfound exception when an
@@ -1524,8 +1538,11 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 extraroute.RoutesExhausted):
             with excutils.save_and_reraise_exception():
                 # revert changes made to NVP
-                nvplib.update_explicit_routes_lrouter(
-                    self.cluster, router_id, previous_routes)
+                self._update_lrouter_routes(
+                    router_id, previous_routes)
+
+    def _delete_lrouter(self, context, id):
+        nvplib.delete_lrouter(self.cluster, id)
 
     def delete_router(self, context, router_id):
         with context.session.begin(subtransactions=True):
@@ -1543,14 +1560,35 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             # allow an extra field for storing the cluster information
             # together with the resource
             try:
-                nvplib.delete_lrouter(self.cluster, router_id)
+                self._delete_lrouter(context, router_id)
             except q_exc.NotFound:
                 LOG.warning(_("Logical router '%s' not found "
-                              "on NVP Platform") % router_id)
+                              "on NVP Platform"), router_id)
             except NvpApiClient.NvpApiException:
                 raise nvp_exc.NvpPluginException(
-                    err_msg=(_("Unable to delete logical router '%s'"
+                    err_msg=(_("Unable to delete logical router '%s' "
                                "on NVP Platform") % router_id))
+
+    def _add_subnet_snat_rule(self, router, subnet):
+        gw_port = router.gw_port
+        if gw_port and router.enable_snat:
+            # There is a change gw_port might have multiple IPs
+            # In that case we will consider only the first one
+            if gw_port.get('fixed_ips'):
+                snat_ip = gw_port['fixed_ips'][0]['ip_address']
+                cidr_prefix = int(subnet['cidr'].split('/')[1])
+                nvplib.create_lrouter_snat_rule(
+                    self.cluster, router['id'], snat_ip, snat_ip,
+                    order=NVP_EXTGW_NAT_RULES_ORDER - cidr_prefix,
+                    match_criteria={'source_ip_addresses': subnet['cidr']})
+
+    def _delete_subnet_snat_rule(self, router, subnet):
+        # Remove SNAT rule if external gateway is configured
+        if router.gw_port:
+            nvplib.delete_nat_rules_by_match(
+                self.cluster, router['id'], "SourceNatRule",
+                max_num_expected=1, min_num_expected=1,
+                source_ip_addresses=subnet['cidr'])
 
     def add_router_interface(self, context, router_id, interface_info):
         # When adding interface by port_id we need to create the
@@ -1586,17 +1624,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # If there is an external gateway we need to configure the SNAT rule.
         # Fetch router from DB
         router = self._get_router(context, router_id)
-        gw_port = router.gw_port
-        if gw_port and router.enable_snat:
-            # There is a change gw_port might have multiple IPs
-            # In that case we will consider only the first one
-            if gw_port.get('fixed_ips'):
-                snat_ip = gw_port['fixed_ips'][0]['ip_address']
-                cidr_prefix = int(subnet['cidr'].split('/')[1])
-                nvplib.create_lrouter_snat_rule(
-                    self.cluster, router_id, snat_ip, snat_ip,
-                    order=NVP_EXTGW_NAT_RULES_ORDER - cidr_prefix,
-                    match_criteria={'source_ip_addresses': subnet['cidr']})
+        self._add_subnet_snat_rule(router, subnet)
         nvplib.create_lrouter_nosnat_rule(
             self.cluster, router_id,
             order=NVP_NOSNAT_RULES_ORDER,
@@ -1654,12 +1682,10 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             if not subnet:
                 subnet = self._get_subnet(context, subnet_id)
             router = self._get_router(context, router_id)
-            # Remove SNAT rule if external gateway is configured
-            if router.gw_port:
-                nvplib.delete_nat_rules_by_match(
-                    self.cluster, router_id, "SourceNatRule",
-                    max_num_expected=1, min_num_expected=1,
-                    source_ip_addresses=subnet['cidr'])
+            # If router is enabled_snat = False there are no snat rules to
+            # delete.
+            if router.enable_snat:
+                self._delete_subnet_snat_rule(router, subnet)
             # Relax the minimum expected number as the nosnat rules
             # do not exist in 2.x deployments
             nvplib.delete_nat_rules_by_match(
@@ -1676,7 +1702,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                            "on NVP Platform")))
         return info
 
-    def _retrieve_and_delete_nat_rules(self, floating_ip_address,
+    def _retrieve_and_delete_nat_rules(self, context, floating_ip_address,
                                        internal_ip, router_id,
                                        min_num_rules_expected=0):
         try:
@@ -1693,6 +1719,16 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 max_num_expected=1,
                 min_num_expected=min_num_rules_expected,
                 source_ip_addresses=internal_ip)
+
+            # Remove No-DNAT rule associated with the single fixed_ip
+            # to floating ip
+            nvplib.delete_nat_rules_by_match(
+                self.cluster, router_id, "NoDestinationNatRule",
+                max_num_expected=1,
+                min_num_expected=min_num_rules_expected,
+                source_ip_addresses=internal_ip,
+                destination_ip_addresses=floating_ip_address)
+
         except NvpApiClient.NvpApiException:
             LOG.exception(_("An error occurred while removing NAT rules "
                             "on the NVP platform for floating ip:%s"),
@@ -1719,12 +1755,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                        ips_to_add=[],
                                        ips_to_remove=nvp_floating_ips)
 
-    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
-        """Update floating IP association data.
-
-        Overrides method from base class.
-        The method is augmented for creating NAT rules in the process.
-        """
+    def _get_fip_assoc_data(self, context, fip, floatingip_db):
         if (('fixed_ip_address' in fip and fip['fixed_ip_address']) and
             not ('port_id' in fip and fip['port_id'])):
             msg = _("fixed_ip_address cannot be specified without a port_id")
@@ -1746,30 +1777,51 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 context,
                 fip,
                 floatingip_db['floating_network_id'])
+        return (port_id, internal_ip, router_id)
 
+    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
+        """Update floating IP association data.
+
+        Overrides method from base class.
+        The method is augmented for creating NAT rules in the process.
+        """
+        # Store router currently serving the floating IP
+        old_router_id = floatingip_db.router_id
+        port_id, internal_ip, router_id = self._get_fip_assoc_data(
+            context, fip, floatingip_db)
         floating_ip = floatingip_db['floating_ip_address']
-        # Retrieve and delete existing NAT rules, if any
-        if not router_id and floatingip_db.get('fixed_port_id'):
-            # This happens if we're disassociating. Need to explicitly
-            # find the router serving this floating IP
-            tmp_fip = fip.copy()
-            tmp_fip['port_id'] = floatingip_db['fixed_port_id']
-            _pid, internal_ip, router_id = self.get_assoc_data(
-                context, tmp_fip, floatingip_db['floating_network_id'])
         # If there's no association router_id will be None
         if router_id:
-            self._retrieve_and_delete_nat_rules(floating_ip,
+            self._retrieve_and_delete_nat_rules(context,
+                                                floating_ip,
                                                 internal_ip,
                                                 router_id)
             # Fetch logical port of router's external gateway
+        # Fetch logical port of router's external gateway
+        nvp_floating_ips = self._build_ip_address_list(
+            context.elevated(), external_port['fixed_ips'])
+        floating_ip = floatingip_db['floating_ip_address']
+        # Retrieve and delete existing NAT rules, if any
+        if old_router_id:
+            # Retrieve the current internal ip
+            _p, _s, old_internal_ip = self._internal_fip_assoc_data(
+                context, {'id': floatingip_db.id,
+                          'port_id': floatingip_db.fixed_port_id,
+                          'fixed_ip_address': floatingip_db.fixed_ip_address,
+                          'tenant_id': floatingip_db.tenant_id})
+            nvp_gw_port_id = nvplib.find_router_gw_port(
+                context, self.cluster, old_router_id)['uuid']
+            self._retrieve_and_delete_nat_rules(
+                context, floating_ip, old_internal_ip, old_router_id)
+            nvplib.update_lrouter_port_ips(
+                self.cluster, old_router_id, nvp_gw_port_id,
+                ips_to_add=[], ips_to_remove=nvp_floating_ips)
+
+        if router_id:
             nvp_gw_port_id = nvplib.find_router_gw_port(
                 context, self.cluster, router_id)['uuid']
-            nvp_floating_ips = self._build_ip_address_list(
-                context.elevated(), external_port['fixed_ips'])
-            LOG.debug(_("Address list for NVP logical router "
-                        "port:%s"), nvp_floating_ips)
             # Re-create NAT rules only if a port id is specified
-            if 'port_id' in fip and fip['port_id']:
+            if fip.get('port_id'):
                 try:
                     # Create new NAT rules
                     nvplib.create_lrouter_dnat_rule(
@@ -1783,6 +1835,14 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                         self.cluster, router_id, floating_ip, floating_ip,
                         order=NVP_FLOATINGIP_NAT_RULES_ORDER,
                         match_criteria={'source_ip_addresses': internal_ip})
+                    # Add No-DNAT rule to allow fixed_ip to ping floatingip.
+                    nvplib.create_lrouter_nodnat_rule(
+                        self.cluster, router_id,
+                        order=NVP_FLOATINGIP_NAT_RULES_ORDER - 1,
+                        match_criteria={'source_ip_addresses': internal_ip,
+                                        'destination_ip_addresses':
+                                        floating_ip})
+
                     # Add Floating IP address to router_port
                     nvplib.update_lrouter_port_ips(self.cluster,
                                                    router_id,
@@ -1796,16 +1856,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                     "internal ip:%(internal_ip)s"),
                                   {'floating_ip': floating_ip,
                                    'internal_ip': internal_ip})
+                    msg = _("Failed to update NAT rules for floatingip update")
                     raise nvp_exc.NvpPluginException(err_msg=msg)
-            elif floatingip_db['fixed_port_id']:
-                # This is a disassociation.
-                # Remove floating IP address from logical router port
-                internal_ip = None
-                nvplib.update_lrouter_port_ips(self.cluster,
-                                               router_id,
-                                               nvp_gw_port_id,
-                                               ips_to_add=[],
-                                               ips_to_remove=nvp_floating_ips)
 
         floatingip_db.update({'fixed_ip_address': internal_ip,
                               'fixed_port_id': port_id,
@@ -1815,7 +1867,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         fip_db = self._get_floatingip(context, id)
         # Check whether the floating ip is associated or not
         if fip_db.fixed_port_id:
-            self._retrieve_and_delete_nat_rules(fip_db.floating_ip_address,
+            self._retrieve_and_delete_nat_rules(context,
+                                                fip_db.floating_ip_address,
                                                 fip_db.fixed_ip_address,
                                                 fip_db.router_id,
                                                 min_num_rules_expected=1)
@@ -1827,7 +1880,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         try:
             fip_qry = context.session.query(l3_db.FloatingIP)
             fip_db = fip_qry.filter_by(fixed_port_id=port_id).one()
-            self._retrieve_and_delete_nat_rules(fip_db.floating_ip_address,
+            self._retrieve_and_delete_nat_rules(context,
+                                                fip_db.floating_ip_address,
                                                 fip_db.fixed_ip_address,
                                                 fip_db.router_id,
                                                 min_num_rules_expected=1)

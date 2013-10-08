@@ -17,6 +17,7 @@ NETWORK = 'network'
 SUBNET = 'subnet'
 PORT = 'port'
 SECURITY_GROUP = 'security_group'
+L2POPULATION = 'l2population'
 
 CREATE = 'create'
 DELETE = 'delete'
@@ -24,6 +25,7 @@ UPDATE = 'update'
 
 AGENT = 'q-agent-notifier'
 PLUGIN = 'q-plugin'
+L3PLUGIN = 'q-l3-plugin'
 DHCP = 'q-dhcp-notifer'
 FIREWALL_PLUGIN = 'q-firewall-plugin'
 METERING_PLUGIN = 'q-metering-plugin'
@@ -33,7 +35,7 @@ DHCP_AGENT = 'dhcp_agent'
 METERING_AGENT = 'metering_agent'
 
 
-def get_topic_name(prefix, table, operation):
+def get_topic_name(prefix, table, operation, host=None):
     """Create a topic name.
 
     The topic name needs to be synced between the agent and the
@@ -45,6 +47,9 @@ def get_topic_name(prefix, table, operation):
     :param table: The table in question (NETWORK, SUBNET, PORT).
     :param operation: The operation that invokes notification (CREATE,
                       DELETE, UPDATE)
+    :param host: Add host to the topic
     :returns: The topic name.
     """
+    if host:
+        return '%s-%s-%s.%s' % (prefix, table, operation, host)
     return '%s-%s-%s' % (prefix, table, operation)

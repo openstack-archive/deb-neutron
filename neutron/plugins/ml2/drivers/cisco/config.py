@@ -21,6 +21,8 @@ ml2_cisco_opts = [
                help=_("VLAN Name prefix")),
     cfg.BoolOpt('svi_round_robin', default=False,
                 help=_("Distribute SVI interfaces over all switches")),
+    cfg.StrOpt('managed_physical_network', default=None,
+               help=_("The physical network managed by the switches.")),
 ]
 
 
@@ -53,7 +55,7 @@ class ML2MechCiscoConfig(object):
         read_ok = multi_parser.read(cfg.CONF.config_file)
 
         if len(read_ok) != len(cfg.CONF.config_file):
-            raise cfg.Error("Some config files were not parsed properly")
+            raise cfg.Error(_("Some config files were not parsed properly"))
 
         for parsed_file in multi_parser.parsed:
             for parsed_item in parsed_file.keys():

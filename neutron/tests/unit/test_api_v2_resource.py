@@ -129,7 +129,11 @@ class ResourceTestCase(base.BaseTestCase):
 
         class TestException(q_exc.NeutronException):
             message = msg
-        expected_res = {'body': {'NeutronError': msg}}
+        expected_res = {'body': {
+            'NeutronError': {
+                'type': 'TestException',
+                'message': msg,
+                'detail': ''}}}
         controller = mock.MagicMock()
         controller.test.side_effect = TestException()
 
@@ -147,7 +151,11 @@ class ResourceTestCase(base.BaseTestCase):
 
         class TestException(q_exc.NeutronException):
             message = msg
-        expected_res = {'body': {'NeutronError': msg}}
+        expected_res = {'body': {
+            'NeutronError': {
+                'type': 'TestException',
+                'message': msg,
+                'detail': ''}}}
         controller = mock.MagicMock()
         controller.test.side_effect = TestException()
 
@@ -160,8 +168,7 @@ class ResourceTestCase(base.BaseTestCase):
         self.assertEqual(wsgi.XMLDeserializer().deserialize(res.body),
                          expected_res)
 
-    @mock.patch('neutron.openstack.common.gettextutils.Message.data',
-                new_callable=mock.PropertyMock)
+    @mock.patch('neutron.openstack.common.gettextutils.get_localized_message')
     def test_unmapped_neutron_error_localized(self, mock_translation):
         gettextutils.install('blaa', lazy=True)
         msg_translation = 'Translated error'
@@ -188,7 +195,11 @@ class ResourceTestCase(base.BaseTestCase):
 
         class TestException(q_exc.NeutronException):
             message = msg
-        expected_res = {'body': {'NeutronError': msg}}
+        expected_res = {'body': {
+            'NeutronError': {
+                'type': 'TestException',
+                'message': msg,
+                'detail': ''}}}
         controller = mock.MagicMock()
         controller.test.side_effect = TestException()
 
@@ -208,7 +219,11 @@ class ResourceTestCase(base.BaseTestCase):
 
         class TestException(q_exc.NeutronException):
             message = msg
-        expected_res = {'body': {'NeutronError': msg}}
+        expected_res = {'body': {
+            'NeutronError': {
+                'type': 'TestException',
+                'message': msg,
+                'detail': ''}}}
         controller = mock.MagicMock()
         controller.test.side_effect = TestException()
 
@@ -223,8 +238,7 @@ class ResourceTestCase(base.BaseTestCase):
         self.assertEqual(wsgi.XMLDeserializer().deserialize(res.body),
                          expected_res)
 
-    @mock.patch('neutron.openstack.common.gettextutils.Message.data',
-                new_callable=mock.PropertyMock)
+    @mock.patch('neutron.openstack.common.gettextutils.get_localized_message')
     def test_mapped_neutron_error_localized(self, mock_translation):
         gettextutils.install('blaa', lazy=True)
         msg_translation = 'Translated error'

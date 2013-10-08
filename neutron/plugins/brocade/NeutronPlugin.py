@@ -39,7 +39,9 @@ from neutron.db import agentschedulers_db
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
+from neutron.db import external_net_db
 from neutron.db import extraroute_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_rpc_base
 from neutron.db import portbindings_base
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
@@ -52,6 +54,7 @@ from neutron.openstack.common import rpc
 from neutron.openstack.common.rpc import proxy
 from neutron.plugins.brocade.db import models as brocade_db
 from neutron.plugins.brocade import vlanbm as vbm
+from neutron.plugins.common import constants as svc_constants
 
 
 LOG = logging.getLogger(__name__)
@@ -59,13 +62,19 @@ PLUGIN_VERSION = 0.88
 AGENT_OWNER_PREFIX = "network:"
 NOS_DRIVER = 'neutron.plugins.brocade.nos.nosdriver.NOSdriver'
 
-SWITCH_OPTS = [cfg.StrOpt('address', default=''),
-               cfg.StrOpt('username', default=''),
-               cfg.StrOpt('password', default='', secret=True),
-               cfg.StrOpt('ostype', default='NOS')
+SWITCH_OPTS = [cfg.StrOpt('address', default='',
+                          help=_('The address of the host to SSH to')),
+               cfg.StrOpt('username', default='',
+                          help=_('The SSH username to use')),
+               cfg.StrOpt('password', default='', secret=True,
+                          help=_('The SSH password to use')),
+               cfg.StrOpt('ostype', default='NOS',
+                          help=_('Currently unused'))
                ]
 
-PHYSICAL_INTERFACE_OPTS = [cfg.StrOpt('physical_interface', default='eth0')
+PHYSICAL_INTERFACE_OPTS = [cfg.StrOpt('physical_interface', default='eth0',
+                           help=_('The network interface to use when creating'
+                                  'a port'))
                            ]
 
 cfg.CONF.register_opts(SWITCH_OPTS, "SWITCH")
@@ -197,9 +206,10 @@ class AgentNotifierApi(proxy.RpcProxy,
 
 
 class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
+                      external_net_db.External_net_db_mixin,
                       extraroute_db.ExtraRoute_db_mixin,
                       sg_db_rpc.SecurityGroupServerRpcMixin,
-                      agentschedulers_db.L3AgentSchedulerDbMixin,
+                      l3_agentschedulers_db.L3AgentSchedulerDbMixin,
                       agentschedulers_db.DhcpAgentSchedulerDbMixin,
                       portbindings_base.PortBindingBaseMixin):
     """BrocadePluginV2 is a Neutron plugin.
@@ -216,8 +226,9 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """
 
         self.supported_extension_aliases = ["binding", "security-group",
-                                            "router", "extraroute",
-                                            "agent", "l3_agent_scheduler",
+                                            "external-net", "router",
+                                            "extraroute", "agent",
+                                            "l3_agent_scheduler",
                                             "dhcp_agent_scheduler"]
 
         self.physical_interface = (cfg.CONF.PHYSICAL_INTERFACE.
@@ -248,14 +259,15 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _setup_rpc(self):
         # RPC support
-        self.topic = topics.PLUGIN
+        self.service_topics = {svc_constants.CORE: topics.PLUGIN,
+                               svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.rpc_context = context.RequestContext('neutron', 'neutron',
                                                   is_admin=False)
         self.conn = rpc.create_connection(new=True)
         self.callbacks = BridgeRpcCallbacks()
         self.dispatcher = self.callbacks.create_rpc_dispatcher()
-        self.conn.create_consumer(self.topic, self.dispatcher,
-                                  fanout=False)
+        for svc_topic in self.service_topics.values():
+            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
         # Consume from all consumers in a thread
         self.conn.consume_in_thread()
         self.notifier = AgentNotifierApi(topics.AGENT)
@@ -283,14 +295,14 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                             switch['username'],
                                             switch['password'],
                                             vlan_id)
-            except Exception as e:
+            except Exception:
                 # Proper formatting
-                LOG.warning(_("Brocade NOS driver:"))
-                LOG.warning(_("%s"), e)
+                LOG.exception(_("Brocade NOS driver error"))
                 LOG.debug(_("Returning the allocated vlan (%d) to the pool"),
                           vlan_id)
                 self._vlan_bitmap.release_vlan(int(vlan_id))
-                raise Exception("Brocade plugin raised exception, check logs")
+                raise Exception(_("Brocade plugin raised exception, "
+                                  "check logs"))
 
             brocade_db.create_network(context, net_uuid, vlan_id)
             self._process_l3_create(context, net, network['network'])
@@ -325,12 +337,12 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 self._driver.delete_network(switch['address'],
                                             switch['username'],
                                             switch['password'],
-                                            net_id)
-            except Exception as e:
+                                            vlan_id)
+            except Exception:
                 # Proper formatting
-                LOG.warning(_("Brocade NOS driver:"))
-                LOG.warning(_("%s"), e)
-                raise Exception("Brocade plugin raised exception, check logs")
+                LOG.exception(_("Brocade NOS driver error"))
+                raise Exception(_("Brocade plugin raised exception, "
+                                  "check logs"))
 
             # now ok to delete the network
             brocade_db.delete_network(context, net_id)
@@ -379,11 +391,11 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                                       switch['password'],
                                                       vlan_id,
                                                       mac)
-            except Exception as e:
+            except Exception:
                 # Proper formatting
-                LOG.warning(_("Brocade NOS driver:"))
-                LOG.warning(_("%s"), e)
-                raise Exception("Brocade plugin raised exception, check logs")
+                LOG.exception(_("Brocade NOS driver error"))
+                raise Exception(_("Brocade plugin raised exception, "
+                                  "check logs"))
 
             # save to brocade persistent db
             brocade_db.create_port(context, port_id, network_id,
@@ -395,6 +407,26 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def delete_port(self, context, port_id):
         with context.session.begin(subtransactions=True):
+            neutron_port = self.get_port(context, port_id)
+            interface_mac = neutron_port['mac_address']
+            # convert mac format: xx:xx:xx:xx:xx:xx -> xxxx.xxxx.xxxx
+            mac = self.mac_reformat_62to34(interface_mac)
+
+            brocade_port = brocade_db.get_port(context, port_id)
+            vlan_id = brocade_port['vlan_id']
+
+            switch = self._switch
+            try:
+                self._driver.dissociate_mac_from_network(switch['address'],
+                                                         switch['username'],
+                                                         switch['password'],
+                                                         vlan_id,
+                                                         mac)
+            except Exception:
+                LOG.exception(_("Brocade NOS driver error"))
+                raise Exception(
+                    _("Brocade plugin raised exception, check logs"))
+
             super(BrocadePluginV2, self).delete_port(context, port_id)
             brocade_db.delete_port(context, port_id)
 

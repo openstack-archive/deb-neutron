@@ -50,6 +50,10 @@ OPTS = [
     cfg.StrOpt('dnsmasq_dns_server',
                help=_('Use another DNS server before any in '
                       '/etc/resolv.conf.')),
+    cfg.IntOpt(
+        'dnsmasq_lease_max',
+        default=(2 ** 24),
+        help=_('Limit number of leases to prevent a denial-of-service.')),
     cfg.StrOpt('interface_driver',
                help=_("The driver used to manage the virtual interface.")),
 ]
@@ -228,10 +232,11 @@ class DhcpLocalProcess(DhcpBase):
         if pid is None:
             return False
 
-        cmd = ['cat', '/proc/%s/cmdline' % pid]
+        cmdline = '/proc/%s/cmdline' % pid
         try:
-            return self.network.id in utils.execute(cmd, self.root_helper)
-        except RuntimeError:
+            with open(cmdline, "r") as f:
+                return self.network.id in f.readline()
+        except IOError:
             return False
 
     @property
@@ -288,14 +293,9 @@ class Dnsmasq(DhcpLocalProcess):
 
         confs_dir = os.path.abspath(os.path.normpath(conf.dhcp_confs))
 
-        class FakeNetwork:
-            def __init__(self, net_id):
-                self.id = net_id
-
         return [
             c for c in os.listdir(confs_dir)
-            if (uuidutils.is_uuid_like(c) and
-                cls(conf, FakeNetwork(c), root_helper).active)
+            if uuidutils.is_uuid_like(c)
         ]
 
     def spawn_process(self):
@@ -314,13 +314,12 @@ class Dnsmasq(DhcpLocalProcess):
             '--except-interface=lo',
             '--pid-file=%s' % self.get_conf_file_name(
                 'pid', ensure_conf_dir=True),
-            #TODO (mark): calculate value from cidr (defaults to 150)
-            #'--dhcp-lease-max=%s' % ?,
             '--dhcp-hostsfile=%s' % self._output_hosts_file(),
             '--dhcp-optsfile=%s' % self._output_opts_file(),
             '--leasefile-ro',
         ]
 
+        possible_leases = 0
         for i, subnet in enumerate(self.network.subnets):
             # if a subnet is specified to have dhcp disabled
             if not subnet.enable_dhcp:
@@ -335,11 +334,20 @@ class Dnsmasq(DhcpLocalProcess):
                 set_tag = 'set:'
             else:
                 set_tag = ''
+
+            cidr = netaddr.IPNetwork(subnet.cidr)
+
             cmd.append('--dhcp-range=%s%s,%s,%s,%ss' %
                        (set_tag, self._TAG_PREFIX % i,
-                        netaddr.IPNetwork(subnet.cidr).network,
+                        cidr.network,
                         mode,
                         self.conf.dhcp_lease_duration))
+            possible_leases += cidr.size
+
+        # Cap the limit because creating lots of subnets can inflate
+        # this possible lease cap.
+        cmd.append('--dhcp-lease-max=%d' %
+                   min(possible_leases, self.conf.dnsmasq_lease_max))
 
         cmd.append('--conf-file=%s' % self.conf.dnsmasq_config_file)
         if self.conf.dnsmasq_dns_server:

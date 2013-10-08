@@ -23,6 +23,7 @@ import testtools
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
+from neutron.common import constants as n_const
 from neutron.openstack.common.rpc import common as rpc_common
 from neutron.plugins.openvswitch.agent import ovs_neutron_agent
 from neutron.plugins.openvswitch.common import constants
@@ -96,8 +97,14 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         # Avoid rpc initialization for unit tests
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')
-        cfg.CONF.set_override('report_interval', 0, 'AGENT')
         kwargs = ovs_neutron_agent.create_agent_config_map(cfg.CONF)
+
+        class MockFixedIntervalLoopingCall(object):
+            def __init__(self, f):
+                self.f = f
+
+            def start(self, interval=0):
+                self.f()
 
         with contextlib.nested(
             mock.patch('neutron.plugins.openvswitch.agent.ovs_neutron_agent.'
@@ -110,7 +117,10 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                        'get_local_port_mac',
                        return_value='00:00:00:00:00:01'),
             mock.patch('neutron.agent.linux.utils.get_interface_mac',
-                       return_value='00:00:00:00:00:01')):
+                       return_value='00:00:00:00:00:01'),
+            mock.patch('neutron.openstack.common.loopingcall.'
+                       'FixedIntervalLoopingCall',
+                       new=MockFixedIntervalLoopingCall)):
             self.agent = ovs_neutron_agent.OVSNeutronAgent(**kwargs)
             self.agent.tun_br = mock.Mock()
         self.agent.sg_agent = mock.Mock()
@@ -175,8 +185,9 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                               return_value=details),
             mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
                               return_value=port),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_up'),
             mock.patch.object(self.agent, func_name)
-        ) as (get_dev_fn, get_vif_func, func):
+        ) as (get_dev_fn, get_vif_func, upd_dev_up, func):
             self.assertFalse(self.agent.treat_devices_added([{}]))
         return func.called
 
@@ -244,15 +255,18 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             )
 
     def test_network_delete(self):
-        with mock.patch.object(self.agent, "reclaim_local_vlan") as recl_fn:
+        with contextlib.nested(
+            mock.patch.object(self.agent, "reclaim_local_vlan"),
+            mock.patch.object(self.agent.tun_br, "cleanup_tunnel_port")
+        ) as (recl_fn, clean_tun_fn):
             self.agent.network_delete("unused_context",
                                       network_id="123")
             self.assertFalse(recl_fn.called)
-
             self.agent.local_vlan_map["123"] = "LVM object"
             self.agent.network_delete("unused_context",
                                       network_id="123")
-            recl_fn.assert_called_with("123", self.agent.local_vlan_map["123"])
+            self.assertFalse(clean_tun_fn.called)
+            recl_fn.assert_called_with("123")
 
     def test_port_update(self):
         with contextlib.nested(
@@ -401,6 +415,158 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self._check_ovs_vxlan_version('1.10', '1.9',
                                       constants.MINIMUM_OVS_VXLAN_VERSION,
                                       expecting_ok=False)
+
+    def _prepare_l2_pop_ofports(self):
+        lvm1 = mock.Mock()
+        lvm1.network_type = 'gre'
+        lvm1.vlan = 'vlan1'
+        lvm1.segmentation_id = 'seg1'
+        lvm1.tun_ofports = set(['1'])
+        lvm2 = mock.Mock()
+        lvm2.network_type = 'gre'
+        lvm2.vlan = 'vlan2'
+        lvm2.segmentation_id = 'seg2'
+        lvm2.tun_ofports = set(['1', '2'])
+        self.agent.local_vlan_map = {'net1': lvm1, 'net2': lvm2}
+        self.agent.tun_br_ofports = {'gre':
+                                     {'ip_agent_1': '1', 'ip_agent_2': '2'}}
+
+    def test_fdb_ignore_network(self):
+        self._prepare_l2_pop_ofports()
+        fdb_entry = {'net3': {}}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'add_flow'),
+            mock.patch.object(self.agent.tun_br, 'delete_flows'),
+            mock.patch.object(self.agent, 'setup_tunnel_port'),
+            mock.patch.object(self.agent, 'cleanup_tunnel_port')
+        ) as (add_flow_fn, del_flow_fn, add_tun_fn, clean_tun_fn):
+            self.agent.fdb_add(None, fdb_entry)
+            self.assertFalse(add_flow_fn.called)
+            self.assertFalse(add_tun_fn.called)
+            self.agent.fdb_remove(None, fdb_entry)
+            self.assertFalse(del_flow_fn.called)
+            self.assertFalse(clean_tun_fn.called)
+
+    def test_fdb_ignore_self(self):
+        self._prepare_l2_pop_ofports()
+        self.agent.local_ip = 'agent_ip'
+        fdb_entry = {'net2':
+                     {'network_type': 'gre',
+                      'segment_id': 'tun2',
+                      'ports':
+                      {'agent_ip':
+                       [['mac', 'ip'],
+                        n_const.FLOODING_ENTRY]}}}
+        with mock.patch.object(self.agent.tun_br,
+                               "defer_apply_on") as defer_fn:
+            self.agent.fdb_add(None, fdb_entry)
+            self.assertFalse(defer_fn.called)
+
+            self.agent.fdb_remove(None, fdb_entry)
+            self.assertFalse(defer_fn.called)
+
+    def test_fdb_add_flows(self):
+        self._prepare_l2_pop_ofports()
+        fdb_entry = {'net1':
+                     {'network_type': 'gre',
+                      'segment_id': 'tun1',
+                      'ports':
+                      {'ip_agent_2':
+                       [['mac', 'ip'],
+                        n_const.FLOODING_ENTRY]}}}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'add_flow'),
+            mock.patch.object(self.agent.tun_br, 'mod_flow'),
+            mock.patch.object(self.agent.tun_br, 'setup_tunnel_port'),
+        ) as (add_flow_fn, mod_flow_fn, add_tun_fn):
+            add_tun_fn.return_value = '2'
+            self.agent.fdb_add(None, fdb_entry)
+            add_flow_fn.assert_called_with(table=constants.UCAST_TO_TUN,
+                                           priority=2,
+                                           dl_vlan='vlan1',
+                                           dl_dst='mac',
+                                           actions='strip_vlan,'
+                                           'set_tunnel:seg1,output:2')
+            mod_flow_fn.assert_called_with(table=constants.FLOOD_TO_TUN,
+                                           priority=1,
+                                           dl_vlan='vlan1',
+                                           actions='strip_vlan,'
+                                           'set_tunnel:seg1,output:1,2')
+
+    def test_fdb_del_flows(self):
+        self._prepare_l2_pop_ofports()
+        fdb_entry = {'net2':
+                     {'network_type': 'gre',
+                      'segment_id': 'tun2',
+                      'ports':
+                      {'ip_agent_2':
+                       [['mac', 'ip'],
+                        n_const.FLOODING_ENTRY]}}}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'mod_flow'),
+            mock.patch.object(self.agent.tun_br, 'delete_flows'),
+        ) as (mod_flow_fn, del_flow_fn):
+            self.agent.fdb_remove(None, fdb_entry)
+            del_flow_fn.assert_called_with(table=constants.UCAST_TO_TUN,
+                                           dl_vlan='vlan2',
+                                           dl_dst='mac')
+            mod_flow_fn.assert_called_with(table=constants.FLOOD_TO_TUN,
+                                           priority=1,
+                                           dl_vlan='vlan2',
+                                           actions='strip_vlan,'
+                                           'set_tunnel:seg2,output:1')
+
+    def test_fdb_add_port(self):
+        self._prepare_l2_pop_ofports()
+        fdb_entry = {'net1':
+                     {'network_type': 'gre',
+                      'segment_id': 'tun1',
+                      'ports': {'ip_agent_1': [['mac', 'ip']]}}}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'add_flow'),
+            mock.patch.object(self.agent.tun_br, 'mod_flow'),
+            mock.patch.object(self.agent, 'setup_tunnel_port')
+        ) as (add_flow_fn, mod_flow_fn, add_tun_fn):
+            self.agent.fdb_add(None, fdb_entry)
+            self.assertFalse(add_tun_fn.called)
+            fdb_entry['net1']['ports']['ip_agent_3'] = [['mac', 'ip']]
+            self.agent.fdb_add(None, fdb_entry)
+            add_tun_fn.assert_called_with('gre-ip_agent_3', 'ip_agent_3',
+                                          'gre')
+
+    def test_fdb_del_port(self):
+        self._prepare_l2_pop_ofports()
+        fdb_entry = {'net2':
+                     {'network_type': 'gre',
+                      'segment_id': 'tun2',
+                      'ports': {'ip_agent_2': [n_const.FLOODING_ENTRY]}}}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'delete_flows'),
+            mock.patch.object(self.agent.tun_br, 'delete_port')
+        ) as (del_flow_fn, del_port_fn):
+            self.agent.fdb_remove(None, fdb_entry)
+            del_port_fn.assert_called_once_with('gre-ip_agent_2')
+
+    def test_recl_lv_port_to_preserve(self):
+        self._prepare_l2_pop_ofports()
+        self.agent.l2_pop = True
+        self.agent.enable_tunneling = True
+        with mock.patch.object(
+            self.agent.tun_br, 'cleanup_tunnel_port'
+        ) as clean_tun_fn:
+            self.agent.reclaim_local_vlan('net1')
+            self.assertFalse(clean_tun_fn.called)
+
+    def test_recl_lv_port_to_remove(self):
+        self._prepare_l2_pop_ofports()
+        self.agent.l2_pop = True
+        self.agent.enable_tunneling = True
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'delete_port'),
+            mock.patch.object(self.agent.tun_br, 'delete_flows')
+        ) as (del_port_fn, del_flow_fn):
+            self.agent.reclaim_local_vlan('net2')
+            del_port_fn.assert_called_once_with('gre-ip_agent_2')
 
 
 class AncillaryBridgesTest(base.BaseTestCase):

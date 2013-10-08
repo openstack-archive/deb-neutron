@@ -1,4 +1,4 @@
-# Copyright (c) 2013 OpenStack, LLC.
+# Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,11 +20,13 @@ from neutron.tests.unit.openvswitch import test_agent_scheduler
 class MlnxAgentSchedulerTestCase(
     test_agent_scheduler.OvsAgentSchedulerTestCase):
     plugin_str = test_mlnx_plugin.PLUGIN_NAME
+    l3_plugin = None
 
 
 class MlnxL3AgentNotifierTestCase(
     test_agent_scheduler.OvsL3AgentNotifierTestCase):
     plugin_str = test_mlnx_plugin.PLUGIN_NAME
+    l3_plugin = None
 
 
 class MlnxDhcpAgentNotifierTestCase(

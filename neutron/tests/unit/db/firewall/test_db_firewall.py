@@ -58,23 +58,25 @@ class FirewallPluginDbTestCase(test_db_plugin.NeutronDbPluginV2TestCase):
         for k in firewall.RESOURCE_ATTRIBUTE_MAP.keys()
     )
 
-    def setUp(self, core_plugin=None, fw_plugin=None):
+    def setUp(self, core_plugin=None, fw_plugin=None, ext_mgr=None):
         if not fw_plugin:
             fw_plugin = DB_FW_PLUGIN_KLASS
         service_plugins = {'fw_plugin_name': fw_plugin}
 
         fdb.Firewall_db_mixin.supported_extension_aliases = ["fwaas"]
         super(FirewallPluginDbTestCase, self).setUp(
+            ext_mgr=ext_mgr,
             service_plugins=service_plugins
         )
 
-        self.plugin = importutils.import_object(fw_plugin)
-        ext_mgr = api_ext.PluginAwareExtensionManager(
-            extensions_path,
-            {constants.FIREWALL: self.plugin}
-        )
-        app = config.load_paste_app('extensions_test_app')
-        self.ext_api = api_ext.ExtensionMiddleware(app, ext_mgr=ext_mgr)
+        if not ext_mgr:
+            self.plugin = importutils.import_object(fw_plugin)
+            ext_mgr = api_ext.PluginAwareExtensionManager(
+                extensions_path,
+                {constants.FIREWALL: self.plugin}
+            )
+            app = config.load_paste_app('extensions_test_app')
+            self.ext_api = api_ext.ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
     def _test_list_resources(self, resource, items,
                              neutron_context=None,
@@ -316,6 +318,16 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 for k, v in attrs.iteritems():
                     self.assertEqual(fwp['firewall_policy'][k], v)
 
+    def test_create_firewall_policy_with_previously_associated_rule(self):
+        with self.firewall_rule() as fwr:
+            fw_rule_ids = [fwr['firewall_rule']['id']]
+            with self.firewall_policy(firewall_rules=fw_rule_ids):
+                res = self._create_firewall_policy(
+                    None, 'firewall_policy2', description=DESCRIPTION,
+                    shared=SHARED, firewall_rules=fw_rule_ids,
+                    audited=AUDITED)
+                self.assertEqual(res.status_int, 409)
+
     def test_show_firewall_policy(self):
         name = "firewall_policy1"
         attrs = self._get_test_firewall_policy_attrs(name)
@@ -407,6 +419,54 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 attrs['audited'] = False
                 for k, v in attrs.iteritems():
                     self.assertEqual(res['firewall_policy'][k], v)
+
+    def test_update_firewall_policy_reorder_rules(self):
+        attrs = self._get_test_firewall_policy_attrs()
+
+        with self.firewall_policy() as fwp:
+            with contextlib.nested(self.firewall_rule(name='fwr1',
+                                                      no_delete=True),
+                                   self.firewall_rule(name='fwr2',
+                                                      no_delete=True),
+                                   self.firewall_rule(name='fwr3',
+                                                      no_delete=True),
+                                   self.firewall_rule(name='fwr4',
+                                                      no_delete=True)) as fr:
+                fw_rule_ids = [fr[2]['firewall_rule']['id'],
+                               fr[3]['firewall_rule']['id']]
+                data = {'firewall_policy':
+                        {'firewall_rules': fw_rule_ids}}
+                req = self.new_update_request('firewall_policies', data,
+                                              fwp['firewall_policy']['id'])
+                req.get_response(self.ext_api)
+                # shuffle the rules, add more rules
+                fw_rule_ids = [fr[1]['firewall_rule']['id'],
+                               fr[3]['firewall_rule']['id'],
+                               fr[2]['firewall_rule']['id'],
+                               fr[0]['firewall_rule']['id']]
+                attrs['firewall_rules'] = fw_rule_ids
+                data = {'firewall_policy':
+                        {'firewall_rules': fw_rule_ids}}
+                req = self.new_update_request('firewall_policies', data,
+                                              fwp['firewall_policy']['id'])
+                res = self.deserialize(self.fmt,
+                                       req.get_response(self.ext_api))
+                rules = []
+                for rule_id in fw_rule_ids:
+                    req = self.new_show_request('firewall_rules',
+                                                rule_id,
+                                                fmt=self.fmt)
+                    res = self.deserialize(self.fmt,
+                                           req.get_response(self.ext_api))
+                    rules.append(res['firewall_rule'])
+                self.assertEqual(rules[0]['position'], 1)
+                self.assertEqual(rules[0]['id'], fr[1]['firewall_rule']['id'])
+                self.assertEqual(rules[1]['position'], 2)
+                self.assertEqual(rules[1]['id'], fr[3]['firewall_rule']['id'])
+                self.assertEqual(rules[2]['position'], 3)
+                self.assertEqual(rules[2]['id'], fr[2]['firewall_rule']['id'])
+                self.assertEqual(rules[3]['position'], 4)
+                self.assertEqual(rules[3]['id'], fr[0]['firewall_rule']['id'])
 
     def test_update_firewall_policy_with_non_existing_rule(self):
         attrs = self._get_test_firewall_policy_attrs()
@@ -814,6 +874,20 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 self._rule_action('insert', None, fr1_id,
                                   expected_code=webob.exc.HTTPBadRequest.code,
                                   expected_body=None)
+
+    def test_insert_rule_for_previously_associated_rule(self):
+        with self.firewall_rule() as fwr:
+            fwr_id = fwr['firewall_rule']['id']
+            fw_rule_ids = [fwr_id]
+            with self.firewall_policy(firewall_rules=fw_rule_ids):
+                with self.firewall_policy(name='firewall_policy2') as fwp:
+                    fwp_id = fwp['firewall_policy']['id']
+                    insert_data = {'firewall_rule_id': fwr_id}
+                    self._rule_action(
+                        'insert', fwp_id, fwr_id, insert_before=None,
+                        insert_after=None,
+                        expected_code=webob.exc.HTTPConflict.code,
+                        expected_body=None, body_data=insert_data)
 
     def test_insert_rule_in_policy(self):
         attrs = self._get_test_firewall_policy_attrs()
