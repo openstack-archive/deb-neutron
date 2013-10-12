@@ -753,7 +753,8 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
             rpc_obj.update_device_down.assert_called_with(
                 self.lb_rpc.context,
                 "tap123",
-                self.lb_rpc.agent.agent_id
+                self.lb_rpc.agent.agent_id,
+                cfg.CONF.host
             )
 
     def test_port_update_plugin_rpc_failed(self):
@@ -876,5 +877,28 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
                            'dev', 'vxlan-1', 'dst', 'agent_ip'],
                           root_helper=self.root_helper,
                           check_exit_code=False),
+            ]
+            execute_fn.assert_has_calls(expected)
+
+    def test_fdb_update_chg_ip(self):
+        fdb_entries = {'chg_ip':
+                       {'net_id':
+                        {'agent_ip':
+                         {'before': [['port_mac', 'port_ip_1']],
+                          'after': [['port_mac', 'port_ip_2']]}}}}
+
+        with mock.patch.object(utils, 'execute',
+                               return_value='') as execute_fn:
+            self.lb_rpc.fdb_update(None, fdb_entries)
+
+            expected = [
+                mock.call(['ip', 'neigh', 'add', 'port_ip_2', 'lladdr',
+                           'port_mac', 'dev', 'vxlan-1', 'nud', 'permanent'],
+                          root_helper=self.root_helper,
+                          check_exit_code=False),
+                mock.call(['ip', 'neigh', 'del', 'port_ip_1', 'lladdr',
+                           'port_mac', 'dev', 'vxlan-1'],
+                          root_helper=self.root_helper,
+                          check_exit_code=False)
             ]
             execute_fn.assert_has_calls(expected)

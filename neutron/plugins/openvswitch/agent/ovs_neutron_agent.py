@@ -32,6 +32,7 @@ from oslo.config import cfg
 from neutron.agent import l2population_rpc
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
+from neutron.agent.linux import utils
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
@@ -297,11 +298,13 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             if port['admin_state_up']:
                 # update plugin about port status
                 self.plugin_rpc.update_device_up(self.context, port['id'],
-                                                 self.agent_id)
+                                                 self.agent_id,
+                                                 cfg.CONF.host)
             else:
                 # update plugin about port status
                 self.plugin_rpc.update_device_down(self.context, port['id'],
-                                                   self.agent_id)
+                                                   self.agent_id,
+                                                   cfg.CONF.host)
         except rpc_common.Timeout:
             LOG.error(_("RPC timeout while updating port %s"), port['id'])
 
@@ -411,6 +414,15 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             self.tun_br.delete_flows(table=constants.UCAST_TO_TUN,
                                      dl_vlan=lvm.vlan,
                                      dl_dst=port_info[0])
+
+    def fdb_update(self, context, fdb_entries):
+        LOG.debug(_("fdb_update received"))
+        for action, values in fdb_entries.items():
+            method = '_fdb_' + action
+            if not hasattr(self, method):
+                raise NotImplementedError()
+
+            getattr(self, method)(context, values)
 
     def create_rpc_dispatcher(self):
         '''Get the rpc dispatcher for this manager.
@@ -778,6 +790,10 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             br.delete_port(phys_veth_name)
             if ip_lib.device_exists(int_veth_name, self.root_helper):
                 ip_lib.IPDevice(int_veth_name, self.root_helper).link.delete()
+                # Give udev a chance to process its rules here, to avoid
+                # race conditions between commands launched by udev rules
+                # and the subsequent call to ip_wrapper.add_veth
+                utils.execute(['/sbin/udevadm', 'settle', '--timeout=10'])
             int_veth, phys_veth = ip_wrapper.add_veth(int_veth_name,
                                                       phys_veth_name)
             self.int_ofports[physical_network] = self.int_br.add_port(int_veth)
@@ -910,7 +926,8 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 # update plugin about port status
                 self.plugin_rpc.update_device_up(self.context,
                                                  device,
-                                                 self.agent_id)
+                                                 self.agent_id,
+                                                 cfg.CONF.host)
             else:
                 LOG.debug(_("Device %s not defined on plugin"), device)
                 if (port and int(port.ofport) != -1):
@@ -934,7 +951,8 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             # update plugin about port status
             self.plugin_rpc.update_device_up(self.context,
                                              device,
-                                             self.agent_id)
+                                             self.agent_id,
+                                             cfg.CONF.host)
         return resync
 
     def treat_devices_removed(self, devices):
@@ -945,7 +963,8 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             try:
                 details = self.plugin_rpc.update_device_down(self.context,
                                                              device,
-                                                             self.agent_id)
+                                                             self.agent_id,
+                                                             cfg.CONF.host)
             except Exception as e:
                 LOG.debug(_("port_removed failed for %(device)s: %(e)s"),
                           {'device': device, 'e': e})
@@ -966,7 +985,8 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             try:
                 details = self.plugin_rpc.update_device_down(self.context,
                                                              device,
-                                                             self.agent_id)
+                                                             self.agent_id,
+                                                             cfg.CONF.host)
             except Exception as e:
                 LOG.debug(_("port_removed failed for %(device)s: %(e)s"),
                           {'device': device, 'e': e})
