@@ -1,5 +1,3 @@
 [type: gettext/rfc822deb] neutron-common.templates
-[type: gettext/rfc822deb] neutron-plugin-openvswitch.templates
 [type: gettext/rfc822deb] neutron-server.templates
-[type: gettext/rfc822deb] neutron-plugin-metaplugin.templates
 [type: gettext/rfc822deb] neutron-metadata-agent.templates
