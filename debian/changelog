@@ -1,4 +1,4 @@
-neutron (2013.2~rc2-1) UNRELEASED; urgency=low
+neutron (2013.2~rc2-1) experimental; urgency=low
 
   * New upstream release.
 
