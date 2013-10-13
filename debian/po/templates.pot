@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-07-27 16:15+0800\n"
+"POT-Creation-Date: 2013-10-13 04:48+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,7 +20,6 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-common.templates:2001
-#: ../neutron-plugin-metaplugin.templates:2001
 msgid "Authentication server hostname:"
 msgstr ""
 
@@ -35,62 +34,163 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-common.templates:3001
-#: ../neutron-plugin-metaplugin.templates:3001
 msgid "Authentication server tenant name:"
 msgstr ""
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:3001
-#: ../neutron-plugin-metaplugin.templates:3001
 msgid "Please specify the authentication server tenant name."
 msgstr ""
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:4001
-#: ../neutron-plugin-metaplugin.templates:4001
 msgid "Authentication server username:"
 msgstr ""
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:4001
-#: ../neutron-plugin-metaplugin.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:5001
-#: ../neutron-plugin-metaplugin.templates:5001
 msgid "Authentication server password:"
 msgstr ""
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:5001
-#: ../neutron-plugin-metaplugin.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
 
-#. Type: boolean
-#. Description
-#: ../neutron-plugin-openvswitch.templates:2001
-msgid "Set up a database for neutron-plugin-openvswitch?"
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "OpenVSwitch"
 msgstr ""
 
-#. Type: boolean
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "LinuxBridge"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "ml2"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Brocade"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Nicira"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Midonet"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "NEC"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Mellanox"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Hyper-V"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "RYU"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "ml2/ml2_conf.ini"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "MetaPlugin"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "BigSwitch"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Cisco"
+msgstr ""
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "PLUMgrid"
+msgstr ""
+
+#. Type: select
 #. Description
-#: ../neutron-plugin-openvswitch.templates:2001
+#: ../neutron-common.templates:6002
+msgid "Neutron plugin:"
+msgstr ""
+
+#. Type: select
+#. Description
+#: ../neutron-common.templates:6002
 msgid ""
-"No database has been set up for neutron-plugin-openvswitch to use. Before "
-"continuing, you should make sure you have the following information:"
+"Neutron uses a plugin architecture to manage networking. When starting the "
+"Neutron server daemon, the configuration file corresponding to the plugin "
+"you wish to use needs to be loaded, by giving it as a parameter when "
+"starting the neutron-server daemon. Also, the core_plugin directive needs to "
+"match. Please select which plugin to use."
 msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../neutron-plugin-openvswitch.templates:2001
+#: ../neutron-common.templates:7001
+msgid "Set up a database for Neutron?"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid ""
+"No database has been set up for Neutron to use. Before continuing, you "
+"should make sure you have the following information:"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
 msgid ""
 " * the type of database that you want to use;\n"
 " * the database server hostname (that server must allow TCP connections from "
@@ -101,7 +201,7 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../neutron-plugin-openvswitch.templates:2001
+#: ../neutron-common.templates:7001
 msgid ""
 "If some of these requirements are missing, do not choose this option and run "
 "with regular SQLite support."
@@ -109,33 +209,82 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../neutron-plugin-openvswitch.templates:2001
+#: ../neutron-common.templates:7001
 msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
-"neutron-plugin-openvswitch\"."
+"neutron\"."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr ""
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../neutron-common.templates:8001 ../neutron-common.templates:9001
+#: ../neutron-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
 
 #. Type: select
 #. Choices
-#: ../neutron-plugin-openvswitch.templates:3001
+#: ../neutron-common.templates:11001
 msgid "local"
 msgstr ""
 
 #. Type: select
 #. Choices
-#: ../neutron-plugin-openvswitch.templates:3001
+#: ../neutron-common.templates:11001
 msgid "gre"
 msgstr ""
 
 #. Type: select
 #. Choices
-#: ../neutron-plugin-openvswitch.templates:3001
+#: ../neutron-common.templates:11001
 msgid "vlan"
 msgstr ""
 
 #. Type: select
 #. Choices
-#: ../neutron-plugin-openvswitch.templates:3001
+#: ../neutron-common.templates:11001
 msgid "none"
 msgstr ""
 
@@ -148,7 +297,7 @@ msgstr ""
 #. You're advised to either keep "tenant" without translating it
 #. or keep it parenthezised. Example for French:
 #. locataire ("tenant")
-#: ../neutron-plugin-openvswitch.templates:3002
+#: ../neutron-common.templates:11002
 msgid "Type of network to allocate for tenant networks:"
 msgstr ""
 
@@ -161,7 +310,7 @@ msgstr ""
 #. You're advised to either keep "tenant" without translating it
 #. or keep it parenthezised. Example for French:
 #. locataire ("tenant")
-#: ../neutron-plugin-openvswitch.templates:3002
+#: ../neutron-common.templates:11002
 msgid ""
 "The value \"local\" is useful only for single-box testing. In order for "
 "tenant networks to provide connectivity between hosts, it is necessary to "
@@ -172,13 +321,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../neutron-plugin-openvswitch.templates:4001
+#: ../neutron-common.templates:12001
 msgid "Enable tunneling?"
 msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../neutron-plugin-openvswitch.templates:4001
+#: ../neutron-common.templates:12001
 msgid ""
 "Please choose whether support should be activated for GRE networks on the "
 "server and agents. This requires kernel support for OVS patch ports and GRE "
@@ -187,13 +336,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-plugin-openvswitch.templates:5001
+#: ../neutron-common.templates:13001
 msgid "Tunnel id ranges:"
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-plugin-openvswitch.templates:5001
+#: ../neutron-common.templates:13001
 msgid ""
 "Please enter a comma-separated list of <tun_min>:<tun_max> tuples "
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
@@ -202,13 +351,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-plugin-openvswitch.templates:6001
+#: ../neutron-common.templates:14001
 msgid "Local IP address of this hypervisor:"
 msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-plugin-openvswitch.templates:6001
+#: ../neutron-common.templates:14001
 msgid "Please enter the local IP address for this hypervisor."
 msgstr ""
 
@@ -297,14 +446,6 @@ msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
 "endpoint."
-msgstr ""
-
-#. Type: string
-#. Description
-#: ../neutron-plugin-metaplugin.templates:2001
-msgid ""
-"Please specify the hostname of the authentication server. Typically this is "
-"also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
 
 #. Type: string
