@@ -12,7 +12,7 @@ Last-Update: Fri, 18 Oct 2013 21:50:42 +0800 (17:50 +0400)
  
      op.add_column('routers', sa.Column('enable_snat', sa.Boolean(),
 -                                       nullable=False, default=True))
-+                                       nullable=False, server_default=True))
++                                       nullable=False), server_default=True)
      # Set enable_snat to True for existing routers
      op.execute("UPDATE routers SET enable_snat=True")
  

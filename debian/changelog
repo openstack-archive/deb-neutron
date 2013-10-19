@@ -1,3 +1,9 @@
+neutron (2013.2-3) UNRELEASED; urgency=low
+
+  * Really fix db setup (Closes: #726719).
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 19 Oct 2013 14:33:15 +0800
+
 neutron (2013.2-2) unstable; urgency=low
 
   * Adds upstream fix for db setup (Closes: #726719).
