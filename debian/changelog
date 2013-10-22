@@ -1,4 +1,4 @@
-neutron (2013.2-3) UNRELEASED; urgency=low
+neutron (2013.2-3) unstable; urgency=low
 
   * Really fix db setup (Closes: #726719).
 

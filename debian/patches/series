@@ -1,3 +1,2 @@
 better-config-default.patch
-Use_proper_argument_in_add_column_method_call.patch
-fix-migration2.patch
+fix-alembic-migration-with-sqlite3.patch

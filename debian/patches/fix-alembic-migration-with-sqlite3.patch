@@ -1,0 +1,105 @@
+Description: Replaces Alembic commands by SQLite 3 compatible statements.
+ SQLite 3 doesn't support the DROP column statement, neither adding a
+ UNIQUE property on-the-fly. This patch adds the necessary statements to
+ do it in a SQLite 3 compatible way.
+Author: Thomas Goirand <zigo@debian.org>
+Bug-Debian: http://bugs.debian.org/726719
+Bug-Ubuntu: https://launchpad.net/bugs/1241952
+Forwarded: https://review.openstack.org/#/c/52636
+Last-Update: 2013-10-22
+
+--- neutron-2013.2.orig/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
++++ neutron-2013.2/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
+@@ -52,9 +52,9 @@ def upgrade(active_plugins=None, options
+         return
+ 
+     op.add_column('routers', sa.Column('enable_snat', sa.Boolean(),
+-                                       nullable=False, default=True))
++                                       nullable=False, server_default='1'))
+     # Set enable_snat to True for existing routers
+-    op.execute("UPDATE routers SET enable_snat=True")
++    op.execute("UPDATE routers SET enable_snat='True'")
+ 
+ 
+ def downgrade(active_plugins=None, options=None):
+--- neutron-2013.2.orig/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
++++ neutron-2013.2/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
+@@ -46,11 +46,27 @@ def upgrade(active_plugins=None, options
+     if not migration.should_run(active_plugins, migration_for_plugins):
+         return
+ 
+-    op.create_unique_constraint(
+-        name=CONSTRAINT_NAME,
+-        source=TABLE_NAME,
+-        local_cols=['id']
+-    )
++    bind = op.get_bind()
++    engine = bind.engine
++    if engine.name == 'sqlite':
++        op.execute("CREATE TEMPORARY TABLE ovs_tunnel_endpoints_backup ( "
++                   "ip_address VARCHAR(64) NOT NULL, "
++                   "id INTEGER NOT NULL UNIQUE, "
++                   "PRIMARY KEY (ip_address) );")
++        op.execute("INSERT INTO ovs_tunnel_endpoints_backup SELECT ip_address,id FROM ovs_tunnel_endpoints;")
++        op.execute("DROP TABLE ovs_tunnel_endpoints;");
++        op.execute("CREATE TABLE ovs_tunnel_endpoints ( "
++                   "ip_address VARCHAR(64) NOT NULL, "
++                   "id INTEGER UNIQUE NOT NULL, "
++                   "PRIMARY KEY (ip_address) );")
++        op.execute("INSERT INTO ovs_tunnel_endpoints SELECT ip_address,id FROM ovs_tunnel_endpoints_backup;")
++        op.execute("DROP TABLE ovs_tunnel_endpoints_backup;")
++    else:
++        op.create_unique_constraint(
++            name=CONSTRAINT_NAME,
++            source=TABLE_NAME,
++            local_cols=['id']
++        )
+ 
+ 
+ def downgrade(active_plugins=None, options=None):
+--- neutron-2013.2.orig/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
++++ neutron-2013.2/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
+@@ -38,7 +38,42 @@ import sqlalchemy as sa
+ 
+ 
+ def upgrade(active_plugins=None, options=None):
+-    op.drop_column('ipallocations', u'expiration')
++    bind = op.get_bind()
++    engine = bind.engine
++    if engine.name == 'sqlite':
++        op.execute("CREATE TEMPORARY TABLE ipallocations_backup ("
++                   "port_id VARCHAR(36), "
++                   "ip_address VARCHAR(64) NOT NULL, "
++                   "subnet_id VARCHAR(36) NOT NULL, "
++                   "network_id VARCHAR(36) NOT NULL, "
++                   "PRIMARY KEY (ip_address, subnet_id, network_id), "
++                   "FOREIGN KEY(network_id) REFERENCES networks (id) "
++                   "ON DELETE CASCADE, "
++                   "FOREIGN KEY(port_id) REFERENCES ports (id) "
++                   "ON DELETE CASCADE, "
++                   "FOREIGN KEY(subnet_id) REFERENCES subnets (id) "
++                   "ON DELETE CASCADE "
++                   ");")
++        op.execute("INSERT INTO ipallocations_backup "
++                   "SELECT port_id,ip_address,subnet_id,network_id "
++                   "FROM ipallocations;")
++        op.execute("DROP TABLE ipallocations;")
++        op.execute("CREATE TABLE ipallocations ("
++                   "port_id VARCHAR(36), "
++                   "ip_address VARCHAR(64) NOT NULL, "
++                   "subnet_id VARCHAR(36) NOT NULL, "
++                   "network_id VARCHAR(36) NOT NULL, "
++                   "PRIMARY KEY (ip_address, subnet_id, network_id), "
++                   "FOREIGN KEY(network_id) REFERENCES networks (id) ON DELETE CASCADE, "
++                   "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
++                   "FOREIGN KEY(subnet_id) REFERENCES subnets (id) ON DELETE CASCADE "
++                   ");")
++        op.execute("INSERT INTO ipallocations "
++                   "SELECT port_id,ip_address,subnet_id,network_id "
++                   "FROM ipallocations_backup;")
++        op.execute("DROP TABLE ipallocations_backup;")
++    else:
++        op.drop_column('ipallocations', u'expiration')
+ 
+ 
+ def downgrade(active_plugins=None, options=None):
