@@ -196,11 +196,11 @@ Provides: neutron-plugin,
           quantum-plugin-openvswitch,
           quantum-plugin-plumgrid,
           quantum-plugin-ryu
-Breaks: quantum-plugin-linuxbridge-agent,
-        quantum-plugin-openvswitch-agent,
-        quantum-server (<= 2013.2~)
-Replaces: quantum-plugin-linuxbridge-agent,
-          quantum-plugin-openvswitch-agent,
+Breaks: quantum-plugin-linuxbridge-agent (<< 2013.2~),
+        quantum-plugin-openvswitch-agent (<< 2013.2~),
+        quantum-server (<< 2013.2~)
+Replaces: quantum-plugin-linuxbridge-agent (<< 2013.2~),
+          quantum-plugin-openvswitch-agent (<< 2013.2~),
           quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - common files
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -359,8 +359,8 @@ Depends: neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: python-quantum (<< 2013.2~)
-Replaces: python-quantum (<< 2013.2~)
+Breaks: python-quantum (<< 2013.2~), quantum-plugin-openvswitch-agent (<< 2013.2~)
+Replaces: python-quantum (<< 2013.2~), quantum-plugin-openvswitch-agent (<< 2013.2~)
 Recommends: openvswitch-datapath-dkms
 Description: OpenStack virtual network service - Open vSwitch agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -380,8 +380,8 @@ Depends: bridge-utils,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: python-quantum (<< 2013.2~)
-Replaces: python-quantum (<< 2013.2~)
+Breaks: python-quantum (<< 2013.2~), quantum-plugin-linuxbridge-agent (<< 2013.2~)
+Replaces: python-quantum (<< 2013.2~), quantum-plugin-linuxbridge-agent (<< 2013.2~)
 Description: OpenStack virtual network service - Linux bridge agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
