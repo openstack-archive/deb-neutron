@@ -2,6 +2,7 @@ neutron (2013.2-4) UNRELEASED; urgency=low
 
   * neutron-*-agent packages are now breaking + replace only old versions of
     Quantum packages: those who were not transition packages (Closes: #727235).
+  * Adds find . -type f -name "*.pyc" -delete in dh_clean.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 24 Oct 2013 02:09:41 +0800
 

@@ -55,6 +55,10 @@ override_dh_auto_clean:
 		debian/neutron-metadata-agent.config \
 		debian/neutron-metadata-agent.postinst
 
+override_dh_clean:
+	dh_clean
+	find . -type f -name "*.pyc" -delete
+
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 override_dh_auto_test:
 	./run_tests.sh -N -P || true
