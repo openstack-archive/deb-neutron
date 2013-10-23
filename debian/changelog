@@ -1,4 +1,4 @@
-neutron (2013.2-4) UNRELEASED; urgency=low
+neutron (2013.2-4) unstable; urgency=low
 
   * neutron-*-agent packages are now breaking + replace only old versions of
     Quantum packages: those who were not transition packages (Closes: #727235).
