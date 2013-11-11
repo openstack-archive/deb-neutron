@@ -72,6 +72,9 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 		pkgos_inifile set DEFAULT ${N_CONF} ${NEUTRON_PLUGIN_CLASS}
 	fi
 
+	# Write the neutron RabbitMQ credentials
+	pkgos_rabbit_write_conf ${N_CONF} DEFAULT neutron
+
 	# Set the keystone_authtoken directive
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
 
