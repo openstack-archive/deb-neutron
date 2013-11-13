@@ -384,9 +384,6 @@ class LocalChild(dhcp.DhcpLocalProcess):
     def spawn_process(self):
         self.called.append('spawn')
 
-    def release_lease(self):
-        self.called.append('release_lease')
-
 
 class TestBase(base.BaseTestCase):
     def setUp(self):
@@ -439,9 +436,6 @@ class TestDhcpBase(TestBase):
                 self.called.append('disable %s' % retain_port)
 
             def reload_allocations(self):
-                pass
-
-            def release_lease(self):
                 pass
 
             @property
