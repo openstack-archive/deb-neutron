@@ -1,4 +1,4 @@
-neutron (2013.2-5) UNRELEASED; urgency=low
+neutron (2013.2-5) unstable; urgency=low
 
   * Added missing python-babel depends in python-neutron.
   * Adds missing RabbitMQ debconf configuration code.
