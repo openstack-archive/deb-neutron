@@ -63,8 +63,8 @@ Build-Depends-Indep: alembic (>= 0.4.1),
                      testrepository (>= 0.0.17)
 Standards-Version: 3.9.4
 Homepage: http://neutron.openstack.org/
-Vcs-Browser: http://git.gplhost.com/gitweb/?p=openstack/neutron.git;a=summary
-Vcs-Git: http://git.gplhost.com/openstack/neutron.git
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/neutron.git;a=summary
+Vcs-Git: git://anonscm.debian.org/openstack/neutron.git
 
 Package: python-neutron
 Architecture: all
