@@ -392,6 +392,26 @@ Description: OpenStack virtual network service - Linux bridge agent
  This package provides the Linux bridge agent. If you choose to use the Linux
  bridge plugin on neutron-server, this agent should run on each compute node.
 
+Package: neutron-plugin-ml2-agent
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Depends: bridge-utils,
+         neutron-common (= ${source:Version}),
+         sudo,
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends}
+Breaks: python-quantum (<< 2013.2~), quantum-plugin-linuxbridge-agent (<< 2013.2~)
+Replaces: python-quantum (<< 2013.2~), quantum-plugin-linuxbridge-agent (<< 2013.2~)
+Description: OpenStack virtual network service - ML2 agent
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package provides the ML2 agent. If you choose to use the ML2 plugin on
+ neutron-server, this agent should run on each compute node.
+
 Package: python-quantum
 Depends: python-neutron, ${misc:Depends}
 Architecture: all
