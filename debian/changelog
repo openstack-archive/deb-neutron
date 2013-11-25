@@ -1,8 +1,13 @@
+neutron (2013.2-6) unstable; urgency=low
+
+  * Adds missing ml2 binary package.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 25 Nov 2013 17:21:56 +0000
+
 neutron (2013.2-5) unstable; urgency=low
 
   * Added missing python-babel depends in python-neutron.
   * Adds missing RabbitMQ debconf configuration code.
-  * Adds missing ml2 binary package.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 25 Oct 2013 02:07:11 +0800
 
