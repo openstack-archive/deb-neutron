@@ -18,7 +18,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Openstack Neutron OpenVSwitch Plugin Agent"
 NAME=neutron-openvswitch-agent
 DAEMON=/usr/bin/neutron-openvswitch-agent
-DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini --log-file=/var/log/neutron/ovs-agent.log"
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=/var/log/neutron/ovs-agent.log"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
@@ -31,6 +31,28 @@ CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
 . /lib/lsb/init-functions
 
+[ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
+. /usr/share/neutron-common/plugin_guess_func
+
+### Maintain the plugin selection so that we can load the corresponding .ini file ###
+if ! [ -r /etc/neutron/neutron.conf ] ; then
+	echo "Cloud not read /etc/neutron/neutron.conf: exiting"
+	exit 0
+fi
+
+CURRENT_PLUGIN=`grep "^[ \t]*core_plugin[ \t]*=[ \t]*[._a-zA-Z0-9]*\$" /etc/neutron/neutron.conf | sed -e 's/^[ \t]*core_plugin[ \t]*=[ \t]*//'`
+if [ -z "${CURRENT_PLUGIN}" ] ; then
+	echo "No core_plugin= value found: please set it and try again"
+	exit 0
+fi
+neutron_core_plugin_to_plugin_name ${CURRENT_PLUGIN}
+neutron_plugin_ini_path ${NEUTRON_PLUGIN_NAME}
+if [ -z "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+	echo "Plugin not recognized: please edit /etc/init.d/neutron-server to select the correct .ini file to load for your plugin"
+else
+	DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
+	DESC="${DESC} with ${NEUTRON_PLUGIN_NAME} plugin"
+fi
 
 do_start()
 {

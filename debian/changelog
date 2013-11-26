@@ -1,6 +1,7 @@
 neutron (2013.2-6) unstable; urgency=low
 
-  * Adds missing ml2 binary package.
+  * Now starts the openvswitch agent using the ml2 config if this is the plugin
+    which is in use in the core_plugin directive.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 25 Nov 2013 17:21:56 +0000
 
