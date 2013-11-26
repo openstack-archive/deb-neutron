@@ -11,4 +11,4 @@ pre-start script
 	chown neutron:root /var/run/neutron
 end script
 
-exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-openvswitch-agent -- --config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini --log-file=/var/log/neutron/ovs-agent.log
+exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-openvswitch-agent -- --config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini --log-file=/var/log/neutron/openvswitch-agent.log

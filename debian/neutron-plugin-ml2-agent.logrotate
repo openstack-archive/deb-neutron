@@ -1,7 +1,0 @@
-/var/log/neutron/ml2-agent.log {
-    daily
-    missingok
-    compress
-    delaycompress
-    notifempty
-}
