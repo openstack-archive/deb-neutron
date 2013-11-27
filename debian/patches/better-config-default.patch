@@ -3,12 +3,10 @@ Description: Better config default
  parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2013-09-26
+Last-Update: 2013-11-27
 
-Index: neutron/etc/l3_agent.ini
-===================================================================
---- neutron.orig/etc/l3_agent.ini	2013-10-06 14:15:35.000000000 +0800
-+++ neutron/etc/l3_agent.ini	2013-10-06 14:15:38.000000000 +0800
+--- neutron-2013.2.orig/etc/l3_agent.ini
++++ neutron-2013.2/etc/l3_agent.ini
 @@ -8,7 +8,7 @@
  
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
@@ -18,11 +16,9 @@ Index: neutron/etc/l3_agent.ini
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-Index: neutron/etc/neutron.conf
-===================================================================
---- neutron.orig/etc/neutron.conf	2013-10-06 14:15:35.000000000 +0800
-+++ neutron/etc/neutron.conf	2013-10-06 14:15:38.000000000 +0800
-@@ -45,7 +45,7 @@
+--- neutron-2013.2.orig/etc/neutron.conf
++++ neutron-2013.2/etc/neutron.conf
+@@ -45,7 +45,7 @@ lock_path = $state_path/lock
  # api_extensions_path =
  
  # Neutron plugin provider module
@@ -31,7 +27,7 @@ Index: neutron/etc/neutron.conf
  
  # Advanced service modules
  # service_plugins =
-@@ -119,16 +119,16 @@
+@@ -119,16 +119,16 @@ lock_path = $state_path/lock
  # SSL certification authority file (valid only if SSL enabled)'
  # kombu_ssl_ca_certs =
  # IP address of the RabbitMQ installation
@@ -51,7 +47,7 @@ Index: neutron/etc/neutron.conf
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -294,7 +294,7 @@
+@@ -294,7 +294,7 @@ notification_driver = neutron.openstack.
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -60,7 +56,7 @@ Index: neutron/etc/neutron.conf
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server, should be less than
-@@ -314,11 +314,10 @@
+@@ -314,11 +314,10 @@ signing_dir = $state_path/keystone-signi
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -74,10 +70,8 @@ Index: neutron/etc/neutron.conf
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
-Index: neutron/etc/lbaas_agent.ini
-===================================================================
---- neutron.orig/etc/lbaas_agent.ini	2013-10-06 14:15:35.000000000 +0800
-+++ neutron/etc/lbaas_agent.ini	2013-10-06 14:15:38.000000000 +0800
+--- neutron-2013.2.orig/etc/lbaas_agent.ini
++++ neutron-2013.2/etc/lbaas_agent.ini
 @@ -13,7 +13,7 @@
  
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC, NVP,
@@ -87,10 +81,8 @@ Index: neutron/etc/lbaas_agent.ini
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-===================================================================
---- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2013-10-06 14:15:35.000000000 +0800
-+++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2013-10-06 14:15:38.000000000 +0800
+--- neutron-2013.2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2013.2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,7 +30,7 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -119,10 +111,12 @@ Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -125,28 +125,3 @@
+@@ -123,30 +123,5 @@
+ 
+ [securitygroup]
  # Firewall driver for realizing neutron security group function.
- # firewall_driver = neutron.agent.firewall.NoopFirewallDriver
- # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+-# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
+-# Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
 -
 -#-----------------------------------------------------------------------------
 -# Sample Configurations.
@@ -148,3 +142,5 @@ Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 -# integration_bridge = br-int
 -# tunnel_bridge = br-tun
 -# local_ip = 10.0.0.3
++# Example: firewall_driver = neutron.agent.firewall.NoopFirewallDriver
++firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver

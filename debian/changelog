@@ -2,6 +2,9 @@ neutron (2013.2-6) unstable; urgency=low
 
   * Now starts the openvswitch agent using the ml2 config if this is the plugin
     which is in use in the core_plugin directive.
+  * Now sets the OVSHybridIptablesFirewallDriver as default firewall driver.
+  * Changes the rights of /var/lib/neutron/dhcp in Ubuntu, and depends:
+    dpkg-dev to check if we are in Ubuntu.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 25 Nov 2013 17:21:56 +0000
 
