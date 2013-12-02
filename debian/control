@@ -356,9 +356,9 @@ Description: OpenStack virtual network service - LBaaS agent
 
 Package: neutron-plugin-openvswitch-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch
+Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch (>=1.9)
 Depends: neutron-common (= ${source:Version}),
-         openvswitch-switch,
+         openvswitch-switch (>=1.9),
          sudo,
          ${misc:Depends},
          ${python:Depends},

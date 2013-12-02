@@ -1,9 +1,3 @@
-neutron (2013.2-8) UNRELEASED; urgency=low
-
-  * Watch file fixed. 
-
- -- gustavo panizzo <gfa@zumbi.com.ar>  Mon, 02 Dec 2013 12:30:50 -0300
-
 neutron (2013.2-7) UNRELEASED; urgency=low
 
   * neutron-l3-agent & neutron-vpn-agent now conflicts with each other.
@@ -11,6 +5,11 @@ neutron (2013.2-7) UNRELEASED; urgency=low
     line instead of broken lines with \ (this doesn't work otherwise).
   * Fixes the sqlalchemy requirements.txt that restricted to SQLAlchemy
     <= 0.7.99.
+
+  [ gustavo panizzo ]
+  * Watch file fixed. 
+  * Dependency on OpenvSwitch has been updated to 1.9, as it required by 
+    the plugin.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 02 Dec 2013 22:39:46 +0800
 
