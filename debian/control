@@ -243,6 +243,7 @@ Depends: adduser,
          ${python:Depends},
          ${shlibs:Depends}
 Recommends: openvswitch-switch
+Conflicts: neutron-vpn-agent
 Breaks: quantum-l3-agent (<< 2013.2~)  
 Replaces: quantum-l3-agent (<< 2013.2~)
 Description: OpenStack virtual network service - l3 agent
@@ -324,6 +325,7 @@ Depends: adduser,
          ${python:Depends},
          ${shlibs:Depends}
 Provides: neutron-plugin-vpn-agent
+Conflicts: neutron-l3-agent
 Breaks: quantum-server (<< 2013.2~)
 Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - VPN agent

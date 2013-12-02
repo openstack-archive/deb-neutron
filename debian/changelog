@@ -1,3 +1,9 @@
+neutron (2013.2-7) UNRELEASED; urgency=low
+
+  * neutron-l3-agent & neutron-vpn-agent now conflicts with each other.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 02 Dec 2013 22:39:46 +0800
+
 neutron (2013.2-6) unstable; urgency=low
 
   * Now starts the openvswitch agent using the ml2 config if this is the plugin
