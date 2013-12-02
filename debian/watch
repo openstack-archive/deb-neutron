@@ -1,2 +1,2 @@
 version=3
-https://github.com/openstack/nova/tags .*/(\d[\d\.]+)\.tar\.gz
+https://github.com/openstack/neutron/tags .*/(\d[\d\.]+)\.tar\.gz

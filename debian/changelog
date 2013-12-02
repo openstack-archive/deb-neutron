@@ -6,6 +6,11 @@ neutron (2013.2-7) unstable; urgency=low
   * Fixes the sqlalchemy requirements.txt that restricted to SQLAlchemy
     <= 0.7.99.
 
+  [ gustavo panizzo ]
+  * Watch file fixed. 
+  * Dependency on OpenvSwitch has been updated to 1.9, as it required by 
+    the plugin.
+
  -- Thomas Goirand <zigo@debian.org>  Mon, 02 Dec 2013 22:39:46 +0800
 
 neutron (2013.2-6) unstable; urgency=low
