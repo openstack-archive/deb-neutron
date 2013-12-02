@@ -3,6 +3,8 @@ neutron (2013.2-7) UNRELEASED; urgency=low
   * neutron-l3-agent & neutron-vpn-agent now conflicts with each other.
   * Fixed the cron.d files for lbass, dhcp and l3, so that they are on a single
     line instead of broken lines with \ (this doesn't work otherwise).
+  * Fixes the sqlalchemy requirements.txt that restricted to SQLAlchemy
+    <= 0.7.99.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 02 Dec 2013 22:39:46 +0800
 
