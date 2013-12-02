@@ -5,6 +5,7 @@ neutron (2013.2-7) unstable; urgency=low
     line instead of broken lines with \ (this doesn't work otherwise).
   * Fixes the sqlalchemy requirements.txt that restricted to SQLAlchemy
     <= 0.7.99.
+  * Removes openvswitch-switch from depends since it's in pre-depends.
 
   [ gustavo panizzo ]
   * Watch file fixed. 
