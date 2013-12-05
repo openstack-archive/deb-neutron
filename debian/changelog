@@ -1,3 +1,9 @@
+neutron (2013.2-9) unstable; urgency=medium
+
+  * Added missing handling of ml2 plugin in neutron-common.postinst.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 05 Dec 2013 20:30:09 +0800
+
 neutron (2013.2-8) unstable; urgency=medium
 
   * Fixes the core_plugin setup in neutron-common postinst.

@@ -12,6 +12,9 @@ neutron_core_plugin_class () {
 	"OpenVSwitch")
 		NEUTRON_PLUGIN_CLASS=neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
 	;;
+	"ml2")
+		NEUTRON_PLUGIN_CLASS=neutron.plugins.ml2.plugin.Ml2Plugin
+	;;
 	"LinuxBridge")
 		NEUTRON_PLUGIN_CLASS=neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2
 	;;
