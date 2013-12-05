@@ -4,6 +4,8 @@ neutron (2013.2-8) unstable; urgency=medium
   * Added new debconf templates translations, with warm thanks to:
     - French, Julien Patriarca <leatherface@debian.org> (Closes: #728764).
     - Portuguese, Américo Monteiro <a_monteiro@gmx.com> (Closes: #729928).
+  * Configures service_plugins =
+    neutron.services.l3_router.l3_router_plugin.L3RouterPlugin as default.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 05 Dec 2013 16:40:28 +0800
 
