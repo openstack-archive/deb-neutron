@@ -1,6 +1,8 @@
 neutron (2013.2-9) unstable; urgency=medium
 
   * Added missing handling of ml2 plugin in neutron-common.postinst.
+  * Do not call neutron-db-manage --config-file /etc/neutron/neutron.conf
+    upgrade head if the user didn't ask for db management through debconf.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 05 Dec 2013 20:30:09 +0800
 
