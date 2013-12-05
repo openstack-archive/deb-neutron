@@ -1,6 +1,9 @@
 neutron (2013.2-8) unstable; urgency=medium
 
   * Fixes the core_plugin setup in neutron-common postinst.
+  * Added new debconf templates translations, with warm thanks to:
+    - French, Julien Patriarca <leatherface@debian.org> (Closes: #728764).
+    - Portuguese, Américo Monteiro <a_monteiro@gmx.com> (Closes: #729928).
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 05 Dec 2013 16:40:28 +0800
 
