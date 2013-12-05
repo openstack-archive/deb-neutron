@@ -1,3 +1,9 @@
+neutron (2013.2-8) unstable; urgency=medium
+
+  * Fixes the core_plugin setup in neutron-common postinst.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 05 Dec 2013 16:40:28 +0800
+
 neutron (2013.2-7) unstable; urgency=low
 
   * neutron-l3-agent & neutron-vpn-agent now conflicts with each other.

@@ -69,7 +69,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	NEUTRON_plugin=${RET}
 	if [ -n "${RET}" ] ; then
 		neutron_core_plugin_class ${NEUTRON_plugin}
-		pkgos_inifile set DEFAULT ${N_CONF} ${NEUTRON_PLUGIN_CLASS}
+		pkgos_inifile set ${N_CONF} DEFAULT core_plugin ${NEUTRON_PLUGIN_CLASS}
 	fi
 
 	# Write the neutron RabbitMQ credentials
