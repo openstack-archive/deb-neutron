@@ -379,7 +379,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         LOG.debug(_("Deleting network %s"), id)
         session = context.session
-        filter = {'network_id': [id]}
         while True:
             try:
                 with session.begin(subtransactions=True):

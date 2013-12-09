@@ -134,9 +134,6 @@ class MidonetLibMockConfig():
     def _create_router(self, **kwargs):
         return get_router_mock(**kwargs)
 
-    def _create_router(self, tenant_id, name):
-        return get_router_mock(tenant_id=tenant_id, name=name)
-
     def _create_subnet(self, bridge, gateway_ip, subnet_prefix, subnet_len):
         return get_subnet_mock(bridge.get_id(), gateway_ip=gateway_ip,
                                subnet_prefix=subnet_prefix,
