@@ -108,10 +108,6 @@ cluster_opts = [
                       "will be used for creating tunneled isolated "
                       "\"Neutron\" networks. It needs to be created in NVP "
                       "before starting Neutron with the nvp plugin.")),
-    cfg.StrOpt('nvp_cluster_uuid',
-               help=_("Optional paramter identifying the UUID of the cluster "
-                      "in NVP.  This can be retrieved from NVP management "
-                      "console \"admin\" section.")),
     cfg.StrOpt('default_l3_gw_service_uuid',
                help=_("Unique identifier of the NVP L3 Gateway service "
                       "which will be used for implementing routers and "
@@ -119,6 +115,9 @@ cluster_opts = [
     cfg.StrOpt('default_l2_gw_service_uuid',
                help=_("Unique identifier of the NVP L2 Gateway service "
                       "which will be used by default for network gateways")),
+    cfg.StrOpt('default_service_cluster_uuid',
+               help=_("Unique identifier of the Service Cluster which will "
+                      "be used by logical services like dhcp and metadata")),
     cfg.StrOpt('default_interface_name', default='breth0',
                help=_("Name of the interface on a L2 Gateway transport node"
                       "which should be used by default when setting up a "
@@ -162,32 +161,3 @@ cfg.CONF.register_opts(cluster_opts)
 cfg.CONF.register_opts(nvp_opts, "NVP")
 cfg.CONF.register_opts(sync_opts, "NVP_SYNC")
 cfg.CONF.register_opts(vcns_opts, group="vcns")
-# NOTE(armando-migliaccio): keep the following code until we support
-# NVP configuration files in older format (Grizzly or older).
-# ### BEGIN
-controller_depr = cfg.MultiStrOpt('nvp_controller_connection',
-                                  help=_("Describes a connection to a single "
-                                         "controller. A different connection "
-                                         "for each controller in the cluster "
-                                         "can be specified; there must be at "
-                                         "least one connection per cluster."))
-
-host_route_depr = cfg.BoolOpt('metadata_dhcp_host_route', default=None)
-
-
-def register_deprecated(conf):
-    conf.register_opts([host_route_depr])
-    multi_parser = cfg.MultiConfigParser()
-    read_ok = multi_parser.read(conf.config_file)
-    if len(read_ok) != len(conf.config_file):
-        raise cfg.Error(_("Some config files were not parsed properly"))
-
-    for parsed_file in multi_parser.parsed:
-        for section in parsed_file.keys():
-            if not section.lower().startswith("cluster:"):
-                continue
-
-            section = 'CLUSTER:' + section.split(':', 1)[1]
-            if section not in conf:
-                conf.register_opts(cluster_opts + [controller_depr], section)
-# ### END

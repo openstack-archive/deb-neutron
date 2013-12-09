@@ -25,6 +25,8 @@ import os
 import sys
 
 import neutron.common.test_lib as test_lib
+from neutron.extensions import portbindings
+from neutron.tests.unit import _test_extension_portbindings as test_bindings
 import neutron.tests.unit.midonet.mock_lib as mock_lib
 import neutron.tests.unit.test_db_plugin as test_plugin
 import neutron.tests.unit.test_extension_security_group as sg
@@ -129,6 +131,11 @@ class TestMidonetSubnetsV2(test_plugin.TestSubnetsV2,
     def test_create_subnet_inconsistent_ipv6_gatewayv4(self):
         pass
 
+    def test_create_subnet_dhcp_disabled(self):
+        super(TestMidonetSubnetsV2, self)._test_create_subnet(
+            enable_dhcp=False)
+        self.assertFalse(self.instance.return_value.create_dhcp.called)
+
 
 class TestMidonetPortsV2(test_plugin.TestPortsV2,
                          MidonetPluginV2TestCase):
@@ -138,3 +145,18 @@ class TestMidonetPortsV2(test_plugin.TestPortsV2,
 
     def test_requested_subnet_id_v4_and_v6(self):
         pass
+
+    def test_vif_port_binding(self):
+        with self.port(name='myname') as port:
+            self.assertEqual('midonet', port['port']['binding:vif_type'])
+            self.assertTrue(port['port']['admin_state_up'])
+
+
+class TestMidonetPluginPortBinding(test_bindings.PortBindingsTestCase,
+                                   MidonetPluginV2TestCase):
+
+    VIF_TYPE = portbindings.VIF_TYPE_MIDONET
+    HAS_PORT_FILTER = True
+
+    def setUp(self):
+        super(TestMidonetPluginPortBinding, self).setUp()

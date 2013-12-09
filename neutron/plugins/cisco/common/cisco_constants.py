@@ -30,12 +30,6 @@ NET_VLAN_ID = 'vlan_id'
 NET_VLAN_NAME = 'vlan_name'
 NET_PORTS = 'ports'
 
-# Network types
-NETWORK_TYPE_FLAT = 'flat'
-NETWORK_TYPE_LOCAL = 'local'
-NETWORK_TYPE_VLAN = 'vlan'
-NETWORK_TYPE_NONE = 'none'
-
 CREDENTIAL_ID = 'credential_id'
 CREDENTIAL_NAME = 'credential_name'
 CREDENTIAL_USERNAME = 'user_name'
@@ -105,6 +99,7 @@ MAPPING = 'mapping'
 SEGMENTS = 'segments'
 SEGMENT = 'segment'
 BRIDGE_DOMAIN_SUFFIX = '_bd'
+LOGICAL_NETWORK_SUFFIX = '_log_net'
 ENCAPSULATION_PROFILE_SUFFIX = '_profile'
 
 UUID_LENGTH = 36

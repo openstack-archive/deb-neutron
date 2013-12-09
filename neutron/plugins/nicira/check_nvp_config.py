@@ -51,11 +51,11 @@ def get_transport_zones(cluster):
     return [transport_zone['uuid'] for transport_zone in transport_zones]
 
 
-def main(argv):
-    if len(argv) != 2:
-        help(argv[0])
+def main():
+    if len(sys.argv) != 2:
+        help(sys.argv[0])
     args = ['--config-file']
-    args.append(argv[1])
+    args.append(sys.argv[1])
     config.parse(args)
     print("----------------------- Database Options -----------------------")
     print("\tconnection: %s" % cfg.CONF.database.connection)
@@ -96,8 +96,9 @@ def main(argv):
             if (default_gateways[svc_type] and
                 default_gateways[svc_type] not in gateway_services):
                 print("\t\t\tError: specified default %s gateway (%s) is "
-                      "missing from NVP Gateway Services!" % (svc_type,
-                      default_gateways[svc_type]))
+                      "missing from NVP Gateway Services!" % (
+                          svc_type,
+                          default_gateways[svc_type]))
                 errors += 1
         transport_zones = get_transport_zones(cluster)
         print("\tTransport zones: %s" % transport_zones)

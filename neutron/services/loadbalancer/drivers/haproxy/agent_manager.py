@@ -124,10 +124,8 @@ class LbaasAgentManager(periodic_task.PeriodicTasks):
         try:
             vif_driver = importutils.import_object(conf.interface_driver, conf)
         except ImportError:
-            # the driver is optional
             msg = _('Error importing interface driver: %s')
             raise SystemExit(msg % conf.interface_driver)
-            vif_driver = None
 
         try:
             self.driver = importutils.import_object(
@@ -142,7 +140,7 @@ class LbaasAgentManager(periodic_task.PeriodicTasks):
             raise SystemExit(msg % conf.device_driver)
 
         self.agent_state = {
-            'binary': 'neutron-loadbalancer-agent',
+            'binary': 'neutron-lbaas-agent',
             'host': conf.host,
             'topic': plugin_driver.TOPIC_LOADBALANCER_AGENT,
             'configurations': {'device_driver': conf.device_driver,

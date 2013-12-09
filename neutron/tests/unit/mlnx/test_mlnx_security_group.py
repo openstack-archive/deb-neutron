@@ -25,8 +25,6 @@ from neutron.tests.unit import test_security_groups_rpc as test_sg_rpc
 
 PLUGIN_NAME = ('neutron.plugins.mlnx.'
                'mlnx_plugin.MellanoxEswitchPlugin')
-AGENT_NAME = ('neutron.plugins.mlnx.'
-              'agent.eswitch_neutron_agent.MlnxEswitchNeutronAgent')
 NOTIFIER = ('neutron.plugins.mlnx.'
             'agent_notify_api.AgentNotifierApi')
 
@@ -96,7 +94,7 @@ class TestMlnxSecurityGroupsDB(MlnxSecurityGroupsTestCase):
 
     def test_security_group_get_port_from_device_with_no_port(self):
         port_dict = mlnx_db.get_port_from_device('bad_device_id')
-        self.assertEqual(None, port_dict)
+        self.assertIsNone(port_dict)
 
 
 class TestMlnxSecurityGroupsDBXML(TestMlnxSecurityGroupsDB):

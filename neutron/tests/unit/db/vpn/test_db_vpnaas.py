@@ -386,7 +386,7 @@ class VPNPluginDbTestCase(test_l3_plugin.L3NatTestCaseMixin,
                     self._delete(
                         'ipsec-site-connections',
                         ipsec_site_connection[
-                        'ipsec_site_connection']['id']
+                            'ipsec_site_connection']['id']
                     )
 
 
@@ -515,9 +515,13 @@ class TestVpnaas(VPNPluginDbTestCase):
                 ('phase1_negotiation_mode', 'main'),
                 ('ike_version', 'v1'),
                 ('pfs', 'group5'),
-                ('tenant_id', self._tenant_id)]
+                ('tenant_id', self._tenant_id),
+                ('lifetime', {'units': 'seconds',
+                              'value': 60})]
         with self.ikepolicy(name=name) as ikepolicy:
-            data = {'ikepolicy': {'name': name}}
+            data = {'ikepolicy': {'name': name,
+                                  'lifetime': {'units': 'seconds',
+                                               'value': 60}}}
             req = self.new_update_request("ikepolicies",
                                           data,
                                           ikepolicy['ikepolicy']['id'])
@@ -699,15 +703,36 @@ class TestVpnaas(VPNPluginDbTestCase):
                 ('encapsulation_mode', 'tunnel'),
                 ('transform_protocol', 'esp'),
                 ('pfs', 'group5'),
-                ('tenant_id', self._tenant_id)]
+                ('tenant_id', self._tenant_id),
+                ('lifetime', {'units': 'seconds',
+                              'value': 60})]
         with self.ipsecpolicy(name=name) as ipsecpolicy:
-            data = {'ipsecpolicy': {'name': name}}
+            data = {'ipsecpolicy': {'name': name,
+                                    'lifetime': {'units': 'seconds',
+                                                 'value': 60}}}
             req = self.new_update_request("ipsecpolicies",
                                           data,
                                           ipsecpolicy['ipsecpolicy']['id'])
             res = self.deserialize(self.fmt, req.get_response(self.ext_api))
             for k, v in keys:
                 self.assertEqual(res['ipsecpolicy'][k], v)
+
+    def test_update_ipsecpolicy_lifetime(self):
+        with self.ipsecpolicy() as ipsecpolicy:
+            data = {'ipsecpolicy': {'lifetime': {'units': 'seconds'}}}
+            req = self.new_update_request("ipsecpolicies",
+                                          data,
+                                          ipsecpolicy['ipsecpolicy']['id'])
+            res = self.deserialize(self.fmt, req.get_response(self.ext_api))
+            self.assertEqual(res['ipsecpolicy']['lifetime']['units'],
+                             'seconds')
+
+            data = {'ipsecpolicy': {'lifetime': {'value': 60}}}
+            req = self.new_update_request("ipsecpolicies",
+                                          data,
+                                          ipsecpolicy['ipsecpolicy']['id'])
+            res = self.deserialize(self.fmt, req.get_response(self.ext_api))
+            self.assertEqual(res['ipsecpolicy']['lifetime']['value'], 60)
 
     def test_create_ipsecpolicy_with_invalid_values(self):
         """Test case to test invalid values."""
@@ -884,6 +909,9 @@ class TestVpnaas(VPNPluginDbTestCase):
                     vpnservice['vpnservice']['id'])
                 res = req.get_response(self.ext_api)
                 self.assertEqual(400, res.status_int)
+                res = self.deserialize(self.fmt, res)
+                self.assertIn(vpnservice['vpnservice']['id'],
+                              res['NeutronError']['message'])
 
     def test_delete_vpnservice(self):
         """Test case to delete a vpnservice."""
@@ -1334,7 +1362,7 @@ class TestVpnaas(VPNPluginDbTestCase):
                     req = self.new_show_request(
                         'ipsec-site-connections',
                         ipsec_site_connection[
-                        'ipsec_site_connection']['id'],
+                            'ipsec_site_connection']['id'],
                         fmt=self.fmt
                     )
                     res = self.deserialize(
@@ -1451,7 +1479,7 @@ class TestVpnaas(VPNPluginDbTestCase):
                 '192.168.1.10',
                 '192.168.1.10',
                 ['192.168.2.0/24',
-                '192.168.3.0/24'],
+                 '192.168.3.0/24'],
                 1500,
                 'abcdef',
                 'bi-directional',
@@ -1548,7 +1576,7 @@ class TestVpnaas(VPNPluginDbTestCase):
                         '192.168.1.10',
                         '192.168.1.10',
                         ['192.168.2.0/24',
-                        '192.168.3.0/24'],
+                         '192.168.3.0/24'],
                         1500,
                         'abcdef',
                         'bi-directional',

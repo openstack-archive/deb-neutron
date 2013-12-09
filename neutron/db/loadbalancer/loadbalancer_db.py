@@ -97,6 +97,10 @@ class Member(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant,
              models_v2.HasStatusDescription):
     """Represents a v2 neutron loadbalancer member."""
 
+    __table_args__ = (
+        sa.schema.UniqueConstraint('pool_id', 'address', 'protocol_port',
+                                   name='uniq_member0pool_id0address0port'),
+    )
     pool_id = sa.Column(sa.String(36), sa.ForeignKey("pools.id"),
                         nullable=False)
     address = sa.Column(sa.String(64), nullable=False)
@@ -233,6 +237,7 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                'protocol_port': vip['protocol_port'],
                'protocol': vip['protocol'],
                'pool_id': vip['pool_id'],
+               'session_persistence': None,
                'connection_limit': vip['connection_limit'],
                'admin_state_up': vip['admin_state_up'],
                'status': vip['status'],
@@ -341,6 +346,9 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                     raise loadbalancer.ProtocolMismatch(
                         vip_proto=v['protocol'],
                         pool_proto=pool['protocol'])
+                if pool['status'] == constants.PENDING_DELETE:
+                    raise loadbalancer.StateInvalid(state=pool['status'],
+                                                    id=pool['id'])
             else:
                 pool = None
 
@@ -418,6 +426,10 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
                             raise loadbalancer.ProtocolMismatch(
                                 vip_proto=vip_db['protocol'],
                                 pool_proto=new_pool['protocol'])
+                        if new_pool['status'] == constants.PENDING_DELETE:
+                            raise loadbalancer.StateInvalid(
+                                state=new_pool['status'],
+                                id=new_pool['id'])
 
                         if old_pool_id:
                             old_pool = self._get_resource(
@@ -553,15 +565,17 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
 
         return self._make_pool_dict(pool_db)
 
-    def delete_pool(self, context, id):
+    def _ensure_pool_delete_conditions(self, context, pool_id):
+        if context.session.query(Vip).filter_by(pool_id=pool_id).first():
+            raise loadbalancer.PoolInUse(pool_id=pool_id)
+
+    def delete_pool(self, context, pool_id):
         # Check if the pool is in use
-        vip = context.session.query(Vip).filter_by(pool_id=id).first()
-        if vip:
-            raise loadbalancer.PoolInUse(pool_id=id)
+        self._ensure_pool_delete_conditions(context, pool_id)
 
         with context.session.begin(subtransactions=True):
-            self._delete_pool_stats(context, id)
-            pool_db = self._get_resource(context, Pool, id)
+            self._delete_pool_stats(context, pool_id)
+            pool_db = self._get_resource(context, Pool, pool_id)
             context.session.delete(pool_db)
 
     def get_pool(self, context, id, fields=None):
@@ -658,31 +672,40 @@ class LoadBalancerPluginDb(LoadBalancerPluginBase,
         v = member['member']
         tenant_id = self._get_tenant_id_for_create(context, v)
 
-        with context.session.begin(subtransactions=True):
-            # ensuring that pool exists
-            self._get_resource(context, Pool, v['pool_id'])
-
-            member_db = Member(id=uuidutils.generate_uuid(),
-                               tenant_id=tenant_id,
-                               pool_id=v['pool_id'],
-                               address=v['address'],
-                               protocol_port=v['protocol_port'],
-                               weight=v['weight'],
-                               admin_state_up=v['admin_state_up'],
-                               status=constants.PENDING_CREATE)
-            context.session.add(member_db)
-
-        return self._make_member_dict(member_db)
+        try:
+            with context.session.begin(subtransactions=True):
+                # ensuring that pool exists
+                self._get_resource(context, Pool, v['pool_id'])
+                member_db = Member(id=uuidutils.generate_uuid(),
+                                   tenant_id=tenant_id,
+                                   pool_id=v['pool_id'],
+                                   address=v['address'],
+                                   protocol_port=v['protocol_port'],
+                                   weight=v['weight'],
+                                   admin_state_up=v['admin_state_up'],
+                                   status=constants.PENDING_CREATE)
+                context.session.add(member_db)
+                return self._make_member_dict(member_db)
+        except exception.DBDuplicateEntry:
+            raise loadbalancer.MemberExists(
+                address=v['address'],
+                port=v['protocol_port'],
+                pool=v['pool_id'])
 
     def update_member(self, context, id, member):
         v = member['member']
-        with context.session.begin(subtransactions=True):
-            member_db = self._get_resource(context, Member, id)
-            self.assert_modification_allowed(member_db)
-            if v:
-                member_db.update(v)
-
-        return self._make_member_dict(member_db)
+        try:
+            with context.session.begin(subtransactions=True):
+                member_db = self._get_resource(context, Member, id)
+                self.assert_modification_allowed(member_db)
+                if v:
+                    member_db.update(v)
+            return self._make_member_dict(member_db)
+        except exception.DBDuplicateEntry:
+            raise loadbalancer.MemberExists(
+                address=member_db['address'],
+                port=member_db['protocol_port'],
+                pool=member_db['pool_id'])
 
     def delete_member(self, context, id):
         with context.session.begin(subtransactions=True):

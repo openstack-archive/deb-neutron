@@ -25,8 +25,6 @@ from neutron.tests.unit import test_security_groups_rpc as test_sg_rpc
 
 PLUGIN_NAME = ('neutron.plugins.openvswitch.'
                'ovs_neutron_plugin.OVSNeutronPluginV2')
-AGENT_NAME = ('neutron.plugins.openvswitch.'
-              'agent.ovs_neutron_agent.OVSNeutronAgent')
 NOTIFIER = ('neutron.plugins.openvswitch.'
             'ovs_neutron_plugin.AgentNotifierApi')
 
@@ -99,7 +97,7 @@ class TestOpenvswitchSecurityGroups(OpenvswitchSecurityGroupsTestCase,
     def test_security_group_get_port_from_device_with_no_port(self):
         plugin = manager.NeutronManager.get_plugin()
         port_dict = plugin.callbacks.get_port_from_device('bad_device_id')
-        self.assertEqual(None, port_dict)
+        self.assertIsNone(port_dict)
 
 
 class TestOpenvswitchSecurityGroupsXML(TestOpenvswitchSecurityGroups):

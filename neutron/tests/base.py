@@ -17,20 +17,23 @@
 
 """Base Test Case for all Unit Tests"""
 
+import contextlib
 import logging
 import os
 
+import eventlet.timeout
 import fixtures
 from oslo.config import cfg
-import stubout
 import testtools
-
-from neutron.common import exceptions
 
 
 CONF = cfg.CONF
 TRUE_STRING = ['True', '1']
 LOG_FORMAT = "%(asctime)s %(levelname)8s [%(name)s] %(message)s"
+
+
+def fake_use_fatal_exceptions(*args):
+    return True
 
 
 class BaseTestCase(testtools.TestCase):
@@ -70,8 +73,9 @@ class BaseTestCase(testtools.TestCase):
         if os.environ.get('OS_STDERR_CAPTURE') in TRUE_STRING:
             stderr = self.useFixture(fixtures.StringStream('stderr')).stream
             self.useFixture(fixtures.MonkeyPatch('sys.stderr', stderr))
-        self.stubs = stubout.StubOutForTesting()
-        self.stubs.Set(exceptions, '_FATAL_EXCEPTION_FORMAT_ERRORS', True)
+        self.useFixture(fixtures.MonkeyPatch(
+            'neutron.common.exceptions.NeutronException.use_fatal_exceptions',
+            fake_use_fatal_exceptions))
 
     def config(self, **kw):
         """Override some configuration values.
@@ -88,3 +92,10 @@ class BaseTestCase(testtools.TestCase):
         group = kw.pop('group', None)
         for k, v in kw.iteritems():
             CONF.set_override(k, v, group)
+
+    @contextlib.contextmanager
+    def assert_max_execution_time(self, max_execution_time=5):
+        with eventlet.timeout.Timeout(max_execution_time, False):
+            yield
+            return
+        self.fail('Execution of this test timed out')

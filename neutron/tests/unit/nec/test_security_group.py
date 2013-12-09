@@ -29,7 +29,6 @@ from neutron.tests.unit import test_security_groups_rpc as test_sg_rpc
 
 PLUGIN_NAME = test_nec_plugin.PLUGIN_NAME
 OFC_MANAGER = 'neutron.plugins.nec.nec_plugin.ofc_manager.OFCManager'
-AGENT_NAME = 'neutron.plugins.nec.agent.nec_neutron_agent.NECNeutronAgent'
 NOTIFIER = 'neutron.plugins.nec.nec_plugin.NECPluginV2AgentNotifierApi'
 
 
@@ -61,11 +60,10 @@ class TestNecSGServerRpcCallBack(
     pass
 
 
-# TODO(amotoki): The test is blocked by 1229954
-# class TestNecSGServerRpcCallBackXML(
-#     test_sg_rpc.SGServerRpcCallBackMixinTestCaseXML,
-#     NecSecurityGroupsTestCase):
-#     pass
+class TestNecSGServerRpcCallBackXML(
+    test_sg_rpc.SGServerRpcCallBackMixinTestCaseXML,
+    NecSecurityGroupsTestCase):
+    pass
 
 
 class TestNecSecurityGroups(NecSecurityGroupsTestCase,

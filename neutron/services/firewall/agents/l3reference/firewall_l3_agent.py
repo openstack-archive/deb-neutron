@@ -89,7 +89,8 @@ class FWaaSL3AgentRpcCallback(api.FWaaSAgentRpcCallbackMixin):
             router['id']
             for router in routers
             if router['tenant_id'] == tenant_id]
-        local_ns_list = root_ip.get_namespaces(self.root_helper)
+        local_ns_list = root_ip.get_namespaces(
+            self.root_helper) if self.conf.use_namespaces else []
 
         router_info_list = []
         # Pick up namespaces for Tenant Routers
@@ -245,7 +246,7 @@ class FWaaSL3AgentRpcCallback(api.FWaaSAgentRpcCallbackMixin):
                             # install
                             LOG.debug(_("Apply fw on Router List: '%s'"),
                                       [ri.router['id']
-                                      for ri in router_info_list])
+                                          for ri in router_info_list])
                             # no need to apply sync data for ACTIVE fw
                             if fw['status'] != constants.ACTIVE:
                                 self._invoke_driver_for_sync_from_plugin(

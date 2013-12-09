@@ -18,6 +18,7 @@
 import abc
 
 from oslo.config import cfg
+import six
 
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
@@ -74,6 +75,11 @@ class PoolStatsNotFound(qexception.NotFound):
 class ProtocolMismatch(qexception.BadRequest):
     message = _("Protocol %(vip_proto)s does not match "
                 "pool protocol %(pool_proto)s")
+
+
+class MemberExists(qexception.NeutronException):
+    message = _("Member with address %(address)s and port %(port)s "
+                "already present in pool %(pool)s")
 
 
 RESOURCE_ATTRIBUTE_MAP = {
@@ -376,8 +382,8 @@ class Loadbalancer(extensions.ExtensionDescriptor):
             return {}
 
 
+@six.add_metaclass(abc.ABCMeta)
 class LoadBalancerPluginBase(ServicePluginBase):
-    __metaclass__ = abc.ABCMeta
 
     def get_plugin_name(self):
         return constants.LOADBALANCER

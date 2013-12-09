@@ -99,7 +99,7 @@ class VxlanTypeTest(base.BaseTestCase):
 
         self.assertIsNone(self.driver.
                           get_vxlan_allocation(self.session,
-                          (TUN_MIN + 5 - 1)))
+                                               (TUN_MIN + 5 - 1)))
         self.assertFalse(self.driver.
                          get_vxlan_allocation(self.session, (TUN_MIN + 5)).
                          allocated)
@@ -114,7 +114,7 @@ class VxlanTypeTest(base.BaseTestCase):
                          allocated)
         self.assertIsNone(self.driver.
                           get_vxlan_allocation(self.session,
-                          (TUN_MAX + 5 + 1)))
+                                               (TUN_MAX + 5 + 1)))
 
     def test_reserve_provider_segment(self):
         segment = {api.NETWORK_TYPE: 'vxlan',
@@ -155,7 +155,7 @@ class VxlanTypeTest(base.BaseTestCase):
             tunnel_ids.add(segment[api.SEGMENTATION_ID])
 
         segment = self.driver.allocate_tenant_segment(self.session)
-        self.assertEqual(None, segment)
+        self.assertIsNone(segment)
 
         segment = {api.NETWORK_TYPE: 'vxlan',
                    api.PHYSICAL_NETWORK: 'None',

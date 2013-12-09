@@ -122,7 +122,8 @@ def _build_uri_path(resource,
                     relations=None,
                     filters=None,
                     types=None,
-                    is_attachment=False):
+                    is_attachment=False,
+                    extra_action=None):
     resources = resource.split('/')
     res_path = resources[0] + (resource_id and "/%s" % resource_id or '')
     if len(resources) > 1:
@@ -132,6 +133,8 @@ def _build_uri_path(resource,
                                  res_path)
     if is_attachment:
         res_path = "%s/attachment" % res_path
+    elif extra_action:
+        res_path = "%s/%s" % (res_path, extra_action)
     params = []
     params.append(fields and "fields=%s" % fields)
     params.append(relations and "relations=%s" % relations)
@@ -383,7 +386,7 @@ def create_explicit_routing_lrouter(cluster, tenant_id,
 def create_lrouter(cluster, *args, **kwargs):
     if kwargs.get('distributed', None):
         v = cluster.api_client.get_nvp_version()
-        if (v.major < 3) or (v.major >= 3 and v.minor < 1):
+        if (v.major < 3) or (v.major == 3 and v.minor < 1):
             raise nvp_exc.NvpInvalidVersion(version=v)
         return v
 
@@ -855,7 +858,8 @@ def create_lport(cluster, lswitch_uuid, tenant_id, neutron_port_id,
 
 
 def create_router_lport(cluster, lrouter_uuid, tenant_id, neutron_port_id,
-                        display_name, admin_status_enabled, ip_addresses):
+                        display_name, admin_status_enabled, ip_addresses,
+                        mac_address=None):
     """Creates a logical port on the assigned logical router."""
     tags = [dict(scope='os_tid', tag=tenant_id),
             dict(scope='q_port_id', tag=neutron_port_id),
@@ -868,6 +872,10 @@ def create_router_lport(cluster, lrouter_uuid, tenant_id, neutron_port_id,
         ip_addresses=ip_addresses,
         type="LogicalRouterPortConfig"
     )
+    # Only add the mac_address to lport_obj if present. This is because
+    # when creating the fake_ext_gw there is no mac_address present.
+    if mac_address:
+        lport_obj['mac_address'] = mac_address
     path = _build_uri_path(LROUTERPORT_RESOURCE,
                            parent_resource_id=lrouter_uuid)
     result = do_request(HTTP_POST, path, json.dumps(lport_obj),

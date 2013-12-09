@@ -20,6 +20,7 @@
 import abc
 
 from oslo.config import cfg
+import six
 
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
@@ -69,8 +70,9 @@ class RouterInUseByVPNService(qexception.InUse):
     message = _("Router %(router_id)s is used by VPNService %(vpnservice_id)s")
 
 
-class VPNStateInvalid(qexception.BadRequest):
-    message = _("Invalid state %(state)s of vpnaas resource %(id)s")
+class VPNStateInvalidToUpdate(qexception.BadRequest):
+    message = _("Invalid state %(state)s of vpnaas resource %(id)s"
+                " for updating")
 
 
 class IPsecPolicyInUse(qexception.InUse):
@@ -405,8 +407,8 @@ class Vpnaas(extensions.ExtensionDescriptor):
             return {}
 
 
+@six.add_metaclass(abc.ABCMeta)
 class VPNPluginBase(ServicePluginBase):
-    __metaclass__ = abc.ABCMeta
 
     def get_plugin_name(self):
         return constants.VPN

@@ -27,6 +27,7 @@ from oslo.config import cfg
 from sqlalchemy.orm import exc as sa_exc
 import webob.exc
 
+from neutron.api import extensions as neutron_extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
 from neutron.common import constants
@@ -57,7 +58,7 @@ from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
 from neutron.plugins.common import constants as plugin_const
-from neutron.plugins.nicira.common import config
+from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions as nvp_exc
 from neutron.plugins.nicira.common import securitygroups as nvp_sec
 from neutron.plugins.nicira.common import sync
@@ -97,11 +98,6 @@ class NetworkTypes:
 
 def create_nvp_cluster(cluster_opts, concurrent_connections,
                        nvp_gen_timeout):
-    # NOTE(armando-migliaccio): remove this block once we no longer
-    # want to support deprecated options in the nvp config file
-    # ### BEGIN
-    config.register_deprecated(cfg.CONF)
-    # ### END
     cluster = nvp_cluster.NVPCluster(**cluster_opts)
     api_providers = [ctrl.split(':') + [True]
                      for ctrl in cluster.nvp_controllers]
@@ -165,6 +161,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # TODO(salv-orlando): Replace These dicts with
         # collections.defaultdict for better handling of default values
         # Routines for managing logical ports in NVP
+        self.port_special_owners = [l3_db.DEVICE_OWNER_ROUTER_GW,
+                                    l3_db.DEVICE_OWNER_ROUTER_INTF]
         self._port_drivers = {
             'create': {l3_db.DEVICE_OWNER_ROUTER_GW:
                        self._nvp_create_ext_gw_port,
@@ -186,9 +184,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                        'default': self._nvp_delete_port}
         }
 
-        # If no api_extensions_path is provided set the following
-        if not cfg.CONF.api_extensions_path:
-            cfg.CONF.set_override('api_extensions_path', NVP_EXT_PATH)
+        neutron_extensions.append_api_extensions_path([NVP_EXT_PATH])
         self.nvp_opts = cfg.CONF.NVP
         self.nvp_sync_opts = cfg.CONF.NVP_SYNC
         self.cluster = create_nvp_cluster(cfg.CONF,
@@ -228,7 +224,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             try:
                 def_network_gw = self._get_network_gateway(ctx,
                                                            def_l2_gw_uuid)
-            except sa_exc.NoResultFound:
+            except networkgw_db.GatewayNotFound:
                 # Create in DB only - don't go on NVP
                 def_gw_data = {'id': def_l2_gw_uuid,
                                'name': 'default L2 gateway service',
@@ -276,7 +272,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             lrouter_port = nvplib.create_router_lport(
                 cluster, router_id, port_data.get('tenant_id', 'fake'),
                 port_data.get('id', 'fake'), port_data.get('name', 'fake'),
-                port_data.get('admin_state_up', True), ip_addresses)
+                port_data.get('admin_state_up', True), ip_addresses,
+                port_data.get('mac_address'))
             LOG.debug(_("Created NVP router port:%s"), lrouter_port['uuid'])
         except NvpApiClient.NvpApiException:
             LOG.exception(_("Unable to create port on NVP logical router %s"),
@@ -474,9 +471,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                                  True)
             nicira_db.add_neutron_nvp_port_mapping(
                 context.session, port_data['id'], lport['uuid'])
-            if (not port_data['device_owner'] in
-                (l3_db.DEVICE_OWNER_ROUTER_GW,
-                 l3_db.DEVICE_OWNER_ROUTER_INTF)):
+            if port_data['device_owner'] not in self.port_special_owners:
                 nvplib.plug_interface(self.cluster, selected_lswitch['uuid'],
                                       lport['uuid'], "VifAttachment",
                                       port_data['id'])
@@ -525,8 +520,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         nvp_port_id = self._nvp_get_port_id(context, self.cluster,
                                             port_data)
         if not nvp_port_id:
-            raise q_exc.PortNotFound(port_id=port_data['id'])
-
+            LOG.warn(_("Neutron port %(port_id)s not found on NVP backend. "
+                       "Terminating delete operation. A dangling router port "
+                       "might have been left on router %(router_id)s"),
+                     {'port_id': port_data['id'],
+                      'router_id': lrouter_id})
+            return
         try:
             nvplib.delete_peer_router_lport(self.cluster,
                                             lrouter_id,
@@ -1706,28 +1705,24 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                        internal_ip, router_id,
                                        min_num_rules_expected=0):
         try:
+            # Remove DNAT rule for the floating IP
             nvplib.delete_nat_rules_by_match(
                 self.cluster, router_id, "DestinationNatRule",
                 max_num_expected=1,
                 min_num_expected=min_num_rules_expected,
                 destination_ip_addresses=floating_ip_address)
 
-            # Remove SNAT rule associated with the single fixed_ip
-            # to floating ip
+            # Remove SNAT rules for the floating IP
             nvplib.delete_nat_rules_by_match(
                 self.cluster, router_id, "SourceNatRule",
                 max_num_expected=1,
                 min_num_expected=min_num_rules_expected,
                 source_ip_addresses=internal_ip)
-
-            # Remove No-DNAT rule associated with the single fixed_ip
-            # to floating ip
             nvplib.delete_nat_rules_by_match(
-                self.cluster, router_id, "NoDestinationNatRule",
+                self.cluster, router_id, "SourceNatRule",
                 max_num_expected=1,
                 min_num_expected=min_num_rules_expected,
-                source_ip_addresses=internal_ip,
-                destination_ip_addresses=floating_ip_address)
+                destination_ip_addresses=internal_ip)
 
         except NvpApiClient.NvpApiException:
             LOG.exception(_("An error occurred while removing NAT rules "
@@ -1823,25 +1818,38 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             # Re-create NAT rules only if a port id is specified
             if fip.get('port_id'):
                 try:
-                    # Create new NAT rules
+                    # Setup DNAT rules for the floating IP
                     nvplib.create_lrouter_dnat_rule(
                         self.cluster, router_id, internal_ip,
                         order=NVP_FLOATINGIP_NAT_RULES_ORDER,
                         match_criteria={'destination_ip_addresses':
                                         floating_ip})
+                    # Setup SNAT rules for the floating IP
+                    # Create a SNAT rule for enabling connectivity to the
+                    # floating IP from the same network as the internal port
+                    # Find subnet id for internal_ip from fixed_ips
+                    internal_port = self._get_port(context, port_id)
+                    # Cchecks not needed on statements below since otherwise
+                    # _internal_fip_assoc_data would have raised
+                    subnet_ids = [ip['subnet_id'] for ip in
+                                  internal_port['fixed_ips'] if
+                                  ip['ip_address'] == internal_ip]
+                    internal_subnet_cidr = self._build_ip_address_list(
+                        context, internal_port['fixed_ips'],
+                        subnet_ids=subnet_ids)[0]
+                    nvplib.create_lrouter_snat_rule(
+                        self.cluster, router_id, floating_ip, floating_ip,
+                        order=NVP_NOSNAT_RULES_ORDER - 1,
+                        match_criteria={'source_ip_addresses':
+                                        internal_subnet_cidr,
+                                        'destination_ip_addresses':
+                                        internal_ip})
                     # setup snat rule such that src ip of a IP packet when
                     # using floating is the floating ip itself.
                     nvplib.create_lrouter_snat_rule(
                         self.cluster, router_id, floating_ip, floating_ip,
                         order=NVP_FLOATINGIP_NAT_RULES_ORDER,
                         match_criteria={'source_ip_addresses': internal_ip})
-                    # Add No-DNAT rule to allow fixed_ip to ping floatingip.
-                    nvplib.create_lrouter_nodnat_rule(
-                        self.cluster, router_id,
-                        order=NVP_FLOATINGIP_NAT_RULES_ORDER - 1,
-                        match_criteria={'source_ip_addresses': internal_ip,
-                                        'destination_ip_addresses':
-                                        floating_ip})
 
                     # Add Floating IP address to router_port
                     nvplib.update_lrouter_port_ips(self.cluster,
@@ -1914,11 +1922,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             nvp_res = nvplib.create_l2_gw_service(self.cluster, tenant_id,
                                                   gw_data['name'], devices)
             nvp_uuid = nvp_res.get('uuid')
-        except Exception:
-            raise nvp_exc.NvpPluginException(
-                err_msg=_("Create_l2_gw_service did not "
-                          "return an uuid for the newly "
-                          "created resource:%s") % nvp_res)
+        except NvpApiClient.Conflict:
+            raise nvp_exc.NvpL2GatewayAlreadyInUse(gateway=gw_data['name'])
+        except NvpApiClient.NvpApiException:
+            err_msg = _("Unable to create l2_gw_service for: %s") % gw_data
+            LOG.exception(err_msg)
+            raise nvp_exc.NvpPluginException(err_msg=err_msg)
         gw_data['id'] = nvp_uuid
         return super(NvpPluginV2, self).create_network_gateway(context,
                                                                network_gateway)
@@ -2025,7 +2034,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                 in securitygroups_db.IP_PROTOCOL_MAP.values())
             if (not port_based_proto and
                 (r['port_range_min'] is not None or
-                r['port_range_max'] is not None)):
+                 r['port_range_max'] is not None)):
                 msg = (_("Port values not valid for "
                          "protocol: %s") % r['protocol'])
                 raise q_exc.BadRequest(resource='security_group_rule',

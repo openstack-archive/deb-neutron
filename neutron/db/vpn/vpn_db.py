@@ -194,8 +194,9 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
 
     def assert_update_allowed(self, obj):
         status = getattr(obj, 'status', None)
+        _id = getattr(obj, 'id', None)
         if utils.in_pending_status(status):
-            raise vpnaas.VPNStateInvalid(id=id, state=status)
+            raise vpnaas.VPNStateInvalidToUpdate(id=_id, state=status)
 
     def _make_ipsec_site_connection_dict(self, ipsec_site_conn, fields=None):
 
@@ -504,7 +505,7 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
                 if lifetime_info:
                     if lifetime_info.get('units'):
                         ipsecp['lifetime_units'] = lifetime_info['units']
-                    if lifetime_info('value'):
+                    if lifetime_info.get('value'):
                         ipsecp['lifetime_value'] = lifetime_info['value']
                 ipsecp_db.update(ipsecp)
         return self._make_ipsecpolicy_dict(ipsecp_db)

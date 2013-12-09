@@ -34,8 +34,12 @@ from neutron.openstack.common import log as logging
 LOG = logging.getLogger(__name__)
 
 
-def execute(cmd, root_helper=None, process_input=None, addl_env=None,
-            check_exit_code=True, return_stderr=False):
+def create_process(cmd, root_helper=None, addl_env=None):
+    """Create a process object for the given command.
+
+    The return value will be a tuple of the process object and the
+    list of command arguments used to create it.
+    """
     if root_helper:
         cmd = shlex.split(root_helper) + cmd
     cmd = map(str, cmd)
@@ -44,12 +48,21 @@ def execute(cmd, root_helper=None, process_input=None, addl_env=None,
     env = os.environ.copy()
     if addl_env:
         env.update(addl_env)
+
+    obj = utils.subprocess_popen(cmd, shell=False,
+                                 stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,
+                                 env=env)
+
+    return obj, cmd
+
+
+def execute(cmd, root_helper=None, process_input=None, addl_env=None,
+            check_exit_code=True, return_stderr=False):
     try:
-        obj = utils.subprocess_popen(cmd, shell=False,
-                                     stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,
-                                     env=env)
+        obj, cmd = create_process(cmd, root_helper=root_helper,
+                                  addl_env=addl_env)
         _stdout, _stderr = (process_input and
                             obj.communicate(process_input) or
                             obj.communicate())

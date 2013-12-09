@@ -33,6 +33,7 @@ from neutron.openstack.common.notifier import api as notifier_api
 from neutron.openstack.common.notifier import test_notifier
 from neutron.plugins.bigswitch.extensions import routerrule
 from neutron.tests.unit.bigswitch import fake_server
+from neutron.tests.unit.bigswitch import test_base
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_extension_extradhcpopts as test_extradhcp
 from neutron.tests.unit import test_l3_plugin
@@ -71,33 +72,29 @@ class RouterRulesTestExtensionManager(object):
         return []
 
 
-class DHCPOptsTestCase(test_extradhcp.TestExtraDhcpOpt):
+class DHCPOptsTestCase(test_base.BigSwitchTestBase,
+                       test_extradhcp.TestExtraDhcpOpt):
 
     def setUp(self, plugin=None):
-        self.httpPatch = patch('httplib.HTTPConnection', create=True,
-                               new=fake_server.HTTPConnectionMock)
-        self.httpPatch.start()
-        self.addCleanup(self.httpPatch.stop)
-        p_path = 'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2'
-        super(test_extradhcp.ExtraDhcpOptDBTestCase, self).setUp(plugin=p_path)
+        self.setup_patches()
+        self.setup_config_files()
+        super(test_extradhcp.ExtraDhcpOptDBTestCase,
+              self).setUp(plugin=self._plugin_name)
 
 
-class RouterDBTestCase(test_l3_plugin.L3NatDBIntTestCase):
+class RouterDBTestCase(test_base.BigSwitchTestBase,
+                       test_l3_plugin.L3NatDBIntTestCase):
 
     def setUp(self):
-        self.httpPatch = patch('httplib.HTTPConnection', create=True,
-                               new=fake_server.HTTPConnectionMock)
-        self.httpPatch.start()
+        self.setup_patches()
         test_l3_plugin.L3NatDBIntTestCase.setUp = new_L3_setUp
         super(RouterDBTestCase, self).setUp()
         self.plugin_obj = NeutronManager.get_plugin()
 
     def tearDown(self):
-        self.httpPatch.stop()
         super(RouterDBTestCase, self).tearDown()
         del test_config['plugin_name_v2']
         del test_config['config_files']
-        cfg.CONF.reset()
         test_l3_plugin.L3NatDBIntTestCase.setUp = origSetUp
 
     def test_router_remove_router_interface_wrong_subnet_returns_400(self):
@@ -258,7 +255,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBIntTestCase):
                     r1_id = r1['router']['id']
                     body = self._router_interface_action('add', r_id, s_id,
                                                          None)
-                    self.assertTrue('port_id' in body)
+                    self.assertIn('port_id', body)
                     r_port_id = body['port_id']
                     body = self._show('ports', r_port_id)
                     self.assertEqual(body['port']['device_id'], r_id)
@@ -267,7 +264,7 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBIntTestCase):
                         s1_id = s1['subnet']['id']
                         body = self._router_interface_action('add', r1_id,
                                                              s1_id, None)
-                        self.assertTrue('port_id' in body)
+                        self.assertIn('port_id', body)
                         r1_port_id = body['port_id']
                         body = self._show('ports', r1_port_id)
                         self.assertEqual(body['port']['device_id'], r1_id)
@@ -353,10 +350,10 @@ class RouterDBTestCase(test_l3_plugin.L3NatDBIntTestCase):
                                  'nexthops': ['4.4.4.4', '4.4.4.5']}]
                 body1 = self._update('routers', r1_id,
                                      {'router':
-                                     {'router_rules': router1_rules}})
+                                         {'router_rules': router1_rules}})
                 body2 = self._update('routers', r2_id,
                                      {'router':
-                                     {'router_rules': router2_rules}})
+                                         {'router_rules': router2_rules}})
 
                 body1 = self._show('routers', r1_id)
                 body2 = self._show('routers', r2_id)

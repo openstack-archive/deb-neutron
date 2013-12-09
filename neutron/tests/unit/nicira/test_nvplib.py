@@ -140,7 +140,7 @@ class NvplibNegativeTests(base.BaseTestCase):
                           'fake-tenant',
                           'fake-gateway',
                           [{'id': _uuid(),
-                          'interface_name': 'xxx'}])
+                           'interface_name': 'xxx'}])
 
     def test_delete_l2_gw_service_on_failure(self):
         self.assertRaises(nvplib.NvpApiClient.NvpApiException,
@@ -437,7 +437,7 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                         'default_route_next_hop':
                         {'gateway_ip_address': 'fake_address',
                          'type': 'RouterNextHop'},
-                    'type': 'SingleDefaultRouteImplicitRoutingConfig'},
+                        'type': 'SingleDefaultRouteImplicitRoutingConfig'},
                     'tags': [{'scope': 'os_tid', 'tag': 'fake_tenant_id'},
                              {'scope': 'quantum',
                               'tag': nvplib.NEUTRON_VERSION}],
@@ -690,7 +690,8 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         router_port_uuids = [nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo',
             'qp_id_%s' % k, 'port-%s' % k, True,
-            ['192.168.0.%s' % k])['uuid'] for k in range(0, 3)]
+            ['192.168.0.%s' % k], '00:11:22:33:44:55')['uuid']
+            for k in range(0, 3)]
         ports = nvplib.query_lrouter_lports(self.fake_cluster, lrouter['uuid'])
         self.assertEqual(len(ports), 3)
         for res_port in ports:
@@ -700,7 +701,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         self.assertRaises(
             exceptions.NotFound, nvplib.create_router_lport,
             self.fake_cluster, 'booo', 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
 
     def test_create_and_get_lrouter_port(self):
         lrouter = nvplib.create_lrouter(self.fake_cluster,
@@ -709,7 +710,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         ports = nvplib.query_lrouter_lports(self.fake_cluster, lrouter['uuid'])
         self.assertEqual(len(ports), 1)
         res_port = ports[0]
@@ -724,7 +725,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
         self.assertRaises(
             exceptions.NotFound, nvplib.create_router_lport,
             self.fake_cluster, 'booo', 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
 
     def test_update_lrouter_port(self):
         lrouter = nvplib.create_lrouter(self.fake_cluster,
@@ -733,7 +734,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         nvplib.update_router_lport(
             self.fake_cluster, lrouter['uuid'], lrouter_port['uuid'],
             'pippo', 'another_port_id', 'name', False,
@@ -773,7 +774,8 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         'fake-lrouter',
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
-            self.fake_cluster, lrouter['uuid'], 'pippo', 'x', 'y', True, [])
+            self.fake_cluster, lrouter['uuid'], 'pippo', 'x', 'y', True, [],
+            '00:11:22:33:44:55')
         ports = nvplib.query_lrouter_lports(self.fake_cluster, lrouter['uuid'])
         self.assertEqual(len(ports), 1)
         nvplib.delete_router_lport(self.fake_cluster, lrouter['uuid'],
@@ -801,7 +803,8 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         'fake-lrouter',
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
-            self.fake_cluster, lrouter['uuid'], 'pippo', 'x', 'y', True, [])
+            self.fake_cluster, lrouter['uuid'], 'pippo', 'x', 'y', True, [],
+            '00:11:22:33:44:55')
 
         def fakegetport(*args, **kwargs):
             return {'_relations': {'LogicalPortAttachment':
@@ -819,7 +822,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         nvplib.update_lrouter_port_ips(
             self.fake_cluster, lrouter['uuid'], lrouter_port['uuid'],
             ['10.10.10.254'], [])
@@ -836,7 +839,8 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1', '10.10.10.254'])
+            'name', True, ['192.168.0.1', '10.10.10.254'],
+            '00:11:22:33:44:55')
         nvplib.update_lrouter_port_ips(
             self.fake_cluster, lrouter['uuid'], lrouter_port['uuid'],
             [], ['10.10.10.254'])
@@ -852,7 +856,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         nvplib.update_lrouter_port_ips(
             self.fake_cluster, lrouter['uuid'], lrouter_port['uuid'],
             ['10.10.10.254'], ['192.168.0.1'])
@@ -873,7 +877,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
 
         def raise_nvp_exc(*args, **kwargs):
             raise NvpApiClient.NvpApiException()
@@ -900,7 +904,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55:66')
         result = nvplib.plug_router_port_attachment(
             self.fake_cluster, lrouter['uuid'],
             lrouter_port['uuid'],
@@ -915,7 +919,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55:66')
         result = nvplib.plug_router_port_attachment(
             self.fake_cluster, lrouter['uuid'],
             lrouter_port['uuid'],
@@ -931,7 +935,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         result = nvplib.plug_router_port_attachment(
             self.fake_cluster, lrouter['uuid'],
             lrouter_port['uuid'],
@@ -950,7 +954,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
                                         '10.0.0.1')
         lrouter_port = nvplib.create_router_lport(
             self.fake_cluster, lrouter['uuid'], 'pippo', 'neutron_port_id',
-            'name', True, ['192.168.0.1'])
+            'name', True, ['192.168.0.1'], '00:11:22:33:44:55')
         self.assertRaises(nvp_exc.NvpInvalidAttachmentType,
                           nvplib.plug_router_port_attachment,
                           self.fake_cluster, lrouter['uuid'],
@@ -1496,6 +1500,68 @@ class NvplibMiscTestCase(base.BaseTestCase):
         name = 'this_is_a_port_whose_name_is_longer_than_40_chars'
         result = utils.check_and_truncate(name)
         self.assertEqual(len(result), utils.MAX_DISPLAY_NAME_LEN)
+
+    def test_build_uri_path_plain(self):
+        result = nvplib._build_uri_path('RESOURCE')
+        self.assertEqual("%s/%s" % (nvplib.URI_PREFIX, 'RESOURCE'), result)
+
+    def test_build_uri_path_with_field(self):
+        result = nvplib._build_uri_path('RESOURCE', fields='uuid')
+        expected = "%s/%s?fields=uuid" % (nvplib.URI_PREFIX, 'RESOURCE')
+        self.assertEqual(expected, result)
+
+    def test_build_uri_path_with_filters(self):
+        filters = {"tag": 'foo', "tag_scope": "scope_foo"}
+        result = nvplib._build_uri_path('RESOURCE', filters=filters)
+        expected = (
+            "%s/%s?tag_scope=scope_foo&tag=foo" %
+            (nvplib.URI_PREFIX, 'RESOURCE'))
+        self.assertEqual(expected, result)
+
+    def test_build_uri_path_with_resource_id(self):
+        res = 'RESOURCE'
+        res_id = 'resource_id'
+        result = nvplib._build_uri_path(res, resource_id=res_id)
+        expected = "%s/%s/%s" % (nvplib.URI_PREFIX, res, res_id)
+        self.assertEqual(expected, result)
+
+    def test_build_uri_path_with_parent_and_resource_id(self):
+        parent_res = 'RESOURCE_PARENT'
+        child_res = 'RESOURCE_CHILD'
+        res = '%s/%s' % (child_res, parent_res)
+        par_id = 'parent_resource_id'
+        res_id = 'resource_id'
+        result = nvplib._build_uri_path(
+            res, parent_resource_id=par_id, resource_id=res_id)
+        expected = ("%s/%s/%s/%s/%s" %
+                    (nvplib.URI_PREFIX, parent_res, par_id, child_res, res_id))
+        self.assertEqual(expected, result)
+
+    def test_build_uri_path_with_attachment(self):
+        parent_res = 'RESOURCE_PARENT'
+        child_res = 'RESOURCE_CHILD'
+        res = '%s/%s' % (child_res, parent_res)
+        par_id = 'parent_resource_id'
+        res_id = 'resource_id'
+        result = nvplib._build_uri_path(res, parent_resource_id=par_id,
+                                        resource_id=res_id, is_attachment=True)
+        expected = ("%s/%s/%s/%s/%s/%s" %
+                    (nvplib.URI_PREFIX, parent_res,
+                     par_id, child_res, res_id, 'attachment'))
+        self.assertEqual(expected, result)
+
+    def test_build_uri_path_with_extra_action(self):
+        parent_res = 'RESOURCE_PARENT'
+        child_res = 'RESOURCE_CHILD'
+        res = '%s/%s' % (child_res, parent_res)
+        par_id = 'parent_resource_id'
+        res_id = 'resource_id'
+        result = nvplib._build_uri_path(res, parent_resource_id=par_id,
+                                        resource_id=res_id, extra_action='doh')
+        expected = ("%s/%s/%s/%s/%s/%s" %
+                    (nvplib.URI_PREFIX, parent_res,
+                     par_id, child_res, res_id, 'doh'))
+        self.assertEqual(expected, result)
 
 
 def _nicira_method(method_name, module_name='nvplib'):

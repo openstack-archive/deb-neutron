@@ -19,6 +19,7 @@ import copy
 
 import mock
 from oslo.config import cfg
+from testtools import matchers
 
 from neutron.agent.common import config as agent_config
 from neutron.agent import l3_agent
@@ -60,6 +61,10 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.external_process_p = mock.patch(
             'neutron.agent.linux.external_process.ProcessManager')
         self.external_process = self.external_process_p.start()
+
+        self.send_arp_p = mock.patch(
+            'neutron.agent.l3_agent.L3NATAgent._send_gratuitous_arp_packet')
+        self.send_arp = self.send_arp_p.start()
 
         self.dvr_cls_p = mock.patch('neutron.agent.linux.interface.NullDriver')
         driver_cls = self.dvr_cls_p.start()
@@ -122,6 +127,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         cidr = '99.0.1.9/24'
         mac = 'ca:fe:de:ad:be:ef'
+        interface_name = agent.get_internal_device_name(port_id)
 
         if action == 'add':
             self.device_exists.return_value = False
@@ -129,6 +135,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
                                          port_id, cidr, mac)
             self.assertEqual(self.mock_driver.plug.call_count, 1)
             self.assertEqual(self.mock_driver.init_l3.call_count, 1)
+            self.send_arp.assert_called_once_with(ri, interface_name,
+                                                  '99.0.1.9')
         elif action == 'remove':
             self.device_exists.return_value = True
             agent.internal_network_removed(ri, port_id, cidr)
@@ -163,16 +171,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
                                          interface_name, internal_cidrs)
             self.assertEqual(self.mock_driver.plug.call_count, 1)
             self.assertEqual(self.mock_driver.init_l3.call_count, 1)
-            arping_cmd = ['arping', '-A', '-U',
-                          '-I', interface_name,
-                          '-c', self.conf.send_arp_for_ha,
-                          '20.0.0.30']
-            if self.conf.use_namespaces:
-                self.mock_ip.netns.execute.assert_any_call(
-                    arping_cmd, check_exit_code=True)
-            else:
-                self.utils_exec.assert_any_call(
-                    check_exit_code=True, root_helper=self.conf.root_helper)
+            self.send_arp.assert_called_once_with(ri, interface_name,
+                                                  '20.0.0.30')
 
         elif action == 'remove':
             self.device_exists.return_value = True
@@ -185,49 +185,38 @@ class TestBasicRouterOperations(base.BaseTestCase):
     def test_agent_add_external_gateway(self):
         self._test_external_gateway_action('add')
 
-    def test_agent_remove_external_gateway(self):
-        self._test_external_gateway_action('remove')
+    def _test_arping(self, namespace):
+        if not namespace:
+            self.conf.set_override('use_namespaces', False)
 
-    def _test_floating_ip_action(self, action):
         router_id = _uuid()
         ri = l3_agent.RouterInfo(router_id, self.conf.root_helper,
                                  self.conf.use_namespaces, None)
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
-        floating_ip = '20.0.0.100'
-        fixed_ip = '10.0.0.23'
-        ex_gw_port = {'fixed_ips': [{'ip_address': '20.0.0.30',
-                                     'subnet_id': _uuid()}],
-                      'subnet': {'gateway_ip': '20.0.0.1'},
-                      'id': _uuid(),
-                      'mac_address': 'ca:fe:de:ad:be:ef',
-                      'ip_cidr': '20.0.0.30/24'}
-        interface_name = agent.get_external_device_name(ex_gw_port['id'])
+        floating_ip = '20.0.0.101'
+        interface_name = agent.get_external_device_name(router_id)
+        agent._arping(ri, interface_name, floating_ip)
 
-        if action == 'add':
-            self.device_exists.return_value = False
-            agent.floating_ip_added(ri, ex_gw_port, floating_ip, fixed_ip)
-            arping_cmd = ['arping', '-A', '-U',
-                          '-I', interface_name,
-                          '-c', self.conf.send_arp_for_ha,
-                          floating_ip]
-            if self.conf.use_namespaces:
-                self.mock_ip.netns.execute.assert_any_call(
-                    arping_cmd, check_exit_code=True)
-            else:
-                self.utils_exec.assert_any_call(
-                    check_exit_code=True, root_helper=self.conf.root_helper)
-
-        elif action == 'remove':
-            self.device_exists.return_value = True
-            agent.floating_ip_removed(ri, ex_gw_port, floating_ip, fixed_ip)
+        arping_cmd = ['arping', '-A',
+                      '-I', interface_name,
+                      '-c', self.conf.send_arp_for_ha,
+                      floating_ip]
+        if self.conf.use_namespaces:
+            self.mock_ip.netns.execute.assert_any_call(
+                arping_cmd, check_exit_code=True)
         else:
-            raise Exception("Invalid action %s" % action)
+            self.utils_exec.assert_any_call(arping_cmd,
+                                            check_exit_code=True,
+                                            root_helper=self.conf.root_helper)
 
-    def test_agent_add_floating_ip(self):
-        self._test_floating_ip_action('add')
+    def test_arping_namespace(self):
+        self._test_arping(namespace=True)
 
-    def test_agent_remove_floating_ip(self):
-        self._test_floating_ip_action('remove')
+    def test_arping_no_namespace(self):
+        self._test_arping(namespace=False)
+
+    def test_agent_remove_external_gateway(self):
+        self._test_external_gateway_action('remove')
 
     def _check_agent_method_called(self, agent, calls, namespace):
         if namespace:
@@ -310,7 +299,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         expected = [['ip', 'route', 'replace', 'to', '110.100.30.0/24',
                     'via', '10.100.10.30'],
                     ['ip', 'route', 'replace', 'to', '110.100.31.0/24',
-                    'via', '10.100.10.30']]
+                     'via', '10.100.10.30']]
 
         self._check_agent_method_called(agent, expected, namespace)
 
@@ -384,6 +373,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
     def test_process_router(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        agent.process_router_floating_ips = mock.Mock()
         router = self._prepare_router_data()
         fake_floatingips1 = {'floatingips': [
             {'id': _uuid(),
@@ -393,6 +383,9 @@ class TestBasicRouterOperations(base.BaseTestCase):
         ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
                                  self.conf.use_namespaces, router=router)
         agent.process_router(ri)
+        ex_gw_port = agent._get_ex_gw_port(ri)
+        agent.process_router_floating_ips.assert_called_with(ri, ex_gw_port)
+        agent.process_router_floating_ips.reset_mock()
 
         # remap floating IP to a new fixed ip
         fake_floatingips2 = copy.deepcopy(fake_floatingips1)
@@ -400,15 +393,94 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
         router[l3_constants.FLOATINGIP_KEY] = fake_floatingips2['floatingips']
         agent.process_router(ri)
+        ex_gw_port = agent._get_ex_gw_port(ri)
+        agent.process_router_floating_ips.assert_called_with(ri, ex_gw_port)
+        agent.process_router_floating_ips.reset_mock()
 
         # remove just the floating ips
         del router[l3_constants.FLOATINGIP_KEY]
         agent.process_router(ri)
+        ex_gw_port = agent._get_ex_gw_port(ri)
+        agent.process_router_floating_ips.assert_called_with(ri, ex_gw_port)
+        agent.process_router_floating_ips.reset_mock()
 
         # now no ports so state is torn down
         del router[l3_constants.INTERFACE_KEY]
         del router['gw_port']
         agent.process_router(ri)
+        self.send_arp.assert_called_once()
+        self.assertFalse(agent.process_router_floating_ips.called)
+
+    @mock.patch('neutron.agent.linux.ip_lib.IPDevice')
+    def test_process_router_floating_ip_add(self, IPDevice):
+        fip = {
+            'id': _uuid(), 'port_id': _uuid(),
+            'floating_ip_address': '15.1.2.3',
+            'fixed_ip_address': '192.168.0.1'
+        }
+
+        IPDevice.return_value = device = mock.Mock()
+        device.addr.list.return_value = []
+
+        ri = mock.MagicMock()
+        ri.router.get.return_value = [fip]
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+
+        agent.process_router_floating_ips(ri, {'id': _uuid()})
+
+        device.addr.add.assert_called_once_with(4, '15.1.2.3/32', '15.1.2.3')
+
+        nat = ri.iptables_manager.ipv4['nat']
+        nat.clear_rules_by_tag.assert_called_once_with('floating_ip')
+        rules = agent.floating_forward_rules('15.1.2.3', '192.168.0.1')
+        for chain, rule in rules:
+            nat.add_rule.assert_any_call(chain, rule, tag='floating_ip')
+
+    @mock.patch('neutron.agent.linux.ip_lib.IPDevice')
+    def test_process_router_floating_ip_remove(self, IPDevice):
+        IPDevice.return_value = device = mock.Mock()
+        device.addr.list.return_value = [{'cidr': '15.1.2.3/32'}]
+
+        ri = mock.MagicMock()
+        ri.router.get.return_value = []
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+
+        agent.process_router_floating_ips(ri, {'id': _uuid()})
+
+        device.addr.delete.assert_called_once_with(4, '15.1.2.3/32')
+
+        nat = ri.iptables_manager.ipv4['nat']
+        nat = ri.iptables_manager.ipv4['nat']
+        nat.clear_rules_by_tag.assert_called_once_with('floating_ip')
+
+    @mock.patch('neutron.agent.linux.ip_lib.IPDevice')
+    def test_process_router_floating_ip_remap(self, IPDevice):
+        fip = {
+            'id': _uuid(), 'port_id': _uuid(),
+            'floating_ip_address': '15.1.2.3',
+            'fixed_ip_address': '192.168.0.2'
+        }
+
+        IPDevice.return_value = device = mock.Mock()
+        device.addr.list.return_value = [{'cidr': '15.1.2.3/32'}]
+        ri = mock.MagicMock()
+
+        ri.router.get.return_value = [fip]
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+
+        agent.process_router_floating_ips(ri, {'id': _uuid()})
+
+        self.assertFalse(device.addr.add.called)
+        self.assertFalse(device.addr.delete.called)
+
+        nat = ri.iptables_manager.ipv4['nat']
+        nat.clear_rules_by_tag.assert_called_once_with('floating_ip')
+        rules = agent.floating_forward_rules('15.1.2.3', '192.168.0.2')
+        for chain, rule in rules:
+            nat.add_rule.assert_any_call(chain, rule, tag='floating_ip')
 
     def test_process_router_snat_disabled(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -429,6 +501,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                            if r not in ri.iptables_manager.ipv4['nat'].rules]
         self.assertEqual(len(nat_rules_delta), 2)
         self._verify_snat_rules(nat_rules_delta, router)
+        self.send_arp.assert_called_once()
 
     def test_process_router_snat_enabled(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -449,6 +522,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                            if r not in orig_nat_rules]
         self.assertEqual(len(nat_rules_delta), 2)
         self._verify_snat_rules(nat_rules_delta, router)
+        self.send_arp.assert_called_once()
 
     def test_process_router_interface_added(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -477,6 +551,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                            if r not in orig_nat_rules]
         self.assertEqual(len(nat_rules_delta), 1)
         self._verify_snat_rules(nat_rules_delta, router)
+        self.send_arp.assert_called_once()
 
     def test_process_router_interface_removed(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -497,6 +572,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                            if r not in ri.iptables_manager.ipv4['nat'].rules]
         self.assertEqual(len(nat_rules_delta), 1)
         self._verify_snat_rules(nat_rules_delta, router, negate=True)
+        self.send_arp.assert_called_once()
 
     def test_handle_router_snat_rules_add_back_jump(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -514,6 +590,30 @@ class TestBasicRouterOperations(base.BaseTestCase):
                 self.assertEqual(args, ('snat', '-j $float-snat'))
                 self.assertEqual(kwargs, {})
                 break
+
+    def test_handle_router_snat_rules_add_rules(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        ri = l3_agent.RouterInfo(_uuid(), self.conf.root_helper,
+                                 self.conf.use_namespaces, None)
+        ex_gw_port = {'fixed_ips': [{'ip_address': '192.168.1.4'}]}
+        internal_cidrs = ['10.0.0.0/24']
+        agent._handle_router_snat_rules(ri, ex_gw_port, internal_cidrs,
+                                        "iface", "add_rules")
+
+        nat_rules = map(str, ri.iptables_manager.ipv4['nat'].rules)
+        wrap_name = ri.iptables_manager.wrap_name
+
+        jump_float_rule = "-A %s-snat -j %s-float-snat" % (wrap_name,
+                                                           wrap_name)
+        internal_net_rule = ("-A %s-snat -s %s -j SNAT --to-source %s") % (
+            wrap_name, internal_cidrs[0],
+            ex_gw_port['fixed_ips'][0]['ip_address'])
+
+        self.assertIn(jump_float_rule, nat_rules)
+
+        self.assertIn(internal_net_rule, nat_rules)
+        self.assertThat(nat_rules.index(jump_float_rule),
+                        matchers.LessThan(nat_rules.index(internal_net_rule)))
 
     def test_routers_with_admin_state_down(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -581,8 +681,13 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
 
+        pm = self.external_process.return_value
+        pm.reset_mock()
+
         agent._destroy_router_namespace = mock.MagicMock()
         agent._destroy_router_namespaces()
+
+        self.assertEqual(pm.disable.call_count, 2)
 
         self.assertEqual(agent._destroy_router_namespace.call_count, 2)
 
@@ -602,10 +707,26 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
 
+        pm = self.external_process.return_value
+        pm.reset_mock()
+
         agent._destroy_router_namespace = mock.MagicMock()
         agent._destroy_router_namespaces(self.conf.router_id)
 
+        self.assertEqual(pm.disable.call_count, 1)
+
         self.assertEqual(agent._destroy_router_namespace.call_count, 1)
+
+    def test_destroy_router_namespace_skips_ns_removal(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        agent._destroy_router_namespace("fakens")
+        self.assertEqual(self.mock_ip.netns.delete.call_count, 0)
+
+    def test_destroy_router_namespace_removes_ns(self):
+        self.conf.set_override('router_delete_namespaces', True)
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        agent._destroy_router_namespace("fakens")
+        self.mock_ip.netns.delete.assert_called_once_with("fakens")
 
     def _configure_metadata_proxy(self, enableflag=True):
         if not enableflag:
@@ -621,12 +742,12 @@ class TestBasicRouterOperations(base.BaseTestCase):
                 agent, '_spawn_metadata_proxy') as spawn_proxy:
                 agent._router_added(router_id, router)
                 if enableflag:
-                    spawn_proxy.assert_called_with(mock.ANY)
+                    spawn_proxy.assert_called_with(mock.ANY, mock.ANY)
                 else:
                     self.assertFalse(spawn_proxy.call_count)
                 agent._router_removed(router_id)
                 if enableflag:
-                    destroy_proxy.assert_called_with(mock.ANY)
+                    destroy_proxy.assert_called_with(mock.ANY, mock.ANY)
                 else:
                     self.assertFalse(destroy_proxy.call_count)
 
@@ -736,19 +857,13 @@ class TestL3AgentEventHandler(base.BaseTestCase):
         cfg.CONF.set_override('log_file', 'test.log')
         cfg.CONF.set_override('debug', True)
 
-        router_info = l3_agent.RouterInfo(
-            router_id, cfg.CONF.root_helper, cfg.CONF.use_namespaces, None
-        )
-
         self.external_process_p.stop()
+        ns = 'qrouter-' + router_id
         try:
             with mock.patch(ip_class_path) as ip_mock:
-                self.agent._spawn_metadata_proxy(router_info)
+                self.agent._spawn_metadata_proxy(router_id, ns)
                 ip_mock.assert_has_calls([
-                    mock.call(
-                        'sudo',
-                        'qrouter-' + router_id
-                    ),
+                    mock.call('sudo', ns),
                     mock.call().netns.execute([
                         'neutron-ns-metadata-proxy',
                         mock.ANY,

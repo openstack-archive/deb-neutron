@@ -593,8 +593,14 @@ class TestNiciraL3NatTestCase(NiciraL3NatTest,
             if res.status_int == 201:
                 self._delete('routers', router['router']['id'])
 
-    def test_router_create_distributed(self):
+    def test_router_create_distributed_with_3_1(self):
         self._test_router_create_with_distributed(True, True)
+
+    def test_router_create_distributed_with_new_nvp_versions(self):
+        with mock.patch.object(nvplib, 'create_explicit_route_lrouter'):
+            self._test_router_create_with_distributed(True, True, '3.2')
+            self._test_router_create_with_distributed(True, True, '4.0')
+            self._test_router_create_with_distributed(True, True, '4.1')
 
     def test_router_create_not_distributed(self):
         self._test_router_create_with_distributed(False, False)
@@ -1017,7 +1023,7 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
                                    return_value={"uuid": "fake_queue"}):
                 with self.qos_queue(name='fake_lqueue', min=34, max=44,
                                     qos_marking='trusted', default=False) as q:
-                    self.assertEqual(q['qos_queue']['dscp'], None)
+                    self.assertIsNone(q['qos_queue']['dscp'])
                     self.assertTrue(log.called)
 
     def test_create_qos_queue_name_exceeds_40_chars(self):
@@ -1113,7 +1119,7 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
             device_id = "00fff4d0-e4a8-4a3a-8906-4c4cdafb59f1"
             res = self._create_port('json', net1['network']['id'])
             port = self.deserialize('json', res)
-            self.assertEqual(port['port'][ext_qos.QUEUE], None)
+            self.assertIsNone(port['port'][ext_qos.QUEUE])
 
             data = {'port': {'device_id': device_id}}
             req = self.new_update_request('ports', data,
@@ -1138,7 +1144,7 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
                                 tenant_id='not_admin', set_context=True)
 
         port = self.deserialize('json', res)
-        self.assertEqual(ext_qos.QUEUE not in port['port'], True)
+        self.assertNotIn(ext_qos.QUEUE, port['port'])
 
     def test_dscp_value_out_of_range(self):
         body = {'qos_queue': {'tenant_id': 'admin', 'dscp': '64',
@@ -1172,7 +1178,7 @@ class TestNiciraQoSQueue(NiciraPluginV2TestCase):
         neutron_context = context.Context('', 'not_admin')
         port = self._update('ports', port['port']['id'], data,
                             neutron_context=neutron_context)
-        self.assertFalse(ext_qos.QUEUE in port['port'])
+        self.assertNotIn(ext_qos.QUEUE, port['port'])
 
     def test_rxtx_factor(self):
         with self.qos_queue(max=10) as q1:
@@ -1383,6 +1389,15 @@ class TestNiciraNetworkGateway(test_l2_gw.NetworkGatewayDbTestCase,
                 devices=[{'id': uuidutils.generate_uuid()}])
             self.assertEqual(500, res.status_int)
 
+    def test_create_network_gateway_nvp_error_returns_409(self):
+        with mock.patch.object(nvplib,
+                               'create_l2_gw_service',
+                               side_effect=NvpApiClient.Conflict):
+            res = self._create_network_gateway(
+                self.fmt, 'xxx', name='yyy',
+                devices=[{'id': uuidutils.generate_uuid()}])
+            self.assertEqual(409, res.status_int)
+
     def test_list_network_gateways(self):
         with self._network_gateway(name='test-gw-1') as gw1:
             with self._network_gateway(name='test_gw_2') as gw2:
@@ -1405,6 +1420,12 @@ class TestNiciraNetworkGateway(test_l2_gw.NetworkGatewayDbTestCase,
     def test_delete_network_gateway(self):
         # The default gateway must still be there
         self._test_delete_network_gateway(1)
+
+    def test_show_network_gateway_nvp_error_returns_404(self):
+        invalid_id = 'b5afd4a9-eb71-4af7-a082-8fc625a35b61'
+        req = self.new_show_request(nvp_networkgw.COLLECTION_NAME, invalid_id)
+        res = req.get_response(self.ext_api)
+        self.assertEqual(webob.exc.HTTPNotFound.code, res.status_int)
 
 
 class TestNiciraMultiProviderNetworks(NiciraPluginV2TestCase):
@@ -1438,7 +1459,7 @@ class TestNiciraMultiProviderNetworks(NiciraPluginV2TestCase):
         network = self.deserialize(self.fmt, net_req.get_response(self.api))
         for provider_field in [pnet.NETWORK_TYPE, pnet.PHYSICAL_NETWORK,
                                pnet.SEGMENTATION_ID]:
-            self.assertTrue(provider_field not in network['network'])
+            self.assertNotIn(provider_field, network['network'])
         tz = network['network'][mpnet.SEGMENTS][0]
         self.assertEqual(tz[pnet.NETWORK_TYPE], 'vlan')
         self.assertEqual(tz[pnet.PHYSICAL_NETWORK], 'physnet1')
@@ -1458,8 +1479,8 @@ class TestNiciraMultiProviderNetworks(NiciraPluginV2TestCase):
                             [{pnet.NETWORK_TYPE: 'vlan',
                               pnet.PHYSICAL_NETWORK: 'physnet1',
                               pnet.SEGMENTATION_ID: 1},
-                            {pnet.NETWORK_TYPE: 'stt',
-                             pnet.PHYSICAL_NETWORK: 'physnet1'}],
+                             {pnet.NETWORK_TYPE: 'stt',
+                              pnet.PHYSICAL_NETWORK: 'physnet1'}],
                             'tenant_id': 'tenant_one'}}
         network_req = self.new_create_request('networks', data)
         network = self.deserialize(self.fmt,
@@ -1500,9 +1521,9 @@ class TestNiciraMultiProviderNetworks(NiciraPluginV2TestCase):
                             [{pnet.NETWORK_TYPE: 'vlan',
                               pnet.PHYSICAL_NETWORK: 'physnet1',
                               pnet.SEGMENTATION_ID: 1},
-                            {pnet.NETWORK_TYPE: 'vlan',
-                             pnet.PHYSICAL_NETWORK: 'physnet1',
-                             pnet.SEGMENTATION_ID: 1}],
+                             {pnet.NETWORK_TYPE: 'vlan',
+                              pnet.PHYSICAL_NETWORK: 'physnet1',
+                              pnet.SEGMENTATION_ID: 1}],
                             'tenant_id': 'tenant_one'}}
         network_req = self.new_create_request('networks', data)
         res = network_req.get_response(self.api)

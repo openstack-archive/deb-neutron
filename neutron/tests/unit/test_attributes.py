@@ -397,6 +397,36 @@ class TestAttributes(base.BaseTestCase):
                                           None)
         self.assertIsNone(msg)
 
+        # Valid - uncompressed ipv6 address
+        cidr = "fe80:0:0:0:0:0:0:0/128"
+        msg = attributes._validate_subnet(cidr,
+                                          None)
+        self.assertIsNone(msg)
+
+        # Valid - ipv6 address with multiple consecutive zero
+        cidr = "2001:0db8:0:0:1::1/128"
+        msg = attributes._validate_subnet(cidr,
+                                          None)
+        self.assertIsNone(msg)
+
+        # Valid - ipv6 address with multiple consecutive zero
+        cidr = "2001:0db8::1:0:0:1/128"
+        msg = attributes._validate_subnet(cidr,
+                                          None)
+        self.assertIsNone(msg)
+
+        # Valid - ipv6 address with multiple consecutive zero
+        cidr = "2001::0:1:0:0:1100/120"
+        msg = attributes._validate_subnet(cidr,
+                                          None)
+        self.assertIsNone(msg)
+
+        # Valid - abbreviated ipv4 address
+        cidr = "10/24"
+        msg = attributes._validate_subnet(cidr,
+                                          None)
+        self.assertIsNone(msg)
+
         # Invalid - IPv4 missing mask
         cidr = "10.0.2.0"
         msg = attributes._validate_subnet(cidr,
@@ -508,7 +538,7 @@ class TestAttributes(base.BaseTestCase):
                              'f3eeab00-8367-4524-b662-55e64d4cacb5']]
         for uuid_list in valid_uuid_lists:
             msg = attributes._validate_uuid_list(uuid_list)
-            self.assertEqual(msg, None)
+            self.assertIsNone(msg)
 
     def test_validate_dict_type(self):
         for value in (None, True, '1', []):

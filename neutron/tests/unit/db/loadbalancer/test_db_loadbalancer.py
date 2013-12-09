@@ -35,6 +35,9 @@ from neutron.plugins.common import constants
 from neutron.services.loadbalancer import (
     plugin as loadbalancer_plugin
 )
+from neutron.services.loadbalancer.drivers import (
+    abstract_driver
+)
 from neutron.services import provider_configuration as pconf
 from neutron.tests.unit import test_db_plugin
 
@@ -46,6 +49,8 @@ DB_LB_PLUGIN_KLASS = (
     "neutron.services.loadbalancer."
     "plugin.LoadBalancerPlugin"
 )
+NOOP_DRIVER_KLASS = ('neutron.tests.unit.db.loadbalancer.test_db_loadbalancer.'
+                     'NoopLbaaSDriver')
 ROOTDIR = os.path.dirname(__file__) + '../../../..'
 ETCDIR = os.path.join(ROOTDIR, 'etc')
 
@@ -56,6 +61,61 @@ _subnet_id = "0c798ed8-33ba-11e2-8b28-000c291c4d14"
 
 def etcdir(*p):
     return os.path.join(ETCDIR, *p)
+
+
+class NoopLbaaSDriver(abstract_driver.LoadBalancerAbstractDriver):
+    """A dummy lbass driver that that only performs object deletion."""
+
+    def __init__(self, plugin):
+        self.plugin = plugin
+
+    def create_vip(self, context, vip):
+        pass
+
+    def update_vip(self, context, old_vip, vip):
+        pass
+
+    def delete_vip(self, context, vip):
+        self.plugin._delete_db_vip(context, vip["id"])
+
+    def create_pool(self, context, pool):
+        pass
+
+    def update_pool(self, context, old_pool, pool):
+        pass
+
+    def delete_pool(self, context, pool):
+        self.plugin._delete_db_pool(context, pool["id"])
+
+    def stats(self, context, pool_id):
+        return {"bytes_in": 0,
+                "bytes_out": 0,
+                "active_connections": 0,
+                "total_connections": 0}
+
+    def create_member(self, context, member):
+        pass
+
+    def update_member(self, context, old_member, member):
+        pass
+
+    def delete_member(self, context, member):
+        self.plugin._delete_db_member(context, member["id"])
+
+    def update_health_monitor(self, context, old_health_monitor,
+                              health_monitor,
+                              pool_association):
+        pass
+
+    def create_pool_health_monitor(self, context,
+                                   health_monitor, pool_id):
+        pass
+
+    def delete_pool_health_monitor(self, context, health_monitor, pool_id):
+        self.plugin._delete_db_pool_health_monitor(
+            context, health_monitor["id"],
+            pool_id
+        )
 
 
 class LoadBalancerTestMixin(object):
@@ -162,7 +222,7 @@ class LoadBalancerTestMixin(object):
                                        admin_state_up,
                                        subnet_id=tmp_subnet['subnet']['id'],
                                        **kwargs)
-                if res.status_int >= 400:
+                if res.status_int >= webob.exc.HTTPClientError.code:
                     raise webob.exc.HTTPClientError(
                         explanation=_("Unexpected error code: %s") %
                         res.status_int
@@ -186,7 +246,7 @@ class LoadBalancerTestMixin(object):
                                 protocol,
                                 admin_state_up,
                                 **kwargs)
-        if res.status_int >= 400:
+        if res.status_int >= webob.exc.HTTPClientError.code:
             raise webob.exc.HTTPClientError(
                 explanation=_("Unexpected error code: %s") % res.status_int
             )
@@ -207,7 +267,7 @@ class LoadBalancerTestMixin(object):
                                   protocol_port,
                                   admin_state_up,
                                   **kwargs)
-        if res.status_int >= 400:
+        if res.status_int >= webob.exc.HTTPClientError.code:
             raise webob.exc.HTTPClientError(
                 explanation=_("Unexpected error code: %s") % res.status_int
             )
@@ -232,7 +292,7 @@ class LoadBalancerTestMixin(object):
                                           max_retries,
                                           admin_state_up,
                                           **kwargs)
-        if res.status_int >= 400:
+        if res.status_int >= webob.exc.HTTPClientError.code:
             raise webob.exc.HTTPClientError(
                 explanation=_("Unexpected error code: %s") % res.status_int
             )
@@ -265,8 +325,7 @@ class LoadBalancerPluginDbTestCase(LoadBalancerTestMixin,
         if not lbaas_provider:
             lbaas_provider = (
                 constants.LOADBALANCER +
-                ':lbaas:neutron.services.loadbalancer.'
-                'drivers.noop.noop_driver.NoopLbaaSDriver:default')
+                ':lbaas:' + NOOP_DRIVER_KLASS + ':default')
         cfg.CONF.set_override('service_provider',
                               [lbaas_provider],
                               'service_providers')
@@ -455,7 +514,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 data = {'vip': {'pool_id': pool['pool']['id']}}
                 req = self.new_update_request('vips', data, vip['vip']['id'])
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 400)
+                self.assertEqual(res.status_int,
+                                 webob.exc.HTTPClientError.code)
 
     def test_reset_session_persistence(self):
         name = 'vip4'
@@ -472,9 +532,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
             req = self.new_update_request('vips', update_info, v['vip']['id'])
             res = self.deserialize(self.fmt, req.get_response(self.ext_api))
 
-            # If session persistence has been removed, it won't be present in
-            # the response.
-            self.assertNotIn('session_persistence', res['vip'])
+            self.assertIsNone(res['vip']['session_persistence'])
 
     def test_update_vip(self):
         name = 'new_vip'
@@ -504,7 +562,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 req = self.new_delete_request('vips',
                                               vip['vip']['id'])
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 204)
+                self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
 
     def test_show_vip(self):
         name = "vip_show"
@@ -584,8 +642,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
     def _create_pool_directly_via_plugin(self, provider_name):
         #default provider will be haproxy
         prov1 = (constants.LOADBALANCER +
-                 ':lbaas:neutron.services.loadbalancer.'
-                 'drivers.noop.noop_driver.NoopLbaaSDriver')
+                 ':lbaas:' + NOOP_DRIVER_KLASS)
         prov2 = (constants.LOADBALANCER +
                  ':haproxy:neutron.services.loadbalancer.'
                  'drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver'
@@ -677,7 +734,26 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 req = self.new_delete_request('pools',
                                               pool['pool']['id'])
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 204)
+                self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
+
+    def test_delete_pool_preserve_state(self):
+        with self.pool(no_delete=True) as pool:
+            with self.vip(pool=pool):
+                req = self.new_delete_request('pools',
+                                              pool['pool']['id'])
+                res = req.get_response(self.ext_api)
+                self.assertEqual(res.status_int, webob.exc.HTTPConflict.code)
+                req = self.new_show_request('pools',
+                                            pool['pool']['id'],
+                                            fmt=self.fmt)
+                res = req.get_response(self.ext_api)
+                self.assertEqual(res.status_int, webob.exc.HTTPOk.code)
+                res = self.deserialize(self.fmt,
+                                       req.get_response(self.ext_api))
+                self.assertEqual(res['pool']['status'],
+                                 constants.PENDING_CREATE)
+            req = self.new_delete_request('pools',
+                                          pool['pool']['id'])
 
     def test_show_pool(self):
         name = "pool1"
@@ -742,6 +818,25 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                   pool_update['pool']['members'])
                     self.assertIn(member2['member']['id'],
                                   pool_update['pool']['members'])
+
+    def test_create_same_member_in_same_pool_raises_member_exists(self):
+        with self.subnet():
+            with self.pool(name="pool1") as pool:
+                pool_id = pool['pool']['id']
+                with self.member(address='192.168.1.100',
+                                 protocol_port=80,
+                                 pool_id=pool_id):
+                    member_data = {
+                        'address': '192.168.1.100',
+                        'protocol_port': 80,
+                        'weight': 1,
+                        'admin_state_up': True,
+                        'pool_id': pool_id
+                    }
+                    self.assertRaises(loadbalancer.MemberExists,
+                                      self.plugin.create_member,
+                                      context.get_admin_context(),
+                                      {'member': member_data})
 
     def test_update_member(self):
         with self.pool(name="pool1") as pool1:
@@ -813,7 +908,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                 req = self.new_delete_request('members',
                                               member['member']['id'])
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 204)
+                self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
 
                 req = self.new_show_request('pools',
                                             pool_id,
@@ -922,7 +1017,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
             req = self.new_delete_request('health_monitors',
                                           monitor['health_monitor']['id'])
             res = req.get_response(self.ext_api)
-            self.assertEqual(res.status_int, 204)
+            self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
             qry = ctx.session.query(ldb.HealthMonitor)
             qry = qry.filter_by(id=monitor['health_monitor']['id'])
             self.assertIsNone(qry.first())
@@ -943,7 +1038,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                     id=pool['pool']['id'],
                     subresource='health_monitors')
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 201)
+                self.assertEqual(res.status_int, webob.exc.HTTPCreated.code)
 
                 ctx = context.get_admin_context()
 
@@ -957,7 +1052,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                     monitor['health_monitor']['id']
                 )
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 204)
+                self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
                 # check if all corresponding Pool associations are deleted
                 qry = ctx.session.query(ldb.PoolMonitorAssociation)
                 qry = qry.filter_by(monitor_id=monitor['health_monitor']['id'])
@@ -1089,7 +1184,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                         id=pool['pool']['id'],
                         subresource="health_monitors")
                     res = req.get_response(self.ext_api)
-                    self.assertEqual(res.status_int, 201)
+                    self.assertEqual(res.status_int,
+                                     webob.exc.HTTPCreated.code)
 
                     data = {"health_monitor": {
                             "id": monitor2['health_monitor']['id'],
@@ -1101,7 +1197,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                         id=pool['pool']['id'],
                         subresource="health_monitors")
                     res = req.get_response(self.ext_api)
-                    self.assertEqual(res.status_int, 201)
+                    self.assertEqual(res.status_int,
+                                     webob.exc.HTTPCreated.code)
 
                     req = self.new_show_request(
                         'pools',
@@ -1141,7 +1238,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                         id=pool['pool']['id'],
                         subresource="health_monitors")
                     res = req.get_response(self.ext_api)
-                    self.assertEqual(res.status_int, 201)
+                    self.assertEqual(res.status_int,
+                                     webob.exc.HTTPCreated.code)
 
                     data = {"health_monitor": {
                             "id": monitor2['health_monitor']['id'],
@@ -1153,7 +1251,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                         id=pool['pool']['id'],
                         subresource="health_monitors")
                     res = req.get_response(self.ext_api)
-                    self.assertEqual(res.status_int, 201)
+                    self.assertEqual(res.status_int,
+                                     webob.exc.HTTPCreated.code)
 
                     # remove one of healthmonitor from the pool
                     req = self.new_delete_request(
@@ -1163,7 +1262,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                         sub_id=monitor1['health_monitor']['id'],
                         subresource="health_monitors")
                     res = req.get_response(self.ext_api)
-                    self.assertEqual(res.status_int, 204)
+                    self.assertEqual(res.status_int,
+                                     webob.exc.HTTPNoContent.code)
 
                     req = self.new_show_request(
                         'pools',
@@ -1214,7 +1314,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                                   '3',
                                                   True)
                 health_monitor = self.deserialize(self.fmt, req)
-                self.assertEqual(req.status_int, 201)
+                self.assertEqual(req.status_int, webob.exc.HTTPCreated.code)
 
                 # Associate the health_monitor to the pool
                 data = {"health_monitor": {
@@ -1226,7 +1326,7 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                               id=pool['pool']['id'],
                                               subresource="health_monitors")
                 res = req.get_response(self.ext_api)
-                self.assertEqual(res.status_int, 201)
+                self.assertEqual(res.status_int, webob.exc.HTTPCreated.code)
 
                 # Get pool and vip
                 req = self.new_show_request('pools',
@@ -1442,9 +1542,8 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
             #removing driver
             cfg.CONF.set_override('service_provider',
                                   [constants.LOADBALANCER +
-                                   ':lbaas1:neutron.services.loadbalancer.'
-                                   'drivers.noop.noop_driver.'
-                                   'NoopLbaaSDriver:default'],
+                                   ':lbaas1:' + NOOP_DRIVER_KLASS +
+                                   ':default'],
                                   'service_providers')
             sdb.ServiceTypeManager._instance = None
             # calling _remove_orphan... in constructor

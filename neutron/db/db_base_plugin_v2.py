@@ -442,11 +442,10 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                   {'ip_address': ip_address,
                    'network_id': network_id,
                    'subnet_id': subnet_id})
-        alloc_qry = context.session.query(
-            models_v2.IPAllocation).with_lockmode('update')
-        alloc_qry.filter_by(network_id=network_id,
-                            ip_address=ip_address,
-                            subnet_id=subnet_id).delete()
+        context.session.query(models_v2.IPAllocation).filter_by(
+            network_id=network_id,
+            ip_address=ip_address,
+            subnet_id=subnet_id).delete()
 
     @staticmethod
     def _generate_ip(context, subnets):
@@ -990,8 +989,10 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
         with context.session.begin(subtransactions=True):
             network = self._get_network(context, id)
 
-            filter = {'network_id': [id]}
-            ports = self.get_ports(context, filters=filter)
+            filters = {'network_id': [id]}
+            # NOTE(armando-migliaccio): stick with base plugin
+            ports = self._get_ports_query(
+                context, filters=filters).with_lockmode('update')
 
             # check if there are any tenant owned ports in-use
             only_auto_del = all(p['device_owner'] in AUTO_DELETE_PORT_OWNERS
@@ -1266,17 +1267,17 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
             subnet = self._get_subnet(context, id)
             # Check if any tenant owned ports are using this subnet
             allocated_qry = context.session.query(models_v2.IPAllocation)
-            allocated_qry = allocated_qry.options(orm.joinedload('ports'))
-            allocated = allocated_qry.filter_by(subnet_id=id)
-
-            only_auto_del = all(not a.port_id or
-                                a.ports.device_owner in AUTO_DELETE_PORT_OWNERS
-                                for a in allocated)
-            if not only_auto_del:
-                raise q_exc.SubnetInUse(subnet_id=id)
+            allocated_qry = allocated_qry.join(models_v2.Port)
+            allocated = allocated_qry.filter_by(
+                network_id=subnet.network_id).with_lockmode('update')
 
             # remove network owned ports
-            allocated.delete()
+            for a in allocated:
+                if a.ports.device_owner in AUTO_DELETE_PORT_OWNERS:
+                    NeutronDbPluginV2._delete_ip_allocation(
+                        context, subnet.network_id, id, a.ip_address)
+                else:
+                    raise q_exc.SubnetInUse(subnet_id=id)
 
             context.session.delete(subnet)
 
@@ -1402,8 +1403,25 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
         with context.session.begin(subtransactions=True):
             self._delete_port(context, id)
 
+    def delete_ports(self, context, filters):
+        with context.session.begin(subtransactions=True):
+            # Disable eagerloads to avoid postgresql issues with outer joins
+            # and SELECT FOR UPDATE. This means that only filters for columns
+            # on the Port model will be effective, which is fine in nearly all
+            # the cases where filters are used
+            query = context.session.query(
+                models_v2.Port).enable_eagerloads(False)
+            ports = self._apply_filters_to_query(
+                query, models_v2.Port, filters).with_lockmode('update').all()
+            for port in ports:
+                self.delete_port(context, port['id'])
+
     def _delete_port(self, context, id):
-        port = self._get_port(context, id)
+        query = (context.session.query(models_v2.Port).
+                 enable_eagerloads(False).filter_by(id=id))
+        if not context.is_admin:
+            query = query.filter_by(tenant_id=context.tenant_id)
+        port = query.with_lockmode('update').one()
 
         allocated_qry = context.session.query(
             models_v2.IPAllocation).with_lockmode('update')

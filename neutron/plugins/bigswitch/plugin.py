@@ -48,11 +48,11 @@ import base64
 import copy
 import httplib
 import json
-import os
 import socket
 
 from oslo.config import cfg
 
+from neutron.api import extensions as neutron_extensions
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.common import constants as const
 from neutron.common import exceptions
@@ -60,6 +60,8 @@ from neutron.common import rpc as q_rpc
 from neutron.common import topics
 from neutron.common import utils
 from neutron import context as qcontext
+from neutron.db import agents_db
+from neutron.db import agentschedulers_db
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
@@ -71,19 +73,15 @@ from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.openstack.common import excutils
+from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.plugins.bigswitch.db import porttracker_db
+from neutron.plugins.bigswitch import extensions
 from neutron.plugins.bigswitch import routerrule_db
 from neutron.plugins.bigswitch.version import version_string_with_vcs
 
 LOG = logging.getLogger(__name__)
-
-# Include the BigSwitch Extensions path in the api_extensions
-EXTENSIONS_PATH = os.path.join(os.path.dirname(__file__), 'extensions')
-if not cfg.CONF.api_extensions_path:
-    cfg.CONF.set_override('api_extensions_path',
-                          EXTENSIONS_PATH)
 
 restproxy_opts = [
     cfg.StrOpt('servers', default='localhost:8800',
@@ -426,16 +424,19 @@ class RpcProxy(dhcp_rpc_base.DhcpRpcCallbackMixin):
     RPC_API_VERSION = '1.1'
 
     def create_rpc_dispatcher(self):
-        return q_rpc.PluginRpcDispatcher([self])
+        return q_rpc.PluginRpcDispatcher([self,
+                                          agents_db.AgentExtRpcCallback()])
 
 
 class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
                          external_net_db.External_net_db_mixin,
                          routerrule_db.RouterRule_db_mixin,
-                         extradhcpopt_db.ExtraDhcpOptMixin):
+                         extradhcpopt_db.ExtraDhcpOptMixin,
+                         agentschedulers_db.DhcpAgentSchedulerDbMixin):
 
     supported_extension_aliases = ["external-net", "router", "binding",
-                                   "router_rules", "extra_dhcp_opt"]
+                                   "router_rules", "extra_dhcp_opt",
+                                   "dhcp_agent_scheduler", "agent"]
 
     def __init__(self, server_timeout=None):
         LOG.info(_('NeutronRestProxy: Starting plugin. Version=%s'),
@@ -443,6 +444,9 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         # init DB, proxy's persistent store defaults to in-memory sql-lite DB
         db.configure_db()
+
+        # Include the BigSwitch Extensions path in the api_extensions
+        neutron_extensions.append_api_extensions_path(extensions.__path__)
 
         # 'servers' is the list of network controller REST end-points
         # (used in order specified till one suceeds, and it is sticky
@@ -469,6 +473,13 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         # init dhcp support
         self.topic = topics.PLUGIN
+        self.network_scheduler = importutils.import_object(
+            cfg.CONF.network_scheduler_driver
+        )
+        self._dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        self.agent_notifiers[const.AGENT_TYPE_DHCP] = (
+            self._dhcp_agent_notifier
+        )
         self.conn = rpc.create_connection(new=True)
         self.callbacks = RpcProxy()
         self.dispatcher = self.callbacks.create_rpc_dispatcher()
@@ -479,7 +490,6 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
         if sync_data:
             self._send_all_data()
 
-        self._dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         LOG.debug(_("NeutronRestProxyV2: initialization done"))
 
     def create_network(self, context, network):

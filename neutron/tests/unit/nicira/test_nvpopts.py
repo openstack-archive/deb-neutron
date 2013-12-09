@@ -27,7 +27,9 @@ from neutron.openstack.common import uuidutils
 from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions
 from neutron.plugins.nicira.common import sync
+from neutron.plugins.nicira.nsxlib import lsn as lsnlib
 from neutron.plugins.nicira import nvp_cluster
+from neutron.plugins.nicira import NvpApiClient as nvp_client
 from neutron.tests.unit.nicira import get_fake_conf
 from neutron.tests.unit.nicira import PLUGIN_NAME
 
@@ -35,7 +37,6 @@ BASE_CONF_PATH = get_fake_conf('neutron.conf.test')
 NVP_BASE_CONF_PATH = get_fake_conf('neutron.conf.test')
 NVP_INI_PATH = get_fake_conf('nvp.ini.basic.test')
 NVP_INI_FULL_PATH = get_fake_conf('nvp.ini.full.test')
-NVP_INI_DEPR_PATH = get_fake_conf('nvp.ini.grizzly.test')
 NVP_INI_AGENTLESS_PATH = get_fake_conf('nvp.ini.agentless.test')
 
 
@@ -44,7 +45,6 @@ class NVPClusterTest(testtools.TestCase):
     cluster_opts = {'default_tz_uuid': uuidutils.generate_uuid(),
                     'default_l2_gw_service_uuid': uuidutils.generate_uuid(),
                     'default_l2_gw_service_uuid': uuidutils.generate_uuid(),
-                    'nvp_cluster_uuid': uuidutils.generate_uuid(),
                     'nvp_user': 'foo',
                     'nvp_password': 'bar',
                     'req_timeout': 45,
@@ -129,7 +129,6 @@ class ConfigurationTest(testtools.TestCase):
         self.assertEqual('stt', cfg.CONF.NVP.default_transport_type)
 
         self.assertIsNone(cfg.CONF.default_tz_uuid)
-        self.assertIsNone(cfg.CONF.nvp_cluster_uuid)
         self.assertEqual('admin', cfg.CONF.nvp_user)
         self.assertEqual('admin', cfg.CONF.nvp_password)
         self.assertEqual(30, cfg.CONF.req_timeout)
@@ -150,17 +149,49 @@ class ConfigurationTest(testtools.TestCase):
         self.assertIn('extensions', cfg.CONF.api_extensions_path)
 
     def test_agentless_extensions(self):
-        self.skipTest('Enable once agentless support is added')
         q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
                         '--config-file', NVP_INI_AGENTLESS_PATH])
         cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
         self.assertEqual(config.AgentModes.AGENTLESS,
                          cfg.CONF.NVP.agent_mode)
-        plugin = NeutronManager().get_plugin()
-        self.assertNotIn('agent',
-                         plugin.supported_extension_aliases)
-        self.assertNotIn('dhcp_agent_scheduler',
-                         plugin.supported_extension_aliases)
+        # The version returned from NVP does not really matter here
+        with mock.patch.object(nvp_client.NVPApiHelper,
+                               'get_nvp_version',
+                               return_value=nvp_client.NVPVersion("9.9")):
+            with mock.patch.object(lsnlib,
+                                   'service_cluster_exists',
+                                   return_value=True):
+                plugin = NeutronManager().get_plugin()
+                self.assertNotIn('agent',
+                                 plugin.supported_extension_aliases)
+                self.assertNotIn('dhcp_agent_scheduler',
+                                 plugin.supported_extension_aliases)
+
+    def test_agentless_extensions_version_fail(self):
+        q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
+                        '--config-file', NVP_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.assertEqual(config.AgentModes.AGENTLESS,
+                         cfg.CONF.NVP.agent_mode)
+        with mock.patch.object(nvp_client.NVPApiHelper,
+                               'get_nvp_version',
+                               return_value=nvp_client.NVPVersion("3.2")):
+            self.assertRaises(exceptions.NvpPluginException, NeutronManager)
+
+    def test_agentless_extensions_unmet_deps_fail(self):
+        q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
+                        '--config-file', NVP_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.assertEqual(config.AgentModes.AGENTLESS,
+                         cfg.CONF.NVP.agent_mode)
+        with mock.patch.object(nvp_client.NVPApiHelper,
+                               'get_nvp_version',
+                               return_value=nvp_client.NVPVersion("3.2")):
+            with mock.patch.object(lsnlib,
+                                   'service_cluster_exists',
+                                   return_value=False):
+                self.assertRaises(exceptions.NvpPluginException,
+                                  NeutronManager)
 
     def test_agent_extensions(self):
         q_config.parse(['--config-file', NVP_BASE_CONF_PATH,
@@ -173,36 +204,3 @@ class ConfigurationTest(testtools.TestCase):
                       plugin.supported_extension_aliases)
         self.assertIn('dhcp_agent_scheduler',
                       plugin.supported_extension_aliases)
-
-
-class OldConfigurationTest(testtools.TestCase):
-
-    def setUp(self):
-        super(OldConfigurationTest, self).setUp()
-        self.addCleanup(cfg.CONF.reset)
-        self.useFixture(fixtures.MonkeyPatch(
-                        'neutron.manager.NeutronManager._instance',
-                        None))
-        # Avoid runs of the synchronizer looping call
-        patch_sync = mock.patch.object(sync, '_start_loopingcall')
-        patch_sync.start()
-        self.addCleanup(patch_sync.stop)
-
-    def _assert_required_options(self, cluster):
-        self.assertEqual(cluster.nvp_controllers, ['fake_1:443', 'fake_2:443'])
-        self.assertEqual(cluster.default_tz_uuid, 'fake_tz_uuid')
-        self.assertEqual(cluster.nvp_user, 'foo')
-        self.assertEqual(cluster.nvp_password, 'bar')
-
-    def test_load_plugin_with_deprecated_options(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NVP_INI_DEPR_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
-        plugin = NeutronManager().get_plugin()
-        cluster = plugin.cluster
-        self._assert_required_options(cluster)
-        # Verify nvp_controller_connection has been fully parsed
-        self.assertEqual(4, cluster.req_timeout)
-        self.assertEqual(3, cluster.http_timeout)
-        self.assertEqual(2, cluster.retries)
-        self.assertEqual(1, cluster.redirects)

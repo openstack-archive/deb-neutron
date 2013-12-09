@@ -222,7 +222,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                return_value=details):
             with mock.patch.object(self.agent, 'port_unbound') as port_unbound:
                 self.assertFalse(self.agent.treat_devices_removed([{}]))
-        self.assertEqual(port_unbound.called, not port_exists)
+        self.assertTrue(port_unbound.called)
 
     def test_treat_devices_removed_unbinds_port(self):
         self._mock_treat_devices_removed(True)
@@ -582,6 +582,51 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         ) as (del_port_fn, del_flow_fn):
             self.agent.reclaim_local_vlan('net2')
             del_port_fn.assert_called_once_with('gre-ip_agent_2')
+
+    def test_daemon_loop_uses_polling_manager(self):
+        with mock.patch(
+            'neutron.agent.linux.polling.get_polling_manager') as mock_get_pm:
+            with mock.patch.object(self.agent, 'rpc_loop') as mock_loop:
+                self.agent.daemon_loop()
+        mock_get_pm.assert_called_with(True, 'sudo',
+                                       constants.DEFAULT_OVSDBMON_RESPAWN)
+        mock_loop.called_once()
+
+    def test_setup_tunnel_port_error_negative(self):
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'add_tunnel_port',
+                              return_value='-1'),
+            mock.patch.object(ovs_neutron_agent.LOG, 'error')
+        ) as (add_tunnel_port_fn, log_error_fn):
+            ofport = self.agent.setup_tunnel_port(
+                'gre-1', 'remote_ip', constants.TYPE_GRE)
+            add_tunnel_port_fn.assert_called_once_with(
+                'gre-1', 'remote_ip', self.agent.local_ip, constants.TYPE_GRE,
+                self.agent.vxlan_udp_port)
+            log_error_fn.assert_called_once_with(
+                _("Failed to set-up %(type)s tunnel port to %(ip)s"),
+                {'type': constants.TYPE_GRE, 'ip': 'remote_ip'})
+            self.assertEqual(ofport, 0)
+
+    def test_setup_tunnel_port_error_not_int(self):
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, 'add_tunnel_port',
+                              return_value=None),
+            mock.patch.object(ovs_neutron_agent.LOG, 'exception'),
+            mock.patch.object(ovs_neutron_agent.LOG, 'error')
+        ) as (add_tunnel_port_fn, log_exc_fn, log_error_fn):
+            ofport = self.agent.setup_tunnel_port(
+                'gre-1', 'remote_ip', constants.TYPE_GRE)
+            add_tunnel_port_fn.assert_called_once_with(
+                'gre-1', 'remote_ip', self.agent.local_ip, constants.TYPE_GRE,
+                self.agent.vxlan_udp_port)
+            log_exc_fn.assert_called_once_with(
+                _("ofport should have a value that can be "
+                  "interpreted as an integer"))
+            log_error_fn.assert_called_once_with(
+                _("Failed to set-up %(type)s tunnel port to %(ip)s"),
+                {'type': constants.TYPE_GRE, 'ip': 'remote_ip'})
+            self.assertEqual(ofport, 0)
 
 
 class AncillaryBridgesTest(base.BaseTestCase):
