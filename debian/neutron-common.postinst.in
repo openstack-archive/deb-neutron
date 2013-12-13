@@ -117,8 +117,10 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	chown root:root /etc/neutron/rootwrap.d
 	chmod 0755 /etc/neutron/rootwrap.d
 	if dpkg-vendor --derives-from ubuntu ; then
+		chmod 755 /var/lib/neutron
 		mkdir -p /var/lib/neutron/dhcp
-		chown nobody:neutron /var/lib/neutron/dhcp
+		chown neutron:neutron /var/lib/neutron/dhcp
+		chmod 755 /var/lib/neutron/dhcp
 	fi
 
 	if [ -f /etc/sudoers.d/neutron_sudoers ] ; then
