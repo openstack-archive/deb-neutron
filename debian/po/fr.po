@@ -251,7 +251,7 @@ msgstr "Adresse IP de votre hôte RabbitMQ :"
 #. Type: password
 #. Description
 #: ../neutron-common.templates:8001
- ../neutron-common.templates:9001
+#: ../neutron-common.templates:9001
 #: ../neutron-common.templates:10001
 msgid ""
 "In order to interoperate with other components of OpenStack, this package "

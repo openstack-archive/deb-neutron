@@ -4,6 +4,8 @@ neutron (2013.2.1-1) unstable; urgency=high
   * Refresh better-config-default.patch.
   * Fixed rights of /var/lib/neutron/dhcp in the Ubuntu case.
   * Added python-neutronclient (>= 2.3.0) as dependency of python-neutron.
+  * Fixes French debconf translation thanks to our Cheesemaster Christian
+    Perrier (Closes: #732266).
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:51 +0800
 
