@@ -5,8 +5,10 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
 Last-Update: 2013-11-27
 
---- neutron-2013.2.orig/etc/l3_agent.ini
-+++ neutron-2013.2/etc/l3_agent.ini
+Index: neutron/etc/l3_agent.ini
+===================================================================
+--- neutron.orig/etc/l3_agent.ini	2013-12-16 15:39:15.000000000 +0800
++++ neutron/etc/l3_agent.ini	2013-12-16 16:58:39.000000000 +0800
 @@ -8,7 +8,7 @@
  
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
@@ -16,9 +18,11 @@ Last-Update: 2013-11-27
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2013.2.orig/etc/neutron.conf
-+++ neutron-2013.2/etc/neutron.conf
-@@ -45,7 +45,7 @@ lock_path = $state_path/lock
+Index: neutron/etc/neutron.conf
+===================================================================
+--- neutron.orig/etc/neutron.conf	2013-12-16 16:57:07.000000000 +0800
++++ neutron/etc/neutron.conf	2013-12-16 16:58:39.000000000 +0800
+@@ -45,7 +45,7 @@
  # api_extensions_path =
  
  # Neutron plugin provider module
@@ -27,7 +31,7 @@ Last-Update: 2013-11-27
  
  # Advanced service modules
  # service_plugins =
-@@ -119,16 +119,16 @@ lock_path = $state_path/lock
+@@ -119,16 +119,16 @@
  # SSL certification authority file (valid only if SSL enabled)'
  # kombu_ssl_ca_certs =
  # IP address of the RabbitMQ installation
@@ -47,7 +51,7 @@ Last-Update: 2013-11-27
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -294,7 +294,7 @@ notification_driver = neutron.openstack.
+@@ -299,7 +299,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -55,8 +59,8 @@ Last-Update: 2013-11-27
 +root_helper = sudo neutron-rootwrap /etc/neutron/rootwrap.conf
  
  # =========== items for agent management extension =============
- # seconds between nodes reporting state to server, should be less than
-@@ -314,11 +314,10 @@ signing_dir = $state_path/keystone-signi
+ # seconds between nodes reporting state to server; should be less than
+@@ -319,11 +319,10 @@
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -70,8 +74,10 @@ Last-Update: 2013-11-27
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
---- neutron-2013.2.orig/etc/lbaas_agent.ini
-+++ neutron-2013.2/etc/lbaas_agent.ini
+Index: neutron/etc/lbaas_agent.ini
+===================================================================
+--- neutron.orig/etc/lbaas_agent.ini	2013-12-10 00:11:29.000000000 +0800
++++ neutron/etc/lbaas_agent.ini	2013-12-16 16:58:39.000000000 +0800
 @@ -13,7 +13,7 @@
  
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC, NVP,
@@ -81,8 +87,10 @@ Last-Update: 2013-11-27
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2013.2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2013.2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2013-12-16 15:39:15.000000000 +0800
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2013-12-16 16:58:39.000000000 +0800
 @@ -30,7 +30,7 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.

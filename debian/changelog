@@ -1,6 +1,7 @@
 neutron (2013.2.1-1) unstable; urgency=high
 
   * New upstream release. This fixes CVE-2013-6419.
+  * Refresh better-config-default.patch.
   * Fixed rights of /var/lib/neutron/dhcp in the Ubuntu case.
   * Added python-neutronclient (>= 2.3.0) as dependency of python-neutron.
 
