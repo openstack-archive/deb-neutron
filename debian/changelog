@@ -9,6 +9,7 @@ neutron (2013.2.1-1) unstable; urgency=high
   * Added Italian debconf translation, thanks to Beatrice Torracca
     <beatricet@libero.it> (Closes: #732078).
   * Fixed version of (build-)depends for python-six and python-iso8601.
+  * Added openswan as dependency for neutron-vpn-agent.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:51 +0800
 
