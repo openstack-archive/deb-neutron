@@ -1,6 +1,7 @@
 neutron (2013.2-10) UNRELEASED; urgency=low
 
   * Fixed rights of /var/lib/neutron/dhcp in the Ubuntu case.
+  * Added python-neutronclient (>= 2.3.0) as dependency of python-neutron.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:51 +0800
 
