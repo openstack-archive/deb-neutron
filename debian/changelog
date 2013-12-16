@@ -6,6 +6,8 @@ neutron (2013.2.1-1) unstable; urgency=high
   * Added python-neutronclient (>= 2.3.0) as dependency of python-neutron.
   * Fixes French debconf translation thanks to our Cheesemaster Christian
     Perrier (Closes: #732266).
+  * Added Italian debconf translation, thanks to Beatrice Torracca
+    <beatricet@libero.it> (Closes: #732078).
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:51 +0800
 
