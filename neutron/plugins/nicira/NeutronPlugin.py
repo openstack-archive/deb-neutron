@@ -103,7 +103,11 @@ def create_nvp_cluster(cluster_opts, concurrent_connections,
     config.register_deprecated(cfg.CONF)
     # ### END
     cluster = nvp_cluster.NVPCluster(**cluster_opts)
-    api_providers = [ctrl.split(':') + [True]
+
+    def _ctrl_split(x, y):
+        return (x, int(y), True)
+
+    api_providers = [_ctrl_split(*ctrl.split(':'))
                      for ctrl in cluster.nvp_controllers]
     cluster.api_client = NvpApiClient.NVPApiHelper(
         api_providers, cluster.nvp_user, cluster.nvp_password,
@@ -525,8 +529,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         nvp_port_id = self._nvp_get_port_id(context, self.cluster,
                                             port_data)
         if not nvp_port_id:
-            raise q_exc.PortNotFound(port_id=port_data['id'])
-
+            LOG.warn(_("Neutron port %(port_id)s not found on NVP backend. "
+                       "Terminating delete operation. A dangling router port "
+                       "might have been left on router %(router_id)s"),
+                     {'port_id': port_data['id'],
+                      'router_id': lrouter_id})
+            return
         try:
             nvplib.delete_peer_router_lport(self.cluster,
                                             lrouter_id,
@@ -1914,11 +1922,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             nvp_res = nvplib.create_l2_gw_service(self.cluster, tenant_id,
                                                   gw_data['name'], devices)
             nvp_uuid = nvp_res.get('uuid')
-        except Exception:
-            raise nvp_exc.NvpPluginException(
-                err_msg=_("Create_l2_gw_service did not "
-                          "return an uuid for the newly "
-                          "created resource:%s") % nvp_res)
+        except NvpApiClient.Conflict:
+            raise nvp_exc.NvpL2GatewayAlreadyInUse(gateway=gw_data['name'])
+        except NvpApiClient.NvpApiException:
+            err_msg = _("Unable to create l2_gw_service for: %s") % gw_data
+            LOG.exception(err_msg)
+            raise nvp_exc.NvpPluginException(err_msg=err_msg)
         gw_data['id'] = nvp_uuid
         return super(NvpPluginV2, self).create_network_gateway(context,
                                                                network_gateway)

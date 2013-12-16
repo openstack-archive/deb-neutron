@@ -97,11 +97,6 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
         super(TestLinuxBridgeAgent, self).setUp()
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')
-        self.lbmgr_patcher = mock.patch('neutron.plugins.linuxbridge.agent.'
-                                        'linuxbridge_neutron_agent.'
-                                        'LinuxBridgeManager')
-        self.lbmgr_mock = self.lbmgr_patcher.start()
-        self.addCleanup(self.lbmgr_patcher.stop)
         self.execute_p = mock.patch.object(ip_lib.IPWrapper, '_execute')
         self.execute = self.execute_p.start()
         self.addCleanup(self.execute_p.stop)
@@ -113,8 +108,6 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
         self.get_mac.return_value = '00:00:00:00:00:01'
 
     def test_update_devices_failed(self):
-        lbmgr_instance = self.lbmgr_mock.return_value
-        lbmgr_instance.update_devices.side_effect = RuntimeError
         agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
                                                                      0,
                                                                      None)
@@ -125,17 +118,18 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                 raise_exception[0] += 1
             else:
                 raise RuntimeError()
-
-        with mock.patch.object(linuxbridge_neutron_agent.LOG, 'info') as log:
-            log.side_effect = info_mock
-            with testtools.ExpectedException(RuntimeError):
-                agent.daemon_loop()
-            self.assertEqual(3, log.call_count)
+        with mock.patch.object(agent.br_mgr,
+                               "update_devices") as update_devices:
+            update_devices.side_effect = RuntimeError
+            with mock.patch.object(linuxbridge_neutron_agent.LOG,
+                                   'info') as log:
+                log.side_effect = info_mock
+                with testtools.ExpectedException(RuntimeError):
+                    agent.daemon_loop()
+                self.assertEqual(3, log.call_count)
 
     def test_process_network_devices_failed(self):
         device_info = {'current': [1, 2, 3]}
-        lbmgr_instance = self.lbmgr_mock.return_value
-        lbmgr_instance.update_devices.return_value = device_info
         agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
                                                                      0,
                                                                      None)
@@ -147,15 +141,18 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
             else:
                 raise RuntimeError()
 
-        with contextlib.nested(
-            mock.patch.object(linuxbridge_neutron_agent.LOG, 'info'),
-            mock.patch.object(agent, 'process_network_devices')
-        ) as (log, process_network_devices):
-            log.side_effect = info_mock
-            process_network_devices.side_effect = RuntimeError
-            with testtools.ExpectedException(RuntimeError):
-                agent.daemon_loop()
-            self.assertEqual(3, log.call_count)
+        with mock.patch.object(agent.br_mgr,
+                               "update_devices") as update_devices:
+            update_devices.side_effect = device_info
+            with contextlib.nested(
+                mock.patch.object(linuxbridge_neutron_agent.LOG, 'info'),
+                mock.patch.object(agent, 'process_network_devices')
+            ) as (log, process_network_devices):
+                log.side_effect = info_mock
+                process_network_devices.side_effect = RuntimeError
+                with testtools.ExpectedException(RuntimeError):
+                    agent.daemon_loop()
+                self.assertEqual(3, log.call_count)
 
 
 class TestLinuxBridgeManager(base.BaseTestCase):
@@ -513,20 +510,44 @@ class TestLinuxBridgeManager(base.BaseTestCase):
             mock.patch.object(self.lbm, "get_interface_details"),
             mock.patch.object(self.lbm, "update_interface_ip_details"),
             mock.patch.object(self.lbm, "delete_vlan"),
+            mock.patch.object(self.lbm, "delete_vxlan"),
             mock.patch.object(utils, "execute")
         ) as (de_fn, getif_fn, remif_fn, if_det_fn,
-              updif_fn, del_vlan, exec_fn):
+              updif_fn, del_vlan, del_vxlan, exec_fn):
             de_fn.return_value = False
             self.lbm.delete_vlan_bridge("br0")
             self.assertFalse(getif_fn.called)
 
             de_fn.return_value = True
-            getif_fn.return_value = ["eth0", "eth1.1", "eth1"]
+            getif_fn.return_value = ["eth0", "eth1.1", "eth1", "vxlan-1002"]
             if_det_fn.return_value = ("ips", "gateway")
             exec_fn.return_value = False
             self.lbm.delete_vlan_bridge("br0")
             updif_fn.assert_called_with("eth1", "br0", "ips", "gateway")
             del_vlan.assert_called_with("eth1.1")
+            del_vxlan.assert_called_with("vxlan-1002")
+
+    def test_delete_vxlan_bridge_no_int_mappings(self):
+        interface_mappings = {}
+        lbm = linuxbridge_neutron_agent.LinuxBridgeManager(
+            interface_mappings, self.root_helper)
+
+        with contextlib.nested(
+            mock.patch.object(lbm, "device_exists"),
+            mock.patch.object(lbm, "get_interfaces_on_bridge"),
+            mock.patch.object(lbm, "remove_interface"),
+            mock.patch.object(lbm, "delete_vxlan"),
+            mock.patch.object(utils, "execute")
+        ) as (de_fn, getif_fn, remif_fn, del_vxlan, exec_fn):
+            de_fn.return_value = False
+            lbm.delete_vlan_bridge("br0")
+            self.assertFalse(getif_fn.called)
+
+            de_fn.return_value = True
+            getif_fn.return_value = ["vxlan-1002"]
+            exec_fn.return_value = False
+            lbm.delete_vlan_bridge("br0")
+            del_vxlan.assert_called_with("vxlan-1002")
 
     def test_remove_empty_bridges(self):
         self.lbm.network_map = {'net1': mock.Mock(), 'net2': mock.Mock()}

@@ -593,8 +593,14 @@ class TestNiciraL3NatTestCase(NiciraL3NatTest,
             if res.status_int == 201:
                 self._delete('routers', router['router']['id'])
 
-    def test_router_create_distributed(self):
+    def test_router_create_distributed_with_3_1(self):
         self._test_router_create_with_distributed(True, True)
+
+    def test_router_create_distributed_with_new_nvp_versions(self):
+        with mock.patch.object(nvplib, 'create_explicit_route_lrouter'):
+            self._test_router_create_with_distributed(True, True, '3.2')
+            self._test_router_create_with_distributed(True, True, '4.0')
+            self._test_router_create_with_distributed(True, True, '4.1')
 
     def test_router_create_not_distributed(self):
         self._test_router_create_with_distributed(False, False)
@@ -1382,6 +1388,15 @@ class TestNiciraNetworkGateway(test_l2_gw.NetworkGatewayDbTestCase,
                 self.fmt, 'xxx', name='yyy',
                 devices=[{'id': uuidutils.generate_uuid()}])
             self.assertEqual(500, res.status_int)
+
+    def test_create_network_gateway_nvp_error_returns_409(self):
+        with mock.patch.object(nvplib,
+                               'create_l2_gw_service',
+                               side_effect=NvpApiClient.Conflict):
+            res = self._create_network_gateway(
+                self.fmt, 'xxx', name='yyy',
+                devices=[{'id': uuidutils.generate_uuid()}])
+            self.assertEqual(409, res.status_int)
 
     def test_list_network_gateways(self):
         with self._network_gateway(name='test-gw-1') as gw1:
