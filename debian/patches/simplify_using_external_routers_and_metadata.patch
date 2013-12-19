@@ -1,0 +1,268 @@
+Description: Simplify using external routers and metadata 
+Author: Darragh O'Reilly <dara2002-openstack@yahoo.com>
+Forwarded: not-needed
+Last-Update: 2013-08-08
+
+From c73b54e50b62c489f04432bdbc5bee678b18226e Mon Sep 17 00:00:00 2001
+From: Darragh O'Reilly <dara2002-openstack@yahoo.com>
+Date: Tue, 8 Oct 2013 10:36:05 +0000
+Subject: [PATCH] Simplify using external routers and metadata
+
+The dhcp agent only pushes out the metadata
+static route when the subnet is isolated, and it
+determines that by checking if the gateway_ip is
+not set. This makes it tricky to use external
+routers and metadata from dhcp at the same time.
+
+This patch changes how the dhcp agent determines
+that the subnet is isolated. It now considers it
+isolated if there is no Neutron router on it.
+This makes it straightforward to use an external
+router on a provider network and get the
+metadata from the dhcp namespace.
+
+Change-Id: I0e29a2f058564c267176dab26da00f6ef579808b
+Closes-Bug: 1236783
+---
+ neutron/agent/linux/dhcp.py           | 26 ++++++++++---
+ neutron/tests/unit/test_linux_dhcp.py | 72 ++++++++++++++++++++++++++++++-----
+ 2 files changed, 84 insertions(+), 14 deletions(-)
+
+diff --git a/neutron/agent/linux/dhcp.py b/neutron/agent/linux/dhcp.py
+index 9e7481d..6e231f2 100644
+--- a/neutron/agent/linux/dhcp.py
++++ b/neutron/agent/linux/dhcp.py
+@@ -29,6 +29,7 @@ from oslo.config import cfg
+ 
+ from neutron.agent.linux import ip_lib
+ from neutron.agent.linux import utils
++from neutron.common import constants
+ from neutron.common import exceptions
+ from neutron.openstack.common import importutils
+ from neutron.openstack.common import jsonutils
+@@ -445,12 +446,8 @@ class Dnsmasq(DhcpLocalProcess):
+                     host_routes.append("%s,%s" % (hr.destination, hr.nexthop))
+ 
+             # Add host routes for isolated network segments
+-            enable_metadata = (
+-                self.conf.enable_isolated_metadata
+-                and not subnet.gateway_ip
+-                and subnet.ip_version == 4)
+ 
+-            if enable_metadata:
++            if self._enable_metadata(subnet):
+                 subnet_dhcp_ip = subnet_to_interface_ip[subnet.id]
+                 host_routes.append(
+                     '%s/32,%s' % (METADATA_DEFAULT_IP, subnet_dhcp_ip)
+@@ -519,6 +516,25 @@ class Dnsmasq(DhcpLocalProcess):
+ 
+         return ','.join((set_tag + tag, '%s' % option) + args)
+ 
++    def _enable_metadata(self, subnet):
++        '''Determine if the metadata route will be pushed to hosts on subnet.
++
++        If subnet has a Neutron router attached, we want the hosts to get
++        metadata from the router's proxy via their default route instead.
++        '''
++        if self.conf.enable_isolated_metadata and subnet.ip_version == 4:
++            if subnet.gateway_ip is None:
++                return True
++            else:
++                for port in self.network.ports:
++                    if port.device_owner == constants.DEVICE_OWNER_ROUTER_INTF:
++                        for alloc in port.fixed_ips:
++                            if alloc.subnet_id == subnet.id:
++                                return False
++                return True
++        else:
++            return False
++
+     @classmethod
+     def lease_update(cls):
+         network_id = os.environ.get(cls.NEUTRON_NETWORK_ID_KEY)
+diff --git a/neutron/tests/unit/test_linux_dhcp.py b/neutron/tests/unit/test_linux_dhcp.py
+index 7842acb..b8c4839 100644
+--- a/neutron/tests/unit/test_linux_dhcp.py
++++ b/neutron/tests/unit/test_linux_dhcp.py
+@@ -30,8 +30,9 @@ LOG = logging.getLogger(__name__)
+ 
+ 
+ class FakeIPAllocation:
+-    def __init__(self, address):
++    def __init__(self, address, subnet_id=None):
+         self.ip_address = address
++        self.subnet_id = subnet_id
+ 
+ 
+ class DhcpOpt(object):
+@@ -45,6 +46,7 @@ class DhcpOpt(object):
+ class FakePort1:
+     id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+     admin_state_up = True
++    device_owner = 'foo1'
+     fixed_ips = [FakeIPAllocation('192.168.0.2')]
+     mac_address = '00:00:80:aa:bb:cc'
+ 
+@@ -55,6 +57,7 @@ class FakePort1:
+ class FakePort2:
+     id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+     admin_state_up = False
++    device_owner = 'foo2'
+     fixed_ips = [FakeIPAllocation('fdca:3ba5:a17a:4ba3::2')]
+     mac_address = '00:00:f3:aa:bb:cc'
+ 
+@@ -65,6 +68,7 @@ class FakePort2:
+ class FakePort3:
+     id = '44444444-4444-4444-4444-444444444444'
+     admin_state_up = True
++    device_owner = 'foo3'
+     fixed_ips = [FakeIPAllocation('192.168.0.3'),
+                  FakeIPAllocation('fdca:3ba5:a17a:4ba3::3')]
+     mac_address = '00:00:0f:aa:bb:cc'
+@@ -73,6 +77,18 @@ class FakePort3:
+         self.extra_dhcp_opts = []
+ 
+ 
++class FakeRouterPort:
++    id = 'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr'
++    admin_state_up = True
++    device_owner = 'network:router_interface'
++    fixed_ips = [FakeIPAllocation('192.168.0.1',
++                                  'dddddddd-dddd-dddd-dddd-dddddddddddd')]
++    mac_address = '00:00:0f:rr:rr:rr'
++
++    def __init__(self):
++        self.extra_dhcp_opts = []
++
++
+ class FakeV4HostRoute:
+     destination = '20.0.0.1/24'
+     nexthop = '20.0.0.1'
+@@ -138,6 +154,16 @@ class FakeV4SubnetNoGateway:
+     dns_nameservers = []
+ 
+ 
++class FakeV4SubnetNoRouter:
++    id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
++    ip_version = 4
++    cidr = '192.168.1.0/24'
++    gateway_ip = '192.168.1.1'
++    enable_dhcp = True
++    host_routes = []
++    dns_nameservers = []
++
++
+ class FakeV4Network:
+     id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     subnets = [FakeV4Subnet()]
+@@ -155,21 +181,21 @@ class FakeV6Network:
+ class FakeDualNetwork:
+     id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     subnets = [FakeV4Subnet(), FakeV6Subnet()]
+-    ports = [FakePort1(), FakePort2(), FakePort3()]
++    ports = [FakePort1(), FakePort2(), FakePort3(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+ 
+ class FakeDualNetworkGatewayRoute:
+     id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     subnets = [FakeV4SubnetGatewayRoute(), FakeV6Subnet()]
+-    ports = [FakePort1(), FakePort2(), FakePort3()]
++    ports = [FakePort1(), FakePort2(), FakePort3(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+ 
+ class FakeDualNetworkSingleDHCP:
+     id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     subnets = [FakeV4Subnet(), FakeV4SubnetNoDHCP()]
+-    ports = [FakePort1(), FakePort2(), FakePort3()]
++    ports = [FakePort1(), FakePort2(), FakePort3(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+ 
+@@ -179,10 +205,16 @@ class FakeV4NoGatewayNetwork:
+     ports = [FakePort1()]
+ 
+ 
++class FakeV4NetworkNoRouter:
++    id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
++    subnets = [FakeV4SubnetNoRouter()]
++    ports = [FakePort1()]
++
++
+ class FakeDualV4Pxe3Ports:
+     id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+     subnets = [FakeV4Subnet(), FakeV4SubnetNoDHCP()]
+-    ports = [FakePort1(), FakePort2(), FakePort3()]
++    ports = [FakePort1(), FakePort2(), FakePort3(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+     def __init__(self, port_detail="portsSame"):
+@@ -217,7 +249,7 @@ class FakeDualV4Pxe3Ports:
+ class FakeV4NetworkPxe2Ports:
+     id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+     subnets = [FakeV4Subnet()]
+-    ports = [FakePort1(), FakePort2()]
++    ports = [FakePort1(), FakePort2(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+     def __init__(self, port_detail="portsSame"):
+@@ -244,7 +276,7 @@ class FakeV4NetworkPxe2Ports:
+ class FakeV4NetworkPxe3Ports:
+     id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+     subnets = [FakeV4Subnet()]
+-    ports = [FakePort1(), FakePort2(), FakePort3()]
++    ports = [FakePort1(), FakePort2(), FakePort3(), FakeRouterPort()]
+     namespace = 'qdhcp-ns'
+ 
+     def __init__(self, port_detail="portsSame"):
+@@ -716,6 +748,24 @@ tag:tag0,option:router""".lstrip()
+ 
+         self.safe.assert_called_once_with('/foo/opts', expected)
+ 
++    def test_output_opts_file_no_neutron_router_on_subnet(self):
++        expected = """
++tag:tag0,option:classless-static-route,169.254.169.254/32,192.168.1.2
++tag:tag0,249,169.254.169.254/32,192.168.1.2
++tag:tag0,option:router,192.168.1.1""".lstrip()
++
++        with mock.patch.object(dhcp.Dnsmasq, 'get_conf_file_name') as conf_fn:
++            conf_fn.return_value = '/foo/opts'
++            dm = dhcp.Dnsmasq(self.conf, FakeV4NetworkNoRouter(),
++                              version=float(2.59))
++            with mock.patch.object(dm, '_make_subnet_interface_ip_map') as ipm:
++                ipm.return_value = {FakeV4SubnetNoRouter.id: '192.168.1.2'}
++
++                dm._output_opts_file()
++                self.assertTrue(ipm.called)
++
++        self.safe.assert_called_once_with('/foo/opts', expected)
++
+     def test_release_lease(self):
+         dm = dhcp.Dnsmasq(self.conf, FakeDualNetwork(), version=float(2.59))
+         dm.release_lease(mac_address=FakePort2.mac_address,
+@@ -830,7 +880,9 @@ tag:44444444-4444-4444-4444-444444444444,option:bootfile-name,pxelinux3.0"""
+                          '00:00:0f:aa:bb:cc,host-192-168-0-3.openstacklocal,'
+                          '192.168.0.3\n'
+                          '00:00:0f:aa:bb:cc,host-fdca-3ba5-a17a-4ba3--3.'
+-                         'openstacklocal,fdca:3ba5:a17a:4ba3::3\n').lstrip()
++                         'openstacklocal,fdca:3ba5:a17a:4ba3::3\n'
++                         '00:00:0f:rr:rr:rr,host-192-168-0-1.openstacklocal,'
++                         '192.168.0.1\n').lstrip()
+         exp_opt_name = '/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/opts'
+         exp_opt_data = "tag:tag0,option:router,192.168.0.1"
+         fake_v6 = 'gdca:3ba5:a17a:4ba3::1'
+@@ -877,7 +929,9 @@ tag:tag1,249,%s,%s""".lstrip() % (fake_v6,
+                          '00:00:0f:aa:bb:cc,host-192-168-0-3.openstacklocal,'
+                          '192.168.0.3\n'
+                          '00:00:0f:aa:bb:cc,host-fdca-3ba5-a17a-4ba3--3.'
+-                         'openstacklocal,fdca:3ba5:a17a:4ba3::3\n').lstrip()
++                         'openstacklocal,fdca:3ba5:a17a:4ba3::3\n'
++                         '00:00:0f:rr:rr:rr,host-192-168-0-1.openstacklocal,'
++                         '192.168.0.1\n').lstrip()
+         exp_host_data.replace('\n', '')
+         exp_opt_name = '/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/opts'
+         exp_opt_data = "tag:tag0,option:router,192.168.0.1"
+-- 
+1.8.4.3
+
