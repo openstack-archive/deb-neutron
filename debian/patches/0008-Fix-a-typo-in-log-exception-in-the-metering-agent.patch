@@ -1,0 +1,76 @@
+Description: Fix a typo in log exception in the metering agent
+ This patch fixes a typo when there is a exception when the agent try to invoke
+ a method of the driver. This patch also improves exceptions handling of driver
+ method calls.
+From: Sylvain Afchain <sylvain.afchain@enovance.com>
+Date: Thu, 28 Nov 2013 17:30:47 +0100
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1256041
+Origin: upstream, https://review.openstack.org/61085
+
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 20ea1a5..f07a2d1 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -175,9 +175,13 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+     def _invoke_driver(self, context, meterings, func_name):
+         try:
+             return getattr(self.metering_driver, func_name)(context, meterings)
+-        except RuntimeError:
++        except AttributeError:
+             LOG.exception(_("Driver %(driver)s does not implement %(func)s"),
+-                          {'driver': cfg.CONF.metering_driver,
++                          {'driver': self.conf.driver,
++                           'func': func_name})
++        except RuntimeError:
++            LOG.exception(_("Driver %(driver)s:%(func)s runtime error"),
++                          {'driver': self.conf.driver,
+                            'func': func_name})
+ 
+     @periodic_task.periodic_task(run_immediately=True)
+diff --git a/neutron/tests/unit/services/metering/test_metering_agent.py b/neutron/tests/unit/services/metering/test_metering_agent.py
+index 87246a1..433e2e2 100644
+--- a/neutron/tests/unit/services/metering/test_metering_agent.py
++++ b/neutron/tests/unit/services/metering/test_metering_agent.py
+@@ -132,3 +132,39 @@ class TestMeteringOperations(base.BaseTestCase):
+         self.assertEqual(self.driver.remove_router.call_count, 1)
+ 
+         self.agent._add_metering_info.assert_called_with(label_id, 44, 222)
++
++
++class TestMeteringDriver(base.BaseTestCase):
++    def setUp(self):
++        super(TestMeteringDriver, self).setUp()
++        cfg.CONF.register_opts(metering_agent.MeteringAgent.Opts)
++        config.register_root_helper(cfg.CONF)
++
++        self.noop_driver = ('neutron.services.metering.drivers.noop.'
++                            'noop_driver.NoopMeteringDriver')
++        cfg.CONF.set_override('driver', self.noop_driver)
++
++        self.agent = metering_agent.MeteringAgent('my agent', cfg.CONF)
++        self.driver = mock.Mock()
++        self.agent.metering_driver = self.driver
++
++        self.addCleanup(mock.patch.stopall)
++
++    def test_add_metering_label_with_bad_driver_impl(self):
++        del self.driver.add_metering_label
++
++        with mock.patch.object(metering_agent, 'LOG') as log:
++            self.agent.add_metering_label(None, ROUTERS)
++            log.exception.assert_called_with(mock.ANY,
++                                             {'driver': self.noop_driver,
++                                              'func': 'add_metering_label'})
++
++    def test_add_metering_label_runtime_error(self):
++        self.driver.add_metering_label.side_effect = RuntimeError
++
++        with mock.patch.object(metering_agent, 'LOG') as log:
++            self.agent.add_metering_label(None, ROUTERS)
++            log.exception.assert_called_with(mock.ANY,
++                                             {'driver': self.noop_driver,
++                                              'func':
++                                              'add_metering_label'})
+-- 
+1.7.9.5
+

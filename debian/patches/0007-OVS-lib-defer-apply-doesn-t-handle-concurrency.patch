@@ -1,0 +1,74 @@
+Description: OVS lib defer apply doesn't handle concurrency
+ The OVS lib deferred apply methods use a dict to save flows to add, modify or
+ delete when deffered apply is switched off. If another process add flows on
+ that dict during another process called deffered_apply_off, its flows could be
+ ignored.
+ .
+ This fix doesn't purge anymore the dict at the end of the method
+ 'deferred_apply_off' to prevent above case.
+Author: Edouard Thuleau <edouard.thuleau@cloudwatt.com>
+Date: Tue, 24 Dec 2013 10:07:02 +0100
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1263866
+Origin: origin, https://review.openstack.org/#/c/63917/
+
+diff --git a/neutron/agent/linux/ovs_lib.py b/neutron/agent/linux/ovs_lib.py
+index 0976307..037a84b 100644
+--- a/neutron/agent/linux/ovs_lib.py
++++ b/neutron/agent/linux/ovs_lib.py
+@@ -50,7 +50,7 @@ class OVSBridge:
+         self.root_helper = root_helper
+         self.re_id = self.re_compile_id()
+         self.defer_apply_flows = False
+-        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
++        self.deferred_flows = {'add': [], 'mod': [], 'del': []}
+ 
+     def re_compile_id(self):
+         external = 'external_ids\s*'
+@@ -165,14 +165,14 @@ class OVSBridge:
+     def add_flow(self, **kwargs):
+         flow_str = self.add_or_mod_flow_str(**kwargs)
+         if self.defer_apply_flows:
+-            self.deferred_flows['add'] += flow_str + '\n'
++            self.deferred_flows['add'].append(flow_str)
+         else:
+             self.run_ofctl("add-flow", [flow_str])
+ 
+     def mod_flow(self, **kwargs):
+         flow_str = self.add_or_mod_flow_str(**kwargs)
+         if self.defer_apply_flows:
+-            self.deferred_flows['mod'] += flow_str + '\n'
++            self.deferred_flows['mod'].append(flow_str)
+         else:
+             self.run_ofctl("mod-flows", [flow_str])
+ 
+@@ -183,7 +183,7 @@ class OVSBridge:
+             flow_expr_arr.append("actions=%s" % (kwargs["actions"]))
+         flow_str = ",".join(flow_expr_arr)
+         if self.defer_apply_flows:
+-            self.deferred_flows['del'] += flow_str + '\n'
++            self.deferred_flows['del'].append(flow_str)
+         else:
+             self.run_ofctl("del-flows", [flow_str])
+ 
+@@ -197,12 +197,14 @@ class OVSBridge:
+             if flows:
+                 LOG.debug(_('Applying following deferred flows '
+                             'to bridge %s'), self.br_name)
+-                for line in flows.splitlines():
++                flows_str = ''
++                while flows:
++                    flow_str = flows.pop(0)
+                     LOG.debug(_('%(action)s: %(flow)s'),
+-                              {'action': action, 'flow': line})
+-                self.run_ofctl('%s-flows' % action, ['-'], flows)
++                              {'action': action, 'flow': flow_str})
++                    flows_str += flow_str + '\n'
++                self.run_ofctl('%s-flows' % action, ['-'], flows_str)
+         self.defer_apply_flows = False
+-        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
+ 
+     def add_tunnel_port(self, port_name, remote_ip, local_ip,
+                         tunnel_type=constants.TYPE_GRE,
+-- 
+1.7.9.5
+

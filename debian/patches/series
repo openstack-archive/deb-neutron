@@ -3,3 +3,12 @@ better-config-default.patch
 fixes-SQLAlchemy-requirement.patch
 configure_service_plugin_by_default.patch
 simplify_using_external_routers_and_metadata.patch
+0001-Add-param-and-iptables-rules-to-protect-dnsmasq-port.patch
+0002-L3-Agent-can-handle-many-external-networks.patch
+0003-Fix-MeteringLabel-model-to-not-clear-router-s-tenant.patch
+0004-Fix-Metering-doesn-t-respect-the-l3-agent-binding.patch
+0005-fix-excluded-of-meter-label-rule-create-is-not-worki.patch
+0006-ML2-l2-pop-MD-handle-multi-create-delete-ports.patch
+0007-OVS-lib-defer-apply-doesn-t-handle-concurrency.patch
+0008-Fix-a-typo-in-log-exception-in-the-metering-agent.patch
+0009-Fix-metering-iptables-driver-doesn-t-read-root_helpe.patch

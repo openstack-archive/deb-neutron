@@ -1,0 +1,226 @@
+Description:  Fix Metering doesn't respect the l3 agent binding
+ This patch fix the issue by changing the call to find the plugin which handles
+ the l3 which is now the l3_router service plugin instead of the old mixin.
+ .
+ Also change the unit tests to use the l3 service plugin instead of the l3
+ mixin.
+Author: Sylvain Afchain <sylvain.afchain@enovance.com>
+Date: Mon, 2 Dec 2013 13:14:31 +0100
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1257354
+Origin: upstream, https://review.openstack.org/#/c/60016/
+
+diff --git a/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py b/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
+index 3543ebe..a27eba5 100644
+--- a/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
++++ b/neutron/api/rpc/agentnotifiers/metering_rpc_agent_api.py
+@@ -20,6 +20,7 @@ from neutron.common import utils
+ from neutron import manager
+ from neutron.openstack.common import log as logging
+ from neutron.openstack.common.rpc import proxy
++from neutron.plugins.common import constants as service_constants
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -71,7 +72,8 @@ class MeteringAgentNotifyAPI(proxy.RpcProxy):
+ 
+     def _notification(self, context, method, routers):
+         """Notify all the agents that are hosting the routers."""
+-        plugin = manager.NeutronManager.get_plugin()
++        plugin = manager.NeutronManager.get_service_plugins().get(
++            service_constants.L3_ROUTER_NAT)
+         if utils.is_extension_supported(
+             plugin, constants.L3_AGENT_SCHEDULER_EXT_ALIAS):
+             self._agent_notification(context, method, routers)
+diff --git a/neutron/services/metering/agents/metering_agent.py b/neutron/services/metering/agents/metering_agent.py
+index 20ea1a5..e1085a4 100644
+--- a/neutron/services/metering/agents/metering_agent.py
++++ b/neutron/services/metering/agents/metering_agent.py
+@@ -88,7 +88,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
+         self.label_tenant_id = {}
+         self.routers = {}
+         self.metering_infos = {}
+-        super(MeteringAgent, self).__init__(host=self.conf.host)
++        super(MeteringAgent, self).__init__(host=self.host)
+ 
+     def _load_drivers(self):
+         """Loads plugin-driver from configuration."""
+diff --git a/neutron/tests/unit/services/metering/test_metering_plugin.py b/neutron/tests/unit/services/metering/test_metering_plugin.py
+index 7644e3d..08b3bb9 100644
+--- a/neutron/tests/unit/services/metering/test_metering_plugin.py
++++ b/neutron/tests/unit/services/metering/test_metering_plugin.py
+@@ -20,7 +20,8 @@ from neutron.api.v2 import attributes as attr
+ from neutron.common.test_lib import test_config
+ from neutron import context
+ from neutron.db import agents_db
+-from neutron.db import l3_agentschedulers_db
++from neutron.db import db_base_plugin_v2
++from neutron.db import l3_agentschedulers_db as l3_as_db
+ from neutron.extensions import l3 as ext_l3
+ from neutron.extensions import metering as ext_metering
+ from neutron.openstack.common import uuidutils
+@@ -32,7 +33,7 @@ from neutron.tests.unit import test_l3_plugin
+ 
+ _uuid = uuidutils.generate_uuid
+ 
+-DB_METERING_PLUGIN_KLASS = (
++METERING_SERVICE_PLUGIN_KLASS = (
+     "neutron.services.metering."
+     "metering_plugin.MeteringPlugin"
+ )
+@@ -56,9 +57,9 @@ class MeteringTestExtensionManager(object):
+         return []
+ 
+ 
+-class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+-                         test_l3_plugin.L3NatTestCaseMixin,
+-                         test_db_metering.MeteringPluginDbTestCaseMixin):
++class TestMeteringSrvPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
++                            test_l3_plugin.L3NatTestCaseMixin,
++                            test_db_metering.MeteringPluginDbTestCaseMixin):
+ 
+     resource_prefix_map = dict(
+         (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
+@@ -66,12 +67,16 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+     )
+ 
+     def setUp(self):
+-        service_plugins = {'metering_plugin_name': DB_METERING_PLUGIN_KLASS}
+-        test_config['plugin_name_v2'] = ('neutron.tests.unit.test_l3_plugin.'
+-                                         'TestL3NatIntPlugin')
++        service_plugins = {'metering_plugin_name':
++                           METERING_SERVICE_PLUGIN_KLASS,
++                           'l3_router_plugin_name':
++                           ('neutron.tests.unit.'
++                            'test_l3_plugin.TestL3NatServicePlugin')}
++
+         ext_mgr = MeteringTestExtensionManager()
+         test_config['extension_manager'] = ext_mgr
+-        super(TestMeteringPlugin, self).setUp(service_plugins=service_plugins)
++        super(TestMeteringSrvPlugin, self).setUp(
++            service_plugins=service_plugins)
+ 
+         self.uuid = '654f6b9d-0f36-4ae5-bd1b-01616794ca60'
+ 
+@@ -79,12 +84,12 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+         self.uuid_patch = mock.patch(uuid, return_value=self.uuid)
+         self.mock_uuid = self.uuid_patch.start()
+ 
+-        fanout = ('neutron.openstack.common.rpc.proxy.RpcProxy.'
+-                  'fanout_cast')
++        fanout = 'neutron.openstack.common.rpc.proxy.RpcProxy.fanout_cast'
+         self.fanout_patch = mock.patch(fanout)
+         self.mock_fanout = self.fanout_patch.start()
+ 
+         self.tenant_id = 'a7e61382-47b8-4d40-bae3-f95981b5637b'
++
+         self.ctx = context.Context('', self.tenant_id, is_admin=True)
+         self.context_patch = mock.patch('neutron.context.Context',
+                                         return_value=self.ctx)
+@@ -97,10 +102,9 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+         self.fanout_patch.stop()
+         self.context_patch.stop()
+         del test_config['extension_manager']
+-        del test_config['plugin_name_v2']
+-        super(TestMeteringPlugin, self).tearDown()
++        super(TestMeteringSrvPlugin, self).tearDown()
+ 
+-    def test_add_metering_label_rpc_call(self):
++    def test_add_metering_label_fanout(self):
+         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
+         expected = {'args': {'routers': [{'status': 'ACTIVE',
+                                           'name': 'router1',
+@@ -126,7 +130,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+                     self.mock_fanout.assert_called_with(self.ctx, expected,
+                                                         topic=self.topic)
+ 
+-    def test_remove_metering_label_rpc_call(self):
++    def test_remove_metering_label_fanout(self):
+         expected = {'args':
+                     {'routers': [{'status': 'ACTIVE',
+                                   'name': 'router1',
+@@ -149,7 +153,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+             self.mock_fanout.assert_called_with(self.ctx, expected,
+                                                 topic=self.topic)
+ 
+-    def test_remove_one_metering_label_rpc_call(self):
++    def test_remove_one_metering_label_fanout(self):
+         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
+         expected_add = {'args':
+                         {'routers': [{'status': 'ACTIVE',
+@@ -189,7 +193,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+                 self.mock_fanout.assert_called_with(self.ctx, expected_remove,
+                                                     topic=self.topic)
+ 
+-    def test_update_metering_label_rules_rpc_call(self):
++    def test_update_metering_label_rules_fanout(self):
+         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
+         expected_add = {'args':
+                         {'routers': [
+@@ -210,7 +214,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+                                       'metering_label_id': self.uuid,
+                                       'excluded': False,
+                                       'id': second_uuid}],
+-                                  'id': self.uuid}],
++                                     'id': self.uuid}],
+                              'id': self.uuid}]},
+                         'namespace': None,
+                         'method': 'update_metering_label_rules'}
+@@ -229,7 +233,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+                                       'metering_label_id': self.uuid,
+                                       'excluded': False,
+                                       'id': self.uuid}],
+-                                  'id': self.uuid}],
++                                     'id': self.uuid}],
+                              'id': self.uuid}]},
+                         'namespace': None,
+                         'method': 'update_metering_label_rules'}
+@@ -261,11 +265,19 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
+                 self.assertEqual(tenant_id, router['router']['tenant_id'])
+ 
+ 
+-class TestRouteIntPlugin(l3_agentschedulers_db.L3AgentSchedulerDbMixin,
+-                         test_l3_plugin.TestL3NatIntPlugin):
++class TestRouteIntPlugin(test_l3_plugin.TestL3NatServicePlugin):
+     supported_extension_aliases = ["router", "l3_agent_scheduler"]
+ 
+ 
++class TestMeteringSchedulerPlugin(db_base_plugin_v2.NeutronDbPluginV2,
++                                  l3_as_db.L3AgentSchedulerDbMixin):
++    pass
++
++
++L3_SERVICE_PLUGIN_KLASS = ('neutron.tests.unit.services.metering.'
++                           'test_metering_plugin.TestRouteIntPlugin')
++
++
+ class TestMeteringPluginL3AgentScheduler(
+         test_db_plugin.NeutronDbPluginV2TestCase,
+         test_l3_plugin.L3NatTestCaseMixin,
+@@ -277,10 +289,13 @@ class TestMeteringPluginL3AgentScheduler(
+     )
+ 
+     def setUp(self):
+-        service_plugins = {'metering_plugin_name': DB_METERING_PLUGIN_KLASS}
++        service_plugins = {'metering_plugin_name':
++                           METERING_SERVICE_PLUGIN_KLASS,
++                           'l3_router_plugin_name':
++                           (L3_SERVICE_PLUGIN_KLASS)}
+ 
+         plugin_str = ('neutron.tests.unit.services.metering.'
+-                      'test_metering_plugin.TestRouteIntPlugin')
++                      'test_metering_plugin.TestMeteringSchedulerPlugin')
+         test_config['plugin_name_v2'] = plugin_str
+ 
+         ext_mgr = MeteringTestExtensionManager()
+@@ -319,7 +334,7 @@ class TestMeteringPluginL3AgentScheduler(
+         del test_config['plugin_name_v2']
+         super(TestMeteringPluginL3AgentScheduler, self).tearDown()
+ 
+-    def test_add_metering_label_rpc_call(self):
++    def test_add_metering_label_cast(self):
+         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
+         expected = {'args': {'routers': [{'status': 'ACTIVE',
+                                           'name': 'router1',
+-- 
+1.7.9.5
+

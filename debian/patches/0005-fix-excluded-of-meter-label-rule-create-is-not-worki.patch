@@ -1,0 +1,63 @@
+Description: fix --excluded of meter-label-rule-create is not working
+ rule['excluded'] is boolean type, should not be compared with 'true'
+Author Siming Yin <saelvyn@gmail.com>
+Date: Wed, 11 Dec 2013 15:28:46 +0800
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1248002
+Origin: upstream, https://review.openstack.org/#/c/62859/
+
+diff --git a/neutron/services/metering/drivers/iptables/iptables_driver.py b/neutron/services/metering/drivers/iptables/iptables_driver.py
+index dd0ff16..7605204 100644
+--- a/neutron/services/metering/drivers/iptables/iptables_driver.py
++++ b/neutron/services/metering/drivers/iptables/iptables_driver.py
+@@ -154,7 +154,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
+             if rule['direction'] == 'egress':
+                 dir = '-o ' + ext_dev
+ 
+-            if rule['excluded'] == 'true':
++            if rule['excluded']:
+                 ipt_rule = dir + ' -d ' + remote_ip + ' -j RETURN'
+                 im.ipv4['filter'].add_rule(rules_chain, ipt_rule, wrap=False,
+                                            top=True)
+diff --git a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+index 6365436..c961d3c 100644
+--- a/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
++++ b/neutron/tests/unit/services/metering/drivers/test_iptables_driver.py
+@@ -126,9 +126,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
+                                '',
+                                wrap=False),
+                  call.add_rule('neutron-meter-r-eeef45da-c60',
+-                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j '
+-                               'neutron-meter-l-eeef45da-c60',
+-                               wrap=False, top=False)]
++                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j RETURN',
++                               wrap=False, top=True)]
+ 
+         self.v4filter_inst.assert_has_calls(calls)
+ 
+@@ -178,9 +177,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
+                                wrap=False, top=False),
+                  call.empty_chain('neutron-meter-r-c5df2fe5-c60', wrap=False),
+                  call.add_rule('neutron-meter-r-c5df2fe5-c60',
+-                               '-o qg-6d411f48-ec -d 10.0.0.0/24 -j '
+-                               'neutron-meter-l-c5df2fe5-c60',
+-                               wrap=False, top=False),
++                               '-o qg-6d411f48-ec -d 10.0.0.0/24 -j RETURN',
++                               wrap=False, top=True),
+                  call.add_rule('neutron-meter-r-c5df2fe5-c60',
+                                '-i qg-6d411f48-ec -d 20.0.0.0/24 -j '
+                                'neutron-meter-l-c5df2fe5-c60',
+@@ -342,9 +340,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
+                                '',
+                                wrap=False),
+                  call.add_rule('neutron-meter-r-eeef45da-c60',
+-                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j '
+-                               'neutron-meter-l-eeef45da-c60',
+-                               wrap=False, top=False),
++                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j RETURN',
++                               wrap=False, top=True),
+                  call.remove_chain('neutron-meter-l-c5df2fe5-c60', wrap=False),
+                  call.remove_chain('neutron-meter-r-c5df2fe5-c60', wrap=False),
+                  call.add_chain('neutron-meter-l-c5df2fe5-c60', wrap=False),
+-- 
+1.7.9.5
+

@@ -1,0 +1,119 @@
+Description: L3 Agent can handle many external networks
+ With this patch a l3 agent can handle any networks by setting the neutron
+ parameter external_network_bridge and gateway_external_network_id to as well
+ in the l3_agent.ini.
+Author: Sylvain Afchain <sylvain.afchain@enovance.com>
+Date: Sat, 30 Nov 2013 00:49:02 +0100
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1234750
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1194350
+Origin: upstream, https://review.openstack.org/#/c/59359/
+
+diff --git a/etc/l3_agent.ini b/etc/l3_agent.ini
+index 3815071..1bbf5fb 100644
+--- a/etc/l3_agent.ini
++++ b/etc/l3_agent.ini
+@@ -27,10 +27,12 @@
+ # This is done by setting the specific router_id.
+ # router_id =
+ 
+-# Each L3 agent can be associated with at most one external network.  This
+-# value should be set to the UUID of that external network.  If empty,
+-# the agent will enforce that only a single external networks exists and
+-# use that external network id
++# When external_network_bridge is set, each L3 agent can be associated
++# with at most one external network. This value should be set to the UUID
++# of that external network. If empty, the agent will enforce that only
++# a single external networks exists and use that external network id.
++# To allow L3 agent support multiple external networks, set
++# external_network_bridge to nothing and this one also.
+ # gateway_external_network_id =
+ 
+ # Indicates that this L3 agent should also handle routers that do not have
+diff --git a/neutron/agent/l3_agent.py b/neutron/agent/l3_agent.py
+index ebef907..ddeac1e 100644
+--- a/neutron/agent/l3_agent.py
++++ b/neutron/agent/l3_agent.py
+@@ -279,6 +279,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
+         """Find UUID of single external network for this agent."""
+         if self.conf.gateway_external_network_id:
+             return self.conf.gateway_external_network_id
++
++        # L3 agent doesn't use external_network_bridge to handle external
++        # networks, so bridge_mappings with provider networks will be used
++        # and the L3 agent is able to handle any external networks.
++        if not self.conf.external_network_bridge:
++            return
++
+         try:
+             return self.plugin_rpc.get_external_network_id(self.context)
+         except rpc_common.RemoteError as e:
+@@ -662,7 +669,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
+             ex_net_id = (r['external_gateway_info'] or {}).get('network_id')
+             if not ex_net_id and not self.conf.handle_internal_only_routers:
+                 continue
+-            if ex_net_id and ex_net_id != target_ex_net_id:
++            if (target_ex_net_id and ex_net_id and
++                    ex_net_id != target_ex_net_id):
+                 continue
+             cur_router_ids.add(r['id'])
+             if r['id'] not in self.router_info:
+diff --git a/neutron/tests/unit/test_l3_agent.py b/neutron/tests/unit/test_l3_agent.py
+index eb93047..c695dba 100644
+--- a/neutron/tests/unit/test_l3_agent.py
++++ b/neutron/tests/unit/test_l3_agent.py
+@@ -25,6 +25,7 @@ from neutron.agent import l3_agent
+ from neutron.agent.linux import interface
+ from neutron.common import config as base_config
+ from neutron.common import constants as l3_constants
++from neutron.common import exceptions as q_exc
+ from neutron.openstack.common import uuidutils
+ from neutron.tests import base
+ 
+@@ -705,6 +706,44 @@ class TestBasicRouterOperations(base.BaseTestCase):
+         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+         self.assertEqual(['1234'], agent._router_ids())
+ 
++    def test_gw_ext_net_id_specified_in_conf(self):
++        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
++        self.plugin_api.get_external_network_id.return_value = 'aaa'
++
++        routers = [
++            {'id': _uuid(),
++             'routes': [],
++             'admin_state_up': True,
++             'external_gateway_info': {'network_id': 'aaa'}}]
++
++        self.conf.set_override('external_network_bridge', 'br-ex')
++        agent._process_routers(routers)
++        self.assertIn(routers[0]['id'], agent.router_info)
++
++        agent.router_info = {}
++        self.plugin_api.get_external_network_id.side_effect = (
++            q_exc.TooManyExternalNetworks())
++        self.assertRaises(q_exc.TooManyExternalNetworks,
++                          agent._process_routers,
++                          routers)
++        self.assertNotIn(routers[0]['id'], agent.router_info)
++
++        agent.router_info = {}
++        self.conf.set_override('gateway_external_network_id', 'aaa')
++        agent._process_routers(routers)
++        self.assertIn(routers[0]['id'], agent.router_info)
++
++        agent.router_info = {}
++        self.conf.set_override('gateway_external_network_id', 'bbb')
++        agent._process_routers(routers)
++        self.assertNotIn(routers[0]['id'], agent.router_info)
++
++        agent.router_info = {}
++        self.conf.set_override('external_network_bridge', '')
++        self.conf.set_override('gateway_external_network_id', '')
++        agent._process_routers(routers)
++        self.assertIn(routers[0]['id'], agent.router_info)
++
+     def test_nonexistent_interface_driver(self):
+         self.conf.set_override('interface_driver', None)
+         with mock.patch.object(l3_agent, 'LOG') as log:
+-- 
+1.7.9.5
+
