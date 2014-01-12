@@ -322,10 +322,10 @@ Depends: adduser,
          debconf,
          lsb-base,
          neutron-common (= ${source:Version}),
-         openswan,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
+Suggests: openswan
 Provides: neutron-plugin-vpn-agent
 Conflicts: neutron-l3-agent
 Breaks: quantum-server (<< 2013.2~)
