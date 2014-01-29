@@ -71,10 +71,12 @@ class LinuxInterfaceDriver(object):
         self.conf = conf
         self.root_helper = config.get_root_helper(conf)
 
-    def init_l3(self, device_name, ip_cidrs, namespace=None):
+    def init_l3(self, device_name, ip_cidrs, namespace=None,
+                preserve_ips=[]):
         """Set the L3 settings for the interface using data from the port.
 
         ip_cidrs: list of 'X.X.X.X/YY' strings
+        preserve_ips: list of ip cidrs that should not be removed from device
         """
         device = ip_lib.IPDevice(device_name,
                                  self.root_helper,
@@ -96,7 +98,8 @@ class LinuxInterfaceDriver(object):
 
         # clean up any old addresses
         for ip_cidr, ip_version in previous.items():
-            device.addr.delete(ip_version, ip_cidr)
+            if ip_cidr not in preserve_ips:
+                device.addr.delete(ip_version, ip_cidr)
 
     def check_bridge_exists(self, bridge):
         if not ip_lib.device_exists(bridge):
@@ -381,7 +384,7 @@ class MetaInterfaceDriver(LinuxInterfaceDriver):
             tenant_name=self.conf.admin_tenant_name,
             auth_url=self.conf.auth_url,
             auth_strategy=self.conf.auth_strategy,
-            auth_region=self.conf.auth_region
+            region_name=self.conf.auth_region
         )
         self.flavor_driver_map = {}
         for flavor, driver_name in [

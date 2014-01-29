@@ -870,14 +870,16 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 if (l3_db.EXTERNAL_GW_INFO in r and
                         r[l3_db.EXTERNAL_GW_INFO] is not None):
                     # Gateway created
-                    gw_port = self._get_port(context.elevated(),
-                                             r["gw_port_id"])
-                    gw_ip = gw_port['fixed_ips'][0]['ip_address']
+                    gw_port_neutron = self._get_port(
+                        context.elevated(), r["gw_port_id"])
+                    gw_ip = gw_port_neutron['fixed_ips'][0]['ip_address']
 
                     # First link routers and set up the routes
                     self._set_router_gateway(r["id"],
                                              self._get_provider_router(),
                                              gw_ip)
+                    gw_port_midonet = self.client.get_link_port(
+                        self._get_provider_router(), r["id"])
 
                     # Get the NAT chains and add dynamic SNAT rules.
                     chain_names = _nat_chain_names(r["id"])
@@ -885,7 +887,9 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     self.client.add_dynamic_snat(tenant_id,
                                                  chain_names['pre-routing'],
                                                  chain_names['post-routing'],
-                                                 gw_ip, gw_port["id"], **props)
+                                                 gw_ip,
+                                                 gw_port_midonet.get_id(),
+                                                 **props)
 
             self.client.update_router(id, **router_data)
 
@@ -1044,8 +1048,42 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     "info=%r"), info)
         return info
 
+    def _assoc_fip(self, fip):
+        router = self.client.get_router(fip["router_id"])
+        link_port = self.client.get_link_port(
+            self._get_provider_router(), router.get_id())
+        self.client.add_router_route(
+            self._get_provider_router(),
+            src_network_addr='0.0.0.0',
+            src_network_length=0,
+            dst_network_addr=fip["floating_ip_address"],
+            dst_network_length=32,
+            next_hop_port=link_port.get_peer_id())
+        props = {OS_FLOATING_IP_RULE_KEY: fip['id']}
+        tenant_id = router.get_tenant_id()
+        chain_names = _nat_chain_names(router.get_id())
+        for chain_type, name in chain_names.items():
+            src_ip, target_ip = _get_nat_ips(chain_type, fip)
+            if chain_type == 'pre-routing':
+                nat_type = 'dnat'
+            else:
+                nat_type = 'snat'
+            self.client.add_static_nat(tenant_id, name, src_ip,
+                                       target_ip,
+                                       link_port.get_id(),
+                                       nat_type, **props)
+
+    def create_floatingip(self, context, floatingip):
+        session = context.session
+        with session.begin(subtransactions=True):
+            fip = super(MidonetPluginV2, self).create_floatingip(
+                context, floatingip)
+            if fip['port_id']:
+                self._assoc_fip(fip)
+        return fip
+
     def update_floatingip(self, context, id, floatingip):
-        """Handle floating IP assocation and disassociation."""
+        """Handle floating IP association and disassociation."""
         LOG.debug(_("MidonetPluginV2.update_floatingip called: id=%(id)s "
                     "floatingip=%(floatingip)s "),
                   {'id': id, 'floatingip': floatingip})
@@ -1056,32 +1094,7 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 fip = super(MidonetPluginV2, self).update_floatingip(
                     context, id, floatingip)
 
-                # Add a route for the floating IP on the provider router.
-                router = self.client.get_router(fip["router_id"])
-                link_port = self.client.get_link_port(
-                    self._get_provider_router(), router.get_id())
-                self.client.add_router_route(
-                    self._get_provider_router(),
-                    src_network_addr='0.0.0.0',
-                    src_network_length=0,
-                    dst_network_addr=fip["floating_ip_address"],
-                    dst_network_length=32,
-                    next_hop_port=link_port.get_peer_id())
-
-                # Add static SNAT and DNAT rules on the tenant router.
-                props = {OS_FLOATING_IP_RULE_KEY: id}
-                tenant_id = router.get_tenant_id()
-                chain_names = _nat_chain_names(router.get_id())
-                for chain_type, name in chain_names.iteritems():
-                    src_ip, target_ip = _get_nat_ips(chain_type, fip)
-                    if chain_type == 'pre-routing':
-                        nat_type = 'dnat'
-                    else:
-                        nat_type = 'snat'
-                    self.client.add_static_nat(tenant_id, name, src_ip,
-                                               target_ip,
-                                               link_port.get_id(),
-                                               nat_type, **props)
+                self._assoc_fip(fip)
 
             # disassociate floating IP
             elif floatingip['floatingip']['port_id'] is None:

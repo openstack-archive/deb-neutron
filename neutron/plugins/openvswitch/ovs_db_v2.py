@@ -55,6 +55,7 @@ def add_network_binding(session, network_id, network_type,
                                                physical_network,
                                                segmentation_id)
         session.add(binding)
+    return binding
 
 
 def sync_vlan_allocations(network_vlan_ranges):
@@ -392,9 +393,9 @@ def add_tunnel_endpoint(ip, max_retries=10):
 
                 return tunnel
         except db_exc.DBDuplicateEntry:
-            # a concurrent transaction has been commited, try again
+            # a concurrent transaction has been committed, try again
             LOG.debug(_('Adding a tunnel endpoint failed due to a concurrent'
-                        'transaction had been commited (%s attempts left)'),
+                        'transaction had been committed (%s attempts left)'),
                       max_retries - (i + 1))
 
     raise q_exc.NeutronException(

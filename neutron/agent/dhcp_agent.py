@@ -25,6 +25,7 @@ from neutron.agent.common import config
 from neutron.agent.linux import dhcp
 from neutron.agent.linux import external_process
 from neutron.agent.linux import interface
+from neutron.agent.linux import ovs_lib  # noqa
 from neutron.agent import rpc as agent_rpc
 from neutron.common import constants
 from neutron.common import exceptions
@@ -127,7 +128,13 @@ class DhcpAgent(manager.Manager):
 
             getattr(driver, action)(**action_kwargs)
             return True
-
+        except exceptions.Conflict:
+            # No need to resync here, the agent will receive the event related
+            # to a status update for the network
+            LOG.warning(_('Unable to %(action)s dhcp for %(net_id)s: there is '
+                          'a conflict with its current state; please check '
+                          'that the network and/or its subnet(s) still exist.')
+                        % {'net_id': network.id, 'action': action})
         except Exception as e:
             self.needs_resync = True
             if (isinstance(e, common.RemoteError)
@@ -157,7 +164,9 @@ class DhcpAgent(manager.Manager):
                                     'network %s'), deleted_id)
 
             for network in active_networks:
-                pool.spawn_n(self.safe_configure_dhcp_for_network, network)
+                pool.spawn(self.safe_configure_dhcp_for_network, network)
+            pool.waitall()
+            LOG.info(_('Synchronizing state complete'))
 
         except Exception:
             self.needs_resync = True
@@ -432,20 +441,24 @@ class DhcpPluginApi(proxy.RpcProxy):
 
     def create_dhcp_port(self, port):
         """Make a remote process call to create the dhcp port."""
-        return dhcp.DictModel(self.call(self.context,
-                                        self.make_msg('create_dhcp_port',
-                                                      port=port,
-                                                      host=self.host),
-                                        topic=self.topic))
+        port = self.call(self.context,
+                         self.make_msg('create_dhcp_port',
+                                       port=port,
+                                       host=self.host),
+                         topic=self.topic)
+        if port:
+            return dhcp.DictModel(port)
 
     def update_dhcp_port(self, port_id, port):
         """Make a remote process call to update the dhcp port."""
-        return dhcp.DictModel(self.call(self.context,
-                                        self.make_msg('update_dhcp_port',
-                                                      port_id=port_id,
-                                                      port=port,
-                                                      host=self.host),
-                                        topic=self.topic))
+        port = self.call(self.context,
+                         self.make_msg('update_dhcp_port',
+                                       port_id=port_id,
+                                       port=port,
+                                       host=self.host),
+                         topic=self.topic)
+        if port:
+            return dhcp.DictModel(port)
 
     def release_dhcp_port(self, network_id, device_id):
         """Make a remote process call to release the dhcp port."""

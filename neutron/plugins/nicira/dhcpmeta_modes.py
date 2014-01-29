@@ -36,10 +36,10 @@ class DhcpMetadataAccess(object):
 
     def setup_dhcpmeta_access(self):
         """Initialize support for DHCP and Metadata services."""
-        if cfg.CONF.NVP.agent_mode == config.AgentModes.AGENT:
+        if cfg.CONF.NSX.agent_mode == config.AgentModes.AGENT:
             self._setup_rpc_dhcp_metadata()
             mod = nvp_rpc
-        elif cfg.CONF.NVP.agent_mode == config.AgentModes.AGENTLESS:
+        elif cfg.CONF.NSX.agent_mode == config.AgentModes.AGENTLESS:
             self._setup_nvp_dhcp_metadata()
             mod = nvp_svc
         self.handle_network_dhcp_access_delegate = (
@@ -77,6 +77,7 @@ class DhcpMetadataAccess(object):
             self.supported_extension_aliases.remove(
                 "dhcp_agent_scheduler")
         nvp_svc.register_dhcp_opts(cfg)
+        nvp_svc.register_metadata_opts(cfg)
         self.lsn_manager = nvp_svc.LsnManager(self)
         self.agent_notifiers[const.AGENT_TYPE_DHCP] = (
             nvp_svc.DhcpAgentNotifyAPI(self, self.lsn_manager))
@@ -89,7 +90,7 @@ class DhcpMetadataAccess(object):
             error = None
             nvp_svc.check_services_requirements(self.cluster)
         except nvp_exc.NvpInvalidVersion:
-            error = _("Unable to run Neutron with config option '%s', as NVP "
+            error = _("Unable to run Neutron with config option '%s', as NSX "
                       "does not support it") % config.AgentModes.AGENTLESS
         except nvp_exc.ServiceClusterUnavailable:
             error = _("Unmet dependency for config option "
@@ -106,9 +107,10 @@ class DhcpMetadataAccess(object):
         self.handle_port_dhcp_access_delegate(self, context, port_data, action)
 
     def handle_port_metadata_access(self, context, port, is_delete=False):
-        self.handle_port_metadata_access_delegate(context, port, is_delete)
+        self.handle_port_metadata_access_delegate(self, context,
+                                                  port, is_delete)
 
     def handle_router_metadata_access(self, context,
-                                      router_id, do_create=True):
+                                      router_id, interface=None):
         self.handle_metadata_access_delegate(self, context,
-                                             router_id, do_create)
+                                             router_id, interface)

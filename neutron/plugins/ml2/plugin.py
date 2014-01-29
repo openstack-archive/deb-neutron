@@ -203,7 +203,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         binding = mech_context._binding
         port = mech_context.current
         self._update_port_dict_binding(port, binding)
-
         host = attrs and attrs.get(portbindings.HOST_ID)
         host_set = attributes.is_attr_set(host)
 
@@ -214,6 +213,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             self.mechanism_manager.unbind_port(mech_context)
             self._update_port_dict_binding(port, binding)
 
+        # Return True only if an agent notification is needed.
+        # This will happen if a new host was specified and that host
+        # differs from the current one. Note that host_set is True
+        # even if the host is an empty string
+        ret_value = host_set and binding.get('host') != host
         if host_set:
             binding.host = host
             port[portbindings.HOST_ID] = host
@@ -222,7 +226,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             self.mechanism_manager.bind_port(mech_context)
             self._update_port_dict_binding(port, binding)
 
-        return True
+        return ret_value
 
     def _update_port_dict_binding(self, port, binding):
         port[portbindings.HOST_ID] = binding.host
@@ -585,7 +589,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         session = context.session
         changed_fixed_ips = 'fixed_ips' in port['port']
         with session.begin(subtransactions=True):
-            original_port = super(Ml2Plugin, self).get_port(context, id)
+            port_db = (session.query(models_v2.Port).
+                       enable_eagerloads(False).
+                       filter_by(id=id).with_lockmode('update').one())
+            original_port = self._make_port_dict(port_db)
             updated_port = super(Ml2Plugin, self).update_port(context, id,
                                                               port)
             if self.is_address_pairs_attribute_updated(original_port, port):
@@ -637,7 +644,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         with session.begin(subtransactions=True):
             if l3plugin:
                 l3plugin.disassociate_floatingips(context, id)
-            port = self.get_port(context, id)
+            port_db = (session.query(models_v2.Port).
+                       enable_eagerloads(False).
+                       filter_by(id=id).with_lockmode('update').one())
+            port = self._make_port_dict(port_db)
+
             network = self.get_network(context, port['network_id'])
             mech_context = driver_context.PortContext(self, context, port,
                                                       network)

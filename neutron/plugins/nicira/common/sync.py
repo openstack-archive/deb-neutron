@@ -26,6 +26,7 @@ from neutron.openstack.common import log
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import timeutils
 from neutron.plugins.nicira.common import exceptions as nvp_exc
+from neutron.plugins.nicira.common import nsx_utils
 from neutron.plugins.nicira import NvpApiClient
 from neutron.plugins.nicira import nvplib
 
@@ -375,12 +376,12 @@ class NvpSynchronizer():
         if not lswitchport:
             # Try to get port from nvp
             try:
-                lp_uuid = self._plugin._nvp_get_port_id(
-                    context, self._cluster, neutron_port_data)
+                ls_uuid, lp_uuid = nsx_utils.get_nsx_switch_and_port_id(
+                    context.session, self._cluster, neutron_port_data['id'])
                 if lp_uuid:
                     lswitchport = nvplib.get_port(
-                        self._cluster, neutron_port_data['network_id'],
-                        lp_uuid, relations='LogicalPortStatus')
+                        self._cluster, ls_uuid, lp_uuid,
+                        relations='LogicalPortStatus')
             except (exceptions.PortNotFoundOnNetwork):
                 # NOTE(salv-orlando): We should be catching
                 # NvpApiClient.ResourceNotFound here instead
@@ -475,7 +476,7 @@ class NvpSynchronizer():
             results, cursor, total_size = nvplib.get_single_query_page(
                 uri, self._cluster, cursor,
                 min(page_size, nvplib.MAX_PAGE_SIZE))
-            for _req in range(0, num_requests - 1):
+            for _req in range(num_requests - 1):
                 # If no cursor is returned break the cycle as there is no
                 # actual need to perform multiple requests (all fetched)
                 # This happens when the overall size of resources exceeds
@@ -545,7 +546,7 @@ class NvpSynchronizer():
             sleep_interval = self._sync_backoff
             # Cap max back off to 64 seconds
             self._sync_backoff = min(self._sync_backoff * 2, 64)
-            LOG.exception(_("An error occured while communicating with "
+            LOG.exception(_("An error occurred while communicating with "
                             "NVP backend. Will retry synchronization "
                             "in %d seconds"), sleep_interval)
             return sleep_interval

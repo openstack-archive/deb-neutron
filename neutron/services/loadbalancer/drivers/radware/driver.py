@@ -285,9 +285,9 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
         # Anything to do here? the hm is not connected to the graph yet
         pass
 
-    def update_health_monitor(self, context, old_health_monitor,
-                              health_monitor,
-                              pool_id):
+    def update_pool_health_monitor(self, context, old_health_monitor,
+                                   health_monitor,
+                                   pool_id):
         self._handle_pool_health_monitor(context, health_monitor, pool_id)
 
     def create_pool_health_monitor(self, context,
@@ -402,7 +402,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
     def _get_service(self, pool_id, network_id):
         """Get a service name.
 
-        if you cant find one,
+        if you can't find one,
         create a service and create l2_l2 WF.
 
         """
@@ -468,7 +468,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
 
     def _create_workflow(self, wf_name, wf_template_name,
                          create_workflow_params=None):
-        """Create a WF if it doesnt exists yet."""
+        """Create a WF if it doesn't exists yet."""
         if not self.workflow_templates_exists:
                 self._verify_workflow_templates()
         if not self._workflow_exists(wf_name):
@@ -484,7 +484,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
             LOG.debug(_('create_workflow response: %s'), str(response))
 
     def _verify_workflow_templates(self):
-        """Verify the existance of workflows on vDirect server."""
+        """Verify the existence of workflows on vDirect server."""
         workflows = {self.l2_l3_wf_name:
                      False, self.l4_wf_name: False}
         resource = '/api/workflowTemplate'

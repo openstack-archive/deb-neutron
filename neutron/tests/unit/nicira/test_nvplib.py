@@ -30,6 +30,7 @@ from neutron.plugins.nicira import NvpApiClient
 from neutron.plugins.nicira import nvplib
 from neutron.tests import base
 from neutron.tests.unit.nicira import fake_nvpapiclient
+from neutron.tests.unit.nicira import nicira_method
 from neutron.tests.unit.nicira import NVPAPI_NAME
 from neutron.tests.unit.nicira import STUBS_PATH
 from neutron.tests.unit import test_api_v2
@@ -55,11 +56,11 @@ class NvplibTestCase(base.BaseTestCase):
 
         instance.return_value.request.side_effect = _fake_request
         self.fake_cluster = nvp_cluster.NVPCluster(
-            name='fake-cluster', nvp_controllers=['1.1.1.1:999'],
-            default_tz_uuid=_uuid(), nvp_user='foo', nvp_password='bar')
+            name='fake-cluster', nsx_controllers=['1.1.1.1:999'],
+            default_tz_uuid=_uuid(), nsx_user='foo', nsx_password='bar')
         self.fake_cluster.api_client = NvpApiClient.NVPApiHelper(
             ('1.1.1.1', '999', True),
-            self.fake_cluster.nvp_user, self.fake_cluster.nvp_password,
+            self.fake_cluster.nsx_user, self.fake_cluster.nsx_password,
             self.fake_cluster.req_timeout, self.fake_cluster.http_timeout,
             self.fake_cluster.retries, self.fake_cluster.redirects)
 
@@ -121,11 +122,11 @@ class NvplibNegativeTests(base.BaseTestCase):
 
         instance.return_value.request.side_effect = _faulty_request
         self.fake_cluster = nvp_cluster.NVPCluster(
-            name='fake-cluster', nvp_controllers=['1.1.1.1:999'],
-            default_tz_uuid=_uuid(), nvp_user='foo', nvp_password='bar')
+            name='fake-cluster', nsx_controllers=['1.1.1.1:999'],
+            default_tz_uuid=_uuid(), nsx_user='foo', nsx_password='bar')
         self.fake_cluster.api_client = NvpApiClient.NVPApiHelper(
             ('1.1.1.1', '999', True),
-            self.fake_cluster.nvp_user, self.fake_cluster.nvp_password,
+            self.fake_cluster.nsx_user, self.fake_cluster.nsx_password,
             self.fake_cluster.req_timeout, self.fake_cluster.http_timeout,
             self.fake_cluster.retries, self.fake_cluster.redirects)
 
@@ -472,7 +473,7 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
              'type': 'LogicalRouterStatus',
              'lport_link_up_count': 0, }, }
 
-        with mock.patch(_nicira_method('do_request'),
+        with mock.patch(nicira_method('do_request'),
                         return_value=self._get_lrouter(tenant_id,
                                                        router_name,
                                                        router_id,
@@ -486,7 +487,7 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
         router_name = 'fake_router_name'
         router_id = 'fake_router_id'
         nexthop_ip = '10.0.0.1'
-        with mock.patch(_nicira_method('do_request'),
+        with mock.patch(nicira_method('do_request'),
                         return_value=self._get_lrouter(tenant_id,
                                                        router_name,
                                                        router_id)):
@@ -503,9 +504,9 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                        "destination": "169.254.169.0/30"}, ]
 
         nvp_routes = [self._get_single_route(router_id)]
-        with mock.patch(_nicira_method('get_explicit_routes_lrouter'),
+        with mock.patch(nicira_method('get_explicit_routes_lrouter'),
                         return_value=nvp_routes):
-            with mock.patch(_nicira_method('create_explicit_route_lrouter'),
+            with mock.patch(nicira_method('create_explicit_route_lrouter'),
                             return_value='fake_uuid'):
                 old_routes = nvplib.update_explicit_routes_lrouter(
                     self.fake_cluster, router_id, new_routes)
@@ -517,9 +518,9 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                        "destination": "169.254.169.0/30"}, ]
 
         nvp_routes = [self._get_single_route(router_id)]
-        with mock.patch(_nicira_method('get_explicit_routes_lrouter'),
+        with mock.patch(nicira_method('get_explicit_routes_lrouter'),
                         return_value=nvp_routes):
-            with mock.patch(_nicira_method('create_explicit_route_lrouter'),
+            with mock.patch(nicira_method('create_explicit_route_lrouter'),
                             side_effect=NvpApiClient.NvpApiException):
                 self.assertRaises(NvpApiClient.NvpApiException,
                                   nvplib.update_explicit_routes_lrouter,
@@ -536,11 +537,11 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                       self._get_single_route(router_id, 'fake_route_id_2',
                                              '0.0.0.2/24', '10.0.0.4'), ]
 
-        with mock.patch(_nicira_method('get_explicit_routes_lrouter'),
+        with mock.patch(nicira_method('get_explicit_routes_lrouter'),
                         return_value=nvp_routes):
-            with mock.patch(_nicira_method('delete_explicit_route_lrouter'),
+            with mock.patch(nicira_method('delete_explicit_route_lrouter'),
                             return_value=None):
-                with mock.patch(_nicira_method(
+                with mock.patch(nicira_method(
                     'create_explicit_route_lrouter'),
                     return_value='fake_uuid'):
                     old_routes = nvplib.update_explicit_routes_lrouter(
@@ -558,12 +559,12 @@ class TestNvplibExplicitLRouters(NvplibTestCase):
                       self._get_single_route(router_id, 'fake_route_id_2',
                                              '0.0.0.2/24', '10.0.0.4'), ]
 
-        with mock.patch(_nicira_method('get_explicit_routes_lrouter'),
+        with mock.patch(nicira_method('get_explicit_routes_lrouter'),
                         return_value=nvp_routes):
-            with mock.patch(_nicira_method('delete_explicit_route_lrouter'),
+            with mock.patch(nicira_method('delete_explicit_route_lrouter'),
                             side_effect=NvpApiClient.NvpApiException):
                 with mock.patch(
-                    _nicira_method('create_explicit_route_lrouter'),
+                    nicira_method('create_explicit_route_lrouter'),
                     return_value='fake_uuid'):
                     self.assertRaises(
                         NvpApiClient.NvpApiException,
@@ -594,7 +595,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
     def test_get_lrouters(self):
         lrouter_uuids = [nvplib.create_lrouter(
             self.fake_cluster, 'pippo', 'fake-lrouter-%s' % k,
-            '10.0.0.1')['uuid'] for k in range(0, 3)]
+            '10.0.0.1')['uuid'] for k in range(3)]
         routers = nvplib.get_lrouters(self.fake_cluster, 'pippo')
         for router in routers:
             self.assertIn(router['uuid'], lrouter_uuids)
@@ -691,7 +692,7 @@ class TestNvplibLogicalRouters(NvplibTestCase):
             self.fake_cluster, lrouter['uuid'], 'pippo',
             'qp_id_%s' % k, 'port-%s' % k, True,
             ['192.168.0.%s' % k], '00:11:22:33:44:55')['uuid']
-            for k in range(0, 3)]
+            for k in range(3)]
         ports = nvplib.query_lrouter_lports(self.fake_cluster, lrouter['uuid'])
         self.assertEqual(len(ports), 3)
         for res_port in ports:
@@ -1402,7 +1403,7 @@ class TestNvplibLogicalPorts(NvplibTestCase):
             nvplib.create_lport(
                 self.fake_cluster, lswitch['uuid'], 'pippo', 'qportid-%s' % k,
                 'port-%s' % k, 'deviceid-%s' % k, True)['uuid']
-            for k in range(0, 2)]
+            for k in range(2)]
         switch_port_uuids.append(lport['uuid'])
         ports = nvplib.query_lswitch_lports(self.fake_cluster, lswitch['uuid'])
         self.assertEqual(len(ports), 3)

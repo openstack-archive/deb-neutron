@@ -94,6 +94,21 @@ class TestABCDriver(TestBase):
              mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255'),
              mock.call().addr.delete(4, '172.16.77.240/24')])
 
+    def test_l3_init_with_preserve(self):
+        addresses = [dict(ip_version=4, scope='global',
+                          dynamic=False, cidr='192.168.1.3/32')]
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns,
+                   preserve_ips=['192.168.1.3/32'])
+        self.ip_dev.assert_has_calls(
+            [mock.call('tap0', 'sudo', namespace=ns),
+             mock.call().addr.list(scope='global', filters=['permanent']),
+             mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255')])
+        self.assertFalse(self.ip_dev().addr.delete.called)
+
 
 class TestOVSInterfaceDriver(TestBase):
 
@@ -110,6 +125,31 @@ class TestOVSInterfaceDriver(TestBase):
 
     def test_plug_alt_bridge(self):
         self._test_plug(bridge='br-foo')
+
+    def test_plug_configured_bridge(self):
+        br = 'br-v'
+        self.conf.set_override('ovs_use_veth', False)
+        self.conf.set_override('ovs_integration_bridge', br)
+        self.assertEqual(self.conf.ovs_integration_bridge, br)
+
+        def device_exists(dev, root_helper=None, namespace=None):
+            return dev == br
+
+        ovs = interface.OVSInterfaceDriver(self.conf)
+        with mock.patch.object(ovs, '_ovs_add_port') as add_port:
+            self.device_exists.side_effect = device_exists
+            ovs.plug('01234567-1234-1234-99',
+                     'port-1234',
+                     'tap0',
+                     'aa:bb:cc:dd:ee:ff',
+                     bridge=None,
+                     namespace=None)
+
+        add_port.assert_called_once_with('br-v',
+                                         'tap0',
+                                         'port-1234',
+                                         'aa:bb:cc:dd:ee:ff',
+                                         internal=True)
 
     def _test_plug(self, additional_expectation=[], bridge=None,
                    namespace=None):

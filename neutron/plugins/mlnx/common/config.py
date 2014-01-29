@@ -43,11 +43,18 @@ eswitch_opts = [
                help=_("Type of VM network interface: mlnx_direct or "
                       "hostdev")),
     cfg.StrOpt('daemon_endpoint',
-               default='tcp://127.0.0.1:5001',
+               default='tcp://127.0.0.1:60001',
                help=_('eswitch daemon end point')),
     cfg.IntOpt('request_timeout', default=3000,
                help=_("The number of milliseconds the agent will wait for "
                       "response on request to daemon.")),
+    cfg.IntOpt('retries', default=3,
+               help=_("The number of retries the agent will send request "
+                      "to daemon before giving up")),
+    cfg.IntOpt('backoff_rate', default=2,
+               help=_("backoff rate multiplier for waiting period between "
+                      "retries for request to daemon, i.e. value of 2 will "
+                      " double the request timeout each retry")),
 ]
 
 agent_opts = [

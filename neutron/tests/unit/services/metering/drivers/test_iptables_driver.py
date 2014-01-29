@@ -36,7 +36,7 @@ class IptablesDriverTestCase(base.BaseTestCase):
         self.addCleanup(self.utils_exec_p.stop)
         self.iptables_cls_p = mock.patch(
             'neutron.agent.linux.iptables_manager.IptablesManager')
-        iptables_cls = self.iptables_cls_p.start()
+        self.iptables_cls = self.iptables_cls_p.start()
         self.addCleanup(self.iptables_cls_p.stop)
         self.iptables_inst = mock.Mock()
         self.v4filter_inst = mock.Mock()
@@ -45,14 +45,30 @@ class IptablesDriverTestCase(base.BaseTestCase):
         self.v6filter_inst.chains = []
         self.iptables_inst.ipv4 = {'filter': self.v4filter_inst}
         self.iptables_inst.ipv6 = {'filter': self.v6filter_inst}
-        iptables_cls.return_value = self.iptables_inst
+        self.iptables_cls.return_value = self.iptables_inst
         cfg.CONF.set_override('interface_driver',
                               'neutron.agent.linux.interface.NullDriver')
-        self.router_info_inst = mock.Mock()
-        self.router_info_inst.iptables_manager = self.iptables_inst
-
+        cfg.CONF.set_override('root_helper',
+                              'fake_sudo',
+                              'AGENT')
         self.metering = iptables_driver.IptablesMeteringDriver('metering',
                                                                cfg.CONF)
+
+    def test_root_helper(self):
+        routers = [{'_metering_labels': [
+            {'id': 'c5df2fe5-c600-4a2a-b2f4-c0fb6df73c83',
+             'rules': []}],
+            'admin_state_up': True,
+            'gw_port_id': '7d411f48-ecc7-45e0-9ece-3b5bdb54fcee',
+            'id': '473ec392-1711-44e3-b008-3251ccfc5099',
+            'name': 'router1',
+            'status': 'ACTIVE',
+            'tenant_id': '6c5f5d2a1fa2441e88e35422926f48e8'}]
+        self.metering.add_metering_label(None, routers)
+
+        self.iptables_cls.assert_called_with(root_helper='fake_sudo',
+                                             namespace=mock.ANY,
+                                             binary_name=mock.ANY)
 
     def test_add_metering_label(self):
         routers = [{'_metering_labels': [
@@ -126,9 +142,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
                                '',
                                wrap=False),
                  call.add_rule('neutron-meter-r-eeef45da-c60',
-                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j '
-                               'neutron-meter-l-eeef45da-c60',
-                               wrap=False, top=False)]
+                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j RETURN',
+                               wrap=False, top=True)]
 
         self.v4filter_inst.assert_has_calls(calls)
 
@@ -178,9 +193,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
                                wrap=False, top=False),
                  call.empty_chain('neutron-meter-r-c5df2fe5-c60', wrap=False),
                  call.add_rule('neutron-meter-r-c5df2fe5-c60',
-                               '-o qg-6d411f48-ec -d 10.0.0.0/24 -j '
-                               'neutron-meter-l-c5df2fe5-c60',
-                               wrap=False, top=False),
+                               '-o qg-6d411f48-ec -d 10.0.0.0/24 -j RETURN',
+                               wrap=False, top=True),
                  call.add_rule('neutron-meter-r-c5df2fe5-c60',
                                '-i qg-6d411f48-ec -d 20.0.0.0/24 -j '
                                'neutron-meter-l-c5df2fe5-c60',
@@ -342,9 +356,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
                                '',
                                wrap=False),
                  call.add_rule('neutron-meter-r-eeef45da-c60',
-                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j '
-                               'neutron-meter-l-eeef45da-c60',
-                               wrap=False, top=False),
+                               '-i qg-7d411f48-ec -d 20.0.0.0/24 -j RETURN',
+                               wrap=False, top=True),
                  call.remove_chain('neutron-meter-l-c5df2fe5-c60', wrap=False),
                  call.remove_chain('neutron-meter-r-c5df2fe5-c60', wrap=False),
                  call.add_chain('neutron-meter-l-c5df2fe5-c60', wrap=False),

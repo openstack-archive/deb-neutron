@@ -275,17 +275,17 @@ class NvpSyncTestCase(base.BaseTestCase):
 
         self.mock_nvpapi.return_value.request.side_effect = _fake_request
         self.fake_cluster = nvp_cluster.NVPCluster(
-            name='fake-cluster', nvp_controllers=['1.1.1.1:999'],
-            default_tz_uuid=_uuid(), nvp_user='foo', nvp_password='bar')
+            name='fake-cluster', nsx_controllers=['1.1.1.1:999'],
+            default_tz_uuid=_uuid(), nsx_user='foo', nsx_password='bar')
         self.fake_cluster.api_client = NvpApiClient.NVPApiHelper(
             ('1.1.1.1', '999', True),
-            self.fake_cluster.nvp_user, self.fake_cluster.nvp_password,
+            self.fake_cluster.nsx_user, self.fake_cluster.nsx_password,
             self.fake_cluster.req_timeout, self.fake_cluster.http_timeout,
             self.fake_cluster.retries, self.fake_cluster.redirects)
         # Instantiate Neutron plugin
         # and setup needed config variables
         args = ['--config-file', get_fake_conf('neutron.conf.test'),
-                '--config-file', get_fake_conf('nvp.ini.test')]
+                '--config-file', get_fake_conf('nsx.ini.test')]
         config.parse(args=args)
         cfg.CONF.set_override('allow_overlapping_ips', True)
         self._plugin = NeutronPlugin.NvpPluginV2()
@@ -350,14 +350,14 @@ class NvpSyncTestCase(base.BaseTestCase):
         networks = []
         ports = []
         routers = []
-        for i in range(0, net_size):
+        for i in range(net_size):
             net = self._plugin.create_network(ctx, network(i))
             networks.append(net)
             self._plugin.create_subnet(ctx, subnet(i, net['id']))
-            for j in range(0, port_size):
+            for j in range(port_size):
                 ports.append(self._plugin.create_port(
                     ctx, port("%s-%s" % (i, j), net['id'])))
-        for i in range(0, router_size):
+        for i in range(router_size):
             routers.append(self._plugin.create_router(ctx, router(i)))
         # Do not return anything as the user does need the actual
         # data created
@@ -554,7 +554,7 @@ class NvpSyncTestCase(base.BaseTestCase):
                 self.assertEqual(exp_status, q_net['status'])
 
     def test_synchronize_network_on_get(self):
-        cfg.CONF.set_override('always_read_status', True, 'NVP_SYNC')
+        cfg.CONF.set_override('always_read_status', True, 'NSX_SYNC')
         ctx = context.get_admin_context()
         with self._populate_data(ctx):
             # Put a network down to verify punctual synchronization
@@ -583,7 +583,7 @@ class NvpSyncTestCase(base.BaseTestCase):
                 self.assertEqual(exp_status, q_port['status'])
 
     def test_synchronize_port_on_get(self):
-        cfg.CONF.set_override('always_read_status', True, 'NVP_SYNC')
+        cfg.CONF.set_override('always_read_status', True, 'NSX_SYNC')
         ctx = context.get_admin_context()
         with self._populate_data(ctx):
             # Put a port down to verify punctual synchronization
@@ -613,7 +613,7 @@ class NvpSyncTestCase(base.BaseTestCase):
                 self.assertEqual(exp_status, q_rtr['status'])
 
     def test_synchronize_router_on_get(self):
-        cfg.CONF.set_override('always_read_status', True, 'NVP_SYNC')
+        cfg.CONF.set_override('always_read_status', True, 'NSX_SYNC')
         ctx = context.get_admin_context()
         with self._populate_data(ctx):
             # Put a router down to verify punctual synchronization
@@ -627,7 +627,7 @@ class NvpSyncTestCase(base.BaseTestCase):
             NvpApiClient.RequestTimeout)
         # chunk size won't matter here
         sp = sync.SyncParameters(999)
-        for i in range(0, 10):
+        for i in range(10):
             self.assertEqual(
                 min(64, 2 ** i),
                 self._plugin._synchronizer._synchronize_state(sp))

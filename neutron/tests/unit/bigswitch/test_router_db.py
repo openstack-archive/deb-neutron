@@ -18,8 +18,8 @@
 # @author: Sumit Naiksatam, sumitnaiksatam@gmail.com
 #
 
+import contextlib
 import copy
-import os
 
 from mock import patch
 from oslo.config import cfg
@@ -29,8 +29,7 @@ from neutron.common.test_lib import test_config
 from neutron import context
 from neutron.extensions import l3
 from neutron.manager import NeutronManager
-from neutron.openstack.common.notifier import api as notifier_api
-from neutron.openstack.common.notifier import test_notifier
+from neutron.openstack.common import uuidutils
 from neutron.plugins.bigswitch.extensions import routerrule
 from neutron.tests.unit.bigswitch import fake_server
 from neutron.tests.unit.bigswitch import test_base
@@ -39,23 +38,7 @@ from neutron.tests.unit import test_extension_extradhcpopts as test_extradhcp
 from neutron.tests.unit import test_l3_plugin
 
 
-def new_L3_setUp(self):
-    test_config['plugin_name_v2'] = (
-        'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2')
-    etc_path = os.path.join(os.path.dirname(__file__), 'etc')
-    rp_conf_file = os.path.join(etc_path, 'restproxy.ini.test')
-    test_config['config_files'] = [rp_conf_file]
-    cfg.CONF.set_default('allow_overlapping_ips', False)
-    ext_mgr = RouterRulesTestExtensionManager()
-    test_config['extension_manager'] = ext_mgr
-    super(test_l3_plugin.L3BaseForIntTests, self).setUp()
-
-    # Set to None to reload the drivers
-    notifier_api._drivers = None
-    cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
-
-
-origSetUp = test_l3_plugin.L3NatDBIntTestCase.setUp
+_uuid = uuidutils.generate_uuid
 
 
 class RouterRulesTestExtensionManager(object):
@@ -87,15 +70,16 @@ class RouterDBTestCase(test_base.BigSwitchTestBase,
 
     def setUp(self):
         self.setup_patches()
-        test_l3_plugin.L3NatDBIntTestCase.setUp = new_L3_setUp
-        super(RouterDBTestCase, self).setUp()
+        self.setup_config_files()
+        ext_mgr = RouterRulesTestExtensionManager()
+        super(RouterDBTestCase, self).setUp(plugin=self._plugin_name,
+                                            ext_mgr=ext_mgr)
+        cfg.CONF.set_default('allow_overlapping_ips', False)
         self.plugin_obj = NeutronManager.get_plugin()
 
     def tearDown(self):
         super(RouterDBTestCase, self).tearDown()
-        del test_config['plugin_name_v2']
         del test_config['config_files']
-        test_l3_plugin.L3NatDBIntTestCase.setUp = origSetUp
 
     def test_router_remove_router_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
@@ -140,6 +124,70 @@ class RouterDBTestCase(test_base.BigSwitchTestBase,
                                                   p['port']['id'])
                     # remove extra port created
                     self._delete('ports', p2['port']['id'])
+
+    def test_multi_tenant_flip_alllocation(self):
+        tenant1_id = _uuid()
+        tenant2_id = _uuid()
+        with contextlib.nested(
+            self.network(tenant_id=tenant1_id),
+            self.network(tenant_id=tenant2_id)) as (n1, n2):
+            with contextlib.nested(
+                self.subnet(network=n1, cidr='11.0.0.0/24'),
+                self.subnet(network=n2, cidr='12.0.0.0/24'),
+                self.subnet(cidr='13.0.0.0/24')) as (s1, s2, psub):
+                with contextlib.nested(
+                    self.router(tenant_id=tenant1_id),
+                    self.router(tenant_id=tenant2_id),
+                    self.port(subnet=s1, tenant_id=tenant1_id),
+                    self.port(subnet=s2, tenant_id=tenant2_id)) as (r1, r2,
+                                                                    p1, p2):
+                    self._set_net_external(psub['subnet']['network_id'])
+                    s1id = p1['port']['fixed_ips'][0]['subnet_id']
+                    s2id = p2['port']['fixed_ips'][0]['subnet_id']
+                    s1 = {'subnet': {'id': s1id}}
+                    s2 = {'subnet': {'id': s2id}}
+                    self._add_external_gateway_to_router(
+                        r1['router']['id'],
+                        psub['subnet']['network_id'])
+                    self._add_external_gateway_to_router(
+                        r2['router']['id'],
+                        psub['subnet']['network_id'])
+                    self._router_interface_action(
+                        'add', r1['router']['id'],
+                        s1['subnet']['id'], None)
+                    self._router_interface_action(
+                        'add', r2['router']['id'],
+                        s2['subnet']['id'], None)
+                    fl1 = self._make_floatingip_for_tenant_port(
+                        net_id=psub['subnet']['network_id'],
+                        port_id=p1['port']['id'],
+                        tenant_id=tenant1_id)
+                    multiFloatPatch = patch(
+                        'httplib.HTTPConnection',
+                        create=True,
+                        new=fake_server.VerifyMultiTenantFloatingIP)
+                    multiFloatPatch.start()
+                    fl2 = self._make_floatingip_for_tenant_port(
+                        net_id=psub['subnet']['network_id'],
+                        port_id=p2['port']['id'],
+                        tenant_id=tenant2_id)
+                    multiFloatPatch.stop()
+                    self._delete('floatingips', fl1['floatingip']['id'])
+                    self._delete('floatingips', fl2['floatingip']['id'])
+                    self._router_interface_action(
+                        'remove', r1['router']['id'],
+                        s1['subnet']['id'], None)
+                    self._router_interface_action(
+                        'remove', r2['router']['id'],
+                        s2['subnet']['id'], None)
+
+    def _make_floatingip_for_tenant_port(self, net_id, port_id, tenant_id):
+        data = {'floatingip': {'floating_network_id': net_id,
+                               'tenant_id': tenant_id,
+                               'port_id': port_id}}
+        floatingip_req = self.new_create_request('floatingips', data, self.fmt)
+        res = floatingip_req.get_response(self.ext_api)
+        return self.deserialize(self.fmt, res)
 
     def test_floatingip_with_invalid_create_port(self):
         self._test_floatingip_with_invalid_create_port(

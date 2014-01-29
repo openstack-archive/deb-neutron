@@ -77,7 +77,7 @@ class RouterWithMetering(object):
         self.router = router
         self.root_helper = config.get_root_helper(self.conf)
         self.iptables_manager = iptables_manager.IptablesManager(
-            root_helper=self.conf.root_helper,
+            root_helper=self.root_helper,
             namespace=self.ns_name(),
             binary_name=WRAP_NAME)
         self.metering_labels = {}
@@ -154,7 +154,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
             if rule['direction'] == 'egress':
                 dir = '-o ' + ext_dev
 
-            if rule['excluded'] == 'true':
+            if rule['excluded']:
                 ipt_rule = dir + ' -d ' + remote_ip + ' -j RETURN'
                 im.ipv4['filter'].add_rule(rules_chain, ipt_rule, wrap=False,
                                            top=True)

@@ -24,6 +24,7 @@ import logging
 import os
 
 from oslo.config import cfg
+from sqlalchemy import exc as sql_exc
 from sqlalchemy.orm import exc as sa_exc
 import webob.exc
 
@@ -56,10 +57,13 @@ from neutron.extensions import portbindings as pbin
 from neutron.extensions import portsecurity as psec
 from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as ext_sg
+from neutron.openstack.common.db import exception as db_exc
 from neutron.openstack.common import excutils
+from neutron.openstack.common import lockutils
 from neutron.plugins.common import constants as plugin_const
 from neutron.plugins.nicira.common import config  # noqa
 from neutron.plugins.nicira.common import exceptions as nvp_exc
+from neutron.plugins.nicira.common import nsx_utils
 from neutron.plugins.nicira.common import securitygroups as nvp_sec
 from neutron.plugins.nicira.common import sync
 from neutron.plugins.nicira.dbexts import distributedrouter as dist_rtr
@@ -97,18 +101,22 @@ class NetworkTypes:
 
 
 def create_nvp_cluster(cluster_opts, concurrent_connections,
-                       nvp_gen_timeout):
+                       nsx_gen_timeout):
     cluster = nvp_cluster.NVPCluster(**cluster_opts)
-    api_providers = [ctrl.split(':') + [True]
-                     for ctrl in cluster.nvp_controllers]
+
+    def _ctrl_split(x, y):
+        return (x, int(y), True)
+
+    api_providers = [_ctrl_split(*ctrl.split(':'))
+                     for ctrl in cluster.nsx_controllers]
     cluster.api_client = NvpApiClient.NVPApiHelper(
-        api_providers, cluster.nvp_user, cluster.nvp_password,
+        api_providers, cluster.nsx_user, cluster.nsx_password,
         request_timeout=cluster.req_timeout,
         http_timeout=cluster.http_timeout,
         retries=cluster.retries,
         redirects=cluster.redirects,
         concurrent_connections=concurrent_connections,
-        nvp_gen_timeout=nvp_gen_timeout)
+        nvp_gen_timeout=nsx_gen_timeout)
     return cluster
 
 
@@ -185,11 +193,11 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         }
 
         neutron_extensions.append_api_extensions_path([NVP_EXT_PATH])
-        self.nvp_opts = cfg.CONF.NVP
-        self.nvp_sync_opts = cfg.CONF.NVP_SYNC
+        self.nvp_opts = cfg.CONF.NSX
+        self.nvp_sync_opts = cfg.CONF.NSX_SYNC
         self.cluster = create_nvp_cluster(cfg.CONF,
                                           self.nvp_opts.concurrent_connections,
-                                          self.nvp_opts.nvp_gen_timeout)
+                                          self.nvp_opts.nsx_gen_timeout)
 
         self.base_binding_dict = {
             pbin.VIF_TYPE: pbin.VIF_TYPE_OVS,
@@ -412,7 +420,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                                   network_bindings, max_ports,
                                                   allow_extra_lswitches)
         except NvpApiClient.NvpApiException:
-            err_desc = _("An exception occured while selecting logical "
+            err_desc = _("An exception occurred while selecting logical "
                          "switch for the port")
             LOG.exception(err_desc)
             raise nvp_exc.NvpPluginException(err_msg=err_desc)
@@ -441,9 +449,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 # Remove orphaned port from NVP
                 nvplib.delete_port(self.cluster, ls_uuid, lp_uuid)
             # rollback the neutron-nvp port mapping
-            nicira_db.delete_neutron_nvp_port_mapping(context.session,
+            nicira_db.delete_neutron_nsx_port_mapping(context.session,
                                                       port_id)
-            msg = (_("An exception occured while creating the "
+            msg = (_("An exception occurred while creating the "
                      "quantum port %s on the NVP plaform") % port_id)
             LOG.exception(msg)
 
@@ -469,8 +477,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                                  selected_lswitch['uuid'],
                                                  port_data,
                                                  True)
-            nicira_db.add_neutron_nvp_port_mapping(
-                context.session, port_data['id'], lport['uuid'])
+            nicira_db.add_neutron_nsx_port_mapping(
+                context.session, port_data['id'],
+                selected_lswitch['uuid'], lport['uuid'])
             if port_data['device_owner'] not in self.port_special_owners:
                 nvplib.plug_interface(self.cluster, selected_lswitch['uuid'],
                                       lport['uuid'], "VifAttachment",
@@ -483,6 +492,22 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 context, port_data['id'],
                 selected_lswitch and selected_lswitch['uuid'],
                 lport and lport['uuid'])
+        except db_exc.DBError as e:
+            if (port_data['device_owner'] == constants.DEVICE_OWNER_DHCP and
+                isinstance(e.inner_exception, sql_exc.IntegrityError)):
+                msg = (_("Concurrent network deletion detected; Back-end Port "
+                         "%(nsx_id)s creation to be rolled back for Neutron "
+                         "port: %(neutron_id)s")
+                       % {'nsx_id': lport['uuid'],
+                          'neutron_id': port_data['id']})
+                LOG.warning(msg)
+                if selected_lswitch and lport:
+                    try:
+                        nvplib.delete_port(self.cluster,
+                                           selected_lswitch['uuid'],
+                                           lport['uuid'])
+                    except q_exc.NotFound:
+                        LOG.debug(_("NSX Port %s already gone"), lport['uuid'])
 
     def _nvp_delete_port(self, context, port_data):
         # FIXME(salvatore-orlando): On the NVP platform we do not really have
@@ -494,8 +519,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                         "external networks. Port %s will be down."),
                       port_data['network_id'])
             return
-        nvp_port_id = self._nvp_get_port_id(context, self.cluster,
-                                            port_data)
+        nvp_switch_id, nvp_port_id = nsx_utils.get_nsx_switch_and_port_id(
+            context.session, self.cluster, port_data['id'])
         if not nvp_port_id:
             LOG.debug(_("Port '%s' was already deleted on NVP platform"), id)
             return
@@ -504,21 +529,20 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # the lswitch.
         try:
             nvplib.delete_port(self.cluster,
-                               port_data['network_id'],
+                               nvp_switch_id,
                                nvp_port_id)
             LOG.debug(_("_nvp_delete_port completed for port %(port_id)s "
                         "on network %(net_id)s"),
                       {'port_id': port_data['id'],
                        'net_id': port_data['network_id']})
-
         except q_exc.NotFound:
             LOG.warning(_("Port %s not found in NVP"), port_data['id'])
 
     def _nvp_delete_router_port(self, context, port_data):
         # Delete logical router port
         lrouter_id = port_data['device_id']
-        nvp_port_id = self._nvp_get_port_id(context, self.cluster,
-                                            port_data)
+        nvp_switch_id, nvp_port_id = nsx_utils.get_nsx_switch_and_port_id(
+            context.session, self.cluster, port_data['id'])
         if not nvp_port_id:
             LOG.warn(_("Neutron port %(port_id)s not found on NVP backend. "
                        "Terminating delete operation. A dangling router port "
@@ -529,7 +553,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         try:
             nvplib.delete_peer_router_lport(self.cluster,
                                             lrouter_id,
-                                            port_data['network_id'],
+                                            nvp_switch_id,
                                             nvp_port_id)
         except NvpApiClient.NvpApiException:
             # Do not raise because the issue might as well be that the
@@ -568,8 +592,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 self.cluster, context, router_id, port_data,
                 "PatchAttachment", ls_port['uuid'],
                 subnet_ids=[subnet_id])
-            nicira_db.add_neutron_nvp_port_mapping(
-                context.session, port_data['id'], ls_port['uuid'])
+            nicira_db.add_neutron_nsx_port_mapping(
+                context.session, port_data['id'],
+                selected_lswitch['uuid'], ls_port['uuid'])
             LOG.debug(_("_nvp_create_router_port completed for port "
                         "%(name)s on network %(network_id)s. The new "
                         "port id is %(id)s."),
@@ -596,6 +621,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                          % router_id))
         return lr_port
 
+    @lockutils.synchronized('nicira', 'neutron-')
     def _nvp_create_ext_gw_port(self, context, port_data):
         """Driver for creating an external gateway port on NVP platform."""
         # TODO(salvatore-orlando): Handle NVP resource
@@ -637,6 +663,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                    'router_id': router_id,
                    'nvp_port_id': lr_port['uuid']})
 
+    @lockutils.synchronized('nicira', 'neutron-')
     def _nvp_delete_ext_gw_port(self, context, port_data):
         lr_port = self._find_router_gw_port(context, port_data)
         # TODO(salvatore-orlando): Handle NVP resource
@@ -695,8 +722,9 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 selected_lswitch['uuid'],
                 port_data,
                 True)
-            nicira_db.add_neutron_nvp_port_mapping(
-                context.session, port_data['id'], lport['uuid'])
+            nicira_db.add_neutron_nsx_port_mapping(
+                context.session, port_data['id'],
+                selected_lswitch['uuid'], lport['uuid'])
             nvplib.plug_l2_gw_service(
                 self.cluster,
                 port_data['network_id'],
@@ -722,33 +750,6 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # As we do not create ports for floating IPs in NVP,
         # this is a no-op driver
         pass
-
-    def _nvp_get_port_id(self, context, cluster, neutron_port):
-        """Return the NVP port uuid for a given neutron port.
-
-        First, look up the Neutron database. If not found, execute
-        a query on NVP platform as the mapping might be missing because
-        the port was created before upgrading to grizzly.
-        """
-        nvp_port_id = nicira_db.get_nvp_port_id(context.session,
-                                                neutron_port['id'])
-        if nvp_port_id:
-            return nvp_port_id
-        # Perform a query to NVP and then update the DB
-        try:
-            nvp_port = nvplib.get_port_by_neutron_tag(
-                cluster,
-                neutron_port['network_id'],
-                neutron_port['id'])
-        except NvpApiClient.NvpApiException:
-            LOG.exception(_("Unable to find NVP uuid for Neutron port %s"),
-                          neutron_port['id'])
-
-        if nvp_port:
-            nicira_db.add_neutron_nvp_port_mapping(
-                context.session, neutron_port['id'],
-                nvp_port['uuid'])
-            return nvp_port['uuid']
 
     def _extend_fault_map(self):
         """Extends the Neutron Fault Map.
@@ -889,7 +890,7 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         if (network and not attr.is_attr_set(
             network.get(mpnet.SEGMENTS))):
             return [{"zone_uuid": cluster.default_tz_uuid,
-                     "transport_type": cfg.CONF.NVP.default_transport_type}]
+                     "transport_type": cfg.CONF.NSX.default_transport_type}]
 
         # Convert fields from db to nvp format
         if bindings:
@@ -1026,23 +1027,24 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                        'device_owner': ['network:router_interface']}
         router_iface_ports = self.get_ports(context, filters=port_filter)
         for port in router_iface_ports:
-            nvp_port_id = self._nvp_get_port_id(
-                context, self.cluster, port)
-            if nvp_port_id:
-                port['nvp_port_id'] = nvp_port_id
-            else:
-                LOG.warning(_("A nvp lport identifier was not found for "
-                              "neutron port '%s'"), port['id'])
+            nvp_switch_id, nvp_port_id = nsx_utils.get_nsx_switch_and_port_id(
+                context.session, self.cluster, id)
 
         super(NvpPluginV2, self).delete_network(context, id)
         # clean up network owned ports
         for port in router_iface_ports:
             try:
-                if 'nvp_port_id' in port:
+                if nvp_port_id:
                     nvplib.delete_peer_router_lport(self.cluster,
                                                     port['device_id'],
-                                                    port['network_id'],
-                                                    port['nvp_port_id'])
+                                                    nvp_switch_id,
+                                                    nvp_port_id)
+                else:
+                    LOG.warning(_("A nvp lport identifier was not found for "
+                                  "neutron port '%s'. Unable to remove "
+                                  "the peer router port for this switch port"),
+                                port['id'])
+
             except (TypeError, KeyError,
                     NvpApiClient.NvpApiException,
                     NvpApiClient.ResourceNotFound):
@@ -1276,12 +1278,12 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             self._process_port_queue_mapping(context, ret_port,
                                              port_queue_id)
             LOG.warn(_("Update port request: %s"), port)
-            nvp_port_id = self._nvp_get_port_id(
-                context, self.cluster, ret_port)
+            nvp_switch_id, nvp_port_id = nsx_utils.get_nsx_switch_and_port_id(
+                context.session, self.cluster, id)
             if nvp_port_id:
                 try:
                     nvplib.update_port(self.cluster,
-                                       ret_port['network_id'],
+                                       nvp_switch_id,
                                        nvp_port_id, id, tenant_id,
                                        ret_port['name'], ret_port['device_id'],
                                        ret_port['admin_state_up'],
@@ -1453,7 +1455,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # did not specify any value for the 'distributed' attribute
         # Platforms older than 3.x do not support the attribute
         r['distributed'] = lrouter.get('distributed', False)
-
+        # TODO(salv-orlando): Deal with backend object removal in case
+        # of db failures
         with context.session.begin(subtransactions=True):
             # Transaction nesting is needed to avoid foreign key violations
             # when processing the distributed router binding
@@ -1465,8 +1468,26 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                          status=lrouter['status'])
                 self._process_nsx_router_create(context, router_db, r)
                 context.session.add(router_db)
-            if has_gw_info:
+        if has_gw_info:
+            # NOTE(salv-orlando): This operation has been moved out of the
+            # database transaction since it performs several NVP queries,
+            # ithis ncreasing the risk of deadlocks between eventlet and
+            # sqlalchemy operations.
+            # Set external gateway and remove router in case of failure
+            try:
                 self._update_router_gw_info(context, router_db['id'], gw_info)
+            except (q_exc.NeutronException, NvpApiClient.NvpApiException):
+                with excutils.save_and_reraise_exception():
+                    # As setting gateway failed, the router must be deleted
+                    # in order to ensure atomicity
+                    router_id = router_db['id']
+                    LOG.warn(_("Failed to set gateway info for router being "
+                               "created:%s - removing router"), router_id)
+                    self.delete_router(context, router_id)
+                    LOG.info(_("Create router failed while setting external "
+                               "gateway. Router:%s has been removed from "
+                               "DB and backend"),
+                             router_id)
         router = self._make_router_dict(router_db)
         return router
 
@@ -1545,28 +1566,58 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
 
     def delete_router(self, context, router_id):
         with context.session.begin(subtransactions=True):
-            # Ensure metadata access network is detached and destroyed
-            # This will also destroy relevant objects on NVP platform.
-            # NOTE(salvatore-orlando): A failure in this operation will
-            # cause the router delete operation to fail too.
+            # TODO(salv-orlando): This call should have no effect on delete
+            # router, but if it does, it should not happen within a
+            # transaction, and it should be restored on rollback
             self.handle_router_metadata_access(
-                context, router_id, do_create=False)
+                context, router_id, interface=None)
+            # Pre-delete checks
+            # NOTE(salv-orlando): These checks will be repeated anyway when
+            # calling the superclass. This is wasteful, but is the simplest
+            # way of ensuring a consistent removal of the router both in
+            # the neutron Database and in the NVP backend.
+            # TODO(salv-orlando): split pre-delete checks and actual
+            # deletion in superclass.
+
+            # Ensure that the router is not used
+            fips = self.get_floatingips_count(
+                context.elevated(), filters={'router_id': [router_id]})
+            if fips:
+                raise l3.RouterInUse(router_id=router_id)
+
+            device_filter = {'device_id': [router_id],
+                             'device_owner': [l3_db.DEVICE_OWNER_ROUTER_INTF]}
+            ports = self._core_plugin.get_ports_count(context.elevated(),
+                                                      filters=device_filter)
+            if ports:
+                raise l3.RouterInUse(router_id=router_id)
+
+        # It is safe to remove the router from the database, so remove it
+        # from the backend
+        try:
+            self._delete_lrouter(context, router_id)
+        except q_exc.NotFound:
+            # This is not a fatal error, but needs to be logged
+            LOG.warning(_("Logical router '%s' not found "
+                        "on NVP Platform"), router_id)
+        except NvpApiClient.NvpApiException:
+            raise nvp_exc.NvpPluginException(
+                err_msg=(_("Unable to delete logical router '%s' "
+                           "on NVP Platform") % router_id))
+
+        # Perform the actual delete on the Neutron DB
+        try:
             super(NvpPluginV2, self).delete_router(context, router_id)
-            # If removal is successful in Neutron it should be so on
-            # the NVP platform too - otherwise the transaction should
-            # be automatically aborted
-            # TODO(salvatore-orlando): Extend the object models in order to
-            # allow an extra field for storing the cluster information
-            # together with the resource
-            try:
-                self._delete_lrouter(context, router_id)
-            except q_exc.NotFound:
-                LOG.warning(_("Logical router '%s' not found "
-                              "on NVP Platform"), router_id)
-            except NvpApiClient.NvpApiException:
-                raise nvp_exc.NvpPluginException(
-                    err_msg=(_("Unable to delete logical router '%s' "
-                               "on NVP Platform") % router_id))
+        except Exception:
+            # NOTE(salv-orlando): Broad catching as the following action
+            # needs to be performed for every exception.
+            # Put the router in ERROR status
+            LOG.exception(_("Failure while removing router:%s from database. "
+                            "The router will be put in ERROR status"),
+                          router_id)
+            with context.session.begin(subtransactions=True):
+                router_db = self._get_router(context, router_id)
+                router_db['status'] = constants.NET_STATUS_ERROR
 
     def _add_subnet_snat_rule(self, router, subnet):
         gw_port = router.gw_port
@@ -1599,21 +1650,10 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         subnet_id = router_iface_info['subnet_id']
         if port_id:
             port_data = self._get_port(context, port_id)
-            nvp_port_id = self._nvp_get_port_id(
-                context, self.cluster, port_data)
-            # Fetch lswitch port from NVP in order to retrieve LS uuid
-            # this is necessary as in the case of bridged networks
-            # ls_uuid may be different from network id
-            # TODO(salv-orlando): avoid this NVP round trip by storing
-            # lswitch uuid together with lport uuid mapping.
-            nvp_port = nvplib.query_lswitch_lports(
-                self.cluster, '*',
-                filters={'uuid': nvp_port_id},
-                relations='LogicalSwitchConfig')[0]
-
-            ls_uuid = nvp_port['_relations']['LogicalSwitchConfig']['uuid']
+            nvp_switch_id, nvp_port_id = nsx_utils.get_nsx_switch_and_port_id(
+                context.session, self.cluster, port_id)
             # Unplug current attachment from lswitch port
-            nvplib.plug_interface(self.cluster, ls_uuid,
+            nvplib.plug_interface(self.cluster, nvp_switch_id,
                                   nvp_port_id, "NoAttachment")
             # Create logical router port and plug patch attachment
             self._create_and_attach_router_port(
@@ -1632,7 +1672,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # Ensure the NVP logical router has a connection to a 'metadata access'
         # network (with a proxy listening on its DHCP port), by creating it
         # if needed.
-        self.handle_router_metadata_access(context, router_id)
+        self.handle_router_metadata_access(
+            context, router_id, interface=router_iface_info)
         LOG.debug(_("Add_router_interface completed for subnet:%(subnet_id)s "
                     "and router:%(router_id)s"),
                   {'subnet_id': subnet_id, 'router_id': router_id})
@@ -1676,7 +1717,8 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # Ensure the connection to the 'metadata access network'
         # is removed  (with the network) if this the last subnet
         # on the router
-        self.handle_router_metadata_access(context, router_id)
+        self.handle_router_metadata_access(
+            context, router_id, interface=info)
         try:
             if not subnet:
                 subnet = self._get_subnet(context, subnet_id)
@@ -1969,6 +2011,16 @@ class NvpPluginV2(addr_pair_db.AllowedAddressPairsMixin,
     def update_network_gateway(self, context, id, network_gateway):
         # Ensure the default gateway in the config file is in sync with the db
         self._ensure_default_network_gateway()
+        # Update gateway on backend when there's a name change
+        name = network_gateway[networkgw.RESOURCE_NAME].get('name')
+        if name:
+            try:
+                nvplib.update_l2_gw_service(self.cluster, id, name)
+            except NvpApiClient.NvpApiException:
+                # Consider backend failures as non-fatal, but still warn
+                # because this might indicate something dodgy is going on
+                LOG.warn(_("Unable to update name on NVP backend "
+                           "for network gateway: %s"), id)
         return super(NvpPluginV2, self).update_network_gateway(
             context, id, network_gateway)
 

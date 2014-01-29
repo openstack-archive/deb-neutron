@@ -401,7 +401,7 @@ class NvpAdvancedPlugin(sr_db.ServiceRouter_mixin,
         # use defautl transport zone
         transport_zone_config = [{
             "zone_uuid": self.cluster.default_tz_uuid,
-            "transport_type": cfg.CONF.NVP.default_transport_type
+            "transport_type": cfg.CONF.NSX.default_transport_type
         }]
         return self.vcns_driver.create_lswitch(name, transport_zone_config)
 
@@ -413,7 +413,7 @@ class NvpAdvancedPlugin(sr_db.ServiceRouter_mixin,
                 self.cluster, lswitch['uuid'], tenant_id,
                 '', '', lrouter['uuid'], True)
         except NvpApiClient.NvpApiException:
-            msg = (_("An exception occured while creating a port "
+            msg = (_("An exception occurred while creating a port "
                      "on lswitch %s") % lswitch['uuid'])
             LOG.exception(msg)
             raise q_exc.NeutronException(message=msg)

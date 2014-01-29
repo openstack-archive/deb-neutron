@@ -20,6 +20,7 @@ from testtools import matchers
 
 from neutron.common import exceptions as exc
 from neutron.db import api as db
+from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import db as ml2_db
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import type_vxlan
@@ -54,7 +55,7 @@ class VxlanTypeTest(base.BaseTestCase):
         self.addCleanup(db.clear_db)
 
     def test_vxlan_tunnel_type(self):
-        self.assertEqual(self.driver.get_type(), type_vxlan.TYPE_VXLAN)
+        self.assertEqual(self.driver.get_type(), p_const.TYPE_VXLAN)
 
     def test_validate_provider_segment(self):
         segment = {api.NETWORK_TYPE: 'vxlan',
@@ -194,3 +195,35 @@ class VxlanTypeTest(base.BaseTestCase):
                 self.assertEqual(VXLAN_UDP_PORT_ONE, endpoint['udp_port'])
             elif endpoint['ip_address'] == TUNNEL_IP_TWO:
                 self.assertEqual(VXLAN_UDP_PORT_TWO, endpoint['udp_port'])
+
+
+class VxlanTypeMultiRangeTest(base.BaseTestCase):
+
+    TUN_MIN0 = 100
+    TUN_MAX0 = 101
+    TUN_MIN1 = 200
+    TUN_MAX1 = 201
+    TUNNEL_MULTI_RANGES = [(TUN_MIN0, TUN_MAX0), (TUN_MIN1, TUN_MAX1)]
+
+    def setUp(self):
+        super(VxlanTypeMultiRangeTest, self).setUp()
+        ml2_db.initialize()
+        self.driver = type_vxlan.VxlanTypeDriver()
+        self.driver.vxlan_vni_ranges = self.TUNNEL_MULTI_RANGES
+        self.driver._sync_vxlan_allocations()
+        self.session = db.get_session()
+        self.addCleanup(cfg.CONF.reset)
+        self.addCleanup(db.clear_db)
+
+    def test_release_segment(self):
+        segments = [self.driver.allocate_tenant_segment(self.session)
+                    for i in range(4)]
+
+        # Release them in random order. No special meaning.
+        for i in (0, 2, 1, 3):
+            self.driver.release_segment(self.session, segments[i])
+
+        for key in (self.TUN_MIN0, self.TUN_MAX0,
+                    self.TUN_MIN1, self.TUN_MAX1):
+            alloc = self.driver.get_vxlan_allocation(self.session, key)
+            self.assertFalse(alloc.allocated)

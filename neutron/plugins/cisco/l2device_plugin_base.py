@@ -32,15 +32,6 @@ class L2DevicePluginBase(object):
     """
 
     @abstractmethod
-    def get_all_networks(self, tenant_id, **kwargs):
-        """Get newtorks.
-
-        :returns:
-        :raises:
-        """
-        pass
-
-    @abstractmethod
     def create_network(self, tenant_id, net_name, net_id, vlan_name, vlan_id,
                        **kwargs):
         """Create network.
@@ -69,15 +60,6 @@ class L2DevicePluginBase(object):
         pass
 
     @abstractmethod
-    def get_all_ports(self, tenant_id, net_id, **kwargs):
-        """Get ports.
-
-        :returns:
-        :raises:
-        """
-        pass
-
-    @abstractmethod
     def create_port(self, tenant_id, net_id, port_state, port_id, **kwargs):
         """Create port.
 
@@ -98,15 +80,6 @@ class L2DevicePluginBase(object):
     @abstractmethod
     def update_port(self, tenant_id, net_id, port_id, **kwargs):
         """Update port.
-
-        :returns:
-        :raises:
-        """
-        pass
-
-    @abstractmethod
-    def get_port_details(self, tenant_id, net_id, port_id, **kwargs):
-        """Get port details.
 
         :returns:
         :raises:
@@ -178,7 +151,7 @@ class L2DevicePluginBase(object):
         """Check plugin class.
 
         The __subclasshook__ method is a class method
-        that will be called everytime a class is tested
+        that will be called every time a class is tested
         using issubclass(klass, Plugin).
         In that case, it will check that every method
         marked with the abstractmethod decorator is

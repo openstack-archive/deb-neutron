@@ -26,6 +26,7 @@ from neutron.agent import l3_agent
 from neutron.agent.linux import interface
 from neutron.common import config as base_config
 from neutron.common import constants as l3_constants
+from neutron.common import exceptions as n_exc
 from neutron.openstack.common import uuidutils
 from neutron.tests import base
 
@@ -167,12 +168,20 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
         if action == 'add':
             self.device_exists.return_value = False
+            ri.router = mock.Mock()
+            ri.router.get.return_value = [{'floating_ip_address':
+                                           '192.168.1.34'}]
             agent.external_gateway_added(ri, ex_gw_port,
                                          interface_name, internal_cidrs)
             self.assertEqual(self.mock_driver.plug.call_count, 1)
             self.assertEqual(self.mock_driver.init_l3.call_count, 1)
             self.send_arp.assert_called_once_with(ri, interface_name,
                                                   '20.0.0.30')
+            kwargs = {'preserve_ips': ['192.168.1.34/32'],
+                      'namespace': 'qrouter-' + router_id}
+            self.mock_driver.init_l3.assert_called_with(interface_name,
+                                                        ['20.0.0.30/24'],
+                                                        **kwargs)
 
         elif action == 'remove':
             self.device_exists.return_value = True
@@ -352,7 +361,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                       'subnet': {'cidr': '19.4.4.0/24',
                                  'gateway_ip': '19.4.4.1'}}
         int_ports = []
-        for i in range(0, num_internal_ports):
+        for i in range(num_internal_ports):
             int_ports.append({'id': _uuid(),
                               'network_id': _uuid(),
                               'admin_state_up': True,
@@ -574,6 +583,61 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self._verify_snat_rules(nat_rules_delta, router, negate=True)
         self.send_arp.assert_called_once()
 
+    def test_process_router_internal_network_added_unexpected_error(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        router = self._prepare_router_data()
+        ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
+                                 self.conf.use_namespaces, router=router)
+        with mock.patch.object(
+                l3_agent.L3NATAgent,
+                'internal_network_added') as internal_network_added:
+            # raise RuntimeError to simulate that an unexpected exception
+            # occurrs
+            internal_network_added.side_effect = RuntimeError
+            self.assertRaises(RuntimeError, agent.process_router, ri)
+            self.assertNotIn(
+                router[l3_constants.INTERFACE_KEY][0], ri.internal_ports)
+
+            # The unexpected exception has been fixed manually
+            internal_network_added.side_effect = None
+
+            # _sync_routers_task finds out that _rpc_loop failed to process the
+            # router last time, it will retry in the next run.
+            agent.process_router(ri)
+            # We were able to add the port to ri.internal_ports
+            self.assertIn(
+                router[l3_constants.INTERFACE_KEY][0], ri.internal_ports)
+
+    def test_process_router_internal_network_removed_unexpected_error(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        router = self._prepare_router_data()
+        ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
+                                 self.conf.use_namespaces, router=router)
+        # add an internal port
+        agent.process_router(ri)
+
+        with mock.patch.object(
+                l3_agent.L3NATAgent,
+                'internal_network_removed') as internal_net_removed:
+            # raise RuntimeError to simulate that an unexpected exception
+            # occurrs
+            internal_net_removed.side_effect = RuntimeError
+            ri.internal_ports[0]['admin_state_up'] = False
+            # The above port is set to down state, remove it.
+            self.assertRaises(RuntimeError, agent.process_router, ri)
+            self.assertIn(
+                router[l3_constants.INTERFACE_KEY][0], ri.internal_ports)
+
+            # The unexpected exception has been fixed manually
+            internal_net_removed.side_effect = None
+
+            # _sync_routers_task finds out that _rpc_loop failed to process the
+            # router last time, it will retry in the next run.
+            agent.process_router(ri)
+            # We were able to remove the port from ri.internal_ports
+            self.assertNotIn(
+                router[l3_constants.INTERFACE_KEY][0], ri.internal_ports)
+
     def test_handle_router_snat_rules_add_back_jump(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = mock.MagicMock()
@@ -778,6 +842,76 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.conf.set_override('router_id', '1234')
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         self.assertEqual(['1234'], agent._router_ids())
+
+    def test_process_routers_with_no_ext_net_in_conf(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        self.plugin_api.get_external_network_id.return_value = 'aaa'
+
+        routers = [
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'aaa'}}]
+
+        agent._process_routers(routers)
+        self.assertIn(routers[0]['id'], agent.router_info)
+
+    def test_process_routers_with_no_ext_net_in_conf_and_two_net_plugin(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+
+        routers = [
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'aaa'}}]
+
+        agent.router_info = {}
+        self.plugin_api.get_external_network_id.side_effect = (
+            n_exc.TooManyExternalNetworks())
+        self.assertRaises(n_exc.TooManyExternalNetworks,
+                          agent._process_routers,
+                          routers)
+        self.assertNotIn(routers[0]['id'], agent.router_info)
+
+    def test_process_routers_with_ext_net_in_conf(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        self.plugin_api.get_external_network_id.return_value = 'aaa'
+
+        routers = [
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'aaa'}},
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'bbb'}}]
+
+        agent.router_info = {}
+        self.conf.set_override('gateway_external_network_id', 'aaa')
+        agent._process_routers(routers)
+        self.assertIn(routers[0]['id'], agent.router_info)
+        self.assertNotIn(routers[1]['id'], agent.router_info)
+
+    def test_process_routers_with_no_bridge_no_ext_net_in_conf(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        self.plugin_api.get_external_network_id.return_value = 'aaa'
+
+        routers = [
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'aaa'}},
+            {'id': _uuid(),
+             'routes': [],
+             'admin_state_up': True,
+             'external_gateway_info': {'network_id': 'bbb'}}]
+
+        agent.router_info = {}
+        self.conf.set_override('external_network_bridge', '')
+        agent._process_routers(routers)
+        self.assertIn(routers[0]['id'], agent.router_info)
+        self.assertIn(routers[1]['id'], agent.router_info)
 
     def test_nonexistent_interface_driver(self):
         self.conf.set_override('interface_driver', None)

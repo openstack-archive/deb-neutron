@@ -166,13 +166,8 @@ METADATA_SERVER_IP = '169.254.169.254'
 
 
 class RemoteRestError(exceptions.NeutronException):
-
-    def __init__(self, message):
-        if message is None:
-            message = "None"
-        self.message = _("Error in REST call to remote network "
-                         "controller") + ": " + message
-        super(RemoteRestError, self).__init__()
+    message = _("Error in REST call to remote network "
+                "controller: %(reason)s")
 
 
 class ServerProxy(object):
@@ -330,7 +325,7 @@ class ServerPool(object):
         resp = self.rest_call(action, resource, data, headers, ignore_codes)
         if self.server_failure(resp, ignore_codes):
             LOG.error(_("NeutronRestProxyV2: ") + errstr, resp[2])
-            raise RemoteRestError(resp[2])
+            raise RemoteRestError(reason=resp[2])
         if resp[0] in ignore_codes:
             LOG.warning(_("NeutronRestProxyV2: Received and ignored error "
                           "code %(code)s on %(action)s action to resource "
@@ -435,7 +430,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
                          agentschedulers_db.DhcpAgentSchedulerDbMixin):
 
     supported_extension_aliases = ["external-net", "router", "binding",
-                                   "router_rules", "extra_dhcp_opt",
+                                   "router_rules", "extra_dhcp_opt", "quotas",
                                    "dhcp_agent_scheduler", "agent"]
 
     def __init__(self, server_timeout=None):
@@ -449,7 +444,7 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
         neutron_extensions.append_api_extensions_path(extensions.__path__)
 
         # 'servers' is the list of network controller REST end-points
-        # (used in order specified till one suceeds, and it is sticky
+        # (used in order specified till one succeeds, and it is sticky
         # till next failure). Use 'server_auth' to encode api-key
         servers = cfg.CONF.RESTPROXY.servers
         server_auth = cfg.CONF.RESTPROXY.server_auth
@@ -1037,12 +1032,9 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             new_fl_ip = super(NeutronRestProxyV2,
                               self).create_floatingip(context, floatingip)
 
-            net_id = new_fl_ip['floating_network_id']
-            orig_net = super(NeutronRestProxyV2, self).get_network(context,
-                                                                   net_id)
             # create floatingip on the network controller
             try:
-                self._send_update_network(orig_net, context)
+                self._send_floatingip_update(context)
             except RemoteRestError as e:
                 with excutils.save_and_reraise_exception():
                     LOG.error(
@@ -1059,32 +1051,27 @@ class NeutronRestProxyV2(db_base_plugin_v2.NeutronDbPluginV2,
             new_fl_ip = super(NeutronRestProxyV2,
                               self).update_floatingip(context, id, floatingip)
 
-            net_id = new_fl_ip['floating_network_id']
-            orig_net = super(NeutronRestProxyV2, self).get_network(context,
-                                                                   net_id)
             # update network on network controller
-            self._send_update_network(orig_net, context)
+            self._send_floatingip_update(context)
             return new_fl_ip
 
     def delete_floatingip(self, context, id):
         LOG.debug(_("NeutronRestProxyV2: delete_floatingip() called"))
 
-        orig_fl_ip = super(NeutronRestProxyV2, self).get_floatingip(context,
-                                                                    id)
         with context.session.begin(subtransactions=True):
             # delete floating IP in DB
-            net_id = orig_fl_ip['floating_network_id']
             super(NeutronRestProxyV2, self).delete_floatingip(context, id)
 
-            orig_net = super(NeutronRestProxyV2, self).get_network(context,
-                                                                   net_id)
             # update network on network controller
-            self._send_update_network(orig_net, context)
+            self._send_floatingip_update(context)
 
     def disassociate_floatingips(self, context, port_id):
         LOG.debug(_("NeutronRestProxyV2: diassociate_floatingips() called"))
         super(NeutronRestProxyV2, self).disassociate_floatingips(context,
                                                                  port_id)
+        self._send_floatingip_update(context)
+
+    def _send_floatingip_update(self, context):
         try:
             ext_net_id = self.get_external_network_id(context)
             if ext_net_id:

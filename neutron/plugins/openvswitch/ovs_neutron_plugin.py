@@ -290,6 +290,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self._aliases = aliases
         return self._aliases
 
+    db_base_plugin_v2.NeutronDbPluginV2.register_dict_extend_funcs(
+        attributes.NETWORKS, ['_extend_network_dict_provider_ovs'])
+
     def __init__(self, configfile=None):
         self.base_binding_dict = {
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_OVS,
@@ -300,11 +303,11 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self._parse_network_vlan_ranges()
         ovs_db_v2.sync_vlan_allocations(self.network_vlan_ranges)
         self.tenant_network_type = cfg.CONF.OVS.tenant_network_type
-        if self.tenant_network_type not in [constants.TYPE_LOCAL,
-                                            constants.TYPE_VLAN,
-                                            constants.TYPE_GRE,
-                                            constants.TYPE_VXLAN,
-                                            constants.TYPE_NONE]:
+        if self.tenant_network_type not in [svc_constants.TYPE_LOCAL,
+                                            svc_constants.TYPE_VLAN,
+                                            svc_constants.TYPE_GRE,
+                                            svc_constants.TYPE_VXLAN,
+                                            svc_constants.TYPE_NONE]:
             LOG.error(_("Invalid tenant_network_type: %s. "
                       "Server terminated!"),
                       self.tenant_network_type)
@@ -312,7 +315,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.enable_tunneling = cfg.CONF.OVS.enable_tunneling
         self.tunnel_type = None
         if self.enable_tunneling:
-            self.tunnel_type = cfg.CONF.OVS.tunnel_type or constants.TYPE_GRE
+            self.tunnel_type = (cfg.CONF.OVS.tunnel_type or
+                                svc_constants.TYPE_GRE)
         elif cfg.CONF.OVS.tunnel_type:
             self.tunnel_type = cfg.CONF.OVS.tunnel_type
             self.enable_tunneling = True
@@ -373,20 +377,22 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 sys.exit(1)
         LOG.info(_("Tunnel ID ranges: %s"), self.tunnel_id_ranges)
 
-    def _extend_network_dict_provider(self, context, network):
-        binding = ovs_db_v2.get_network_binding(context.session,
-                                                network['id'])
+    def _extend_network_dict_provider_ovs(self, network, net_db,
+                                          net_binding=None):
+        # this method used in two cases: when binding is provided explicitly
+        # and when it is a part of db model object
+        binding = net_db.binding if net_db else net_binding
         network[provider.NETWORK_TYPE] = binding.network_type
         if binding.network_type in constants.TUNNEL_NETWORK_TYPES:
             network[provider.PHYSICAL_NETWORK] = None
             network[provider.SEGMENTATION_ID] = binding.segmentation_id
-        elif binding.network_type == constants.TYPE_FLAT:
+        elif binding.network_type == svc_constants.TYPE_FLAT:
             network[provider.PHYSICAL_NETWORK] = binding.physical_network
             network[provider.SEGMENTATION_ID] = None
-        elif binding.network_type == constants.TYPE_VLAN:
+        elif binding.network_type == svc_constants.TYPE_VLAN:
             network[provider.PHYSICAL_NETWORK] = binding.physical_network
             network[provider.SEGMENTATION_ID] = binding.segmentation_id
-        elif binding.network_type == constants.TYPE_LOCAL:
+        elif binding.network_type == svc_constants.TYPE_LOCAL:
             network[provider.PHYSICAL_NETWORK] = None
             network[provider.SEGMENTATION_ID] = None
 
@@ -406,13 +412,13 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         if not network_type_set:
             msg = _("provider:network_type required")
             raise q_exc.InvalidInput(error_message=msg)
-        elif network_type == constants.TYPE_FLAT:
+        elif network_type == svc_constants.TYPE_FLAT:
             if segmentation_id_set:
                 msg = _("provider:segmentation_id specified for flat network")
                 raise q_exc.InvalidInput(error_message=msg)
             else:
                 segmentation_id = constants.FLAT_VLAN_ID
-        elif network_type == constants.TYPE_VLAN:
+        elif network_type == svc_constants.TYPE_VLAN:
             if not segmentation_id_set:
                 msg = _("provider:segmentation_id required")
                 raise q_exc.InvalidInput(error_message=msg)
@@ -435,7 +441,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             if not segmentation_id_set:
                 msg = _("provider:segmentation_id required")
                 raise q_exc.InvalidInput(error_message=msg)
-        elif network_type == constants.TYPE_LOCAL:
+        elif network_type == svc_constants.TYPE_LOCAL:
             if physical_network_set:
                 msg = _("provider:physical_network specified for local "
                         "network")
@@ -452,7 +458,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             msg = _("provider:network_type %s not supported") % network_type
             raise q_exc.InvalidInput(error_message=msg)
 
-        if network_type in [constants.TYPE_VLAN, constants.TYPE_FLAT]:
+        if network_type in [svc_constants.TYPE_VLAN, svc_constants.TYPE_FLAT]:
             if physical_network_set:
                 if physical_network not in self.network_vlan_ranges:
                     msg = _("Unknown provider:physical_network "
@@ -481,9 +487,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             if not network_type:
                 # tenant network
                 network_type = self.tenant_network_type
-                if network_type == constants.TYPE_NONE:
+                if network_type == svc_constants.TYPE_NONE:
                     raise q_exc.TenantNetworksDisabled()
-                elif network_type == constants.TYPE_VLAN:
+                elif network_type == svc_constants.TYPE_VLAN:
                     (physical_network,
                      segmentation_id) = ovs_db_v2.reserve_vlan(session)
                 elif network_type in constants.TUNNEL_NETWORK_TYPES:
@@ -491,7 +497,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 # no reservation needed for TYPE_LOCAL
             else:
                 # provider network
-                if network_type in [constants.TYPE_VLAN, constants.TYPE_FLAT]:
+                if network_type in [svc_constants.TYPE_VLAN,
+                                    svc_constants.TYPE_FLAT]:
                     ovs_db_v2.reserve_specific_vlan(session, physical_network,
                                                     segmentation_id)
                 elif network_type in constants.TUNNEL_NETWORK_TYPES:
@@ -499,11 +506,14 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 # no reservation needed for TYPE_LOCAL
             net = super(OVSNeutronPluginV2, self).create_network(context,
                                                                  network)
-            ovs_db_v2.add_network_binding(session, net['id'], network_type,
-                                          physical_network, segmentation_id)
+            binding = ovs_db_v2.add_network_binding(session, net['id'],
+                                                    network_type,
+                                                    physical_network,
+                                                    segmentation_id)
 
             self._process_l3_create(context, net, network['network'])
-            self._extend_network_dict_provider(context, net)
+            # passing None as db model to use binding object
+            self._extend_network_dict_provider_ovs(net, None, binding)
             # note - exception will rollback entire transaction
         LOG.debug(_("Created network: %s"), net['id'])
         return net
@@ -516,7 +526,6 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             net = super(OVSNeutronPluginV2, self).update_network(context, id,
                                                                  network)
             self._process_l3_update(context, net, network['network'])
-            self._extend_network_dict_provider(context, net)
         return net
 
     def delete_network(self, context, id):
@@ -527,8 +536,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             if binding.network_type in constants.TUNNEL_NETWORK_TYPES:
                 ovs_db_v2.release_tunnel(session, binding.segmentation_id,
                                          self.tunnel_id_ranges)
-            elif binding.network_type in [constants.TYPE_VLAN,
-                                          constants.TYPE_FLAT]:
+            elif binding.network_type in [svc_constants.TYPE_VLAN,
+                                          svc_constants.TYPE_FLAT]:
                 ovs_db_v2.release_vlan(session, binding.physical_network,
                                        binding.segmentation_id,
                                        self.network_vlan_ranges)
@@ -541,7 +550,6 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         with session.begin(subtransactions=True):
             net = super(OVSNeutronPluginV2, self).get_network(context,
                                                               id, None)
-            self._extend_network_dict_provider(context, net)
         return self._fields(net, fields)
 
     def get_networks(self, context, filters=None, fields=None,
@@ -552,8 +560,6 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             nets = super(OVSNeutronPluginV2,
                          self).get_networks(context, filters, None, sorts,
                                             limit, marker, page_reverse)
-            for net in nets:
-                self._extend_network_dict_provider(context, net)
 
         return [self._fields(net, fields) for net in nets]
 
