@@ -4,4 +4,11 @@
     compress
     delaycompress
     notifempty
+    postrotate
+        if dpkg-vendor --derives-from ubuntu ; then
+            service neutron-plugin-openvswitch-agent restart >/dev/null 2>&1 || true
+        else
+            invoke-rc.d neutron-plugin-openvswitch-agent restart >/dev/null 2>&1 || true
+        fi
+    endscript
 }
