@@ -116,12 +116,12 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	chown root:root /etc/neutron/rootwrap.conf
 	chown root:root /etc/neutron/rootwrap.d
 	chmod 0755 /etc/neutron/rootwrap.d
-	if dpkg-vendor --derives-from ubuntu ; then
-		chmod 755 /var/lib/neutron
-		mkdir -p /var/lib/neutron/dhcp
-		chown neutron:neutron /var/lib/neutron/dhcp
-		chmod 755 /var/lib/neutron/dhcp
-	fi
+
+	# The /var/lib/neutron/dhcp needs to be readable from the nobody user.
+	chmod 755 /var/lib/neutron
+	mkdir -p /var/lib/neutron/dhcp
+	chown neutron:neutron /var/lib/neutron/dhcp
+	chmod 755 /var/lib/neutron/dhcp
 
 	if [ -f /etc/sudoers.d/neutron_sudoers ] ; then
 		chmod 0440 /etc/sudoers.d/neutron_sudoers
