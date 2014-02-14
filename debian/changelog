@@ -1,16 +1,14 @@
-neutron (2013.2.2-2) unstable; urgency=medium
-
-  * Refreshed patches.
-
- -- Thomas Goirand <zigo@debian.org>  Fri, 14 Feb 2014 07:01:38 +0000
-
 neutron (2013.2.2-1) unstable; urgency=medium
 
+  [ gustavo panizzo <gfa@zumbi.com.ar> ]
   * New upstream release.
   * Patch 0003-Fix-MeteringLabel-model-to-not-clear-router-s-tenant-id-on
     deletion was merged upstream. Removed from debian/patches.
 
- -- gustavo panizzo <gfa@zumbi.com.ar>  Thu, 13 Feb 2014 23:28:19 -0300
+  [ Thomas Goirand ]
+  * Refreshed patches.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 14 Feb 2014 07:01:38 +0000
 
 neutron (2013.2.1-5) unstable; urgency=medium
 
