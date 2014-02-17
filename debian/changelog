@@ -1,14 +1,74 @@
 neutron (2014.1~b2-2) UNRELEASED; urgency=low
 
+  * New upstream release (Icehouse beta 2).
   * Fixed /var/lib/neutron/dhcp folder rights for Ubuntu.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:19 +0800
 
-neutron (2014.1~b1-1) experimental; urgency=low
+neutron (2013.2.2-1) unstable; urgency=medium
 
-  * New upstream release (Icehouse beta 1).
+  [ gustavo panizzo <gfa@zumbi.com.ar> ]
+  * New upstream release.
+  * Patch 0003-Fix-MeteringLabel-model-to-not-clear-router-s-tenant-id-on
+    deletion was merged upstream. Removed from debian/patches.
 
- -- Thomas Goirand <zigo@debian.org>  Mon, 09 Dec 2013 23:31:02 +0800
+  [ Thomas Goirand ]
+  * Refreshed patches.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 14 Feb 2014 07:01:38 +0000
+
+neutron (2013.2.1-5) unstable; urgency=medium
+
+  * Fix /var/lib/neutron and /var/lib/neutron/dhcp folder rights in
+    debian/neutron-common.postinst.in.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 13 Feb 2014 19:43:22 +0800
+
+neutron (2013.2.1-4) unstable; urgency=medium
+
+  * Restart daemons after logrotate.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 03 Feb 2014 16:40:52 +0800
+
+neutron (2013.2.1-3) unstable; urgency=medium
+
+  * Added new Debconf template translations thanks to:
+    - Spanish: Camaleón (Closes: #734286).
+    - Swedish: Martin Bagge (Closes: #734705).
+  * Downgrades openswan from depends to suggests, because openswan is hardly
+    maintained, and not available from testing, which is blocking Neutron from
+    migrating: this isn't worth the trouble.
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 12 Jan 2014 17:31:46 +0800
+
+neutron (2013.2.1-2) unstable; urgency=low
+
+  [ gustavo panizzo ]
+  * patch backported from icehouse-1 to simplify use of metadata on
+    provider networks.
+
+  [ Thomas Goirand ]
+  * Added a bunch of bugfix in advance from the next point release. Thanks
+  * to
+    Sylvain Afchain <sylvain.afchain@enovance.com> for helping gathering and
+    testing these.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 30 Dec 2013 23:12:45 +0800
+
+neutron (2013.2.1-1) unstable; urgency=high
+
+  * New upstream release. This fixes CVE-2013-6419.
+  * Refresh better-config-default.patch.
+  * Fixed rights of /var/lib/neutron/dhcp in the Ubuntu case.
+  * Added python-neutronclient (>= 2.3.0) as dependency of python-neutron.
+  * Fixes French debconf translation thanks to our Cheesemaster Christian
+    Perrier (Closes: #732266).
+  * Added Italian debconf translation, thanks to Beatrice Torracca
+    <beatricet@libero.it> (Closes: #732078).
+  * Fixed version of (build-)depends for python-six and python-iso8601.
+  * Added openswan as dependency for neutron-vpn-agent.
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:51 +0800
 
 neutron (2013.2-9) unstable; urgency=medium
 

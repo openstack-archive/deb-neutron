@@ -6,7 +6,7 @@ Uploaders: Julien Danjou <acid@debian.org>,
            Thomas Goirand <zigo@debian.org>,
            Mehdi Abaakouk <sileht@sileht.net>
 Build-Depends: debhelper (>= 9),
-               openstack-pkg-tools (>= 4),
+               openstack-pkg-tools (>= 9),
                po-debconf,
                python-all (>= 2.6),
                python-pbr (>= 0.5.21)
@@ -60,7 +60,7 @@ Build-Depends-Indep: alembic (>= 0.4.1),
                      python-webtest (>= 2.0.9),
                      subunit,
                      testrepository (>= 0.0.17)
-Standards-Version: 3.9.4
+Standards-Version: 3.9.5
 Homepage: http://neutron.openstack.org/
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/neutron.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/neutron.git
@@ -321,10 +321,10 @@ Depends: adduser,
          debconf,
          lsb-base,
          neutron-common (= ${source:Version}),
-         openswan,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
+Suggests: openswan
 Provides: neutron-plugin-vpn-agent
 Conflicts: neutron-l3-agent
 Breaks: quantum-server (<< 2013.2~)
