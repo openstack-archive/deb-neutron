@@ -1,3 +1,9 @@
+neutron (2013.2.2-3) UNRELEASED; urgency=low
+
+  * Adds initial German debconf translation (Closes: #739451).
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 02 Mar 2014 17:16:33 +0800
+
 neutron (2013.2.2-2) unstable; urgency=medium
 
   * Rebuilt using openstack-pkg-tools >= 9~.
