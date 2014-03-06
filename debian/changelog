@@ -1,5 +1,6 @@
-neutron (2013.2.2-3) UNRELEASED; urgency=low
+neutron (2013.2.2-3) unstable; urgency=medium
 
+  * Rebuilt for SQLA 0.9.x.
   * Adds initial German debconf translation (Closes: #739451).
 
  -- Thomas Goirand <zigo@debian.org>  Sun, 02 Mar 2014 17:16:33 +0800
