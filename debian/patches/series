@@ -1,3 +1,3 @@
 fix-alembic-migration-with-sqlite3.patch
-fixes-SQLAlchemy-requirement.patch
 better-config-default.patch
+fixes-SQLAlchemy-requirement.patch

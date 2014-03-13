@@ -3,10 +3,10 @@ Description: Better config default
  parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2013-12-09
+Last-Update: 2014-03-13
 
---- neutron-2014.1~b2.orig/etc/l3_agent.ini
-+++ neutron-2014.1~b2/etc/l3_agent.ini
+--- neutron-2014.1~b3.orig/etc/l3_agent.ini
++++ neutron-2014.1~b3/etc/l3_agent.ini
 @@ -4,11 +4,9 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -20,8 +20,8 @@ Last-Update: 2013-12-09
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.1~b2.orig/etc/neutron.conf
-+++ neutron-2014.1~b2/etc/neutron.conf
+--- neutron-2014.1~b3.orig/etc/neutron.conf
++++ neutron-2014.1~b3/etc/neutron.conf
 @@ -50,8 +50,7 @@ lock_path = $state_path/lock
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -43,7 +43,7 @@ Last-Update: 2013-12-09
  # Paste configuration file
  # api_paste_config = api-paste.ini
 @@ -131,16 +130,16 @@ lock_path = $state_path/lock
- # SSL certification authority file (valid only if SSL enabled)'
+ # SSL certification authority file (valid only if SSL enabled)
  # kombu_ssl_ca_certs =
  # IP address of the RabbitMQ installation
 -# rabbit_host = localhost
@@ -62,7 +62,7 @@ Last-Update: 2013-12-09
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -320,7 +319,7 @@ notification_driver = neutron.openstack.
+@@ -348,7 +347,7 @@ notification_driver = neutron.openstack.
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -71,7 +71,7 @@ Last-Update: 2013-12-09
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -340,11 +339,10 @@ signing_dir = $state_path/keystone-signi
+@@ -368,11 +367,10 @@ signing_dir = $state_path/keystone-signi
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -85,8 +85,8 @@ Last-Update: 2013-12-09
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
---- neutron-2014.1~b2.orig/etc/lbaas_agent.ini
-+++ neutron-2014.1~b2/etc/lbaas_agent.ini
+--- neutron-2014.1~b3.orig/etc/lbaas_agent.ini
++++ neutron-2014.1~b3/etc/lbaas_agent.ini
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -100,8 +100,8 @@ Last-Update: 2013-12-09
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.1~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2014.1~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+--- neutron-2014.1~b3.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2014.1~b3/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,7 +30,7 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -130,10 +130,11 @@ Last-Update: 2013-12-09
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -131,35 +131,4 @@
+@@ -130,36 +130,4 @@
+ 
  [securitygroup]
  # Firewall driver for realizing neutron security group function.
- # firewall_driver = neutron.agent.firewall.NoopFirewallDriver
+-# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
 -# Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
 -
 -#-----------------------------------------------------------------------------
@@ -141,14 +142,14 @@ Last-Update: 2013-12-09
 -#-----------------------------------------------------------------------------
 -#
 -# 1. With VLANs on eth1.
--# [OVS]
+-# [ovs]
 -# network_vlan_ranges = default:2000:3999
 -# tunnel_id_ranges =
 -# integration_bridge = br-int
 -# bridge_mappings = default:br-eth1
 -#
 -# 2. With GRE tunneling.
--# [OVS]
+-# [ovs]
 -# network_vlan_ranges =
 -# tunnel_id_ranges = 1:1000
 -# integration_bridge = br-int
@@ -156,7 +157,7 @@ Last-Update: 2013-12-09
 -# local_ip = 10.0.0.3
 -#
 -# 3. With VXLAN tunneling.
--# [OVS]
+-# [ovs]
 -# network_vlan_ranges =
 -# tenant_network_type = vxlan
 -# tunnel_type = vxlan
@@ -164,6 +165,6 @@ Last-Update: 2013-12-09
 -# integration_bridge = br-int
 -# tunnel_bridge = br-tun
 -# local_ip = 10.0.0.3
--# [AGENT]
+-# [agent]
 -# tunnel_types = vxlan
 +firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
