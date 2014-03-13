@@ -1,6 +1,6 @@
-neutron (2014.1~b2-2) UNRELEASED; urgency=low
+neutron (2014.1~b3-1) experimental; urgency=low
 
-  * New upstream release (Icehouse beta 2).
+  * New upstream release (Icehouse beta 3).
   * Fixed /var/lib/neutron/dhcp folder rights for Ubuntu.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 14 Dec 2013 00:44:19 +0800
