@@ -1,3 +1,11 @@
+neutron (2013.2.2-4) unstable; urgency=high
+
+  * CVE-2014-0056: Routers can be cross plugged by other tenants. Applied patch
+    from upstream: "Prevent cross plugging router ports from other tenants".
+    (Closes: #742800).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 27 Mar 2014 23:46:46 +0800
+
 neutron (2013.2.2-3) unstable; urgency=medium
 
   * Rebuilt for SQLA 0.9.x.
