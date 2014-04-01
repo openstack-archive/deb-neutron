@@ -1,3 +1,9 @@
+neutron (2014.1~rc1-2) experimental; urgency=low
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 02 Apr 2014 00:25:35 +0800
+
 neutron (2014.1~b3-1) experimental; urgency=low
 
   * New upstream release (Icehouse beta 3).
