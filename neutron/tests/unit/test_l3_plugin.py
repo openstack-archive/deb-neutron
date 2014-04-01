@@ -35,7 +35,6 @@ from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.manager import NeutronManager
 from neutron.openstack.common import log as logging
-from neutron.openstack.common.notifier import api as notifier_api
 from neutron.openstack.common.notifier import test_notifier
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
@@ -359,10 +358,8 @@ class L3NatTestCaseMixin(object):
         router = self._make_router(fmt or self.fmt, tenant_id, name,
                                    admin_state_up, external_gateway_info,
                                    set_context, **kwargs)
-        try:
-            yield router
-        finally:
-            self._delete('routers', router['router']['id'])
+        yield router
+        self._delete('routers', router['router']['id'])
 
     def _set_net_external(self, net_id):
         self._update('networks', net_id,
@@ -414,31 +411,31 @@ class L3NatTestCaseMixin(object):
                     sid = private_port['port']['fixed_ips'][0]['subnet_id']
                     private_sub = {'subnet': {'id': sid}}
                     floatingip = None
-                    try:
-                        self._add_external_gateway_to_router(
-                            r['router']['id'],
-                            public_sub['subnet']['network_id'])
-                        self._router_interface_action(
-                            'add', r['router']['id'],
-                            private_sub['subnet']['id'], None)
 
-                        floatingip = self._make_floatingip(
-                            fmt or self.fmt,
-                            public_sub['subnet']['network_id'],
-                            port_id=private_port['port']['id'],
-                            fixed_ip=fixed_ip,
-                            set_context=False)
-                        yield floatingip
-                    finally:
-                        if floatingip:
-                            self._delete('floatingips',
-                                         floatingip['floatingip']['id'])
-                        self._router_interface_action(
-                            'remove', r['router']['id'],
-                            private_sub['subnet']['id'], None)
-                        self._remove_external_gateway_from_router(
-                            r['router']['id'],
-                            public_sub['subnet']['network_id'])
+                    self._add_external_gateway_to_router(
+                        r['router']['id'],
+                        public_sub['subnet']['network_id'])
+                    self._router_interface_action(
+                        'add', r['router']['id'],
+                        private_sub['subnet']['id'], None)
+
+                    floatingip = self._make_floatingip(
+                        fmt or self.fmt,
+                        public_sub['subnet']['network_id'],
+                        port_id=private_port['port']['id'],
+                        fixed_ip=fixed_ip,
+                        set_context=False)
+                    yield floatingip
+
+                    if floatingip:
+                        self._delete('floatingips',
+                                     floatingip['floatingip']['id'])
+                    self._router_interface_action(
+                        'remove', r['router']['id'],
+                        private_sub['subnet']['id'], None)
+                    self._remove_external_gateway_from_router(
+                        r['router']['id'],
+                        public_sub['subnet']['network_id'])
 
     @contextlib.contextmanager
     def floatingip_no_assoc_with_public_sub(
@@ -446,29 +443,29 @@ class L3NatTestCaseMixin(object):
         self._set_net_external(public_sub['subnet']['network_id'])
         with self.router() as r:
             floatingip = None
-            try:
-                self._add_external_gateway_to_router(
-                    r['router']['id'],
-                    public_sub['subnet']['network_id'])
-                self._router_interface_action('add', r['router']['id'],
-                                              private_sub['subnet']['id'],
-                                              None)
 
-                floatingip = self._make_floatingip(
-                    fmt or self.fmt,
-                    public_sub['subnet']['network_id'],
-                    set_context=set_context)
-                yield floatingip, r
-            finally:
-                if floatingip:
-                    self._delete('floatingips',
-                                 floatingip['floatingip']['id'])
-                self._router_interface_action('remove', r['router']['id'],
-                                              private_sub['subnet']['id'],
-                                              None)
-                self._remove_external_gateway_from_router(
-                    r['router']['id'],
-                    public_sub['subnet']['network_id'])
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                public_sub['subnet']['network_id'])
+            self._router_interface_action('add', r['router']['id'],
+                                          private_sub['subnet']['id'],
+                                          None)
+
+            floatingip = self._make_floatingip(
+                fmt or self.fmt,
+                public_sub['subnet']['network_id'],
+                set_context=set_context)
+            yield floatingip, r
+
+            if floatingip:
+                self._delete('floatingips',
+                             floatingip['floatingip']['id'])
+            self._router_interface_action('remove', r['router']['id'],
+                                          private_sub['subnet']['id'],
+                                          None)
+            self._remove_external_gateway_from_router(
+                r['router']['id'],
+                public_sub['subnet']['network_id'])
 
     @contextlib.contextmanager
     def floatingip_no_assoc(self, private_sub, fmt=None, set_context=False):
@@ -924,6 +921,62 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 gw_info = body['router']['external_gateway_info']
                 self.assertIsNone(gw_info)
 
+    def test_create_router_port_with_device_id_of_other_teants_router(self):
+        with self.router() as admin_router:
+            with self.network(tenant_id='tenant_a',
+                              set_context=True) as n:
+                with self.subnet(network=n):
+                    self._create_port(
+                        self.fmt, n['network']['id'],
+                        tenant_id='tenant_a',
+                        device_id=admin_router['router']['id'],
+                        device_owner='network:router_interface',
+                        set_context=True,
+                        expected_res_status=exc.HTTPConflict.code)
+
+    def test_create_non_router_port_device_id_of_other_teants_router_update(
+        self):
+        # This tests that HTTPConflict is raised if we create a non-router
+        # port that matches the device_id of another tenants router and then
+        # we change the device_owner to be network:router_interface.
+        with self.router() as admin_router:
+            with self.network(tenant_id='tenant_a',
+                              set_context=True) as n:
+                with self.subnet(network=n):
+                    port_res = self._create_port(
+                        self.fmt, n['network']['id'],
+                        tenant_id='tenant_a',
+                        device_id=admin_router['router']['id'],
+                        set_context=True)
+                    port = self.deserialize(self.fmt, port_res)
+                    neutron_context = context.Context('', 'tenant_a')
+                    data = {'port': {'device_owner':
+                                     'network:router_interface'}}
+                    self._update('ports', port['port']['id'], data,
+                                 neutron_context=neutron_context,
+                                 expected_code=exc.HTTPConflict.code)
+                    self._delete('ports', port['port']['id'])
+
+    def test_update_port_device_id_to_different_tenants_router(self):
+        with self.router() as admin_router:
+            with self.router(tenant_id='tenant_a',
+                             set_context=True) as tenant_router:
+                with self.network(tenant_id='tenant_a',
+                                  set_context=True) as n:
+                    with self.subnet(network=n) as s:
+                        port = self._router_interface_action(
+                            'add', tenant_router['router']['id'],
+                            s['subnet']['id'], None, tenant_id='tenant_a')
+                        neutron_context = context.Context('', 'tenant_a')
+                        data = {'port':
+                                {'device_id': admin_router['router']['id']}}
+                        self._update('ports', port['port_id'], data,
+                                     neutron_context=neutron_context,
+                                     expected_code=exc.HTTPConflict.code)
+                        self._router_interface_action(
+                            'remove', tenant_router['router']['id'],
+                            s['subnet']['id'], None, tenant_id='tenant_a')
+
     def test_router_add_gateway_invalid_network_returns_404(self):
         with self.router() as r:
             self._add_external_gateway_to_router(
@@ -1146,7 +1199,8 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                             port_id=private_port['port']['id'])
                         self.assertEqual(res.status_int, 400)
                     for p in self._list('ports')['ports']:
-                        if p['device_owner'] == 'network:floatingip':
+                        if (p['device_owner'] ==
+                            l3_constants.DEVICE_OWNER_FLOATINGIP):
                             self.fail('garbage port is not deleted')
                     self._remove_external_gateway_from_router(
                         r['router']['id'],
@@ -1184,7 +1238,8 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                         self.assertEqual(res.status_int, exc.HTTPConflict.code)
 
                     for p in self._list('ports')['ports']:
-                        if p['device_owner'] == 'network:floatingip':
+                        if (p['device_owner'] ==
+                            l3_constants.DEVICE_OWNER_FLOATINGIP):
                             self.fail('garbage port is not deleted')
 
                     self._remove_external_gateway_from_router(
@@ -1341,7 +1396,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         found = False
         with self.floatingip_with_assoc():
             for p in self._list('ports')['ports']:
-                if p['device_owner'] == 'network:floatingip':
+                if p['device_owner'] == l3_constants.DEVICE_OWNER_FLOATINGIP:
                     self._delete('ports', p['id'],
                                  expected_code=exc.HTTPConflict.code)
                     found = True
@@ -1524,7 +1579,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         found = False
         with self.floatingip_with_assoc():
             for p in self._list('ports')['ports']:
-                if p['device_owner'] == 'network:router_interface':
+                if p['device_owner'] == l3_constants.DEVICE_OWNER_ROUTER_INTF:
                     subnet_id = p['fixed_ips'][0]['subnet_id']
                     router_id = p['device_id']
                     self._router_interface_action(
@@ -1538,7 +1593,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         found = False
         with self.floatingip_with_assoc():
             for p in self._list('ports')['ports']:
-                if p['device_owner'] == 'network:router_interface':
+                if p['device_owner'] == l3_constants.DEVICE_OWNER_ROUTER_INTF:
                     router_id = p['device_id']
                     self._router_interface_action(
                         'remove', router_id, None, p['id'],
@@ -1721,13 +1776,7 @@ class L3BaseForIntTests(test_db_plugin.NeutronDbPluginV2TestCase):
         super(L3BaseForIntTests, self).setUp(plugin=plugin, ext_mgr=ext_mgr,
                                              service_plugins=service_plugins)
 
-        # Set to None to reload the drivers
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
-
-    def tearDown(self):
-        test_notifier.NOTIFICATIONS = []
-        super(L3BaseForIntTests, self).tearDown()
+        self.setup_notification_driver()
 
 
 class L3BaseForSepTests(test_db_plugin.NeutronDbPluginV2TestCase):
@@ -1748,13 +1797,7 @@ class L3BaseForSepTests(test_db_plugin.NeutronDbPluginV2TestCase):
         super(L3BaseForSepTests, self).setUp(plugin=plugin, ext_mgr=ext_mgr,
                                              service_plugins=service_plugins)
 
-        # Set to None to reload the drivers
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
-
-    def tearDown(self):
-        test_notifier.NOTIFICATIONS = []
-        super(L3BaseForSepTests, self).tearDown()
+        self.setup_notification_driver()
 
 
 class L3AgentDbIntTestCase(L3BaseForIntTests, L3AgentDbTestCaseBase):

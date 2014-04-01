@@ -34,8 +34,9 @@ migration_for_plugins = [
     'neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2',
     'neutron.plugins.cisco.network_plugin.PluginV2',
     'neutron.plugins.cisco.n1kv.n1kv_neutron_plugin.N1kvNeutronPluginV2',
+    'neutron.plugins.embrane.plugins.embrane_ovs_plugin.EmbraneOvsPlugin',
     'neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin',
-    'neutron.plugins.ibm.sdnve_neutron_plugin.SdnvePluginV2'
+    'neutron.plugins.ibm.sdnve_neutron_plugin.SdnvePluginV2',
     'neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2',
     'neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2',
     'neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin',
@@ -44,6 +45,8 @@ migration_for_plugins = [
     'neutron.plugins.nec.nec_plugin.NECPluginV2',
     'neutron.plugins.nicira.NeutronPlugin.NvpPluginV2',
     'neutron.plugins.nicira.NeutronServicePlugin.NvpAdvancedPlugin',
+    'neutron.plugins.nuage.plugin.NuagePlugin',
+    'neutron.plugins.oneconvergence.plugin.OneConvergencePluginV2',
     'neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2',
     'neutron.plugins.plumgrid.plumgrid_plugin.plumgrid_plugin.'
     'NeutronPluginPLUMgridV2',

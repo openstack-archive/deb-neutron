@@ -278,7 +278,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     def supported_extension_aliases(self):
         if not hasattr(self, '_aliases'):
             aliases = self._supported_extension_aliases[:]
-            sg_rpc.disable_security_group_extension_if_noop_driver(aliases)
+            sg_rpc.disable_security_group_extension_by_config(aliases)
             self._aliases = aliases
         return self._aliases
 
@@ -292,7 +292,8 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             portbindings.VIF_DETAILS: {
                 # TODO(rkukura): Replace with new VIF security details
                 portbindings.CAP_PORT_FILTER:
-                'security-group' in self.supported_extension_aliases}}
+                'security-group' in self.supported_extension_aliases,
+                portbindings.OVS_HYBRID_PLUG: True}}
         self._parse_network_vlan_ranges()
         ovs_db_v2.sync_vlan_allocations(self.network_vlan_ranges)
         self.tenant_network_type = cfg.CONF.OVS.tenant_network_type

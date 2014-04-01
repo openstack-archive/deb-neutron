@@ -19,7 +19,11 @@
 # @author: Swaminathan Vasudevan, Hewlett-Packard
 
 from neutron.db.vpn import vpn_db
-from neutron.services.vpn.service_drivers import ipsec as ipsec_driver
+from neutron.openstack.common import log as logging
+from neutron.plugins.common import constants
+from neutron.services import service_base
+
+LOG = logging.getLogger(__name__)
 
 
 class VPNPlugin(vpn_db.VPNPluginDb):
@@ -30,7 +34,7 @@ class VPNPlugin(vpn_db.VPNPluginDb):
     Most DB related works are implemented in class
     vpn_db.VPNPluginDb.
     """
-    supported_extension_aliases = ["vpnaas"]
+    supported_extension_aliases = ["vpnaas", "service-type"]
 
 
 class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
@@ -38,7 +42,11 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
     #TODO(nati) handle ikepolicy and ipsecpolicy update usecase
     def __init__(self):
         super(VPNDriverPlugin, self).__init__()
-        self.ipsec_driver = ipsec_driver.IPsecVPNDriver(self)
+        # Load the service driver from neutron.conf.
+        drivers, default_provider = service_base.load_drivers(
+            constants.VPN, self)
+        LOG.info(_("VPN plugin using service driver: %s"), default_provider)
+        self.ipsec_driver = drivers[default_provider]
 
     def _get_driver_for_vpnservice(self, vpnservice):
         return self.ipsec_driver
@@ -82,6 +90,15 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
         driver.update_ipsec_site_connection(
             context, old_ipsec_site_connection, ipsec_site_connection)
         return ipsec_site_connection
+
+    def update_vpnservice(self, context, vpnservice_id, vpnservice):
+        old_vpn_service = self.get_vpnservice(context, vpnservice_id)
+        new_vpn_service = super(
+            VPNDriverPlugin, self).update_vpnservice(context, vpnservice_id,
+                                                     vpnservice)
+        driver = self._get_driver_for_vpnservice(old_vpn_service)
+        driver.update_vpnservice(context, old_vpn_service, new_vpn_service)
+        return new_vpn_service
 
     def delete_vpnservice(self, context, vpnservice_id):
         vpnservice = self._get_vpnservice(context, vpnservice_id)

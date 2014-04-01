@@ -28,7 +28,6 @@ from neutron.tests import base
 class TestManager(base.BaseTestCase):
     def setUp(self):
         super(TestManager, self).setUp()
-        self.addCleanup(mock.patch.stopall)
 
         mock_conf = mock.Mock()
         mock_conf.device_driver = ['devdriver']
@@ -38,6 +37,9 @@ class TestManager(base.BaseTestCase):
         rpc_mock_cls = mock.patch(
             'neutron.services.loadbalancer.agent.agent_api.LbaasAgentApi'
         ).start()
+
+        # disable setting up periodic state reporting
+        mock_conf.AGENT.report_interval = 0
 
         self.mgr = manager.LbaasAgentManager(mock_conf)
         self.rpc_mock = rpc_mock_cls.return_value

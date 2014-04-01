@@ -66,10 +66,12 @@ class TunnelTest(base.BaseTestCase):
 
     def setUp(self):
         super(TunnelTest, self).setUp()
+        cfg.CONF.set_default('firewall_driver',
+                             'neutron.agent.firewall.NoopFirewallDriver',
+                             group='SECURITYGROUP')
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')
         cfg.CONF.set_override('report_interval', 0, 'AGENT')
-        self.addCleanup(mock.patch.stopall)
 
         self.INT_BRIDGE = 'integration_bridge'
         self.TUN_BRIDGE = 'tunnel_bridge'
@@ -250,12 +252,19 @@ class TunnelTest(base.BaseTestCase):
                                return_value="1.10") as klm_ver:
             with mock.patch.object(ovs_lib, 'get_installed_ovs_usr_version',
                                    return_value="1.10") as usr_ver:
-                ovs_neutron_agent.OVSNeutronAgent(self.INT_BRIDGE,
-                                                  self.TUN_BRIDGE,
-                                                  '10.0.0.1', self.NET_MAPPING,
-                                                  'sudo', 2, ['vxlan'],
-                                                  self.VETH_MTU)
+                with mock.patch.object(ovs_lib, 'get_installed_kernel_version',
+                                       return_value=(
+                                           constants.
+                                           MINIMUM_LINUX_KERNEL_OVS_VXLAN
+                                       )) as kernel_ver:
+                    ovs_neutron_agent.OVSNeutronAgent(self.INT_BRIDGE,
+                                                      self.TUN_BRIDGE,
+                                                      '10.0.0.1',
+                                                      self.NET_MAPPING,
+                                                      'sudo', 2, ['vxlan'],
+                                                      self.VETH_MTU)
         klm_ver.assert_called_once_with()
+        kernel_ver.assert_called_once_with()
         usr_ver.assert_called_once_with('sudo')
         self._verify_mock_calls()
 
@@ -263,7 +272,6 @@ class TunnelTest(base.BaseTestCase):
         ofports = ','.join(TUN_OFPORTS[p_const.TYPE_GRE].values())
         self.mock_tun_bridge_expected += [
             mock.call.mod_flow(table=constants.FLOOD_TO_TUN,
-                               priority=1,
                                dl_vlan=LV_ID,
                                actions="strip_vlan,"
                                "set_tunnel:%s,output:%s" %

@@ -36,6 +36,9 @@ agent_opts = [
 ofc_opts = [
     cfg.StrOpt('host', default='127.0.0.1',
                help=_("Host to connect to")),
+    cfg.StrOpt('path_prefix', default='',
+               help=_("Base URL of OFC REST API. "
+                      "It is prepended to each API request.")),
     cfg.StrOpt('port', default='8888',
                help=_("Port to connect to")),
     cfg.StrOpt('driver', default='trema',
@@ -48,6 +51,11 @@ ofc_opts = [
                help=_("Key file")),
     cfg.StrOpt('cert_file', default=None,
                help=_("Certificate file")),
+    cfg.IntOpt('api_max_attempts', default=3,
+               help=_("Maximum attempts per OFC API request."
+                      "NEC plugin retries API request to OFC "
+                      "when OFC returns ServiceUnavailable (503)."
+                      "The value must be greater than 0.")),
 ]
 
 provider_opts = [

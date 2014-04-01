@@ -324,6 +324,7 @@ class Dnsmasq(DhcpLocalProcess):
             '--pid-file=%s' % self.get_conf_file_name(
                 'pid', ensure_conf_dir=True),
             '--dhcp-hostsfile=%s' % self._output_hosts_file(),
+            '--addn-hosts=%s' % self._output_addn_hosts_file(),
             '--dhcp-optsfile=%s' % self._output_opts_file(),
             '--leasefile-ro',
         ]
@@ -367,24 +368,16 @@ class Dnsmasq(DhcpLocalProcess):
         if self.conf.dhcp_domain:
             cmd.append('--domain=%s' % self.conf.dhcp_domain)
 
-        if self.network.namespace:
-            ip_wrapper = ip_lib.IPWrapper(self.root_helper,
-                                          self.network.namespace)
-            ip_wrapper.netns.execute(cmd, addl_env=env)
-        else:
-            # For normal sudo prepend the env vars before command
-            cmd = ['%s=%s' % pair for pair in env.items()] + cmd
-            utils.execute(cmd, self.root_helper)
+        ip_wrapper = ip_lib.IPWrapper(self.root_helper,
+                                      self.network.namespace)
+        ip_wrapper.netns.execute(cmd, addl_env=env)
 
     def _release_lease(self, mac_address, ip):
         """Release a DHCP lease."""
         cmd = ['dhcp_release', self.interface_name, ip, mac_address]
-        if self.network.namespace:
-            ip_wrapper = ip_lib.IPWrapper(self.root_helper,
-                                          self.network.namespace)
-            ip_wrapper.netns.execute(cmd)
-        else:
-            utils.execute(cmd, self.root_helper)
+        ip_wrapper = ip_lib.IPWrapper(self.root_helper,
+                                      self.network.namespace)
+        ip_wrapper.netns.execute(cmd)
 
     def reload_allocations(self):
         """Rebuild the dnsmasq config and signal the dnsmasq to reload."""
@@ -398,6 +391,7 @@ class Dnsmasq(DhcpLocalProcess):
 
         self._release_unused_leases()
         self._output_hosts_file()
+        self._output_addn_hosts_file()
         self._output_opts_file()
         if self.active:
             cmd = ['kill', '-HUP', self.pid]
@@ -407,36 +401,111 @@ class Dnsmasq(DhcpLocalProcess):
         LOG.debug(_('Reloading allocations for network: %s'), self.network.id)
         self.device_manager.update(self.network)
 
-    def _output_hosts_file(self):
-        """Writes a dnsmasq compatible hosts file."""
-        r = re.compile('[:.]')
-        buf = six.StringIO()
+    def _iter_hosts(self):
+        """Iterate over hosts.
 
+        For each host on the network we yield a tuple containing:
+        (
+            port,  # a DictModel instance representing the port.
+            alloc,  # a DictModel instance of the allocated ip and subnet.
+            host_name,  # Host name.
+            name,  # Host name and domain name in the format 'hostname.domain'.
+        )
+        """
         for port in self.network.ports:
             for alloc in port.fixed_ips:
-                name = 'host-%s.%s' % (r.sub('-', alloc.ip_address),
-                                       self.conf.dhcp_domain)
-                set_tag = ''
-                # (dzyu) Check if it is legal ipv6 address, if so, need wrap
-                # it with '[]' to let dnsmasq to distinguish MAC address from
-                # IPv6 address.
-                ip_address = alloc.ip_address
-                if netaddr.valid_ipv6(ip_address):
-                    ip_address = '[%s]' % ip_address
-                if getattr(port, 'extra_dhcp_opts', False):
-                    if self.version >= self.MINIMUM_VERSION:
-                        set_tag = 'set:'
+                hostname = 'host-%s' % alloc.ip_address.replace(
+                    '.', '-').replace(':', '-')
+                fqdn = '%s.%s' % (hostname, self.conf.dhcp_domain)
+                yield (port, alloc, hostname, fqdn)
 
-                    buf.write('%s,%s,%s,%s%s\n' %
-                              (port.mac_address, name, ip_address,
-                               set_tag, port.id))
-                else:
-                    buf.write('%s,%s,%s\n' %
-                              (port.mac_address, name, ip_address))
+    def _output_hosts_file(self):
+        """Writes a dnsmasq compatible dhcp hosts file.
 
-        name = self.get_conf_file_name('host')
-        utils.replace_file(name, buf.getvalue())
-        return name
+        The generated file is sent to the --dhcp-hostsfile option of dnsmasq,
+        and lists the hosts on the network which should receive a dhcp lease.
+        Each line in this file is in the form::
+
+            'mac_address,FQDN,ip_address'
+
+        IMPORTANT NOTE: a dnsmasq instance does not resolve hosts defined in
+        this file if it did not give a lease to a host listed in it (e.g.:
+        multiple dnsmasq instances on the same network if this network is on
+        multiple network nodes). This file is only defining hosts which
+        should receive a dhcp lease, the hosts resolution in itself is
+        defined by the `_output_addn_hosts_file` method.
+        """
+        buf = six.StringIO()
+        filename = self.get_conf_file_name('host')
+
+        LOG.debug(_('Building host file: %s'), filename)
+        for (port, alloc, hostname, name) in self._iter_hosts():
+            set_tag = ''
+            # (dzyu) Check if it is legal ipv6 address, if so, need wrap
+            # it with '[]' to let dnsmasq to distinguish MAC address from
+            # IPv6 address.
+            ip_address = alloc.ip_address
+            if netaddr.valid_ipv6(ip_address):
+                ip_address = '[%s]' % ip_address
+
+            LOG.debug(_('Adding %(mac)s : %(name)s : %(ip)s'),
+                      {"mac": port.mac_address, "name": name,
+                       "ip": ip_address})
+
+            if getattr(port, 'extra_dhcp_opts', False):
+                if self.version >= self.MINIMUM_VERSION:
+                    set_tag = 'set:'
+
+                buf.write('%s,%s,%s,%s%s\n' %
+                          (port.mac_address, name, ip_address,
+                           set_tag, port.id))
+            else:
+                buf.write('%s,%s,%s\n' %
+                          (port.mac_address, name, ip_address))
+
+        utils.replace_file(filename, buf.getvalue())
+        LOG.debug(_('Done building host file %s'), filename)
+        return filename
+
+    def _read_hosts_file_leases(self, filename):
+        leases = set()
+        if os.path.exists(filename):
+            with open(filename) as f:
+                for l in f.readlines():
+                    host = l.strip().split(',')
+                    leases.add((host[2], host[0]))
+        return leases
+
+    def _release_unused_leases(self):
+        filename = self.get_conf_file_name('host')
+        old_leases = self._read_hosts_file_leases(filename)
+
+        new_leases = set()
+        for port in self.network.ports:
+            for alloc in port.fixed_ips:
+                new_leases.add((alloc.ip_address, port.mac_address))
+
+        for ip, mac in old_leases - new_leases:
+            self._release_lease(mac, ip)
+
+    def _output_addn_hosts_file(self):
+        """Writes a dnsmasq compatible additional hosts file.
+
+        The generated file is sent to the --addn-hosts option of dnsmasq,
+        and lists the hosts on the network which should be resolved even if
+        the dnsmaq instance did not give a lease to the host (see the
+        `_output_hosts_file` method).
+        Each line in this file is in the same form as a standard /etc/hosts
+        file.
+        """
+        buf = six.StringIO()
+        for (port, alloc, hostname, fqdn) in self._iter_hosts():
+            # It is compulsory to write the `fqdn` before the `hostname` in
+            # order to obtain it in PTR responses.
+            buf.write('%s\t%s %s\n' % (alloc.ip_address, fqdn, hostname))
+        addn_hosts = self.get_conf_file_name('addn_hosts')
+        utils.replace_file(addn_hosts, buf.getvalue())
+        return addn_hosts
 
     def _read_hosts_file_leases(self, filename):
         leases = set()
@@ -520,7 +589,7 @@ class Dnsmasq(DhcpLocalProcess):
             # provides all dnsmasq ip as dns-server if there is more than
             # one dnsmasq for a subnet and there is no dns-server submitted
             # by the server
-            if port.device_owner == 'network:dhcp':
+            if port.device_owner == constants.DEVICE_OWNER_DHCP:
                 for ip in port.fixed_ips:
                     i = subnet_idx_map.get(ip.subnet_id)
                     if i is None:
@@ -654,26 +723,21 @@ class DeviceManager(object):
         host_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, socket.gethostname())
         return 'dhcp%s-%s' % (host_uuid, network.id)
 
-    def _get_device(self, network):
+    def _get_device(self, network, port):
         """Return DHCP ip_lib device for this host on the network."""
-        device_id = self.get_device_id(network)
-        port = self.plugin.get_dhcp_port(network.id, device_id)
-        if port:
-            interface_name = self.get_interface_name(network, port)
-            return ip_lib.IPDevice(interface_name,
-                                   self.root_helper,
-                                   network.namespace)
-        else:
-            raise exceptions.NetworkNotFound(net_id=network.id)
+        interface_name = self.get_interface_name(network, port)
+        return ip_lib.IPDevice(interface_name,
+                               self.root_helper,
+                               network.namespace)
 
-    def _set_default_route(self, network):
+    def _set_default_route(self, network, port):
         """Sets the default gateway for this dhcp namespace.
 
         This method is idempotent and will only adjust the route if adjusting
         it would change it from what it already is.  This makes it safe to call
         and avoids unnecessary perturbation of the system.
         """
-        device = self._get_device(network)
+        device = self._get_device(network, port)
         gateway = device.route.get_gateway()
         if gateway:
             gateway = gateway['gateway']
@@ -808,14 +872,18 @@ class DeviceManager(object):
             device.route.pullup_route(interface_name)
 
         if self.conf.use_namespaces:
-            self._set_default_route(network)
+            self._set_default_route(network, port)
 
         return interface_name
 
     def update(self, network):
         """Update device settings for the network's DHCP on this host."""
         if self.conf.use_namespaces:
-            self._set_default_route(network)
+            device_id = self.get_device_id(network)
+            port = self.plugin.get_dhcp_port(network.id, device_id)
+            if not port:
+                raise exceptions.NetworkNotFound(net_id=network.id)
+            self._set_default_route(network, port)
 
     def destroy(self, network, device_name):
         """Destroy the device used for the network's DHCP on this host."""

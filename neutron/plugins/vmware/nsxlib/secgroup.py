@@ -17,6 +17,7 @@ import json
 
 from neutron.common import constants
 from neutron.common import exceptions
+from neutron.openstack.common import excutils
 from neutron.openstack.common import log
 from neutron.plugins.vmware.common import utils
 from neutron.plugins.vmware.nsxlib import _build_uri_path
@@ -124,13 +125,22 @@ def update_security_group_rules(cluster, spid, rules):
     return rsp
 
 
+def update_security_profile(cluster, spid, name):
+    return do_request(HTTP_PUT,
+                      _build_uri_path(SECPROF_RESOURCE, resource_id=spid),
+                      json.dumps({
+                          "display_name": utils.check_and_truncate(name)
+                      }),
+                      cluster=cluster)
+
+
 def delete_security_profile(cluster, spid):
     path = "/ws.v1/security-profile/%s" % spid
 
     try:
         do_request(HTTP_DELETE, path, cluster=cluster)
     except exceptions.NotFound:
-        # This is not necessarily an error condition
-        LOG.warn(_("Unable to find security profile %s on NSX backend"),
-                 spid)
-        raise
+        with excutils.save_and_reraise_exception():
+            # This is not necessarily an error condition
+            LOG.warn(_("Unable to find security profile %s on NSX backend"),
+                     spid)

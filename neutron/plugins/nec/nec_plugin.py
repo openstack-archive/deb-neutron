@@ -38,6 +38,7 @@ from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import portbindings
+from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
@@ -97,7 +98,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     def supported_extension_aliases(self):
         if not hasattr(self, '_aliases'):
             aliases = self._supported_extension_aliases[:]
-            sg_rpc.disable_security_group_extension_if_noop_driver(aliases)
+            sg_rpc.disable_security_group_extension_by_config(aliases)
             self.remove_packet_filter_extension_if_disabled(aliases)
             self._aliases = aliases
         return self._aliases
@@ -167,6 +168,14 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             obj_db = obj_getter(context, id)
             obj_db.update(request)
 
+    def _update_resource_status_if_changed(self, context, resource_type,
+                                           resource_dict, new_status):
+        if resource_dict['status'] != new_status:
+            self._update_resource_status(context, resource_type,
+                                         resource_dict['id'],
+                                         new_status)
+            resource_dict['status'] = new_status
+
     def _check_ofc_tenant_in_use(self, context, tenant_id):
         """Check if the specified tenant is used."""
         # All networks are created on OFC
@@ -234,16 +243,18 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         return port
 
-    def deactivate_port(self, context, port):
+    def deactivate_port(self, context, port, raise_exc=True):
         """Deactivate port by deleting port from OFC if exists."""
         if not self.ofc.exists_ofc_port(context, port['id']):
-            LOG.debug(_("deactivate_port(): skip, ofc_port does not "
-                        "exist."))
+            LOG.debug(_("deactivate_port(): skip, ofc_port for port=%s "
+                        "does not exist."), port['id'])
             return port
 
         try:
             self.ofc.delete_ofc_port(context, port['id'], port)
-            port_status = const.PORT_STATUS_DOWN
+            self._update_resource_status_if_changed(
+                context, "port", port, const.PORT_STATUS_DOWN)
+            return port
         except (nexc.OFCResourceNotFound, nexc.OFCMappingNotFound):
             # There is a case where multiple delete_port operation are
             # running concurrently. For example, delete_port from
@@ -261,15 +272,14 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             port['status'] = const.PORT_STATUS_DOWN
             return port
         except nexc.OFCException as exc:
-            LOG.error(_("delete_ofc_port() failed due to %s"), exc)
-            port_status = const.PORT_STATUS_ERROR
-
-        if port_status != port['status']:
-            self._update_resource_status(context, "port", port['id'],
-                                         port_status)
-            port['status'] = port_status
-
-        return port
+            with excutils.save_and_reraise_exception() as ctxt:
+                LOG.error(_("Failed to delete port=%(port)s from OFC: "
+                            "%(exc)s"), {'port': port['id'], 'exc': exc})
+                self._update_resource_status_if_changed(
+                    context, "port", port, const.PORT_STATUS_ERROR)
+                if not raise_exc:
+                    ctxt.reraise = False
+                    return port
 
     def _net_status(self, network):
         # NOTE: NEC Plugin accept admin_state_up. When it's False, this plugin
@@ -336,7 +346,11 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             ports = super(NECPluginV2, self).get_ports(context,
                                                        filters=filters)
             for port in ports:
-                self.deactivate_port(context, port)
+                # If some error occurs, status of errored port is set to ERROR.
+                # This is avoids too many rollback.
+                # TODO(amotoki): Raise an exception after all port operations
+                # are finished to inform the caller of API of the failure.
+                self.deactivate_port(context, port, raise_exc=False)
         elif changed and new_net['admin_state_up']:
             # enable ports of the network
             filters = dict(network_id=[id], status=[const.PORT_STATUS_DOWN],
@@ -368,28 +382,25 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             raise n_exc.NetworkInUse(net_id=id)
 
         # Make sure auto-delete ports on OFC are deleted.
-        _error_ports = []
+        # If an error occurs during port deletion,
+        # delete_network will be aborted.
         for port in ports:
             port = self.deactivate_port(context, port)
-            if port['status'] == const.PORT_STATUS_ERROR:
-                _error_ports.append(port['id'])
-        if _error_ports:
-            reason = (_("Failed to delete port(s)=%s from OFC.") %
-                      ','.join(_error_ports))
-            raise nexc.OFCException(reason=reason)
 
         # delete all packet_filters of the network from the controller
         for pf in net_db.packetfilters:
             self.delete_packet_filter(context, pf['id'])
 
-        try:
-            self.ofc.delete_ofc_network(context, id, net_db)
-        except (nexc.OFCException, nexc.OFCMappingNotFound) as exc:
-            reason = _("delete_network() failed due to %s") % exc
-            LOG.error(reason)
-            self._update_resource_status(context, "network", net_db['id'],
-                                         const.NET_STATUS_ERROR)
-            raise
+        if self.ofc.exists_ofc_network(context, id):
+            try:
+                self.ofc.delete_ofc_network(context, id, net_db)
+            except (nexc.OFCException, nexc.OFCMappingNotFound) as exc:
+                with excutils.save_and_reraise_exception():
+                    reason = _("delete_network() failed due to %s") % exc
+                    LOG.error(reason)
+                    self._update_resource_status(
+                        context, "network", net_db['id'],
+                        const.NET_STATUS_ERROR)
 
         super(NECPluginV2, self).delete_network(context, id)
 
@@ -401,30 +412,33 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             portbindings.VIF_DETAILS: {
                 # TODO(rkukura): Replace with new VIF security details
                 portbindings.CAP_PORT_FILTER:
-                'security-group' in self.supported_extension_aliases}}
+                'security-group' in self.supported_extension_aliases,
+                portbindings.OVS_HYBRID_PLUG: True
+            }
+        }
         return binding
 
     def _extend_port_dict_binding_portinfo(self, port_res, portinfo):
         if portinfo:
             port_res[portbindings.PROFILE] = {
-                'portinfo:datapath_id': portinfo['datapath_id'],
-                'portinfo:port_no': portinfo['port_no'],
+                'datapath_id': portinfo['datapath_id'],
+                'port_no': portinfo['port_no'],
             }
         elif portbindings.PROFILE in port_res:
             del port_res[portbindings.PROFILE]
 
     def _validate_portinfo(self, profile):
         key_specs = {
-            'portinfo:datapath_id': {'type:string': None, 'required': True},
-            'portinfo:port_no': {'type:non_negative': None, 'required': True,
-                                 'convert_to': attrs.convert_to_int}
+            'datapath_id': {'type:string': None, 'required': True},
+            'port_no': {'type:non_negative': None, 'required': True,
+                        'convert_to': attrs.convert_to_int}
         }
         msg = attrs._validate_dict_or_empty(profile, key_specs=key_specs)
         if msg:
             raise n_exc.InvalidInput(error_message=msg)
 
-        datapath_id = profile.get('portinfo:datapath_id')
-        port_no = profile.get('portinfo:port_no')
+        datapath_id = profile.get('datapath_id')
+        port_no = profile.get('port_no')
         try:
             dpid = int(datapath_id, 16)
         except ValueError:
@@ -597,12 +611,11 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             new_port = super(NECPluginV2, self).update_port(context, id, port)
             portinfo_changed = self._process_portbindings_update(
                 context, port['port'], new_port)
-            if self.is_address_pairs_attribute_updated(old_port, port):
-                self._delete_allowed_address_pairs(context, id)
-                self._process_create_allowed_address_pairs(
-                    context, new_port,
-                    port['port'][addr_pair.ADDRESS_PAIRS])
-                need_port_update_notify = True
+            if addr_pair.ADDRESS_PAIRS in port['port']:
+                need_port_update_notify |= (
+                    self.update_address_pairs_on_port(context, id, port,
+                                                      old_port,
+                                                      new_port))
             elif changed_fixed_ips:
                 self._check_fixed_ips_and_address_pairs_no_overlap(
                     context, new_port)
@@ -628,10 +641,8 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         port = self._make_port_dict(port_db)
 
         handler = self._get_port_handler('delete', port['device_owner'])
+        # handler() raises an exception if an error occurs during processing.
         port = handler(context, port)
-        if port['status'] == const.PORT_STATUS_ERROR:
-            reason = _("Failed to delete port=%s from OFC.") % id
-            raise nexc.OFCException(reason=reason)
 
         # delete all packet_filters of the port from the controller
         for pf in port_db.packetfilters:
@@ -751,9 +762,10 @@ class NECPluginV2RPCCallbacks(object):
                 # NOTE: Make sure that packet filters on this port exist while
                 # the port is active to avoid unexpected packet transfer.
                 if portinfo:
-                    self.plugin.deactivate_port(rpc_context, port)
-                    self.plugin.deactivate_packet_filters_by_port(rpc_context,
-                                                                  id)
+                    self.plugin.deactivate_port(rpc_context, port,
+                                                raise_exc=False)
+                    self.plugin.deactivate_packet_filters_by_port(
+                        rpc_context, id, raise_exc=False)
                 self.plugin.activate_packet_filters_by_port(rpc_context, id)
                 self.plugin.activate_port_if_ready(rpc_context, port)
         for id in kwargs.get('port_removed', []):
@@ -774,8 +786,9 @@ class NECPluginV2RPCCallbacks(object):
             ndb.del_portinfo(session, id)
             port = self._get_port(rpc_context, id)
             if port:
-                self.plugin.deactivate_port(rpc_context, port)
-                self.plugin.deactivate_packet_filters_by_port(rpc_context, id)
+                self.plugin.deactivate_port(rpc_context, port, raise_exc=False)
+                self.plugin.deactivate_packet_filters_by_port(
+                    rpc_context, id, raise_exc=False)
 
     def _get_port(self, context, port_id):
         try:

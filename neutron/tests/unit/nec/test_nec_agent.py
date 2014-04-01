@@ -21,6 +21,7 @@ import time
 
 import mock
 from oslo.config import cfg
+from six.moves import xrange
 import testtools
 
 from neutron.agent.linux import ovs_lib
@@ -37,8 +38,9 @@ class TestNecAgentBase(base.BaseTestCase):
 
     def setUp(self):
         super(TestNecAgentBase, self).setUp()
-        self.addCleanup(cfg.CONF.reset)
-        self.addCleanup(mock.patch.stopall)
+        cfg.CONF.set_default('firewall_driver',
+                             'neutron.agent.firewall.NoopFirewallDriver',
+                             group='SECURITYGROUP')
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')
         cfg.CONF.set_override('host', 'dummy-host')
@@ -197,7 +199,7 @@ class TestNecAgent(TestNecAgentBase):
     def test_report_state_installed(self):
         self.loopingcall.assert_called_once_with(self.agent._report_state)
         instance = self.loopingcall.return_value
-        instance.start.assert_called_once_with(interval=4)
+        self.assertTrue(instance.start.called)
 
     def _check_report_state(self, cur_ports, num_ports, fail_mode,
                             first=False):

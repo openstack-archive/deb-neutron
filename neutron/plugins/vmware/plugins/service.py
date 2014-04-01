@@ -1240,6 +1240,8 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
     def update_vip(self, context, id, vip):
         edge_id = self._get_edge_id_by_vip_id(context, id)
         old_vip = self.get_vip(context, id)
+        session_persistence_update = bool(
+            vip['vip'].get('session_persistence'))
         vip['vip']['status'] = service_constants.PENDING_UPDATE
         v = super(NsxAdvancedPlugin, self).update_vip(context, id, vip)
         v[rsi.ROUTER_ID] = self._get_resource_router_id_binding(
@@ -1262,7 +1264,7 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             self.vcns_driver.create_vip(context, edge_id, v)
             return v
         try:
-            self.vcns_driver.update_vip(context, v)
+            self.vcns_driver.update_vip(context, v, session_persistence_update)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.exception(_("Failed to update vip with id: %s!"), id)
@@ -1454,49 +1456,6 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
                                         "with id: %s!"), id)
         return hm
 
-    def delete_health_monitor(self, context, id):
-        with context.session.begin(subtransactions=True):
-            qry = context.session.query(
-                loadbalancer_db.PoolMonitorAssociation
-            ).filter_by(monitor_id=id)
-            for assoc in qry:
-                pool_id = assoc['pool_id']
-                super(NsxAdvancedPlugin,
-                      self).delete_pool_health_monitor(context,
-                                                       id,
-                                                       pool_id)
-                pool = self.get_pool(context, pool_id)
-                if not pool.get('vip_id'):
-                    continue
-                edge_id = self._get_edge_id_by_vip_id(
-                    context, pool['vip_id'])
-                self._resource_set_status(
-                    context, loadbalancer_db.Pool,
-                    pool_id, service_constants.PENDING_UPDATE)
-                try:
-                    self._vcns_update_pool(context, pool)
-                except Exception:
-                    with excutils.save_and_reraise_exception():
-                        LOG.exception(_("Failed to update pool with monitor!"))
-                self._resource_set_status(
-                    context, loadbalancer_db.Pool,
-                    pool_id, service_constants.ACTIVE)
-                try:
-                    self.vcns_driver.delete_health_monitor(
-                        context, id, edge_id)
-                except Exception:
-                    with excutils.save_and_reraise_exception():
-                        LOG.exception(_("Failed to delete monitor "
-                                        "with id: %s!"), id)
-                        super(NsxAdvancedPlugin,
-                              self).delete_health_monitor(context, id)
-                        self._delete_resource_router_id_binding(
-                            context, id, loadbalancer_db.HealthMonitor)
-
-        super(NsxAdvancedPlugin, self).delete_health_monitor(context, id)
-        self._delete_resource_router_id_binding(
-            context, id, loadbalancer_db.HealthMonitor)
-
     def create_pool_health_monitor(self, context,
                                    health_monitor, pool_id):
         monitor_id = health_monitor['health_monitor']['id']
@@ -1604,15 +1563,15 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             self.vcns_driver.update_ipsec_config(
                 edge_id, sites, enabled=vpn_service.admin_state_up)
         except exceptions.VcnsBadRequest:
-            LOG.exception(_("Bad or unsupported Input request!"))
-            raise
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("Bad or unsupported Input request!"))
         except exceptions.VcnsApiException:
-            msg = (_("Failed to update ipsec VPN configuration "
-                     "with vpnservice: %(vpnservice_id)s on vShield Edge: "
-                     "%(edge_id)s") % {'vpnservice_id': vpnservice_id,
-                                       'edge_id': edge_id})
-            LOG.exception(msg)
-            raise
+            with excutils.save_and_reraise_exception():
+                msg = (_("Failed to update ipsec VPN configuration "
+                         "with vpnservice: %(vpnservice_id)s on vShield Edge: "
+                         "%(edge_id)s") % {'vpnservice_id': vpnservice_id,
+                                           'edge_id': edge_id})
+                LOG.exception(msg)
 
     def create_vpnservice(self, context, vpnservice):
         LOG.debug(_("create_vpnservice() called"))

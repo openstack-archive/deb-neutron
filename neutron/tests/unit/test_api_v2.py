@@ -26,6 +26,7 @@ import webtest
 
 from neutron.api import api_common
 from neutron.api.extensions import PluginAwareExtensionManager
+from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.api.v2 import base as v2_base
 from neutron.api.v2 import router
@@ -36,6 +37,7 @@ from neutron.manager import NeutronManager
 from neutron.openstack.common.notifier import api as notifer_api
 from neutron.openstack.common import policy as common_policy
 from neutron.openstack.common import uuidutils
+from neutron import policy
 from neutron import quota
 from neutron.tests import base
 from neutron.tests.unit import testlib_api
@@ -112,7 +114,6 @@ class APIv2TestBase(base.BaseTestCase):
         instance._NeutronPluginBaseV2__native_pagination_support = True
         instance._NeutronPluginBaseV2__native_sorting_support = True
         self.addCleanup(self._plugin_patcher.stop)
-        self.addCleanup(cfg.CONF.reset)
 
         api = router.APIRouter()
         self.api = webtest.TestApp(api)
@@ -1058,6 +1059,7 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
     def test_get_keystone_strip_admin_only_attribute(self):
         tenant_id = _uuid()
         # Inject rule in policy engine
+        policy.init()
         common_policy._rules['get_network:name'] = common_policy.parse_rule(
             "rule:admin_only")
         res = self._test_get(tenant_id, tenant_id, 200)
@@ -1142,7 +1144,6 @@ class SubresourceTest(base.BaseTestCase):
         self._plugin_patcher = mock.patch(plugin, autospec=True)
         self.plugin = self._plugin_patcher.start()
         self.addCleanup(self._plugin_patcher.stop)
-        self.addCleanup(cfg.CONF.reset)
 
         router.SUB_RESOURCES['dummy'] = {
             'collection_name': 'dummies',
@@ -1303,6 +1304,57 @@ class NotificationTest(APIv2TestBase):
                                    notification_level='DEBUG')
 
 
+class DHCPNotificationTest(APIv2TestBase):
+    def _test_dhcp_notifier(self, opname, resource, initial_input=None):
+        instance = self.plugin.return_value
+        instance.get_networks.return_value = initial_input
+        instance.get_networks_count.return_value = 0
+        expected_code = exc.HTTPCreated.code
+        with mock.patch.object(dhcp_rpc_agent_api.DhcpAgentNotifyAPI,
+                               'notify') as dhcp_notifier:
+            if opname == 'create':
+                res = self.api.post_json(
+                    _get_path('networks'),
+                    initial_input)
+            if opname == 'update':
+                res = self.api.put_json(
+                    _get_path('networks', id=_uuid()),
+                    initial_input)
+                expected_code = exc.HTTPOk.code
+            if opname == 'delete':
+                res = self.api.delete(_get_path('networks', id=_uuid()))
+                expected_code = exc.HTTPNoContent.code
+            expected_item = mock.call(mock.ANY, mock.ANY,
+                                      resource + "." + opname + ".end")
+            if initial_input and resource not in initial_input:
+                resource += 's'
+            num = len(initial_input[resource]) if initial_input and isinstance(
+                initial_input[resource], list) else 1
+            expected = [expected_item for x in xrange(num)]
+            self.assertEqual(expected, dhcp_notifier.call_args_list)
+            self.assertEqual(num, dhcp_notifier.call_count)
+        self.assertEqual(expected_code, res.status_int)
+
+    def test_network_create_dhcp_notifer(self):
+        input = {'network': {'name': 'net',
+                             'tenant_id': _uuid()}}
+        self._test_dhcp_notifier('create', 'network', input)
+
+    def test_network_delete_dhcp_notifer(self):
+        self._test_dhcp_notifier('delete', 'network')
+
+    def test_network_update_dhcp_notifer(self):
+        input = {'network': {'name': 'net'}}
+        self._test_dhcp_notifier('update', 'network', input)
+
+    def test_networks_create_bulk_dhcp_notifer(self):
+        input = {'networks': [{'name': 'net1',
+                               'tenant_id': _uuid()},
+                              {'name': 'net2',
+                               'tenant_id': _uuid()}]}
+        self._test_dhcp_notifier('create', 'network', input)
+
+
 class QuotaTest(APIv2TestBase):
     def test_create_network_quota(self):
         cfg.CONF.set_override('quota_network', 1, group='QUOTAS')
@@ -1385,7 +1437,6 @@ class ExtensionTestCase(base.BaseTestCase):
         self._plugin_patcher.stop()
         self.api = None
         self.plugin = None
-        cfg.CONF.reset()
         # Restore the global RESOURCE_ATTRIBUTE_MAP
         attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
 

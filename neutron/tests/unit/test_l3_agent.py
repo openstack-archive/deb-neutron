@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import contextlib
 import copy
 
 import mock
@@ -89,8 +90,6 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.looping_call_p = mock.patch(
             'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
         self.looping_call_p.start()
-
-        self.addCleanup(mock.patch.stopall)
 
     def test_router_info_create(self):
         id = _uuid()
@@ -211,13 +210,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
                       '-I', interface_name,
                       '-c', self.conf.send_arp_for_ha,
                       floating_ip]
-        if self.conf.use_namespaces:
-            self.mock_ip.netns.execute.assert_any_call(
-                arping_cmd, check_exit_code=True)
-        else:
-            self.utils_exec.assert_any_call(arping_cmd,
-                                            check_exit_code=True,
-                                            root_helper=self.conf.root_helper)
+        self.mock_ip.netns.execute.assert_any_call(
+            arping_cmd, check_exit_code=True)
 
     def test_arping_namespace(self):
         self._test_arping(namespace=True)
@@ -229,15 +223,9 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self._test_external_gateway_action('remove')
 
     def _check_agent_method_called(self, agent, calls, namespace):
-        if namespace:
-            self.mock_ip.netns.execute.assert_has_calls(
-                [mock.call(call, check_exit_code=False) for call in calls],
-                any_order=True)
-        else:
-            self.utils_exec.assert_has_calls([
-                mock.call(call, root_helper='sudo',
-                          check_exit_code=False) for call in calls],
-                any_order=True)
+        self.mock_ip.netns.execute.assert_has_calls(
+            [mock.call(call, check_exit_code=False) for call in calls],
+            any_order=True)
 
     def _test_routing_table_update(self, namespace):
         if not namespace:
@@ -798,6 +786,90 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.assertThat(nat_rules.index(jump_float_rule),
                         matchers.LessThan(nat_rules.index(internal_net_rule)))
 
+    def test_process_router_delete_stale_internal_devices(self):
+        class FakeDev(object):
+            def __init__(self, name):
+                self.name = name
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        stale_devlist = [FakeDev('qr-a1b2c3d4-e5'),
+                         FakeDev('qr-b2c3d4e5-f6')]
+        stale_devnames = [dev.name for dev in stale_devlist]
+
+        get_devices_return = []
+        get_devices_return.extend(stale_devlist)
+        self.mock_ip.get_devices.return_value = get_devices_return
+
+        router = self._prepare_router_data(enable_snat=True,
+                                           num_internal_ports=1)
+        ri = l3_agent.RouterInfo(router['id'],
+                                 self.conf.root_helper,
+                                 self.conf.use_namespaces,
+                                 router=router)
+
+        internal_ports = ri.router.get(l3_constants.INTERFACE_KEY, [])
+        self.assertEqual(len(internal_ports), 1)
+        internal_port = internal_ports[0]
+
+        with contextlib.nested(mock.patch.object(l3_agent.L3NATAgent,
+                                                 'internal_network_removed'),
+                               mock.patch.object(l3_agent.L3NATAgent,
+                                                 'internal_network_added'),
+                               mock.patch.object(l3_agent.L3NATAgent,
+                                                 'external_gateway_removed'),
+                               mock.patch.object(l3_agent.L3NATAgent,
+                                                 'external_gateway_added')
+                               ) as (internal_network_removed,
+                                     internal_network_added,
+                                     external_gateway_removed,
+                                     external_gateway_added):
+
+            agent.process_router(ri)
+
+            self.assertEqual(external_gateway_added.call_count, 1)
+            self.assertFalse(external_gateway_removed.called)
+            self.assertFalse(internal_network_removed.called)
+            internal_network_added.assert_called_once_with(
+                ri,
+                internal_port['network_id'],
+                internal_port['id'],
+                internal_port['ip_cidr'],
+                internal_port['mac_address'])
+            self.assertEqual(self.mock_driver.unplug.call_count,
+                             len(stale_devnames))
+            calls = [mock.call(stale_devname,
+                               namespace=ri.ns_name(),
+                               prefix=l3_agent.INTERNAL_DEV_PREFIX)
+                     for stale_devname in stale_devnames]
+            self.mock_driver.unplug.assert_has_calls(calls, any_order=True)
+
+    def test_process_router_delete_stale_external_devices(self):
+        class FakeDev(object):
+            def __init__(self, name):
+                self.name = name
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        stale_devlist = [FakeDev('qg-a1b2c3d4-e5')]
+        stale_devnames = [dev.name for dev in stale_devlist]
+
+        router = self._prepare_router_data(enable_snat=True,
+                                           num_internal_ports=1)
+        del router['gw_port']
+        ri = l3_agent.RouterInfo(router['id'],
+                                 self.conf.root_helper,
+                                 self.conf.use_namespaces,
+                                 router=router)
+
+        self.mock_ip.get_devices.return_value = stale_devlist
+
+        agent.process_router(ri)
+
+        self.mock_driver.unplug.assert_called_with(
+            stale_devnames[0],
+            bridge="br-ex",
+            namespace=ri.ns_name(),
+            prefix=l3_agent.EXTERNAL_DEV_PREFIX)
+
     def test_routers_with_admin_state_down(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         self.plugin_api.get_external_network_id.return_value = None
@@ -1147,7 +1219,6 @@ class TestL3AgentEventHandler(base.BaseTestCase):
             'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
         looping_call_p.start()
         self.agent = l3_agent.L3NATAgent(HOSTNAME)
-        self.addCleanup(mock.patch.stopall)
 
     def test_spawn_metadata_proxy(self):
         router_id = _uuid()

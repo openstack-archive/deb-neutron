@@ -19,7 +19,9 @@ import sys
 import time
 
 import eventlet
+import netaddr
 from oslo.config import cfg
+from six.moves import xrange
 
 from neutron.agent import l2population_rpc
 from neutron.agent.linux import ip_lib
@@ -301,9 +303,9 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         if not self.enable_tunneling:
             return
         tunnel_ip = kwargs.get('tunnel_ip')
-        tunnel_id = kwargs.get('tunnel_id', tunnel_ip)
+        tunnel_id = kwargs.get('tunnel_id', self.get_ip_in_hex(tunnel_ip))
         if not tunnel_id:
-            tunnel_id = tunnel_ip
+            return
         tunnel_type = kwargs.get('tunnel_type')
         if not tunnel_type:
             LOG.error(_("No tunnel_type specified, cannot create tunnels"))
@@ -333,7 +335,10 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                     ofport = self.tun_br_ofports[
                         lvm.network_type].get(agent_ip)
                     if not ofport:
-                        port_name = '%s-%s' % (lvm.network_type, agent_ip)
+                        remote_ip_hex = self.get_ip_in_hex(agent_ip)
+                        if not remote_ip_hex:
+                            continue
+                        port_name = '%s-%s' % (lvm.network_type, remote_ip_hex)
                         ofport = self.setup_tunnel_port(port_name, agent_ip,
                                                         lvm.network_type)
                         if ofport == 0:
@@ -367,7 +372,6 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             lvm.tun_ofports.add(ofport)
             ofports = ','.join(lvm.tun_ofports)
             self.tun_br.mod_flow(table=constants.FLOOD_TO_TUN,
-                                 priority=1,
                                  dl_vlan=lvm.vlan,
                                  actions="strip_vlan,set_tunnel:%s,"
                                  "output:%s" % (lvm.segmentation_id, ofports))
@@ -386,7 +390,6 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             if len(lvm.tun_ofports) > 0:
                 ofports = ','.join(lvm.tun_ofports)
                 self.tun_br.mod_flow(table=constants.FLOOD_TO_TUN,
-                                     priority=1,
                                      dl_vlan=lvm.vlan,
                                      actions="strip_vlan,"
                                      "set_tunnel:%s,output:%s" %
@@ -448,7 +451,6 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 ofports = ','.join(self.tun_br_ofports[network_type].values())
                 if ofports:
                     self.tun_br.mod_flow(table=constants.FLOOD_TO_TUN,
-                                         priority=1,
                                          dl_vlan=lvid,
                                          actions="strip_vlan,"
                                          "set_tunnel:%s,output:%s" %
@@ -814,6 +816,9 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         cur_ports = self.int_br.get_vif_port_set()
         self.int_br_device_count = len(cur_ports)
         port_info = {'current': cur_ports}
+        if updated_ports is None:
+            updated_ports = set()
+        updated_ports.update(self.check_changed_vlans(registered_ports))
         if updated_ports:
             # Some updated ports might have been removed in the
             # meanwhile, and therefore should not be processed.
@@ -833,6 +838,30 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         # Remove all the known ports not found on the integration bridge
         port_info['removed'] = registered_ports - cur_ports
         return port_info
+
+    def check_changed_vlans(self, registered_ports):
+        """Return ports which have lost their vlan tag.
+
+        The returned value is a set of port ids of the ports concerned by a
+        vlan tag loss.
+        """
+        port_tags = self.int_br.get_port_tag_dict()
+        changed_ports = set()
+        for lvm in self.local_vlan_map.values():
+            for port in registered_ports:
+                if (
+                    port in lvm.vif_ports
+                    and lvm.vif_ports[port].port_name in port_tags
+                    and port_tags[lvm.vif_ports[port].port_name] != lvm.vlan
+                ):
+                    LOG.info(
+                        _("Port '%(port_name)s' has lost "
+                            "its vlan tag '%(vlan_tag)d'!"),
+                        {'port_name': lvm.vif_ports[port].port_name,
+                         'vlan_tag': lvm.vlan}
+                    )
+                    changed_ports.add(port)
+        return changed_ports
 
     def update_ancillary_ports(self, registered_ports):
         ports = set()
@@ -896,7 +925,6 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             for network_id, vlan_mapping in self.local_vlan_map.iteritems():
                 if vlan_mapping.network_type == tunnel_type:
                     self.tun_br.mod_flow(table=constants.FLOOD_TO_TUN,
-                                         priority=1,
                                          dl_vlan=vlan_mapping.vlan,
                                          actions="strip_vlan,"
                                          "set_tunnel:%s,output:%s" %
@@ -913,7 +941,8 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         else:
             for remote_ip, ofport in self.tun_br_ofports[tunnel_type].items():
                 if ofport == tun_ofport:
-                    port_name = '%s-%s' % (tunnel_type, remote_ip)
+                    port_name = '%s-%s' % (tunnel_type,
+                                           self.get_ip_in_hex(remote_ip))
                     self.tun_br.delete_port(port_name)
                     self.tun_br_ofports[tunnel_type].pop(remote_ip, None)
 
@@ -1089,6 +1118,14 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         # If one of the above opertaions fails => resync with plugin
         return (resync_a | resync_b)
 
+    def get_ip_in_hex(self, ip_address):
+        try:
+            return '%08x' % netaddr.IPAddress(ip_address, version=4)
+        except Exception:
+            LOG.warn(_("Unable to create tunnel port. Invalid remote IP: %s"),
+                     ip_address)
+            return
+
     def tunnel_sync(self):
         resync = False
         try:
@@ -1100,8 +1137,16 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                     tunnels = details['tunnels']
                     for tunnel in tunnels:
                         if self.local_ip != tunnel['ip_address']:
-                            tunnel_id = tunnel.get('id', tunnel['ip_address'])
-                            tun_name = '%s-%s' % (tunnel_type, tunnel_id)
+                            tunnel_id = tunnel.get('id')
+                            # Unlike the OVS plugin, ML2 doesn't return an id
+                            # key. So use ip_address to form port name instead.
+                            # Port name must be <=15 chars, so use shorter hex.
+                            remote_ip = tunnel['ip_address']
+                            remote_ip_hex = self.get_ip_in_hex(remote_ip)
+                            if not tunnel_id and not remote_ip_hex:
+                                continue
+                            tun_name = '%s-%s' % (tunnel_type,
+                                                  tunnel_id or remote_ip_hex)
                             self.setup_tunnel_port(tun_name,
                                                    tunnel['ip_address'],
                                                    tunnel_type)

@@ -25,6 +25,7 @@ import netaddr
 from oslo.config import cfg
 
 from neutron.api.v2 import attributes
+from neutron.common import constants
 from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
 from neutron.db import l3_db
@@ -132,6 +133,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             net_db = super(
                 NeutronPluginPLUMgridV2, self).update_network(context,
                                                               net_id, network)
+            self._process_l3_update(context, net_db, network['network'])
 
             try:
                 LOG.debug(_("PLUMgrid Library: update_network() called"))
@@ -184,7 +186,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             port_db = super(NeutronPluginPLUMgridV2, self).create_port(context,
                                                                        port)
             device_id = port_db["device_id"]
-            if port_db["device_owner"] == "network:router_gateway":
+            if port_db["device_owner"] == constants.DEVICE_OWNER_ROUTER_GW:
                 router_db = self._get_router(context, device_id)
             else:
                 router_db = None
@@ -212,7 +214,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             port_db = super(NeutronPluginPLUMgridV2, self).update_port(
                 context, port_id, port)
             device_id = port_db["device_id"]
-            if port_db["device_owner"] == "network:router_gateway":
+            if port_db["device_owner"] == constants.DEVICE_OWNER_ROUTER_GW:
                 router_db = self._get_router(context, device_id)
             else:
                 router_db = None
@@ -242,7 +244,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             self.disassociate_floatingips(context, port_id)
             super(NeutronPluginPLUMgridV2, self).delete_port(context, port_id)
 
-            if port_db["device_owner"] == "network:router_gateway":
+            if port_db["device_owner"] == constants.DEVICE_OWNER_ROUTER_GW:
                 device_id = port_db["device_id"]
                 router_db = self._get_router(context, device_id)
             else:
@@ -552,16 +554,9 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
         return port
 
     def _network_admin_state(self, network):
-        try:
-            if network["network"].get("admin_state_up"):
-                network_name = network["network"]["name"]
-                if network["network"]["admin_state_up"] is False:
-                    LOG.warning(_("Network with admin_state_up=False are not "
-                                  "supported yet by this plugin. Ignoring "
-                                  "setting for network %s"), network_name)
-        except Exception:
-            err_message = _("Network Admin State Validation Failed: ")
-            raise plum_excep.PLUMgridException(err_msg=err_message)
+        if network["network"].get("admin_state_up") is False:
+            LOG.warning("Networks with admin_state_up=False are not "
+                        "supported by PLUMgrid plugin yet.")
         return network
 
     def _allocate_pools_for_subnet(self, context, subnet):

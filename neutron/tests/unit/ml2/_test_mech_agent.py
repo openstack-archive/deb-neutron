@@ -70,6 +70,18 @@ class FakePortContext(api.PortContext):
                 if segment[api.ID] == self._bound_segment_id:
                     return segment
 
+    @property
+    def original_bound_segment(self):
+        return None
+
+    @property
+    def bound_driver(self):
+        return None
+
+    @property
+    def original_bound_driver(self):
+        return None
+
     def host_agents(self, agent_type):
         if agent_type == self._agent_type:
             return self._agents
@@ -130,8 +142,6 @@ class AgentMechanismLocalTestCase(AgentMechanismBaseTestCase):
                                   self.LOCAL_SEGMENTS)
         self.driver.bind_port(context)
         self._check_bound(context, self.LOCAL_SEGMENTS[1])
-        self.assertTrue(self.driver.validate_port_binding(context))
-        self.driver.unbind_port(context)
 
     def test_type_local_dead(self):
         context = FakePortContext(self.AGENT_TYPE,
@@ -154,8 +164,6 @@ class AgentMechanismFlatTestCase(AgentMechanismBaseTestCase):
                                   self.FLAT_SEGMENTS)
         self.driver.bind_port(context)
         self._check_bound(context, self.FLAT_SEGMENTS[1])
-        self.assertTrue(self.driver.validate_port_binding(context))
-        self.driver.unbind_port(context)
 
     def test_type_flat_bad(self):
         context = FakePortContext(self.AGENT_TYPE,
@@ -179,8 +187,6 @@ class AgentMechanismVlanTestCase(AgentMechanismBaseTestCase):
                                   self.VLAN_SEGMENTS)
         self.driver.bind_port(context)
         self._check_bound(context, self.VLAN_SEGMENTS[1])
-        self.assertTrue(self.driver.validate_port_binding(context))
-        self.driver.unbind_port(context)
 
     def test_type_vlan_bad(self):
         context = FakePortContext(self.AGENT_TYPE,
@@ -203,8 +209,6 @@ class AgentMechanismGreTestCase(AgentMechanismBaseTestCase):
                                   self.GRE_SEGMENTS)
         self.driver.bind_port(context)
         self._check_bound(context, self.GRE_SEGMENTS[1])
-        self.assertTrue(self.driver.validate_port_binding(context))
-        self.driver.unbind_port(context)
 
     def test_type_gre_bad(self):
         context = FakePortContext(self.AGENT_TYPE,

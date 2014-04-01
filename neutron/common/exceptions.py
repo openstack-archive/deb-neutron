@@ -308,5 +308,14 @@ class NetworkVxlanPortRangeError(NeutronException):
     message = _("Invalid network VXLAN port range: '%(vxlan_range)s'")
 
 
+class VxlanNetworkUnsupported(NeutronException):
+    message = _("VXLAN Network unsupported.")
+
+
 class DuplicatedExtension(NeutronException):
     message = _("Found duplicate extension: %(alias)s")
+
+
+class DeviceIDNotOwnedByTenant(Conflict):
+    message = _("The following device_id %(device_id)s is not owned by your "
+                "tenant or matches another tenants router.")

@@ -20,6 +20,7 @@
 import json
 
 from neutron.openstack.common import log as logging
+from neutron.plugins.bigswitch import servermanager
 
 LOG = logging.getLogger(__name__)
 
@@ -35,13 +36,16 @@ class HTTPResponseMock():
     def read(self):
         return "{'status': '200 OK'}"
 
+    def getheader(self, header):
+        return None
+
 
 class HTTPResponseMock404(HTTPResponseMock):
     status = 404
     reason = 'Not Found'
 
     def read(self):
-        return "{'status': '404 Not Found'}"
+        return "{'status': '%s 404 Not Found'}" % servermanager.NXNETWORK
 
 
 class HTTPResponseMock500(HTTPResponseMock):
@@ -99,6 +103,13 @@ class HTTPConnectionMock(object):
         pass
 
 
+class HTTPConnectionMock404(HTTPConnectionMock):
+
+    def __init__(self, server, port, timeout):
+        self.response = HTTPResponseMock404(None)
+        self.broken = True
+
+
 class HTTPConnectionMock500(HTTPConnectionMock):
 
     def __init__(self, server, port, timeout):
@@ -128,3 +139,48 @@ class VerifyMultiTenantFloatingIP(HTTPConnectionMock):
                 raise Exception(msg)
         super(VerifyMultiTenantFloatingIP,
               self).request(action, uri, body, headers)
+
+
+class HTTPSMockBase(HTTPConnectionMock):
+    expected_cert = ''
+    combined_cert = None
+
+    def __init__(self, host, port=None, key_file=None, cert_file=None,
+                 strict=None, timeout=None, source_address=None):
+        self.host = host
+        super(HTTPSMockBase, self).__init__(host, port, timeout)
+
+    def request(self, method, url, body=None, headers={}):
+        self.connect()
+        super(HTTPSMockBase, self).request(method, url, body, headers)
+
+
+class HTTPSNoValidation(HTTPSMockBase):
+
+    def connect(self):
+        if self.combined_cert:
+            raise Exception('combined_cert set on NoValidation')
+
+
+class HTTPSCAValidation(HTTPSMockBase):
+    expected_cert = 'DUMMYCERTIFICATEAUTHORITY'
+
+    def connect(self):
+        contents = get_cert_contents(self.combined_cert)
+        if self.expected_cert not in contents:
+            raise Exception('No dummy CA cert in cert_file')
+
+
+class HTTPSHostValidation(HTTPSMockBase):
+    expected_cert = 'DUMMYCERTFORHOST%s'
+
+    def connect(self):
+        contents = get_cert_contents(self.combined_cert)
+        expected = self.expected_cert % self.host
+        if expected not in contents:
+            raise Exception(_('No host cert for %(server)s in cert %(cert)s'),
+                            {'server': self.host, 'cert': contents})
+
+
+def get_cert_contents(path):
+    raise Exception('METHOD MUST BE MOCKED FOR TEST')

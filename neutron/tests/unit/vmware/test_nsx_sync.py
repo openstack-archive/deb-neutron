@@ -302,10 +302,6 @@ class SyncTestCase(base.BaseTestCase):
         self.addCleanup(mock_nm_get_plugin.stop)
         self.addCleanup(mock_nm_get_service_plugins.stop)
 
-    def tearDown(self):
-        cfg.CONF.reset()
-        super(SyncTestCase, self).tearDown()
-
     @contextlib.contextmanager
     def _populate_data(self, ctx, net_size=2, port_size=2, router_size=2):
 
@@ -359,17 +355,16 @@ class SyncTestCase(base.BaseTestCase):
             routers.append(self._plugin.create_router(ctx, router(i)))
         # Do not return anything as the user does need the actual
         # data created
-        try:
-            yield
-        finally:
-            # Remove everything
-            for router in routers:
-                self._plugin.delete_router(ctx, router['id'])
-            for port in ports:
-                self._plugin.delete_port(ctx, port['id'])
-            # This will remove networks and subnets
-            for network in networks:
-                self._plugin.delete_network(ctx, network['id'])
+        yield
+
+        # Remove everything
+        for router in routers:
+            self._plugin.delete_router(ctx, router['id'])
+        for port in ports:
+            self._plugin.delete_port(ctx, port['id'])
+        # This will remove networks and subnets
+        for network in networks:
+            self._plugin.delete_network(ctx, network['id'])
 
     def _get_tag_dict(self, tags):
         return dict((tag['scope'], tag['tag']) for tag in tags)

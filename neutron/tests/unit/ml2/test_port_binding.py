@@ -36,7 +36,6 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
         config.cfg.CONF.set_override('mechanism_drivers',
                                      ['logger', 'test'],
                                      'ml2')
-        self.addCleanup(config.cfg.CONF.reset)
         super(PortBindingTestCase, self).setUp(PLUGIN_NAME)
         self.port_create_status = 'DOWN'
         self.plugin = manager.NeutronManager.get_plugin()
@@ -57,8 +56,9 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
             self._check_response(port['port'], vif_type, has_port_filter,
                                  bound)
             port_id = port['port']['id']
+            neutron_context = context.get_admin_context()
             details = self.plugin.callbacks.get_device_details(
-                None, agent_id="theAgentId", device=port_id)
+                neutron_context, agent_id="theAgentId", device=port_id)
             if bound:
                 self.assertEqual(details['network_type'], 'local')
             else:
@@ -109,18 +109,18 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
                     self.assertFalse(notify_mock.called)
 
     def test_update_with_new_host_binding_notifies_agent(self):
-        self._test_update_port_binding('host-ovs-no-filter',
-                                       'host-bridge-no-filter')
+        self._test_update_port_binding('host-ovs-no_filter',
+                                       'host-bridge-filter')
 
     def test_update_with_same_host_binding_does_not_notify(self):
-        self._test_update_port_binding('host-ovs-no-filter',
-                                       'host-ovs-no-filter')
+        self._test_update_port_binding('host-ovs-no_filter',
+                                       'host-ovs-no_filter')
 
     def test_update_without_binding_does_not_notify(self):
-        self._test_update_port_binding('host-ovs-no-filter')
+        self._test_update_port_binding('host-ovs-no_filter')
 
     def testt_update_from_empty_to_host_binding_notifies_agent(self):
-        self._test_update_port_binding('', 'host-ovs-no-filter')
+        self._test_update_port_binding('', 'host-ovs-no_filter')
 
     def test_update_from_host_to_empty_binding_notifies_agent(self):
-        self._test_update_port_binding('host-ovs-no-filter', '')
+        self._test_update_port_binding('host-ovs-no_filter', '')

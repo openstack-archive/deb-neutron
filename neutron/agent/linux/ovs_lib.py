@@ -20,6 +20,7 @@ from oslo.config import cfg
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
+from neutron.common import exceptions
 from neutron.openstack.common import excutils
 from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
@@ -178,75 +179,26 @@ class OVSBridge(BaseOVS):
         return self.db_get_val('Bridge',
                                self.br_name, 'datapath_id').strip('"')
 
-    def _build_flow_expr_arr(self, **kwargs):
-        flow_expr_arr = []
-        is_delete_expr = kwargs.get('delete', False)
-        if not is_delete_expr:
-            prefix = ("hard_timeout=%s,idle_timeout=%s,priority=%s" %
-                     (kwargs.get('hard_timeout', '0'),
-                      kwargs.get('idle_timeout', '0'),
-                      kwargs.get('priority', '1')))
-            flow_expr_arr.append(prefix)
-        elif 'priority' in kwargs:
-            raise Exception(_("Cannot match priority on flow deletion"))
-
-        table = ('table' in kwargs and ",table=%s" %
-                 kwargs['table'] or '')
-        in_port = ('in_port' in kwargs and ",in_port=%s" %
-                   kwargs['in_port'] or '')
-        dl_type = ('dl_type' in kwargs and ",dl_type=%s" %
-                   kwargs['dl_type'] or '')
-        dl_vlan = ('dl_vlan' in kwargs and ",dl_vlan=%s" %
-                   kwargs['dl_vlan'] or '')
-        dl_src = 'dl_src' in kwargs and ",dl_src=%s" % kwargs['dl_src'] or ''
-        dl_dst = 'dl_dst' in kwargs and ",dl_dst=%s" % kwargs['dl_dst'] or ''
-        nw_src = 'nw_src' in kwargs and ",nw_src=%s" % kwargs['nw_src'] or ''
-        nw_dst = 'nw_dst' in kwargs and ",nw_dst=%s" % kwargs['nw_dst'] or ''
-        tun_id = 'tun_id' in kwargs and ",tun_id=%s" % kwargs['tun_id'] or ''
-        proto = 'proto' in kwargs and ",%s" % kwargs['proto'] or ''
-        ip = ('nw_src' in kwargs or 'nw_dst' in kwargs) and ',ip' or ''
-        match = (table + in_port + dl_type + dl_vlan + dl_src + dl_dst +
-                (proto or ip) + nw_src + nw_dst + tun_id)
-        if match:
-            match = match[1:]  # strip leading comma
-            flow_expr_arr.append(match)
-        return flow_expr_arr
-
-    def add_or_mod_flow_str(self, **kwargs):
-        if "actions" not in kwargs:
-            raise Exception(_("Must specify one or more actions"))
-        if "priority" not in kwargs:
-            kwargs["priority"] = "0"
-
-        flow_expr_arr = self._build_flow_expr_arr(**kwargs)
-        flow_expr_arr.append("actions=%s" % (kwargs["actions"]))
-        flow_str = ",".join(flow_expr_arr)
-        return flow_str
-
     def add_flow(self, **kwargs):
-        flow_str = self.add_or_mod_flow_str(**kwargs)
+        flow_str = _build_flow_expr_str(kwargs, 'add')
         if self.defer_apply_flows:
             self.deferred_flows['add'] += flow_str + '\n'
         else:
             self.run_ofctl("add-flow", [flow_str])
 
     def mod_flow(self, **kwargs):
-        flow_str = self.add_or_mod_flow_str(**kwargs)
+        flow_str = _build_flow_expr_str(kwargs, 'mod')
         if self.defer_apply_flows:
             self.deferred_flows['mod'] += flow_str + '\n'
         else:
             self.run_ofctl("mod-flows", [flow_str])
 
     def delete_flows(self, **kwargs):
-        kwargs['delete'] = True
-        flow_expr_arr = self._build_flow_expr_arr(**kwargs)
-        if "actions" in kwargs:
-            flow_expr_arr.append("actions=%s" % (kwargs["actions"]))
-        flow_str = ",".join(flow_expr_arr)
+        flow_expr_str = _build_flow_expr_str(kwargs, 'del')
         if self.defer_apply_flows:
-            self.deferred_flows['del'] += flow_str + '\n'
+            self.deferred_flows['del'] += flow_expr_str + '\n'
         else:
-            self.run_ofctl("del-flows", [flow_str])
+            self.run_ofctl("del-flows", [flow_expr_str])
 
     def defer_apply_on(self):
         LOG.debug(_('defer_apply_on'))
@@ -393,6 +345,36 @@ class OVSBridge(BaseOVS):
                     LOG.warn(_("Found failed openvswitch port: %s"), row)
         return edge_ports
 
+    def get_port_tag_dict(self):
+        """Get a dict of port names and associated vlan tags.
+
+        e.g. the returned dict is of the following form::
+
+            {u'int-br-eth2': [],
+             u'patch-tun': [],
+             u'qr-76d9e6b6-21': 1,
+             u'tapce5318ff-78': 1,
+             u'tape1400310-e6': 1}
+
+        The TAG ID is only available in the "Port" table and is not available
+        in the "Interface" table queried by the get_vif_port_set() method.
+
+        """
+        port_names = self.get_port_name_list()
+        args = ['--format=json', '--', '--columns=name,tag', 'list', 'Port']
+        result = self.run_vsctl(args, check_error=True)
+        port_tag_dict = {}
+        if not result:
+            return port_tag_dict
+        for name, tag in jsonutils.loads(result)['data']:
+            if name not in port_names:
+                continue
+            # 'tag' can be [u'set', []] or an integer
+            if isinstance(tag, list):
+                tag = tag[1]
+            port_tag_dict[name] = tag
+        return port_tag_dict
+
     def get_vif_port_by_id(self, port_id):
         args = ['--format=json', '--', '--columns=external_ids,name,ofport',
                 'find', 'Interface',
@@ -497,6 +479,16 @@ def get_installed_ovs_klm_version():
         LOG.exception(_("Unable to retrieve OVS kernel module version."))
 
 
+def get_installed_kernel_version():
+    args = ["uname", "-r"]
+    try:
+        cmd = utils.execute(args)
+        for line in cmd.split('\n'):
+            return str(re.findall("\d+\.\d+\.\d+", line))
+    except Exception:
+        LOG.exception(_("Unable to retrieve installed Linux kernel version."))
+
+
 def get_bridge_external_bridge_id(root_helper, bridge):
     args = ["ovs-vsctl", "--timeout=2", "br-get-external-id",
             bridge, "bridge-id"]
@@ -508,7 +500,13 @@ def get_bridge_external_bridge_id(root_helper, bridge):
 
 
 def _compare_installed_and_required_version(
-        installed_version, required_version, check_type, version_type):
+        installed_kernel_version, installed_version, required_version,
+        check_type, version_type):
+    if installed_kernel_version:
+        if dist_version.StrictVersion(
+                installed_kernel_version) >= dist_version.StrictVersion(
+                constants.MINIMUM_LINUX_KERNEL_OVS_VXLAN):
+            return
     if installed_version:
         if dist_version.StrictVersion(
                 installed_version) < dist_version.StrictVersion(
@@ -533,16 +531,54 @@ def _compare_installed_and_required_version(
 def check_ovs_vxlan_version(root_helper):
     min_required_version = constants.MINIMUM_OVS_VXLAN_VERSION
     installed_klm_version = get_installed_ovs_klm_version()
+    installed_kernel_version = get_installed_kernel_version()
     installed_usr_version = get_installed_ovs_usr_version(root_helper)
     LOG.debug(_("Checking OVS version for VXLAN support "
-                "installed klm version is %s "), installed_klm_version)
-    LOG.debug(_("Checking OVS version for VXLAN support "
-                "installed usr version is %s"), installed_usr_version)
+                "installed klm version is %(klm)s, installed Linux version is "
+                "%(kernel)s, installed user version is %(usr)s ") %
+              {'klm': installed_klm_version,
+               'kernel': installed_kernel_version,
+               'usr': installed_usr_version})
     # First check the userspace version
-    _compare_installed_and_required_version(installed_usr_version,
+    _compare_installed_and_required_version(None, installed_usr_version,
                                             min_required_version,
                                             'userspace', 'VXLAN')
     # Now check the kernel version
-    _compare_installed_and_required_version(installed_klm_version,
+    _compare_installed_and_required_version(installed_kernel_version,
+                                            installed_klm_version,
                                             min_required_version,
                                             'kernel', 'VXLAN')
+
+
+def _build_flow_expr_str(flow_dict, cmd):
+    flow_expr_arr = []
+    actions = None
+
+    if cmd == 'add':
+        flow_expr_arr.append("hard_timeout=%s" %
+                             flow_dict.pop('hard_timeout', '0'))
+        flow_expr_arr.append("idle_timeout=%s" %
+                             flow_dict.pop('idle_timeout', '0'))
+        flow_expr_arr.append("priority=%s" %
+                             flow_dict.pop('priority', '1'))
+    elif 'priority' in flow_dict:
+        msg = _("Cannot match priority on flow deletion or modification")
+        raise exceptions.InvalidInput(error_message=msg)
+
+    if cmd != 'del':
+        if "actions" not in flow_dict:
+            msg = _("Must specify one or more actions on flow addition"
+                    " or modification")
+            raise exceptions.InvalidInput(error_message=msg)
+        actions = "actions=%s" % flow_dict.pop('actions')
+
+    for key, value in flow_dict.iteritems():
+        if key == 'proto':
+            flow_expr_arr.append(value)
+        else:
+            flow_expr_arr.append("%s=%s" % (key, str(value)))
+
+    if actions:
+        flow_expr_arr.append(actions)
+
+    return ','.join(flow_expr_arr)

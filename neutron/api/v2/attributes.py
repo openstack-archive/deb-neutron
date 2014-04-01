@@ -291,7 +291,7 @@ def _validate_subnet(data, valid_values=None):
     msg = None
     try:
         net = netaddr.IPNetwork(_validate_no_whitespace(data))
-        if ('/' not in data or net.network != net.ip):
+        if '/' not in data:
             msg = _("'%(data)s' isn't a recognized IP subnet cidr,"
                     " '%(cidr)s' is recommended") % {"data": data,
                                                      "cidr": net.cidr}
@@ -720,6 +720,15 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'default': True,
                         'convert_to': convert_to_boolean,
                         'is_visible': True},
+        'ipv6_ra_mode': {'allow_post': True, 'allow_put': True,
+                         'default': ATTR_NOT_SPECIFIED,
+                         'validate': {'type:values': constants.IPV6_MODES},
+                         'is_visible': True},
+        'ipv6_address_mode': {'allow_post': True, 'allow_put': True,
+                              'default': ATTR_NOT_SPECIFIED,
+                              'validate': {'type:values':
+                                           constants.IPV6_MODES},
+                              'is_visible': True},
         SHARED: {'allow_post': False,
                  'allow_put': False,
                  'default': False,

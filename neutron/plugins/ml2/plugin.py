@@ -12,6 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import contextlib
 
 from oslo.config import cfg
 from sqlalchemy import exc as sql_exc
@@ -41,6 +42,7 @@ from neutron.openstack.common import db as os_db
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import jsonutils
+from neutron.openstack.common import lockutils
 from neutron.openstack.common import log
 from neutron.openstack.common import rpc as c_rpc
 from neutron.plugins.common import constants as service_constants
@@ -94,7 +96,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
     def supported_extension_aliases(self):
         if not hasattr(self, '_aliases'):
             aliases = self._supported_extension_aliases[:]
-            sg_rpc.disable_security_group_extension_if_noop_driver(aliases)
+            sg_rpc.disable_security_group_extension_by_config(aliases)
             self._aliases = aliases
         return self._aliases
 
@@ -224,11 +226,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         if binding.vif_type != portbindings.VIF_TYPE_UNBOUND:
             if (not host_set and not vnic_type_set and not profile_set and
-                binding.segment and
-                self.mechanism_manager.validate_port_binding(mech_context)):
+                binding.segment):
                 return False
-            self.mechanism_manager.unbind_port(mech_context)
-            self._update_port_dict_binding(port, binding)
+            self._delete_port_binding(mech_context)
 
         # Return True only if an agent notification is needed.
         # This will happen if a new host, vnic_type, or profile was specified
@@ -292,9 +292,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _delete_port_binding(self, mech_context):
         binding = mech_context._binding
+        binding.vif_type = portbindings.VIF_TYPE_UNBOUND
+        binding.vif_details = ''
+        binding.driver = None
+        binding.segment = None
         port = mech_context.current
-        self._update_port_dict_binding(port, binding)
-        self.mechanism_manager.unbind_port(mech_context)
         self._update_port_dict_binding(port, binding)
 
     def _ml2_extend_port_dict_binding(self, port_res, port_db):
@@ -483,28 +485,28 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                         LOG.debug(_("Committing transaction"))
                         break
             except os_db.exception.DBError as e:
-                if isinstance(e.inner_exception, sql_exc.IntegrityError):
-                    msg = _("A concurrent port creation has occurred")
-                    LOG.warning(msg)
-                    continue
-                else:
-                    raise
+                with excutils.save_and_reraise_exception() as ctxt:
+                    if isinstance(e.inner_exception, sql_exc.IntegrityError):
+                        ctxt.reraise = False
+                        msg = _("A concurrent port creation has occurred")
+                        LOG.warning(msg)
+                        continue
 
             for port in ports:
                 try:
                     self.delete_port(context, port.id)
                 except Exception:
-                    LOG.exception(_("Exception auto-deleting port %s"),
-                                  port.id)
-                    raise
+                    with excutils.save_and_reraise_exception():
+                        LOG.exception(_("Exception auto-deleting port %s"),
+                                      port.id)
 
             for subnet in subnets:
                 try:
                     self.delete_subnet(context, subnet.id)
                 except Exception:
-                    LOG.exception(_("Exception auto-deleting subnet %s"),
-                                  subnet.id)
-                    raise
+                    with excutils.save_and_reraise_exception():
+                        LOG.exception(_("Exception auto-deleting subnet %s"),
+                                      subnet.id)
 
         try:
             self.mechanism_manager.delete_network_postcommit(mech_context)
@@ -593,9 +595,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 try:
                     self.delete_port(context, a.port_id)
                 except Exception:
-                    LOG.exception(_("Exception auto-deleting port %s"),
-                                  a.port_id)
-                    raise
+                    with excutils.save_and_reraise_exception():
+                        LOG.exception(_("Exception auto-deleting port %s"),
+                                      a.port_id)
 
         try:
             self.mechanism_manager.delete_subnet_postcommit(mech_context)
@@ -654,12 +656,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             original_port = self._make_port_dict(port_db)
             updated_port = super(Ml2Plugin, self).update_port(context, id,
                                                               port)
-            if self.is_address_pairs_attribute_updated(original_port, port):
-                self._delete_allowed_address_pairs(context, id)
-                self._process_create_allowed_address_pairs(
-                    context, updated_port,
-                    port['port'][addr_pair.ADDRESS_PAIRS])
-                need_port_update_notify = True
+            if addr_pair.ADDRESS_PAIRS in port['port']:
+                need_port_update_notify |= (
+                    self.update_address_pairs_on_port(context, id, port,
+                                                      original_port,
+                                                      updated_port))
             elif changed_fixed_ips:
                 self._check_fixed_ips_and_address_pairs_no_overlap(
                     context, updated_port)
@@ -700,9 +701,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             l3plugin.prevent_l3_port_deletion(context, id)
 
         session = context.session
-        with session.begin(subtransactions=True):
-            if l3plugin:
-                l3plugin.disassociate_floatingips(context, id)
+        # REVISIT: Serialize this operation with a semaphore to prevent
+        # undesired eventlet yields leading to 'lock wait timeout' errors
+        with contextlib.nested(lockutils.lock('db-access'),
+                               session.begin(subtransactions=True)):
             try:
                 port_db = (session.query(models_v2.Port).
                            enable_eagerloads(False).
@@ -718,9 +720,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             mech_context = driver_context.PortContext(self, context, port,
                                                       network)
             self.mechanism_manager.delete_port_precommit(mech_context)
-            self._delete_port_binding(mech_context)
             self._delete_port_security_group_bindings(context, id)
             LOG.debug(_("Calling base delete_port"))
+            if l3plugin:
+                l3plugin.disassociate_floatingips(context, id)
+
             super(Ml2Plugin, self).delete_port(context, id)
 
         try:
@@ -735,7 +739,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
     def update_port_status(self, context, port_id, status):
         updated = False
         session = context.session
-        with session.begin(subtransactions=True):
+        # REVISIT: Serialize this operation with a semaphore to prevent
+        # undesired eventlet yields leading to 'lock wait timeout' errors
+        with contextlib.nested(lockutils.lock('db-access'),
+                               session.begin(subtransactions=True)):
             port = db.get_port(session, port_id)
             if not port:
                 LOG.warning(_("Port %(port)s updated up by agent not found"),

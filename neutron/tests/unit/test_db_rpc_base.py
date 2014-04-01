@@ -15,6 +15,7 @@
 
 import mock
 
+from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.db import dhcp_rpc_base
 from neutron.openstack.common.db import exception as db_exc
@@ -33,11 +34,6 @@ class TestDhcpRpcCallbackMixin(base.BaseTestCase):
         self.log_p = mock.patch('neutron.db.dhcp_rpc_base.LOG')
         self.log = self.log_p.start()
 
-    def tearDown(self):
-        self.log_p.stop()
-        self.plugin_p.stop()
-        super(TestDhcpRpcCallbackMixin, self).tearDown()
-
     def test_get_active_networks(self):
         plugin_retval = [dict(id='a'), dict(id='b')]
         self.plugin.get_networks.return_value = plugin_retval
@@ -54,7 +50,7 @@ class TestDhcpRpcCallbackMixin(base.BaseTestCase):
     def _test__port_action_with_failures(self, exc=None, action=None):
         port = {
             'network_id': 'foo_network_id',
-            'device_owner': 'network:dhcp',
+            'device_owner': constants.DEVICE_OWNER_DHCP,
             'fixed_ips': [{'subnet_id': 'foo_subnet_id'}]
         }
         self.plugin.create_port.side_effect = exc
@@ -187,7 +183,7 @@ class TestDhcpRpcCallbackMixin(base.BaseTestCase):
         create_spec = dict(tenant_id='tenantid', device_id='devid',
                            network_id='netid', name='',
                            admin_state_up=True,
-                           device_owner='network:dhcp',
+                           device_owner=constants.DEVICE_OWNER_DHCP,
                            mac_address=mock.ANY)
         create_retval = create_spec.copy()
         create_retval['id'] = 'port_id'
@@ -220,9 +216,7 @@ class TestDhcpRpcCallbackMixin(base.BaseTestCase):
                                          device_id='devid')
 
         self.plugin.assert_has_calls([
-            mock.call.delete_ports(mock.ANY,
-                                   filters=dict(network_id=['netid'],
-                                                device_id=['devid']))])
+            mock.call.delete_ports_by_device_id(mock.ANY, 'devid', 'netid')])
 
     def test_release_port_fixed_ip(self):
         port_retval = dict(id='port_id', fixed_ips=[dict(subnet_id='a')])

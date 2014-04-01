@@ -40,6 +40,15 @@ class TestHyperVUtilsV2(base.BaseTestCase):
     _FAKE_VLAN_ID = "fake_vlan_id"
     _FAKE_CLASS_NAME = "fake_class_name"
     _FAKE_ELEMENT_NAME = "fake_element_name"
+    _FAKE_HYPERV_VM_STATE = 'fake_hyperv_state'
+
+    _FAKE_ACL_ACT = 'fake_acl_action'
+    _FAKE_ACL_DIR = 'fake_acl_dir'
+    _FAKE_ACL_TYPE = 'fake_acl_type'
+    _FAKE_LOCAL_PORT = 'fake_local_port'
+    _FAKE_PROTOCOL = 'fake_port_protocol'
+    _FAKE_REMOTE_ADDR = '0.0.0.0/0'
+    _FAKE_WEIGHT = 'fake_weight'
 
     _FAKE_ACL_ACT = 'fake_acl_action'
     _FAKE_ACL_DIR = 'fake_acl_dir'
@@ -250,6 +259,102 @@ class TestHyperVUtilsV2(base.BaseTestCase):
                 mock_port, mock_acl)
 
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_enable_control_metrics_ok(self, mock_get_port_allocation):
+        mock_metrics_svc = self._utils._conn.Msvm_MetricService()[0]
+        mock_metrics_def_source = self._utils._conn.CIM_BaseMetricDefinition
+        mock_metric_def = mock.MagicMock()
+        mock_port = mock.MagicMock()
+        mock_get_port_allocation.return_value = (mock_port, True)
+
+        mock_metrics_def_source.return_value = [mock_metric_def]
+        m_call = mock.call(Subject=mock_port.path_.return_value,
+                           Definition=mock_metric_def.path_.return_value,
+                           MetricCollectionEnabled=self._utils._METRIC_ENABLED)
+
+        self._utils.enable_control_metrics(self._FAKE_PORT_NAME)
+
+        mock_metrics_svc.ControlMetrics.assert_has_calls([m_call, m_call])
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_enable_control_metrics_no_port(self, mock_get_port_allocation):
+        mock_metrics_svc = self._utils._conn.Msvm_MetricService()[0]
+        mock_get_port_allocation.return_value = (None, False)
+
+        self._utils.enable_control_metrics(self._FAKE_PORT_NAME)
+        self.assertEqual(0, mock_metrics_svc.ControlMetrics.call_count)
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_enable_control_metrics_no_def(self, mock_get_port_allocation):
+        mock_metrics_svc = self._utils._conn.Msvm_MetricService()[0]
+        mock_metrics_def_source = self._utils._conn.CIM_BaseMetricDefinition
+        mock_port = mock.MagicMock()
+
+        mock_get_port_allocation.return_value = (mock_port, True)
+        mock_metrics_def_source.return_value = None
+
+        self._utils.enable_control_metrics(self._FAKE_PORT_NAME)
+        self.assertEqual(0, mock_metrics_svc.ControlMetrics.call_count)
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._is_port_vm_started')
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_can_enable_control_metrics_true(self, mock_get, mock_is_started):
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_METER
+        self._test_can_enable_control_metrics(mock_get, mock_is_started,
+                                              [mock_acl, mock_acl], True)
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._is_port_vm_started')
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
+                '._get_switch_port_allocation')
+    def test_can_enable_control_metrics_false(self, mock_get, mock_is_started):
+        self._test_can_enable_control_metrics(mock_get, mock_is_started, [],
+                                              False)
+
+    def _test_can_enable_control_metrics(self, mock_get_port, mock_vm_started,
+                                         acls, expected_result):
+        mock_port = mock.MagicMock()
+        mock_acl = mock.MagicMock()
+        mock_acl.Action = self._utils._ACL_ACTION_METER
+
+        mock_port.associators.return_value = acls
+        mock_get_port.return_value = (mock_port, True)
+        mock_vm_started.return_value = True
+
+        result = self._utils.can_enable_control_metrics(self._FAKE_PORT_NAME)
+        self.assertEqual(expected_result, result)
+
+    def test_is_port_vm_started_true(self):
+        self._test_is_port_vm_started(self._utils._HYPERV_VM_STATE_ENABLED,
+                                      True)
+
+    def test_is_port_vm_started_false(self):
+        self._test_is_port_vm_started(self._FAKE_HYPERV_VM_STATE, False)
+
+    def _test_is_port_vm_started(self, vm_state, expected_result):
+        mock_svc = self._utils._conn.Msvm_VirtualSystemManagementService()[0]
+        mock_port = mock.MagicMock()
+        mock_vmsettings = mock.MagicMock()
+        mock_summary = mock.MagicMock()
+        mock_summary.EnabledState = vm_state
+        mock_vmsettings.path_.return_value = self._FAKE_RES_PATH
+
+        mock_port.associators.return_value = [mock_vmsettings]
+        mock_svc.GetSummaryInformation.return_value = (self._FAKE_RET_VAL,
+                                                       [mock_summary])
+
+        result = self._utils._is_port_vm_started(mock_port)
+        self.assertEqual(expected_result, result)
+        mock_svc.GetSummaryInformation.assert_called_once_with(
+            [self._utils._VM_SUMMARY_ENABLED_STATE],
+            [self._FAKE_RES_PATH])
+
+    @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._remove_virt_feature')
     @mock.patch('neutron.plugins.hyperv.agent.utilsv2.HyperVUtilsV2'
                 '._bind_security_rule')
@@ -352,14 +457,19 @@ class TestHyperVUtilsV2R2(base.BaseTestCase):
             default, default, self._FAKE_REMOTE_ADDR)
 
     def _test_filter_security_acls(self, local_port, protocol, remote_addr):
-        mock_acl = mock.MagicMock()
-        mock_acl.Action = self._utils._ACL_ACTION_ALLOW
-        mock_acl.Direction = self._FAKE_ACL_DIR
-        mock_acl.LocalPort = local_port
-        mock_acl.Protocol = protocol
-        mock_acl.RemoteIPAddress = remote_addr
+        acls = []
+        default = self._utils._ACL_DEFAULT
+        for port, proto in [(default, default), (local_port, protocol)]:
+            mock_acl = mock.MagicMock()
+            mock_acl.Action = self._utils._ACL_ACTION_ALLOW
+            mock_acl.Direction = self._FAKE_ACL_DIR
+            mock_acl.LocalPort = port
+            mock_acl.Protocol = proto
+            mock_acl.RemoteIPAddress = remote_addr
+            acls.append(mock_acl)
 
-        acls = [mock_acl, mock_acl]
+        right_acls = [a for a in acls if a.LocalPort == local_port]
+
         good_acls = self._utils._filter_security_acls(
             acls, mock_acl.Action, self._FAKE_ACL_DIR, self._FAKE_ACL_TYPE,
             local_port, protocol, remote_addr)
@@ -367,7 +477,7 @@ class TestHyperVUtilsV2R2(base.BaseTestCase):
             acls, self._FAKE_ACL_ACT, self._FAKE_ACL_DIR, self._FAKE_ACL_TYPE,
             local_port, protocol, remote_addr)
 
-        self.assertEqual(acls, good_acls)
+        self.assertEqual(right_acls, good_acls)
         self.assertEqual([], bad_acls)
 
     def test_get_new_weight(self):
@@ -381,3 +491,13 @@ class TestHyperVUtilsV2R2(base.BaseTestCase):
     def test_get_new_weight_no_acls(self):
         self.assertEqual(self._utils._MAX_WEIGHT - 1,
                          self._utils._get_new_weight([]))
+
+    def test_get_new_weight_default_acls(self):
+        mockacl1 = mock.MagicMock()
+        mockacl1.Weight = self._utils._MAX_WEIGHT - 1
+        mockacl2 = mock.MagicMock()
+        mockacl2.Weight = self._utils._MAX_WEIGHT - 2
+        mockacl2.Action = self._utils._ACL_ACTION_DENY
+
+        self.assertEqual(self._utils._MAX_WEIGHT - 2,
+                         self._utils._get_new_weight([mockacl1, mockacl2]))

@@ -28,6 +28,7 @@ from neutron.plugins.ml2 import config
 from neutron.plugins.ml2 import plugin as ml2_plugin
 from neutron.tests.unit import _test_extension_portbindings as test_bindings
 from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit import test_extension_allowedaddresspairs as test_pair
 from neutron.tests.unit import test_extension_extradhcpopts as test_dhcpopts
 from neutron.tests.unit import test_security_groups_rpc as test_sg_rpc
 
@@ -56,7 +57,6 @@ class Ml2PluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
         self.phys_vrange = ':'.join([self.physnet, self.vlan_range])
         config.cfg.CONF.set_override('network_vlan_ranges', [self.phys_vrange],
                                      group='ml2_type_vlan')
-        self.addCleanup(config.cfg.CONF.reset)
         super(Ml2PluginV2TestCase, self).setUp(PLUGIN_NAME,
                                                service_plugins=service_plugins)
         self.port_create_status = 'DOWN'
@@ -125,10 +125,14 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
     # to bind port
     VIF_TYPE = portbindings.VIF_TYPE_UNBOUND
     HAS_PORT_FILTER = False
+    ENABLE_SG = True
     FIREWALL_DRIVER = test_sg_rpc.FIREWALL_HYBRID_DRIVER
 
     def setUp(self, firewall_driver=None):
         test_sg_rpc.set_firewall_driver(self.FIREWALL_DRIVER)
+        config.cfg.CONF.set_override(
+            'enable_security_group', self.ENABLE_SG,
+            group='SECURITYGROUP')
         super(TestMl2PortBinding, self).setUp()
 
     def _check_port_binding_profile(self, port, profile=None):
@@ -171,6 +175,7 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
 
 class TestMl2PortBindingNoSG(TestMl2PortBinding):
     HAS_PORT_FILTER = False
+    ENABLE_SG = False
     FIREWALL_DRIVER = test_sg_rpc.FIREWALL_NOOP_DRIVER
 
 
@@ -313,6 +318,13 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
         self.assertIsNone(network[pnet.NETWORK_TYPE])
         self.assertIsNone(network[pnet.PHYSICAL_NETWORK])
         self.assertIsNone(network[pnet.SEGMENTATION_ID])
+
+
+class TestMl2AllowedAddressPairs(Ml2PluginV2TestCase,
+                                 test_pair.TestAllowedAddressPairs):
+    def setUp(self, plugin=None):
+        super(test_pair.TestAllowedAddressPairs, self).setUp(
+            plugin=PLUGIN_NAME)
 
 
 class DHCPOptsTestCase(test_dhcpopts.TestExtraDhcpOpt):

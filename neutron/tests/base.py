@@ -20,13 +20,18 @@
 import contextlib
 import logging
 import os
+import sys
 
 import eventlet.timeout
 import fixtures
+import mock
 from oslo.config import cfg
 import testtools
 
+from neutron.common import constants as const
 from neutron import manager
+from neutron.openstack.common.notifier import api as notifier_api
+from neutron.openstack.common.notifier import test_notifier
 from neutron.tests import post_mortem_debug
 
 
@@ -42,6 +47,12 @@ def fake_use_fatal_exceptions(*args):
 class BaseTestCase(testtools.TestCase):
 
     def _cleanup_coreplugin(self):
+        if manager.NeutronManager._instance:
+            agent_notifiers = getattr(manager.NeutronManager._instance.plugin,
+                                      'agent_notifiers', {})
+            dhcp_agent_notifier = agent_notifiers.get(const.AGENT_TYPE_DHCP)
+            if dhcp_agent_notifier:
+                dhcp_agent_notifier._plugin = None
         manager.NeutronManager._instance = self._saved_instance
 
     def setup_coreplugin(self, core_plugin=None):
@@ -50,6 +61,18 @@ class BaseTestCase(testtools.TestCase):
         manager.NeutronManager._instance = None
         if core_plugin is not None:
             cfg.CONF.set_override('core_plugin', core_plugin)
+
+    def _cleanup_test_notifier(self):
+        test_notifier.NOTIFICATIONS = []
+
+    def setup_notification_driver(self, notification_driver=None):
+        # to reload the drivers
+        self.addCleanup(notifier_api._reset_drivers)
+        self.addCleanup(self._cleanup_test_notifier)
+        notifier_api._reset_drivers()
+        if notification_driver is None:
+            notification_driver = [test_notifier.__name__]
+        cfg.CONF.set_override("notification_driver", notification_driver)
 
     def setUp(self):
         super(BaseTestCase, self).setUp()
@@ -82,6 +105,7 @@ class BaseTestCase(testtools.TestCase):
         self.useFixture(fixtures.NestedTempfile())
         self.useFixture(fixtures.TempHomeDir())
 
+        self.addCleanup(mock.patch.stopall)
         self.addCleanup(CONF.reset)
 
         if os.environ.get('OS_STDOUT_CAPTURE') in TRUE_STRING:
@@ -93,6 +117,9 @@ class BaseTestCase(testtools.TestCase):
         self.useFixture(fixtures.MonkeyPatch(
             'neutron.common.exceptions.NeutronException.use_fatal_exceptions',
             fake_use_fatal_exceptions))
+
+        if sys.version_info < (2, 7) and getattr(self, 'fmt', '') == 'xml':
+            raise self.skipException('XML Testing Skipped in Py26')
 
     def config(self, **kw):
         """Override some configuration values.

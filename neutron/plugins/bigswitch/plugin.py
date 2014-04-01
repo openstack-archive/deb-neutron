@@ -45,6 +45,7 @@ on port-attach) on an additional PUT to do a bulk dump of all persistent data.
 """
 
 import copy
+import httplib
 import re
 
 import eventlet
@@ -172,13 +173,8 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
         if not self.servers:
             LOG.warning(_("ServerPool not set!"))
 
-    def _send_all_data(self, send_ports=True, send_floating_ips=True,
-                       send_routers=True):
-        """Pushes all data to network ctrl (networks/ports, ports/attachments).
-
-        This gives the controller an option to re-sync it's persistent store
-        with neutron's current view of that data.
-        """
+    def _get_all_data(self, get_ports=True, get_floating_ips=True,
+                      get_routers=True):
         admin_context = qcontext.get_admin_context()
         networks = []
 
@@ -186,11 +182,11 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
         for net in all_networks:
             mapped_network = self._get_mapped_network_with_subnets(net)
             flips_n_ports = {}
-            if send_floating_ips:
+            if get_floating_ips:
                 flips_n_ports = self._get_network_with_floatingips(
                     mapped_network)
 
-            if send_ports:
+            if get_ports:
                 ports = []
                 net_filter = {'network_id': [net.get('id')]}
                 net_ports = self.get_ports(admin_context,
@@ -209,19 +205,16 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
             if flips_n_ports:
                 networks.append(flips_n_ports)
 
-        resource = '/topology'
-        data = {
-            'networks': networks,
-        }
+        data = {'networks': networks}
 
-        if send_routers:
+        if get_routers:
             routers = []
             all_routers = self.get_routers(admin_context) or []
             for router in all_routers:
                 interfaces = []
                 mapped_router = self._map_state_and_status(router)
                 router_filter = {
-                    'device_owner': ["network:router_interface"],
+                    'device_owner': [const.DEVICE_OWNER_ROUTER_INTF],
                     'device_id': [router.get('id')]
                 }
                 router_ports = self.get_ports(admin_context,
@@ -238,9 +231,21 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
                 routers.append(mapped_router)
 
             data.update({'routers': routers})
+        return data
 
+    def _send_all_data(self, send_ports=True, send_floating_ips=True,
+                       send_routers=True, timeout=None,
+                       triggered_by_tenant=None):
+        """Pushes all data to network ctrl (networks/ports, ports/attachments).
+
+        This gives the controller an option to re-sync it's persistent store
+        with neutron's current view of that data.
+        """
+        data = self._get_all_data(send_ports, send_floating_ips, send_routers)
+        data['triggered_by_tenant'] = triggered_by_tenant
         errstr = _("Unable to update remote topology: %s")
-        return self.servers.rest_action('PUT', resource, data, errstr)
+        return self.servers.rest_action('PUT', servermanager.TOPOLOGY_PATH,
+                                        data, errstr, timeout=timeout)
 
     def _get_network_with_floatingips(self, network, context=None):
         if context is None:
@@ -368,7 +373,9 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
         port[portbindings.VIF_DETAILS] = {
             # TODO(rkukura): Replace with new VIF security details
             portbindings.CAP_PORT_FILTER:
-            'security-group' in self.supported_extension_aliases}
+            'security-group' in self.supported_extension_aliases,
+            portbindings.OVS_HYBRID_PLUG: True
+        }
         return port
 
     def _check_hostvif_override(self, hostid):
@@ -386,15 +393,38 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
         try:
             self.servers.rest_create_port(tenant_id, net_id, port)
         except servermanager.RemoteRestError as e:
-            LOG.error(
-                _("NeutronRestProxyV2: Unable to create port: %s"), e)
-            try:
-                self._set_port_status(port['id'], const.PORT_STATUS_ERROR)
-            except exceptions.PortNotFound:
-                # If port is already gone from DB and there was an error
-                # creating on the backend, everything is already consistent
-                pass
-            return
+            # 404 should never be received on a port create unless
+            # there are inconsistencies between the data in neutron
+            # and the data in the backend.
+            # Run a sync to get it consistent.
+            if (cfg.CONF.RESTPROXY.auto_sync_on_failure and
+                e.status == httplib.NOT_FOUND and
+                servermanager.NXNETWORK in e.reason):
+                LOG.error(_("Iconsistency with backend controller "
+                            "triggering full synchronization."))
+                # args depend on if we are operating in ML2 driver
+                # or as the full plugin
+                topoargs = self.servers.get_topo_function_args
+                self._send_all_data(
+                    send_ports=topoargs['get_ports'],
+                    send_floating_ips=topoargs['get_floating_ips'],
+                    send_routers=topoargs['get_routers'],
+                    triggered_by_tenant=tenant_id
+                )
+                # If the full sync worked, the port will be created
+                # on the controller so it can be safely marked as active
+            else:
+                # Any errors that don't result in a successful auto-sync
+                # require that the port be placed into the error state.
+                LOG.error(
+                    _("NeutronRestProxyV2: Unable to create port: %s"), e)
+                try:
+                    self._set_port_status(port['id'], const.PORT_STATUS_ERROR)
+                except exceptions.PortNotFound:
+                    # If port is already gone from DB and there was an error
+                    # creating on the backend, everything is already consistent
+                    pass
+                return
         new_status = (const.PORT_STATUS_ACTIVE if port['state'] == 'UP'
                       else const.PORT_STATUS_DOWN)
         try:
@@ -405,6 +435,8 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
             # would have deleted an non-existent port.
             self.servers.rest_delete_port(tenant_id, net_id, port['id'])
 
+    # NOTE(kevinbenton): workaround for eventlet/mysql deadlock
+    @utils.synchronized('bsn-port-barrier')
     def _set_port_status(self, port_id, status):
         session = db.get_session()
         try:
@@ -430,7 +462,7 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
     def supported_extension_aliases(self):
         if not hasattr(self, '_aliases'):
             aliases = self._supported_extension_aliases[:]
-            sg_rpc.disable_security_group_extension_if_noop_driver(aliases)
+            sg_rpc.disable_security_group_extension_by_config(aliases)
             self._aliases = aliases
         return self._aliases
 
@@ -448,6 +480,10 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
 
         # init network ctrl connections
         self.servers = servermanager.ServerPool(server_timeout)
+        self.servers.get_topo_function = self._get_all_data
+        self.servers.get_topo_function_args = {'get_ports': True,
+                                               'get_floating_ips': True,
+                                               'get_routers': True}
 
         self.network_scheduler = importutils.import_object(
             cfg.CONF.network_scheduler_driver
@@ -557,6 +593,8 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
             self._send_update_network(new_net, context)
         return new_net
 
+    # NOTE(kevinbenton): workaround for eventlet/mysql deadlock
+    @utils.synchronized('bsn-port-barrier')
     def delete_network(self, context, net_id):
         """Delete a network.
         :param context: neutron api request context
@@ -642,7 +680,7 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         net = super(NeutronRestProxyV2,
                     self).get_network(context, new_port["network_id"])
         if self.add_meta_server_route:
-            if new_port['device_owner'] == 'network:dhcp':
+            if new_port['device_owner'] == const.DEVICE_OWNER_DHCP:
                 destination = METADATA_SERVER_IP + '/32'
                 self._add_host_route(context, destination, new_port)
 
@@ -745,6 +783,8 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         # return new_port
         return new_port
 
+    # NOTE(kevinbenton): workaround for eventlet/mysql deadlock
+    @utils.synchronized('bsn-port-barrier')
     def delete_port(self, context, port_id, l3_port_check=True):
         """Delete a port.
         :param context: neutron api request context
@@ -764,19 +804,11 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         with context.session.begin(subtransactions=True):
             self.disassociate_floatingips(context, port_id)
             self._delete_port_security_group_bindings(context, port_id)
-            super(NeutronRestProxyV2, self).delete_port(context, port_id)
-
-    def _delete_port(self, context, port_id):
-        port = super(NeutronRestProxyV2, self).get_port(context, port_id)
-
-        # Tenant ID must come from network in case the network is shared
-        tenant_id = self._get_port_net_tenantid(context, port)
-
-        # Delete from DB
-        ret_val = super(NeutronRestProxyV2,
-                        self)._delete_port(context, port_id)
-        self.servers.rest_delete_port(tenant_id, port['network_id'], port_id)
-        return ret_val
+            port = super(NeutronRestProxyV2, self).get_port(context, port_id)
+            # Tenant ID must come from network in case the network is shared
+            tenid = self._get_port_net_tenantid(context, port)
+            self._delete_port(context, port_id)
+            self.servers.rest_delete_port(tenid, port['network_id'], port_id)
 
     def create_subnet(self, context, subnet):
         LOG.debug(_("NeutronRestProxyV2: create_subnet() called"))
@@ -810,6 +842,8 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
             self._send_update_network(orig_net, context)
             return new_subnet
 
+    # NOTE(kevinbenton): workaround for eventlet/mysql deadlock
+    @utils.synchronized('bsn-port-barrier')
     def delete_subnet(self, context, id):
         LOG.debug(_("NeutronRestProxyV2: delete_subnet() called"))
         orig_subnet = super(NeutronRestProxyV2, self).get_subnet(context, id)
@@ -889,6 +923,9 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
             # return updated router
             return new_router
 
+    # NOTE(kevinbenton): workaround for eventlet/mysql deadlock.
+    # delete_router ends up calling _delete_port instead of delete_port.
+    @utils.synchronized('bsn-port-barrier')
     def delete_router(self, context, router_id):
         LOG.debug(_("NeutronRestProxyV2: delete_router() called"))
 

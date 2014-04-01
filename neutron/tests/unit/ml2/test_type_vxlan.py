@@ -15,6 +15,7 @@
 # @author: Kyle Mestery, Cisco Systems, Inc.
 
 from oslo.config import cfg
+from six.moves import xrange
 import testtools
 from testtools import matchers
 
@@ -50,7 +51,6 @@ class VxlanTypeTest(base.BaseTestCase):
         self.driver.vxlan_vni_ranges = TUNNEL_RANGES
         self.driver._sync_vxlan_allocations()
         self.session = db.get_session()
-        self.addCleanup(cfg.CONF.reset)
         self.addCleanup(db.clear_db)
 
     def test_vxlan_tunnel_type(self):

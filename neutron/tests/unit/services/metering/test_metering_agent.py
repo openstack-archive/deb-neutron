@@ -18,7 +18,6 @@ import mock
 from oslo.config import cfg
 
 from neutron.agent.common import config
-from neutron.openstack.common.notifier import api as notifier_api
 from neutron.openstack.common.notifier import test_notifier
 from neutron.openstack.common import uuidutils
 from neutron.services.metering.agents import metering_agent
@@ -52,8 +51,7 @@ class TestMeteringOperations(base.BaseTestCase):
         cfg.CONF.set_override('measure_interval', 0)
         cfg.CONF.set_override('report_interval', 0)
 
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
+        self.setup_notification_driver()
 
         metering_rpc = ('neutron.services.metering.agents.metering_agent.'
                         'MeteringPluginRpc._get_sync_data_metering')
@@ -69,12 +67,6 @@ class TestMeteringOperations(base.BaseTestCase):
 
         self.agent = metering_agent.MeteringAgent('my agent', cfg.CONF)
         self.driver = self.agent.metering_driver
-
-        self.addCleanup(mock.patch.stopall)
-
-    def tearDown(self):
-        test_notifier.NOTIFICATIONS = []
-        super(TestMeteringOperations, self).tearDown()
 
     def test_add_metering_label(self):
         self.agent.add_metering_label(None, ROUTERS)
@@ -147,8 +139,6 @@ class TestMeteringDriver(base.BaseTestCase):
         self.agent = metering_agent.MeteringAgent('my agent', cfg.CONF)
         self.driver = mock.Mock()
         self.agent.metering_driver = self.driver
-
-        self.addCleanup(mock.patch.stopall)
 
     def test_add_metering_label_with_bad_driver_impl(self):
         del self.driver.add_metering_label

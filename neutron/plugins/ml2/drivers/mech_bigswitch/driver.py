@@ -16,6 +16,9 @@
 #    under the License.
 #
 # @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
+# @author: Kevin Benton, Big Switch Networks, Inc.
+import copy
+
 import eventlet
 from oslo.config import cfg
 
@@ -25,7 +28,7 @@ from neutron.openstack.common import log
 from neutron.plugins.bigswitch import config as pl_config
 from neutron.plugins.bigswitch.db import porttracker_db
 from neutron.plugins.bigswitch.plugin import NeutronRestProxyV2Base
-from neutron.plugins.bigswitch.servermanager import ServerPool
+from neutron.plugins.bigswitch import servermanager
 from neutron.plugins.ml2 import driver_api as api
 
 
@@ -51,7 +54,11 @@ class BigSwitchMechanismDriver(NeutronRestProxyV2Base,
         self.native_bulk_support = False
 
         # init network ctrl connections
-        self.servers = ServerPool(server_timeout)
+        self.servers = servermanager.ServerPool(server_timeout)
+        self.servers.get_topo_function = self._get_all_data
+        self.servers.get_topo_function_args = {'get_ports': True,
+                                               'get_floating_ips': False,
+                                               'get_routers': False}
         self.segmentation_types = ', '.join(cfg.CONF.ml2.type_drivers)
         LOG.debug(_("Initialization done"))
 
@@ -88,10 +95,12 @@ class BigSwitchMechanismDriver(NeutronRestProxyV2Base,
         self.servers.rest_delete_port(net["tenant_id"], net["id"], port['id'])
 
     def _prepare_port_for_controller(self, context):
-        port = context.current
+        # make a copy so the context isn't changed for other drivers
+        port = copy.deepcopy(context.current)
         net = context.network.current
         port['network'] = net
         port['binding_host'] = context._binding.host
+        port['bound_segment'] = context.bound_segment
         actx = ctx.get_admin_context()
         if (portbindings.HOST_ID in port and 'id' in port):
             host_id = port[portbindings.HOST_ID]
@@ -102,6 +111,8 @@ class BigSwitchMechanismDriver(NeutronRestProxyV2Base,
         prepped_port = self._map_state_and_status(prepped_port)
         if (portbindings.HOST_ID not in prepped_port or
             prepped_port[portbindings.HOST_ID] == ''):
+            LOG.warning(_("Ignoring port notification to controller because "
+                          "of missing host ID."))
             # in ML2, controller doesn't care about ports without
             # the host_id set
             return False

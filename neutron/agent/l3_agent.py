@@ -23,7 +23,6 @@ from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ovs_lib  # noqa
-from neutron.agent.linux import utils
 from neutron.agent import rpc as agent_rpc
 from neutron.common import constants as l3_constants
 from neutron.common import legacy
@@ -332,8 +331,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
                 self.context)
             return self.target_ex_net_id
         except rpc_common.RemoteError as e:
-            with excutils.save_and_reraise_exception():
+            with excutils.save_and_reraise_exception() as ctx:
                 if e.exc_type == 'TooManyExternalNetworks':
+                    ctx.reraise = False
                     msg = _(
                         "The 'gateway_external_network_id' option must be "
                         "configured for this agent as Neutron has more than "
@@ -414,6 +414,12 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         prefixlen = netaddr.IPNetwork(port['subnet']['cidr']).prefixlen
         port['ip_cidr'] = "%s/%s" % (ips[0]['ip_address'], prefixlen)
 
+    def _get_existing_devices(self, ri):
+        ip_wrapper = ip_lib.IPWrapper(root_helper=self.root_helper,
+                                      namespace=ri.ns_name())
+        ip_devs = ip_wrapper.get_devices(exclude_loopback=True)
+        return [ip_dev.name for ip_dev in ip_devs]
+
     def process_router(self, ri):
         ri.iptables_manager.defer_apply_on()
         ex_gw_port = self._get_ex_gw_port(ri)
@@ -436,6 +442,19 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             self.internal_network_removed(ri, p['id'], p['ip_cidr'])
             ri.internal_ports.remove(p)
 
+        existing_devices = self._get_existing_devices(ri)
+        current_internal_devs = set([n for n in existing_devices
+                                     if n.startswith(INTERNAL_DEV_PREFIX)])
+        current_port_devs = set([self.get_internal_device_name(id) for
+                                 id in current_port_ids])
+        stale_devs = current_internal_devs - current_port_devs
+        for stale_dev in stale_devs:
+            LOG.debug(_('Deleting stale internal router device: %s'),
+                      stale_dev)
+            self.driver.unplug(stale_dev,
+                               namespace=ri.ns_name(),
+                               prefix=INTERNAL_DEV_PREFIX)
+
         internal_cidrs = [p['ip_cidr'] for p in ri.internal_ports]
         # TODO(salv-orlando): RouterInfo would be a better place for
         # this logic too
@@ -452,6 +471,17 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         elif not ex_gw_port and ri.ex_gw_port:
             self.external_gateway_removed(ri, ri.ex_gw_port,
                                           interface_name, internal_cidrs)
+
+        stale_devs = [dev for dev in existing_devices
+                      if dev.startswith(EXTERNAL_DEV_PREFIX)
+                      and dev != interface_name]
+        for stale_dev in stale_devs:
+            LOG.debug(_('Deleting stale external router device: %s'),
+                      stale_dev)
+            self.driver.unplug(stale_dev,
+                               bridge=self.conf.external_network_bridge,
+                               namespace=ri.ns_name(),
+                               prefix=EXTERNAL_DEV_PREFIX)
 
         # Process static routes for router
         self.routes_updated(ri)
@@ -586,13 +616,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
                       '-c', self.conf.send_arp_for_ha,
                       ip_address]
         try:
-            if self.conf.use_namespaces:
-                ip_wrapper = ip_lib.IPWrapper(self.root_helper,
-                                              namespace=ri.ns_name())
-                ip_wrapper.netns.execute(arping_cmd, check_exit_code=True)
-            else:
-                utils.execute(arping_cmd, check_exit_code=True,
-                              root_helper=self.root_helper)
+            ip_wrapper = ip_lib.IPWrapper(self.root_helper,
+                                          namespace=ri.ns_name())
+            ip_wrapper.netns.execute(arping_cmd, check_exit_code=True)
         except Exception as e:
             LOG.error(_("Failed sending gratuitous ARP: %s"), str(e))
 
@@ -632,13 +658,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         gw_ip = ex_gw_port['subnet']['gateway_ip']
         if ex_gw_port['subnet']['gateway_ip']:
             cmd = ['route', 'add', 'default', 'gw', gw_ip]
-            if self.conf.use_namespaces:
-                ip_wrapper = ip_lib.IPWrapper(self.root_helper,
-                                              namespace=ri.ns_name())
-                ip_wrapper.netns.execute(cmd, check_exit_code=False)
-            else:
-                utils.execute(cmd, check_exit_code=False,
-                              root_helper=self.root_helper)
+            ip_wrapper = ip_lib.IPWrapper(self.root_helper,
+                                          namespace=ri.ns_name())
+            ip_wrapper.netns.execute(cmd, check_exit_code=False)
 
     def external_gateway_removed(self, ri, ex_gw_port,
                                  interface_name, internal_cidrs):
@@ -851,14 +873,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
     def _update_routing_table(self, ri, operation, route):
         cmd = ['ip', 'route', operation, 'to', route['destination'],
                'via', route['nexthop']]
-        #TODO(nati) move this code to iplib
-        if self.conf.use_namespaces:
-            ip_wrapper = ip_lib.IPWrapper(self.conf.root_helper,
-                                          namespace=ri.ns_name())
-            ip_wrapper.netns.execute(cmd, check_exit_code=False)
-        else:
-            utils.execute(cmd, check_exit_code=False,
-                          root_helper=self.conf.root_helper)
+        ip_wrapper = ip_lib.IPWrapper(self.root_helper,
+                                      namespace=ri.ns_name())
+        ip_wrapper.netns.execute(cmd, check_exit_code=False)
 
     def routes_updated(self, ri):
         new_routes = ri.router['routes']

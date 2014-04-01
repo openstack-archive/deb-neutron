@@ -132,6 +132,9 @@ class TestDhcpAgent(base.BaseTestCase):
         dhcp_agent.register_options()
         cfg.CONF.set_override('interface_driver',
                               'neutron.agent.linux.interface.NullDriver')
+        # disable setting up periodic state reporting
+        cfg.CONF.set_override('report_interval', 0, 'AGENT')
+
         self.driver_cls_p = mock.patch(
             'neutron.agent.dhcp_agent.importutils.import_class')
         self.driver = mock.Mock(name='driver')
@@ -140,10 +143,11 @@ class TestDhcpAgent(base.BaseTestCase):
         self.driver_cls.return_value = self.driver
         self.mock_makedirs_p = mock.patch("os.makedirs")
         self.mock_makedirs = self.mock_makedirs_p.start()
-        self.addCleanup(mock.patch.stopall)
 
     def test_dhcp_agent_manager(self):
         state_rpc_str = 'neutron.agent.rpc.PluginReportStateAPI'
+        # sync_state is needed for this test
+        cfg.CONF.set_override('report_interval', 1, 'AGENT')
         with mock.patch.object(DhcpAgentWithStateReport,
                                'sync_state',
                                autospec=True) as mock_sync_state:
@@ -491,7 +495,6 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.plugin_p.stop()
         self.mock_makedirs_p.stop()
         self.mock_init_p.stop()
-        cfg.CONF.reset()
         super(TestDhcpAgentEventHandler, self).tearDown()
 
     def _enable_dhcp_helper(self, isolated_metadata=False):
@@ -1119,7 +1122,6 @@ class TestDeviceManager(base.BaseTestCase):
         self.dvr_cls_p.stop()
         self.device_exists_p.stop()
         self.iproute_cls_p.stop()
-        cfg.CONF.reset()
         super(TestDeviceManager, self).tearDown()
 
     def _test_setup_helper(self, device_exists, reuse_existing=False,
@@ -1163,7 +1165,7 @@ class TestDeviceManager(base.BaseTestCase):
                                            namespace=net.namespace))
         self.mock_driver.assert_has_calls(expected)
 
-        dh._set_default_route.assert_called_once_with(net)
+        dh._set_default_route.assert_called_once_with(net, port)
 
     def test_setup(self):
         cfg.CONF.set_override('enable_metadata_network', False)
@@ -1318,15 +1320,21 @@ class TestDeviceManager(base.BaseTestCase):
         dh = dhcp.DeviceManager(cfg.CONF, cfg.CONF.root_helper, None)
         dh._set_default_route = mock.Mock()
 
-        dh.update(True)
+        network = mock.Mock()
+        port = mock.Mock()
+        dh.plugin = mock.Mock()
+        dh.plugin.get_dhcp_port.return_value = port
+        dh.update(network)
 
-        dh._set_default_route.assert_called_once_with(True)
+        dh._set_default_route.assert_called_once_with(network, port)
 
         # No namespaces, shouldn't set default route.
         cfg.CONF.set_override('use_namespaces', False)
         cfg.CONF.set_override('enable_metadata_network', False)
         dh = dhcp.DeviceManager(cfg.CONF, cfg.CONF.root_helper, None)
         dh._set_default_route = mock.Mock()
+        dh.plugin = mock.Mock()
+        dh.plugin.get_dhcp_port.return_value = port
 
         dh.update(FakeV4Network())
 
@@ -1337,6 +1345,8 @@ class TestDeviceManager(base.BaseTestCase):
         cfg.CONF.set_override('enable_metadata_network', True)
         dh = dhcp.DeviceManager(cfg.CONF, cfg.CONF.root_helper, None)
         dh._set_default_route = mock.Mock()
+        dh.plugin = mock.Mock()
+        dh.plugin.get_dhcp_port.return_value = port
 
         dh.update(FakeV4Network())
 
@@ -1360,7 +1370,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4Network()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         self.assertFalse(device.route.delete_gateway.called)
@@ -1374,7 +1384,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4NetworkNoSubnet()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         self.assertFalse(device.route.delete_gateway.called)
@@ -1388,7 +1398,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4NetworkNoSubnet()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         device.route.delete_gateway.assert_called_once_with('192.168.0.1')
@@ -1402,7 +1412,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4NetworkNoGateway()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         device.route.delete_gateway.assert_called_once_with('192.168.0.1')
@@ -1416,7 +1426,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4Network()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         self.assertFalse(device.route.delete_gateway.called)
@@ -1430,7 +1440,7 @@ class TestDeviceManager(base.BaseTestCase):
         dh = self._get_device_manager_with_mock_device(cfg.CONF, device)
         network = FakeV4Network()
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         self.assertFalse(device.route.delete_gateway.called)
@@ -1447,11 +1457,23 @@ class TestDeviceManager(base.BaseTestCase):
         subnet2.gateway_ip = '192.168.1.1'
         network.subnets = [subnet2, FakeV4Subnet()]
 
-        dh._set_default_route(network)
+        dh._set_default_route(network, mock.Mock())
 
         device.route.get_gateway.assert_called_once()
         self.assertFalse(device.route.delete_gateway.called)
         device.route.add_gateway.assert_called_once_with('192.168.1.1')
+
+    def test_get_device_dont_call_get_dhcp_port(self):
+        dh = dhcp.DeviceManager(cfg.CONF, cfg.CONF.root_helper, None)
+        dh.get_interface_name = mock.Mock()
+        dh.plugin = mock.Mock()
+        network = mock.Mock()
+        port = mock.Mock()
+
+        dh._get_device(network, port)
+
+        self.assertFalse(dh.plugin.get_dhcp_port.called)
+        dh.get_interface_name.assert_called_once_with(network, port)
 
 
 class TestDictModel(base.BaseTestCase):

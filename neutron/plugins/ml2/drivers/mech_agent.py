@@ -35,8 +35,7 @@ class AgentMechanismDriverBase(api.MechanismDriver):
     at least one segment of the port's network.
 
     MechanismDrivers using this base class must pass the agent type to
-    __init__(), and must implement try_to_bind_segment_for_agent() and
-    check_segment_for_agent().
+    __init__(), and must implement try_to_bind_segment_for_agent().
     """
 
     def __init__(self, agent_type,
@@ -75,25 +74,65 @@ class AgentMechanismDriverBase(api.MechanismDriver):
                 LOG.warning(_("Attempting to bind with dead agent: %s"),
                             agent)
 
-    def validate_port_binding(self, context):
-        LOG.debug(_("Validating binding for port %(port)s on "
-                    "network %(network)s"),
-                  {'port': context.current['id'],
-                   'network': context.network.current['id']})
-        for agent in context.host_agents(self.agent_type):
-            LOG.debug(_("Checking agent: %s"), agent)
-            if agent['alive'] and self.check_segment_for_agent(
-                context.bound_segment, agent):
-                LOG.debug(_("Binding valid"))
-                return True
-        LOG.warning(_("Binding invalid for port: %s"), context.current)
-        return False
+    @abstractmethod
+    def try_to_bind_segment_for_agent(self, context, segment, agent):
+        """Try to bind with segment for agent.
 
-    def unbind_port(self, context):
-        LOG.debug(_("Unbinding port %(port)s on "
-                    "network %(network)s"),
-                  {'port': context.current['id'],
-                   'network': context.network.current['id']})
+        :param context: PortContext instance describing the port
+        :param segment: segment dictionary describing segment to bind
+        :param agent: agents_db entry describing agent to bind
+        :returns: True iff segment has been bound for agent
+
+        Called inside transaction during bind_port() so that derived
+        MechanismDrivers can use agent_db data along with built-in
+        knowledge of the corresponding agent's capabilities to attempt
+        to bind to the specified network segment for the agent.
+
+        If the segment can be bound for the agent, this function must
+        call context.set_binding() with appropriate values and then
+        return True. Otherwise, it must return False.
+        """
+
+
+@six.add_metaclass(ABCMeta)
+class SimpleAgentMechanismDriverBase(AgentMechanismDriverBase):
+    """Base class for simple drivers using an L2 agent.
+
+    The SimpleAgentMechanismDriverBase provides common code for
+    mechanism drivers that integrate the ml2 plugin with L2 agents,
+    where the binding:vif_type and binding:vif_details values are the
+    same for all bindings. Port binding with this driver requires the
+    driver's associated agent to be running on the port's host, and
+    that agent to have connectivity to at least one segment of the
+    port's network.
+
+    MechanismDrivers using this base class must pass the agent type
+    and the values for binding:vif_type and binding:vif_details to
+    __init__(), and must implement check_segment_for_agent().
+    """
+
+    def __init__(self, agent_type, vif_type, vif_details,
+                 supported_vnic_types=[portbindings.VNIC_NORMAL]):
+        """Initialize base class for specific L2 agent type.
+
+        :param agent_type: Constant identifying agent type in agents_db
+        :param vif_type: Value for binding:vif_type when bound
+        :param vif_details: Dictionary with details for VIF driver when bound
+        :param supported_vnic_types: The binding:vnic_type values we can bind
+        """
+        super(SimpleAgentMechanismDriverBase, self).__init__(
+            agent_type, supported_vnic_types)
+        self.vif_type = vif_type
+        self.vif_details = vif_details
+
+    def try_to_bind_segment_for_agent(self, context, segment, agent):
+        if self.check_segment_for_agent(segment, agent):
+            context.set_binding(segment[api.ID],
+                                self.vif_type,
+                                self.vif_details)
+            return True
+        else:
+            return False
 
     @abstractmethod
     def try_to_bind_segment_for_agent(self, context, segment, agent):
@@ -122,41 +161,11 @@ class AgentMechanismDriverBase(api.MechanismDriver):
         :param agent: agents_db entry describing agent to bind
         :returns: True iff segment can be bound for agent
 
-        Called inside transaction during validate_port_binding() so
-        that derived MechanismDrivers can use agent_db data along with
-        built-in knowledge of the corresponding agent's capabilities
-        to determine whether or not the specified network segment can
-        be bound for the agent.
-        """
-
-
-@six.add_metaclass(ABCMeta)
-class SimpleAgentMechanismDriverBase(AgentMechanismDriverBase):
-    """Base class for simple drivers using an L2 agent.
-
-    The SimpleAgentMechanismDriverBase provides common code for
-    mechanism drivers that integrate the ml2 plugin with L2 agents,
-    where the binding:vif_type and binding:vif_details values are the
-    same for all bindings. Port binding with this driver requires the
-    driver's associated agent to be running on the port's host, and
-    that agent to have connectivity to at least one segment of the
-    port's network.
-
-    MechanismDrivers using this base class must pass the agent type
-    and the values for binding:vif_type and binding:vif_details to
-    __init__(). They must implement check_segment_for_agent() as
-    defined in AgentMechanismDriverBase, which will be called during
-    both binding establishment and validation.
-    """
-
-    def __init__(self, agent_type, vif_type, vif_details,
-                 supported_vnic_types=[portbindings.VNIC_NORMAL]):
-        """Initialize base class for specific L2 agent type.
-
-        :param agent_type: Constant identifying agent type in agents_db
-        :param vif_type: Value for binding:vif_type when bound
-        :param vif_details: Dictionary with details for VIF driver when bound
-        :param supported_vnic_types: The binding:vnic_type values we can bind
+        Called inside transaction during bind_port so that derived
+        MechanismDrivers can use agent_db data along with built-in
+        knowledge of the corresponding agent's capabilities to
+        determine whether or not the specified network segment can be
+        bound for the agent.
         """
         super(SimpleAgentMechanismDriverBase, self).__init__(
             agent_type, supported_vnic_types)

@@ -31,8 +31,10 @@ PLUGINS = {
     'lbr': 'neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2',
     'meta': 'neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2',
     'ml2': 'neutron.plugins.ml2.plugin.Ml2Plugin',
+    'mlnx': 'neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin',
     'nec': 'neutron.plugins.nec.nec_plugin.NECPluginV2',
     'nvp': 'neutron.plugins.nicira.NeutronPlugin.NvpPluginV2',
+    'ocnvsd': 'neutron.plugins.oneconvergence.plugin.OneConvergencePluginV2',
     'ovs': 'neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2',
     'plumgrid': 'neutron.plugins.plumgrid.plumgrid_plugin.plumgrid_plugin.'
                 'NeutronPluginPLUMgridV2',
@@ -44,7 +46,9 @@ L3_CAPABLE = [
     PLUGINS['lbr'],
     PLUGINS['meta'],
     PLUGINS['ml2'],
+    PLUGINS['mlnx'],
     PLUGINS['nec'],
+    PLUGINS['ocnvsd'],
     PLUGINS['ovs'],
     PLUGINS['ryu'],
     PLUGINS['brocade'],
@@ -56,6 +60,7 @@ FOLSOM_QUOTA = [
     PLUGINS['lbr'],
     PLUGINS['ml2'],
     PLUGINS['nvp'],
+    PLUGINS['ocnvsd'],
     PLUGINS['ovs'],
 ]
 
@@ -67,6 +72,7 @@ down_revision = None
 from alembic import op
 import sqlalchemy as sa
 
+from neutron.db import migration
 from neutron.db.migration.alembic_migrations import common_ext_ops
 # NOTE: This is a special migration that creates a Folsom compatible database.
 
@@ -75,10 +81,10 @@ def upgrade(active_plugins=None, options=None):
     # general model
     upgrade_base()
 
-    if set(active_plugins) & set(L3_CAPABLE):
+    if migration.should_run(active_plugins, L3_CAPABLE):
         common_ext_ops.upgrade_l3()
 
-    if set(active_plugins) & set(FOLSOM_QUOTA):
+    if migration.should_run(active_plugins, FOLSOM_QUOTA):
         common_ext_ops.upgrade_quota(options)
 
     if PLUGINS['lbr'] in active_plugins:
@@ -454,7 +460,7 @@ def upgrade_cisco():
         'nexusport_bindings',
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('port_id', sa.String(255)),
-        sa.Column('vlan_id', sa.Integer(255)),
+        sa.Column('vlan_id', sa.Integer()),
         sa.PrimaryKeyConstraint('id')
     )
 
@@ -479,10 +485,10 @@ def downgrade(active_plugins=None, options=None):
         downgrade_brocade()
         downgrade_linuxbridge()
 
-    if set(active_plugins) & set(FOLSOM_QUOTA):
+    if migration.should_run(active_plugins, FOLSOM_QUOTA):
         common_ext_ops.downgrade_quota(options)
 
-    if set(active_plugins) & set(L3_CAPABLE):
+    if migration.should_run(active_plugins, L3_CAPABLE):
         common_ext_ops.downgrade_l3()
 
     downgrade_base()

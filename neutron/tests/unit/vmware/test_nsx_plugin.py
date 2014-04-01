@@ -114,7 +114,6 @@ class NsxPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
         self.port_create_status = constants.PORT_STATUS_DOWN
         cfg.CONF.set_override('metadata_mode', None, 'NSX')
         self.addCleanup(self.fc.reset_all)
-        self.addCleanup(mock.patch.stopall)
 
 
 class TestBasicGet(test_plugin.TestBasicGet, NsxPluginV2TestCase):
@@ -221,7 +220,7 @@ class TestPortsV2(NsxPluginV2TestCase,
         with mock.patch.object(nsx_db, 'add_neutron_nsx_port_mapping',
                                side_effect=db_exception):
             with self.network() as net:
-                with self.port(device_owner='network:dhcp'):
+                with self.port(device_owner=constants.DEVICE_OWNER_DHCP):
                     self._verify_no_orphan_left(net['network']['id'])
 
     def test_create_port_maintenance_returns_503(self):
@@ -358,8 +357,6 @@ class SecurityGroupsTestCase(ext_sg.SecurityGroupDBTestCase):
         patch_sync.start()
 
         instance.return_value.request.side_effect = self.fc.fake_request
-        self.addCleanup(self.mock_nsx.stop)
-        self.addCleanup(patch_sync.stop)
         super(SecurityGroupsTestCase, self).setUp(PLUGIN_NAME)
 
 
@@ -385,6 +382,13 @@ class TestSecurityGroup(ext_sg.TestSecurityGroups, SecurityGroupsTestCase):
             res = self._create_security_group_rule(self.fmt, rule)
             self.deserialize(self.fmt, res)
             self.assertEqual(res.status_int, 400)
+
+    def test_update_security_group_deal_with_exc(self):
+        name = 'foo security group'
+        with mock.patch.object(nsxlib.switch, 'do_request',
+                               side_effect=api_exc.NsxApiException):
+            with self.security_group(name=name) as sg:
+                self.assertEqual(sg['security_group']['name'], name)
 
 
 class TestL3ExtensionManager(object):
@@ -909,7 +913,7 @@ class TestL3NatTestCase(L3NatTest,
         subnets = self._list('subnets')['subnets']
         with self.subnet() as s:
             with self.port(subnet=s, device_id='1234',
-                           device_owner='network:dhcp'):
+                           device_owner=constants.DEVICE_OWNER_DHCP):
                 subnets = self._list('subnets')['subnets']
                 self.assertEqual(len(subnets), 1)
                 self.assertEqual(subnets[0]['host_routes'][0]['nexthop'],
@@ -1104,6 +1108,28 @@ class NeutronNsxOutOfSync(NsxPluginV2TestCase,
             'routers',
             {'router': {'external_gateway_info': {}}},
             router['router']['id'])
+        res = req.get_response(self.ext_api)
+        self.assertEqual(res.status_int, 200)
+
+    def test_remove_router_interface_not_in_nsx(self):
+        # Create internal network and subnet
+        int_sub_id = self._create_network_and_subnet('10.0.0.0/24')[1]
+        res = self._create_router('json', 'tenant')
+        router = self.deserialize('json', res)
+        # Add interface to router (needed to generate NAT rule)
+        req = self.new_action_request(
+            'routers',
+            {'subnet_id': int_sub_id},
+            router['router']['id'],
+            "add_router_interface")
+        res = req.get_response(self.ext_api)
+        self.assertEqual(res.status_int, 200)
+        self.fc._fake_lrouter_dict.clear()
+        req = self.new_action_request(
+            'routers',
+            {'subnet_id': int_sub_id},
+            router['router']['id'],
+            "remove_router_interface")
         res = req.get_response(self.ext_api)
         self.assertEqual(res.status_int, 200)
 

@@ -42,19 +42,28 @@ class OFCMappingNotFound(qexc.NotFound):
                 "It may be deleted during processing.")
 
 
+class OFCServiceUnavailable(OFCException):
+    message = _("OFC returns Server Unavailable (503) "
+                "(Retry-After=%(retry_after)s)")
+
+    def __init__(self, **kwargs):
+        super(OFCServiceUnavailable, self).__init__(**kwargs)
+        self.retry_after = kwargs.get('retry_after')
+
+
 class PortInfoNotFound(qexc.NotFound):
     message = _("PortInfo %(id)s could not be found")
 
 
 class ProfilePortInfoInvalidDataPathId(qexc.InvalidInput):
     message = _('Invalid input for operation: '
-                'portinfo:datapath_id should be a hex string '
+                'datapath_id should be a hex string '
                 'with at most 8 bytes')
 
 
 class ProfilePortInfoInvalidPortNo(qexc.InvalidInput):
     message = _('Invalid input for operation: '
-                'portinfo:port_no should be [0:65535]')
+                'port_no should be [0:65535]')
 
 
 class RouterExternalGatewayNotSupported(qexc.BadRequest):

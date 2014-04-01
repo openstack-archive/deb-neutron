@@ -20,6 +20,7 @@
 import contextlib
 import os
 
+from oslo.config import cfg
 import webob.exc
 
 from neutron.api.extensions import ExtensionMiddleware
@@ -28,6 +29,7 @@ from neutron.common import config
 from neutron import context
 from neutron.db import agentschedulers_db
 from neutron.db import l3_agentschedulers_db
+from neutron.db import servicetype_db as sdb
 from neutron.db.vpn import vpn_db
 from neutron import extensions
 from neutron.extensions import vpnaas
@@ -123,12 +125,10 @@ class VPNTestMixin(object):
                                      **kwargs)
         if res.status_int >= 400:
             raise webob.exc.HTTPClientError(code=res.status_int)
-        try:
-            ikepolicy = self.deserialize(fmt or self.fmt, res)
-            yield ikepolicy
-        finally:
-            if not no_delete:
-                self._delete('ikepolicies', ikepolicy['ikepolicy']['id'])
+        ikepolicy = self.deserialize(fmt or self.fmt, res)
+        yield ikepolicy
+        if not no_delete:
+            self._delete('ikepolicies', ikepolicy['ikepolicy']['id'])
 
     def _create_ipsecpolicy(self, fmt,
                             name='ipsecpolicy1',
@@ -186,12 +186,10 @@ class VPNTestMixin(object):
                                        **kwargs)
         if res.status_int >= 400:
             raise webob.exc.HTTPClientError(code=res.status_int)
-        try:
-            ipsecpolicy = self.deserialize(fmt or self.fmt, res)
-            yield ipsecpolicy
-        finally:
-            if not no_delete:
-                self._delete('ipsecpolicies', ipsecpolicy['ipsecpolicy']['id'])
+        ipsecpolicy = self.deserialize(fmt or self.fmt, res)
+        yield ipsecpolicy
+        if not no_delete:
+            self._delete('ipsecpolicies', ipsecpolicy['ipsecpolicy']['id'])
 
     def _create_vpnservice(self, fmt, name,
                            admin_state_up,
@@ -248,36 +246,37 @@ class VPNTestMixin(object):
                     'add',
                     tmp_router['router']['id'],
                     tmp_subnet['subnet']['id'], None)
-            try:
-                res = self._create_vpnservice(fmt,
-                                              name,
-                                              admin_state_up,
-                                              router_id=(tmp_router['router']
-                                                         ['id']),
-                                              subnet_id=(tmp_subnet['subnet']
-                                                         ['id']),
-                                              **kwargs)
-                vpnservice = self.deserialize(fmt or self.fmt, res)
-                if res.status_int >= 400:
-                    raise webob.exc.HTTPClientError(
-                        code=res.status_int, detail=vpnservice)
+
+            res = self._create_vpnservice(fmt,
+                                          name,
+                                          admin_state_up,
+                                          router_id=(tmp_router['router']
+                                                     ['id']),
+                                          subnet_id=(tmp_subnet['subnet']
+                                                     ['id']),
+                                          **kwargs)
+            vpnservice = self.deserialize(fmt or self.fmt, res)
+            if res.status_int < 400:
                 yield vpnservice
-            finally:
-                if not no_delete and vpnservice.get('vpnservice'):
-                    self._delete('vpnservices',
-                                 vpnservice['vpnservice']['id'])
-                if plug_subnet:
-                    self._router_interface_action(
-                        'remove',
-                        tmp_router['router']['id'],
-                        tmp_subnet['subnet']['id'], None)
-                if external_router:
-                    external_gateway = tmp_router['router'].get(
-                        'external_gateway_info')
-                    if external_gateway:
-                        network_id = external_gateway['network_id']
-                        self._remove_external_gateway_from_router(
-                            tmp_router['router']['id'], network_id)
+
+            if not no_delete and vpnservice.get('vpnservice'):
+                self._delete('vpnservices',
+                             vpnservice['vpnservice']['id'])
+            if plug_subnet:
+                self._router_interface_action(
+                    'remove',
+                    tmp_router['router']['id'],
+                    tmp_subnet['subnet']['id'], None)
+            if external_router:
+                external_gateway = tmp_router['router'].get(
+                    'external_gateway_info')
+                if external_gateway:
+                    network_id = external_gateway['network_id']
+                    self._remove_external_gateway_from_router(
+                        tmp_router['router']['id'], network_id)
+            if res.status_int >= 400:
+                raise webob.exc.HTTPClientError(
+                    code=res.status_int, detail=vpnservice)
 
     def _create_ipsec_site_connection(self, fmt, name='test',
                                       peer_address='192.168.1.10',
@@ -377,18 +376,78 @@ class VPNTestMixin(object):
                                                      **kwargs)
             if res.status_int >= 400:
                 raise webob.exc.HTTPClientError(code=res.status_int)
-            try:
-                ipsec_site_connection = self.deserialize(
-                    fmt or self.fmt, res
+
+            ipsec_site_connection = self.deserialize(
+                fmt or self.fmt, res
+            )
+            yield ipsec_site_connection
+
+            if not no_delete:
+                self._delete(
+                    'ipsec-site-connections',
+                    ipsec_site_connection[
+                        'ipsec_site_connection']['id']
                 )
-                yield ipsec_site_connection
-            finally:
-                if not no_delete:
-                    self._delete(
-                        'ipsec-site-connections',
-                        ipsec_site_connection[
-                            'ipsec_site_connection']['id']
-                    )
+
+    def _check_ipsec_site_connection(self, ipsec_site_connection, keys, dpd):
+        self.assertEqual(
+            keys,
+            dict((k, v) for k, v
+                 in ipsec_site_connection.items()
+                 if k in keys))
+        self.assertEqual(
+            dpd,
+            dict((k, v) for k, v
+                 in ipsec_site_connection['dpd'].items()
+                 if k in dpd))
+
+    def _set_active(self, model, resource_id):
+        service_plugin = manager.NeutronManager.get_service_plugins()[
+            constants.VPN]
+        adminContext = context.get_admin_context()
+        with adminContext.session.begin(subtransactions=True):
+            resource_db = service_plugin._get_resource(
+                adminContext,
+                model,
+                resource_id)
+            resource_db.status = constants.ACTIVE
+
+
+class VPNPluginDbTestCase(VPNTestMixin,
+                          test_l3_plugin.L3NatTestCaseMixin,
+                          test_db_plugin.NeutronDbPluginV2TestCase):
+    def setUp(self, core_plugin=None, vpnaas_plugin=DB_VPN_PLUGIN_KLASS,
+              vpnaas_provider=None):
+        if not vpnaas_provider:
+            vpnaas_provider = (
+                constants.VPN +
+                ':vpnaas:neutron.services.vpn.'
+                'service_drivers.ipsec.IPsecVPNDriver:default')
+
+        cfg.CONF.set_override('service_provider',
+                              [vpnaas_provider],
+                              'service_providers')
+        # force service type manager to reload configuration:
+        sdb.ServiceTypeManager._instance = None
+
+        service_plugins = {'vpnaas_plugin': vpnaas_plugin}
+        plugin_str = ('neutron.tests.unit.db.vpn.'
+                      'test_db_vpnaas.TestVpnCorePlugin')
+
+        super(VPNPluginDbTestCase, self).setUp(
+            plugin_str,
+            service_plugins=service_plugins
+        )
+        self._subnet_id = uuidutils.generate_uuid()
+        self.core_plugin = TestVpnCorePlugin
+        self.plugin = vpn_plugin.VPNPlugin()
+        ext_mgr = PluginAwareExtensionManager(
+            extensions_path,
+            {constants.CORE: self.core_plugin,
+             constants.VPN: self.plugin}
+        )
+        app = config.load_paste_app('extensions_test_app')
+        self.ext_api = ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
     def _check_ipsec_site_connection(self, ipsec_site_connection, keys, dpd):
         self.assertEqual(

@@ -35,7 +35,6 @@ class TestVPNDriverPlugin(test_db_vpnaas.TestVpnaas,
                           test_agent_scheduler.AgentSchedulerTestMixIn,
                           test_agent_ext_plugin.AgentDBTestMixIn):
     def setUp(self):
-        self.addCleanup(mock.patch.stopall)
         self.adminContext = context.get_admin_context()
         driver_cls_p = mock.patch(
             'neutron.services.vpn.'
@@ -58,6 +57,11 @@ class TestVPNDriverPlugin(test_db_vpnaas.TestVpnaas,
         super(TestVPNDriverPlugin, self).test_delete_vpnservice()
         self.driver.delete_vpnservice.assert_called_once_with(
             mock.ANY, mock.ANY)
+
+    def test_update_vpnservice(self, **extras):
+        super(TestVPNDriverPlugin, self).test_update_vpnservice()
+        self.driver.update_vpnservice.assert_called_once_with(
+            mock.ANY, mock.ANY, mock.ANY)
 
     @contextlib.contextmanager
     def vpnservice_set(self):

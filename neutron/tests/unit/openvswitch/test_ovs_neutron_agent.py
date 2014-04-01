@@ -33,6 +33,7 @@ from neutron.tests import base
 
 NOTIFIER = ('neutron.plugins.openvswitch.'
             'ovs_neutron_plugin.AgentNotifierApi')
+OVS_LINUX_KERN_VERS_WITHOUT_VXLAN = "3.12.0"
 
 
 class CreateAgentConfigMap(base.BaseTestCase):
@@ -41,7 +42,6 @@ class CreateAgentConfigMap(base.BaseTestCase):
         self.assertTrue(ovs_neutron_agent.create_agent_config_map(cfg.CONF))
 
     def test_create_agent_config_map_fails_for_invalid_tunnel_config(self):
-        self.addCleanup(cfg.CONF.reset)
         # An ip address is required for tunneling but there is no default,
         # verify this for both gre and vxlan tunnels.
         cfg.CONF.set_override('tunnel_types', [p_const.TYPE_GRE],
@@ -54,7 +54,6 @@ class CreateAgentConfigMap(base.BaseTestCase):
             ovs_neutron_agent.create_agent_config_map(cfg.CONF)
 
     def test_create_agent_config_map_enable_tunneling(self):
-        self.addCleanup(cfg.CONF.reset)
         # Verify setting only enable_tunneling will default tunnel_type to GRE
         cfg.CONF.set_override('tunnel_types', None, group='AGENT')
         cfg.CONF.set_override('enable_tunneling', True, group='OVS')
@@ -63,20 +62,17 @@ class CreateAgentConfigMap(base.BaseTestCase):
         self.assertEqual(cfgmap['tunnel_types'], [p_const.TYPE_GRE])
 
     def test_create_agent_config_map_fails_no_local_ip(self):
-        self.addCleanup(cfg.CONF.reset)
         # An ip address is required for tunneling but there is no default
         cfg.CONF.set_override('enable_tunneling', True, group='OVS')
         with testtools.ExpectedException(ValueError):
             ovs_neutron_agent.create_agent_config_map(cfg.CONF)
 
     def test_create_agent_config_map_fails_for_invalid_tunnel_type(self):
-        self.addCleanup(cfg.CONF.reset)
         cfg.CONF.set_override('tunnel_types', ['foobar'], group='AGENT')
         with testtools.ExpectedException(ValueError):
             ovs_neutron_agent.create_agent_config_map(cfg.CONF)
 
     def test_create_agent_config_map_multiple_tunnel_types(self):
-        self.addCleanup(cfg.CONF.reset)
         cfg.CONF.set_override('local_ip', '10.10.10.10', group='OVS')
         cfg.CONF.set_override('tunnel_types', [p_const.TYPE_GRE,
                               p_const.TYPE_VXLAN], group='AGENT')
@@ -89,12 +85,13 @@ class TestOvsNeutronAgent(base.BaseTestCase):
 
     def setUp(self):
         super(TestOvsNeutronAgent, self).setUp()
-        self.addCleanup(cfg.CONF.reset)
-        self.addCleanup(mock.patch.stopall)
         notifier_p = mock.patch(NOTIFIER)
         notifier_cls = notifier_p.start()
         self.notifier = mock.Mock()
         notifier_cls.return_value = self.notifier
+        cfg.CONF.set_default('firewall_driver',
+                             'neutron.agent.firewall.NoopFirewallDriver',
+                             group='SECURITYGROUP')
         # Avoid rpc initialization for unit tests
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')
@@ -192,9 +189,15 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self._test_port_dead(ovs_neutron_agent.DEAD_VLAN_TAG)
 
     def mock_scan_ports(self, vif_port_set=None, registered_ports=None,
-                        updated_ports=None):
-        with mock.patch.object(self.agent.int_br, 'get_vif_port_set',
-                               return_value=vif_port_set):
+                        updated_ports=None, port_tags_dict=None):
+        if port_tags_dict is None:  # Because empty dicts evaluate as False.
+            port_tags_dict = {}
+        with contextlib.nested(
+            mock.patch.object(self.agent.int_br, 'get_vif_port_set',
+                              return_value=vif_port_set),
+            mock.patch.object(self.agent.int_br, 'get_port_tag_dict',
+                              return_value=port_tags_dict)
+        ):
             return self.agent.scan_ports(registered_ports, updated_ports)
 
     def test_scan_ports_returns_current_only_for_unchanged_ports(self):
@@ -245,6 +248,25 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         expected = dict(current=vif_port_set, updated=set([2]))
         actual = self.mock_scan_ports(vif_port_set, registered_ports,
                                       updated_ports)
+        self.assertEqual(expected, actual)
+
+    def test_update_ports_returns_changed_vlan(self):
+        br = ovs_lib.OVSBridge('br-int', 'sudo')
+        mac = "ca:fe:de:ad:be:ef"
+        port = ovs_lib.VifPort(1, 1, 1, mac, br)
+        lvm = ovs_neutron_agent.LocalVLANMapping(
+            1, '1', None, 1, {port.vif_id: port})
+        local_vlan_map = {'1': lvm}
+        vif_port_set = set([1, 3])
+        registered_ports = set([1, 2])
+        port_tags_dict = {1: []}
+        expected = dict(
+            added=set([3]), current=vif_port_set,
+            removed=set([2]), updated=set([1])
+        )
+        with mock.patch.dict(self.agent.local_vlan_map, local_vlan_map):
+            actual = self.mock_scan_ports(
+                vif_port_set, registered_ports, port_tags_dict=port_tags_dict)
         self.assertEqual(expected, actual)
 
     def test_treat_devices_added_returns_true_for_missing_device(self):
@@ -469,6 +491,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
 
     def _check_ovs_vxlan_version(self, installed_usr_version,
                                  installed_klm_version,
+                                 installed_kernel_version,
                                  expecting_ok):
         with mock.patch(
                 'neutron.agent.linux.ovs_lib.get_installed_ovs_klm_version'
@@ -476,41 +499,50 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             with mock.patch(
                 'neutron.agent.linux.ovs_lib.get_installed_ovs_usr_version'
             ) as usr_cmd:
-                try:
-                    klm_cmd.return_value = installed_klm_version
-                    usr_cmd.return_value = installed_usr_version
-                    self.agent.tunnel_types = 'vxlan'
-                    self.agent._check_ovs_version()
-                    version_ok = True
-                except SystemExit as e:
-                    self.assertEqual(e.code, 1)
-                    version_ok = False
-            self.assertEqual(version_ok, expecting_ok)
+                with mock.patch(
+                    'neutron.agent.linux.ovs_lib.get_installed_kernel_version'
+                ) as kernel_cmd:
+                    try:
+                        klm_cmd.return_value = installed_klm_version
+                        usr_cmd.return_value = installed_usr_version
+                        kernel_cmd.return_value = installed_kernel_version
+                        self.agent.tunnel_types = 'vxlan'
+                        self.agent._check_ovs_version()
+                        version_ok = True
+                    except SystemExit as e:
+                        self.assertEqual(e.code, 1)
+                        version_ok = False
+                self.assertEqual(version_ok, expecting_ok)
 
     def test_check_minimum_version(self):
         min_vxlan_ver = constants.MINIMUM_OVS_VXLAN_VERSION
+        min_kernel_ver = constants.MINIMUM_LINUX_KERNEL_OVS_VXLAN
         self._check_ovs_vxlan_version(min_vxlan_ver, min_vxlan_ver,
-                                      expecting_ok=True)
+                                      min_kernel_ver, expecting_ok=True)
 
     def test_check_future_version(self):
         install_ver = str(float(constants.MINIMUM_OVS_VXLAN_VERSION) + 0.01)
+        min_kernel_ver = constants.MINIMUM_LINUX_KERNEL_OVS_VXLAN
         self._check_ovs_vxlan_version(install_ver, install_ver,
-                                      expecting_ok=True)
+                                      min_kernel_ver, expecting_ok=True)
 
     def test_check_fail_version(self):
         install_ver = str(float(constants.MINIMUM_OVS_VXLAN_VERSION) - 0.01)
+        min_kernel_ver = constants.MINIMUM_LINUX_KERNEL_OVS_VXLAN
         self._check_ovs_vxlan_version(install_ver, install_ver,
-                                      expecting_ok=False)
+                                      min_kernel_ver, expecting_ok=False)
 
     def test_check_fail_no_version(self):
+        min_kernel_ver = constants.MINIMUM_LINUX_KERNEL_OVS_VXLAN
         self._check_ovs_vxlan_version(None, None,
-                                      expecting_ok=False)
+                                      min_kernel_ver, expecting_ok=False)
 
     def test_check_fail_klm_version(self):
         min_vxlan_ver = constants.MINIMUM_OVS_VXLAN_VERSION
+        min_kernel_ver = OVS_LINUX_KERN_VERS_WITHOUT_VXLAN
         install_ver = str(float(min_vxlan_ver) - 0.01)
         self._check_ovs_vxlan_version(min_vxlan_ver, install_ver,
-                                      expecting_ok=False)
+                                      min_kernel_ver, expecting_ok=False)
 
     def _prepare_l2_pop_ofports(self):
         lvm1 = mock.Mock()
@@ -525,7 +557,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         lvm2.tun_ofports = set(['1', '2'])
         self.agent.local_vlan_map = {'net1': lvm1, 'net2': lvm2}
         self.agent.tun_br_ofports = {'gre':
-                                     {'ip_agent_1': '1', 'ip_agent_2': '2'}}
+                                     {'1.1.1.1': '1', '2.2.2.2': '2'}}
 
     def test_fdb_ignore_network(self):
         self._prepare_l2_pop_ofports()
@@ -567,7 +599,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                      {'network_type': 'gre',
                       'segment_id': 'tun1',
                       'ports':
-                      {'ip_agent_2':
+                      {'2.2.2.2':
                        [['mac', 'ip'],
                         n_const.FLOODING_ENTRY]}}}
         with contextlib.nested(
@@ -584,7 +616,6 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                            actions='strip_vlan,'
                                            'set_tunnel:seg1,output:2')
             mod_flow_fn.assert_called_with(table=constants.FLOOD_TO_TUN,
-                                           priority=1,
                                            dl_vlan='vlan1',
                                            actions='strip_vlan,'
                                            'set_tunnel:seg1,output:1,2')
@@ -595,7 +626,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                      {'network_type': 'gre',
                       'segment_id': 'tun2',
                       'ports':
-                      {'ip_agent_2':
+                      {'2.2.2.2':
                        [['mac', 'ip'],
                         n_const.FLOODING_ENTRY]}}}
         with contextlib.nested(
@@ -607,7 +638,6 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                            dl_vlan='vlan2',
                                            dl_dst='mac')
             mod_flow_fn.assert_called_with(table=constants.FLOOD_TO_TUN,
-                                           priority=1,
                                            dl_vlan='vlan2',
                                            actions='strip_vlan,'
                                            'set_tunnel:seg2,output:1')
@@ -617,7 +647,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         fdb_entry = {'net1':
                      {'network_type': 'gre',
                       'segment_id': 'tun1',
-                      'ports': {'ip_agent_1': [['mac', 'ip']]}}}
+                      'ports': {'1.1.1.1': [['mac', 'ip']]}}}
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'add_flow'),
             mock.patch.object(self.agent.tun_br, 'mod_flow'),
@@ -625,23 +655,22 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         ) as (add_flow_fn, mod_flow_fn, add_tun_fn):
             self.agent.fdb_add(None, fdb_entry)
             self.assertFalse(add_tun_fn.called)
-            fdb_entry['net1']['ports']['ip_agent_3'] = [['mac', 'ip']]
+            fdb_entry['net1']['ports']['10.10.10.10'] = [['mac', 'ip']]
             self.agent.fdb_add(None, fdb_entry)
-            add_tun_fn.assert_called_with('gre-ip_agent_3', 'ip_agent_3',
-                                          'gre')
+            add_tun_fn.assert_called_with('gre-0a0a0a0a', '10.10.10.10', 'gre')
 
     def test_fdb_del_port(self):
         self._prepare_l2_pop_ofports()
         fdb_entry = {'net2':
                      {'network_type': 'gre',
                       'segment_id': 'tun2',
-                      'ports': {'ip_agent_2': [n_const.FLOODING_ENTRY]}}}
+                      'ports': {'2.2.2.2': [n_const.FLOODING_ENTRY]}}}
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'delete_flows'),
             mock.patch.object(self.agent.tun_br, 'delete_port')
         ) as (del_flow_fn, del_port_fn):
             self.agent.fdb_remove(None, fdb_entry)
-            del_port_fn.assert_called_once_with('gre-ip_agent_2')
+            del_port_fn.assert_called_once_with('gre-02020202')
 
     def test_recl_lv_port_to_preserve(self):
         self._prepare_l2_pop_ofports()
@@ -662,7 +691,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(self.agent.tun_br, 'delete_flows')
         ) as (del_port_fn, del_flow_fn):
             self.agent.reclaim_local_vlan('net2')
-            del_port_fn.assert_called_once_with('gre-ip_agent_2')
+            del_port_fn.assert_called_once_with('gre-02020202')
 
     def test_daemon_loop_uses_polling_manager(self):
         with mock.patch(
@@ -709,17 +738,69 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                 {'type': p_const.TYPE_GRE, 'ip': 'remote_ip'})
             self.assertEqual(ofport, 0)
 
+    def test_tunnel_sync_with_ovs_plugin(self):
+        fake_tunnel_details = {'tunnels': [{'id': '42',
+                                            'ip_address': '100.101.102.103'}]}
+        with contextlib.nested(
+            mock.patch.object(self.agent.plugin_rpc, 'tunnel_sync',
+                              return_value=fake_tunnel_details),
+            mock.patch.object(self.agent, 'setup_tunnel_port')
+        ) as (tunnel_sync_rpc_fn, setup_tunnel_port_fn):
+            self.agent.tunnel_types = ['gre']
+            self.agent.tunnel_sync()
+            expected_calls = [mock.call('gre-42', '100.101.102.103', 'gre')]
+            setup_tunnel_port_fn.assert_has_calls(expected_calls)
+
+    def test_tunnel_sync_with_ml2_plugin(self):
+        fake_tunnel_details = {'tunnels': [{'ip_address': '100.101.31.15'}]}
+        with contextlib.nested(
+            mock.patch.object(self.agent.plugin_rpc, 'tunnel_sync',
+                              return_value=fake_tunnel_details),
+            mock.patch.object(self.agent, 'setup_tunnel_port')
+        ) as (tunnel_sync_rpc_fn, setup_tunnel_port_fn):
+            self.agent.tunnel_types = ['vxlan']
+            self.agent.tunnel_sync()
+            expected_calls = [mock.call('vxlan-64651f0f',
+                                        '100.101.31.15', 'vxlan')]
+            setup_tunnel_port_fn.assert_has_calls(expected_calls)
+
+    def test_tunnel_sync_invalid_ip_address(self):
+        fake_tunnel_details = {'tunnels': [{'ip_address': '300.300.300.300'},
+                                           {'ip_address': '100.100.100.100'}]}
+        with contextlib.nested(
+            mock.patch.object(self.agent.plugin_rpc, 'tunnel_sync',
+                              return_value=fake_tunnel_details),
+            mock.patch.object(self.agent, 'setup_tunnel_port')
+        ) as (tunnel_sync_rpc_fn, setup_tunnel_port_fn):
+            self.agent.tunnel_types = ['vxlan']
+            self.agent.tunnel_sync()
+            setup_tunnel_port_fn.assert_called_once_with('vxlan-64646464',
+                                                         '100.100.100.100',
+                                                         'vxlan')
+
+    def test_tunnel_update(self):
+        kwargs = {'tunnel_ip': '10.10.10.10',
+                  'tunnel_type': 'gre'}
+        self.agent.setup_tunnel_port = mock.Mock()
+        self.agent.enable_tunneling = True
+        self.agent.tunnel_types = ['gre']
+        self.agent.l2_pop = False
+        self.agent.tunnel_update(context=None, **kwargs)
+        expected_calls = [mock.call('gre-0a0a0a0a', '10.10.10.10', 'gre')]
+        self.agent.setup_tunnel_port.assert_has_calls(expected_calls)
+
 
 class AncillaryBridgesTest(base.BaseTestCase):
 
     def setUp(self):
         super(AncillaryBridgesTest, self).setUp()
-        self.addCleanup(cfg.CONF.reset)
-        self.addCleanup(mock.patch.stopall)
         notifier_p = mock.patch(NOTIFIER)
         notifier_cls = notifier_p.start()
         self.notifier = mock.Mock()
         notifier_cls.return_value = self.notifier
+        cfg.CONF.set_default('firewall_driver',
+                             'neutron.agent.firewall.NoopFirewallDriver',
+                             group='SECURITYGROUP')
         # Avoid rpc initialization for unit tests
         cfg.CONF.set_override('rpc_backend',
                               'neutron.openstack.common.rpc.impl_fake')

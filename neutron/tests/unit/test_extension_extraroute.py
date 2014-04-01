@@ -19,12 +19,11 @@ import contextlib
 from oslo.config import cfg
 from webob import exc
 
+from neutron.common import constants
 from neutron.db import extraroute_db
 from neutron.extensions import extraroute
 from neutron.extensions import l3
 from neutron.openstack.common import log as logging
-from neutron.openstack.common.notifier import api as notifier_api
-from neutron.openstack.common.notifier import test_notifier
 from neutron.openstack.common import uuidutils
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_l3_plugin as test_l3
@@ -392,7 +391,6 @@ class ExtraRouteDBTestCaseBase(object):
                                                   p['port']['id'])
 
     def test_router_update_on_external_port(self):
-        DEVICE_OWNER_ROUTER_GW = "network:router_gateway"
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
                 self._set_net_external(s['subnet']['network_id'])
@@ -402,11 +400,12 @@ class ExtraRouteDBTestCaseBase(object):
                 body = self._show('routers', r['router']['id'])
                 net_id = body['router']['external_gateway_info']['network_id']
                 self.assertEqual(net_id, s['subnet']['network_id'])
-                port_res = self._list_ports('json',
-                                            200,
-                                            s['subnet']['network_id'],
-                                            tenant_id=r['router']['tenant_id'],
-                                            device_own=DEVICE_OWNER_ROUTER_GW)
+                port_res = self._list_ports(
+                    'json',
+                    200,
+                    s['subnet']['network_id'],
+                    tenant_id=r['router']['tenant_id'],
+                    device_own=constants.DEVICE_OWNER_ROUTER_GW)
                 port_list = self.deserialize('json', port_res)
                 self.assertEqual(len(port_list['ports']), 1)
 
@@ -469,9 +468,7 @@ class ExtraRouteDBIntTestCase(test_l3.L3NatDBIntTestCase,
         ext_mgr = ExtraRouteTestExtensionManager()
         super(test_l3.L3BaseForIntTests, self).setUp(plugin=plugin,
                                                      ext_mgr=ext_mgr)
-        # Set to None to reload the drivers
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
+        self.setup_notification_driver()
 
 
 class ExtraRouteDBIntTestCaseXML(ExtraRouteDBIntTestCase):
@@ -496,9 +493,7 @@ class ExtraRouteDBSepTestCase(test_l3.L3NatDBSepTestCase,
             plugin=plugin, ext_mgr=ext_mgr,
             service_plugins=service_plugins)
 
-        # Set to None to reload the drivers
-        notifier_api._drivers = None
-        cfg.CONF.set_override("notification_driver", [test_notifier.__name__])
+        self.setup_notification_driver()
 
 
 class ExtraRouteDBSepTestCaseXML(ExtraRouteDBSepTestCase):

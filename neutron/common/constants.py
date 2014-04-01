@@ -79,6 +79,7 @@ AGENT_TYPE_LOADBALANCER = 'Loadbalancer agent'
 AGENT_TYPE_MLNX = 'Mellanox plugin agent'
 AGENT_TYPE_METERING = 'Metering agent'
 AGENT_TYPE_METADATA = 'Metadata agent'
+AGENT_TYPE_SDNVE = 'IBM SDN-VE agent'
 L2_AGENT_TOPIC = 'N/A'
 
 PAGINATION_INFINITE = 'infinite'
@@ -109,3 +110,8 @@ PROTO_NUM_UDP = 17
 # Neighbor Solicitation (135),
 # Neighbor Advertisement (136)
 ICMPV6_ALLOWED_TYPES = [130, 131, 132, 134, 135, 136]
+
+DHCPV6_STATEFUL = 'dhcpv6-stateful'
+DHCPV6_STATELESS = 'dhcpv6-stateless'
+IPV6_SLAAC = 'slaac'
+IPV6_MODES = [DHCPV6_STATEFUL, DHCPV6_STATELESS, IPV6_SLAAC]

@@ -59,8 +59,7 @@ class DhcpRpcCallbackMixin(object):
                 raise n_exc.Invalid(message=msg)
         except (db_exc.DBError, n_exc.NetworkNotFound,
                 n_exc.SubnetNotFound, n_exc.IpAddressGenerationFailure) as e:
-            with excutils.save_and_reraise_exception() as ctxt:
-                ctxt.reraise = False
+            with excutils.save_and_reraise_exception(reraise=False) as ctxt:
                 if isinstance(e, n_exc.IpAddressGenerationFailure):
                     # Check if the subnet still exists and if it does not,
                     # this is the reason why the ip address generation failed.
@@ -191,7 +190,7 @@ class DhcpRpcCallbackMixin(object):
                 tenant_id=network['tenant_id'],
                 mac_address=attributes.ATTR_NOT_SPECIFIED,
                 name='',
-                device_owner='network:dhcp',
+                device_owner=constants.DEVICE_OWNER_DHCP,
                 fixed_ips=[dict(subnet_id=s) for s in dhcp_enabled_subnet_ids])
 
             retval = self._port_action(plugin, context, {'port': port_dict},
@@ -216,8 +215,7 @@ class DhcpRpcCallbackMixin(object):
                     '%(host)s'),
                   {'network_id': network_id, 'host': host})
         plugin = manager.NeutronManager.get_plugin()
-        filters = dict(network_id=[network_id], device_id=[device_id])
-        plugin.delete_ports(context, filters=filters)
+        plugin.delete_ports_by_device_id(context, device_id, network_id)
 
     def release_port_fixed_ip(self, context, **kwargs):
         """Release the fixed_ip associated the subnet on a port."""

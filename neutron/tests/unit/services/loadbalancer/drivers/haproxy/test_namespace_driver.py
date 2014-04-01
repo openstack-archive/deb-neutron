@@ -30,7 +30,6 @@ from neutron.tests import base
 class TestHaproxyNSDriver(base.BaseTestCase):
     def setUp(self):
         super(TestHaproxyNSDriver, self).setUp()
-        self.addCleanup(mock.patch.stopall)
 
         conf = mock.Mock()
         conf.haproxy.loadbalancer_state_path = '/the/path'
@@ -49,7 +48,8 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         self.driver.vif_driver = self.vif_driver
 
         self.fake_config = {
-            'pool': {'id': 'pool_id'},
+            'pool': {'id': 'pool_id', 'status': 'ACTIVE',
+                     'admin_state_up': True},
             'vip': {'id': 'vip_id', 'port': {'id': 'port_id'},
                     'status': 'ACTIVE', 'admin_state_up': True}
         }
@@ -355,6 +355,18 @@ class TestHaproxyNSDriver(base.BaseTestCase):
     def test_deploy_instance_no_vip(self):
         with mock.patch.object(self.driver, 'exists') as exists:
             del self.fake_config['vip']
+            self.driver.deploy_instance(self.fake_config)
+            self.assertFalse(exists.called)
+
+    def test_deploy_instance_pool_status_non_active(self):
+        with mock.patch.object(self.driver, 'exists') as exists:
+            self.fake_config['pool']['status'] = 'NON_ACTIVE'
+            self.driver.deploy_instance(self.fake_config)
+            self.assertFalse(exists.called)
+
+    def test_deploy_instance_pool_admin_state_down(self):
+        with mock.patch.object(self.driver, 'exists') as exists:
+            self.fake_config['pool']['admin_state_up'] = False
             self.driver.deploy_instance(self.fake_config)
             self.assertFalse(exists.called)
 

@@ -22,3 +22,7 @@ from neutron.common import exceptions as neutron_exec
 
 class EmbranePluginException(neutron_exec.NeutronException):
     message = _("An unexpected error occurred:%(err_msg)s")
+
+
+class UnsupportedException(EmbranePluginException):
+    message = _("%(err_msg)s")

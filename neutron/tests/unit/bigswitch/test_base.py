@@ -29,8 +29,10 @@ RESTPROXY_PKG_PATH = 'neutron.plugins.bigswitch.plugin'
 NOTIFIER = 'neutron.plugins.bigswitch.plugin.AgentNotifierApi'
 CALLBACKS = 'neutron.plugins.bigswitch.plugin.RestProxyCallbacks'
 CERTFETCH = 'neutron.plugins.bigswitch.servermanager.ServerPool._fetch_cert'
+SERVER_MANAGER = 'neutron.plugins.bigswitch.servermanager'
 HTTPCON = 'httplib.HTTPConnection'
 SPAWN = 'eventlet.GreenPool.spawn_n'
+CWATCH = SERVER_MANAGER + '.ServerPool._consistency_watchdog'
 
 
 class BigSwitchTestBase(object):
@@ -43,6 +45,12 @@ class BigSwitchTestBase(object):
                                                 'restproxy.ini.test')]
         self.addCleanup(cfg.CONF.reset)
         config.register_config()
+        # Only try SSL on SSL tests
+        cfg.CONF.set_override('server_ssl', False, 'RESTPROXY')
+        cfg.CONF.set_override('ssl_cert_directory',
+                              os.path.join(etc_path, 'ssl'), 'RESTPROXY')
+        # The mock interferes with HTTP(S) connection caching
+        cfg.CONF.set_override('cache_connections', False, 'RESTPROXY')
 
     def setup_patches(self):
         self.httpPatch = mock.patch(HTTPCON, create=True,
@@ -50,9 +58,10 @@ class BigSwitchTestBase(object):
         self.plugin_notifier_p = mock.patch(NOTIFIER)
         self.callbacks_p = mock.patch(CALLBACKS)
         self.spawn_p = mock.patch(SPAWN)
-        self.addCleanup(mock.patch.stopall)
+        self.watch_p = mock.patch(CWATCH)
         self.addCleanup(db.clear_db)
         self.callbacks_p.start()
         self.plugin_notifier_p.start()
         self.httpPatch.start()
         self.spawn_p.start()
+        self.watch_p.start()

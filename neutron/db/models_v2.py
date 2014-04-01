@@ -18,6 +18,7 @@
 import sqlalchemy as sa
 from sqlalchemy import orm
 
+from neutron.common import constants
 from neutron.db import model_base
 from neutron.openstack.common import uuidutils
 
@@ -130,6 +131,24 @@ class Port(model_base.BASEV2, HasId, HasTenant):
     device_id = sa.Column(sa.String(255), nullable=False)
     device_owner = sa.Column(sa.String(255), nullable=False)
 
+    def __init__(self, id=None, tenant_id=None, name=None, network_id=None,
+                 mac_address=None, admin_state_up=None, status=None,
+                 device_id=None, device_owner=None, fixed_ips=None):
+        self.id = id
+        self.tenant_id = tenant_id
+        self.name = name
+        self.network_id = network_id
+        self.mac_address = mac_address
+        self.admin_state_up = admin_state_up
+        self.device_owner = device_owner
+        self.device_id = device_id
+        # Since this is a relationship only set it if one is passed in.
+        if fixed_ips:
+            self.fixed_ips = fixed_ips
+
+        # NOTE(arosen): status must be set last as an event is triggered on!
+        self.status = status
+
 
 class DNSNameServer(model_base.BASEV2):
     """Internal representation of a DNS nameserver."""
@@ -165,6 +184,14 @@ class Subnet(model_base.BASEV2, HasId, HasTenant):
                               backref='subnet',
                               cascade='all, delete, delete-orphan')
     shared = sa.Column(sa.Boolean)
+    ipv6_ra_mode = sa.Column(sa.Enum(constants.IPV6_SLAAC,
+                                     constants.DHCPV6_STATEFUL,
+                                     constants.DHCPV6_STATELESS,
+                                     name='ipv6_modes'), nullable=True)
+    ipv6_address_mode = sa.Column(sa.Enum(constants.IPV6_SLAAC,
+                                  constants.DHCPV6_STATEFUL,
+                                  constants.DHCPV6_STATELESS,
+                                  name='ipv6_modes'), nullable=True)
 
 
 class Network(model_base.BASEV2, HasId, HasTenant):
@@ -172,7 +199,8 @@ class Network(model_base.BASEV2, HasId, HasTenant):
 
     name = sa.Column(sa.String(255))
     ports = orm.relationship(Port, backref='networks')
-    subnets = orm.relationship(Subnet, backref='networks')
+    subnets = orm.relationship(Subnet, backref='networks',
+                               lazy="joined")
     status = sa.Column(sa.String(16))
     admin_state_up = sa.Column(sa.Boolean)
     shared = sa.Column(sa.Boolean)

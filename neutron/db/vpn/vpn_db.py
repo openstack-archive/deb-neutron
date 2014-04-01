@@ -179,7 +179,7 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
         try:
             r = self._get_by_id(context, model, v_id)
         except exc.NoResultFound:
-            with excutils.save_and_reraise_exception():
+            with excutils.save_and_reraise_exception(reraise=False) as ctx:
                 if issubclass(model, IPsecSiteConnection):
                     raise vpnaas.IPsecSiteConnectionNotFound(
                         ipsec_site_conn_id=v_id
@@ -190,6 +190,7 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
                     raise vpnaas.IPsecPolicyNotFound(ipsecpolicy_id=v_id)
                 elif issubclass(model, VPNService):
                     raise vpnaas.VPNServiceNotFound(vpnservice_id=v_id)
+                ctx.reraise = True
         return r
 
     def assert_update_allowed(self, obj):
@@ -366,6 +367,25 @@ class VPNPluginDb(VPNPluginBase, base_db.CommonDbMixin):
         return self._get_collection(context, IPsecSiteConnection,
                                     self._make_ipsec_site_connection_dict,
                                     filters=filters, fields=fields)
+
+    def update_ipsec_site_conn_status(self, context, conn_id, new_status):
+        with context.session.begin():
+            self._update_connection_status(context, conn_id, new_status, True)
+
+    def _update_connection_status(self, context, conn_id, new_status,
+                                  updated_pending):
+        """Update the connection status, if changed.
+
+        If the connection is not in a pending state, unconditionally update
+        the status. Likewise, if in a pending state, and have an indication
+        that the status has changed, then update the database.
+        """
+        try:
+            conn_db = self._get_ipsec_site_connection(context, conn_id)
+        except vpnaas.IPsecSiteConnectionNotFound:
+            return
+        if not utils.in_pending_status(conn_db.status) or updated_pending:
+            conn_db.status = new_status
 
     def _make_ikepolicy_dict(self, ikepolicy, fields=None):
         res = {'id': ikepolicy['id'],
@@ -667,11 +687,6 @@ class VPNPluginRpcDbMixin():
                     vpnservice_db.status = vpnservice['status']
                 for conn_id, conn in vpnservice[
                     'ipsec_site_connections'].items():
-                    try:
-                        conn_db = self._get_ipsec_site_connection(
-                            context, conn_id)
-                    except vpnaas.IPsecSiteConnectionNotFound:
-                        continue
-                    if (not utils.in_pending_status(conn_db.status)
-                        or conn['updated_pending_status']):
-                        conn_db.status = conn['status']
+                    self._update_connection_status(
+                        context, conn_id, conn['status'],
+                        conn['updated_pending_status'])

@@ -31,6 +31,7 @@ from neutron.plugins.nec.db import api as ndb
 from neutron.plugins.nec import nec_plugin
 from neutron.tests.unit.nec import fake_ofc_manager
 from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit import test_extension_allowedaddresspairs as test_pair
 
 
 PLUGIN_NAME = 'neutron.plugins.nec.nec_plugin.NECPluginV2'
@@ -65,27 +66,16 @@ class NecPluginV2TestCaseBase(object):
         os.remove(self.nec_ini_file)
         self.nec_ini_file = None
 
-    def patch_remote_calls(self, use_stop=False):
+    def patch_remote_calls(self):
         self.plugin_notifier_p = mock.patch(NOTIFIER)
         self.ofc_manager_p = mock.patch(OFC_MANAGER)
         self.plugin_notifier_p.start()
         self.ofc_manager_p.start()
-        # When using mock.patch.stopall, we need to ensure
-        # stop is not used anywhere in a single test.
-        # In Neutron several tests use stop for each patched object,
-        # so we need to take care of both cases.
-        if use_stop:
-            self.addCleanup(self.plugin_notifier_p.stop)
-            self.addCleanup(self.ofc_manager_p.stop)
 
-    def setup_nec_plugin_base(self, use_stop_all=True,
-                              use_stop_each=False):
-        # If use_stop_each is set, use_stop_all cannot be set.
-        if use_stop_all and not use_stop_each:
-            self.addCleanup(mock.patch.stopall)
+    def setup_nec_plugin_base(self):
         self._set_nec_ini()
         self.addCleanup(self._clean_nec_ini)
-        self.patch_remote_calls(use_stop_each)
+        self.patch_remote_calls()
 
 
 class NecPluginV2TestCase(NecPluginV2TestCaseBase,
@@ -102,7 +92,6 @@ class NecPluginV2TestCase(NecPluginV2TestCaseBase,
         self.callback_nec.update_ports(self.context, **kwargs)
 
     def setUp(self, plugin=None, ext_mgr=None):
-        self.addCleanup(mock.patch.stopall)
 
         self._set_nec_ini()
         self.addCleanup(self._clean_nec_ini)
@@ -125,30 +114,6 @@ class TestNecBasicGet(test_plugin.TestBasicGet, NecPluginV2TestCase):
 class TestNecV2HTTPResponse(test_plugin.TestV2HTTPResponse,
                             NecPluginV2TestCase):
     pass
-
-
-class TestNecPortsV2(test_plugin.TestPortsV2, NecPluginV2TestCase):
-
-    def test_delete_ports(self):
-        with self.subnet() as subnet:
-            with contextlib.nested(
-                self.port(subnet=subnet, device_owner='test-owner',
-                          no_delete=True),
-                self.port(subnet=subnet, device_owner='test-owner',
-                          no_delete=True),
-                self.port(subnet=subnet, device_owner='other-owner'),
-            ) as (p1, p2, p3):
-                network_id = subnet['subnet']['network_id']
-                filters = {'network_id': [network_id],
-                           'device_owner': ['test-owner']}
-                self.plugin.delete_ports(self.context, filters)
-
-                self._show('ports', p1['port']['id'],
-                           expected_code=webob.exc.HTTPNotFound.code)
-                self._show('ports', p2['port']['id'],
-                           expected_code=webob.exc.HTTPNotFound.code)
-                self._show('ports', p3['port']['id'],
-                           expected_code=webob.exc.HTTPOk.code)
 
 
 class TestNecNetworksV2(test_plugin.TestNetworksV2, NecPluginV2TestCase):
@@ -397,6 +362,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.create_ofc_tenant(ctx, self._tenant_id),
             mock.call.create_ofc_network(ctx, self._tenant_id, net['id'],
                                          net['name']),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -415,6 +381,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.create_ofc_tenant(ctx, self._tenant_id),
             mock.call.create_ofc_network(ctx, self._tenant_id, net['id'],
                                          net['name']),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -439,7 +406,9 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.create_ofc_network(ctx, self._tenant_id, nets[1]['id'],
                                          nets[1]['name']),
+            mock.call.exists_ofc_network(ctx, nets[1]['id']),
             mock.call.delete_ofc_network(ctx, nets[1]['id'], mock.ANY),
+            mock.call.exists_ofc_network(ctx, nets[0]['id']),
             mock.call.delete_ofc_network(ctx, nets[0]['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -503,6 +472,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.create_ofc_tenant(ctx, self._tenant_id),
             mock.call.create_ofc_network(ctx, self._tenant_id, net['id'],
                                          net['name']),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -531,6 +501,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
                                          net['name']),
 
             mock.call.exists_ofc_port(ctx, p1['id']),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -574,6 +545,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
 
             mock.call.exists_ofc_port(ctx, p1['id']),
             mock.call.delete_ofc_port(ctx, p1['id'], mock.ANY),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -585,11 +557,12 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
         with self.network() as network:
             with self.subnet(network=network):
                 net = network['network']
-                p = self._create_resource('port',
-                                          {'network_id': net['id'],
-                                           'tenant_id': net['tenant_id'],
-                                           'device_owner': 'network:dhcp',
-                                           'device_id': 'dhcp-port1'})
+                p = self._create_resource(
+                    'port',
+                    {'network_id': net['id'],
+                     'tenant_id': net['tenant_id'],
+                     'device_owner': constants.DEVICE_OWNER_DHCP,
+                     'device_id': 'dhcp-port1'})
                 # Make sure that the port is created on OFC.
                 portinfo = {'id': p['id'], 'port_no': 123}
                 self.rpcapi_update_ports(added=[portinfo])
@@ -605,11 +578,36 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.create_ofc_port(ctx, p['id'], mock.ANY),
             mock.call.exists_ofc_port(ctx, p['id']),
             mock.call.delete_ofc_port(ctx, p['id'], mock.ANY),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
         ]
         self.ofc.assert_has_calls(expected)
+
+    def test_delete_network_with_error_status(self):
+        self.ofc.set_raise_exc('create_ofc_network',
+                               nexc.OFCException(reason='fake error'))
+
+        with self.network() as net:
+            net_id = net['network']['id']
+            net_ref = self._show('networks', net_id)
+            self.assertEqual(net_ref['network']['status'], 'ERROR')
+
+        ctx = mock.ANY
+        tenant_id = self._tenant_id
+        net_name = mock.ANY
+        net = mock.ANY
+        expected = [
+            mock.call.exists_ofc_tenant(ctx, tenant_id),
+            mock.call.create_ofc_tenant(ctx, tenant_id),
+            mock.call.create_ofc_network(ctx, tenant_id, net_id, net_name),
+            mock.call.exists_ofc_network(ctx, net_id),
+            mock.call.exists_ofc_tenant(ctx, tenant_id),
+            mock.call.delete_ofc_tenant(ctx, tenant_id),
+        ]
+        self.ofc.assert_has_calls(expected)
+        self.assertFalse(self.ofc.delete_ofc_network.call_count)
 
     def test_delete_network_with_ofc_deletion_failure(self):
         self.ofc.set_raise_exc('delete_ofc_network',
@@ -632,7 +630,9 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
         net = mock.ANY
         expected = [
             mock.call.create_ofc_network(ctx, tenant, net_id, net_name),
+            mock.call.exists_ofc_network(ctx, net_id),
             mock.call.delete_ofc_network(ctx, net_id, net),
+            mock.call.exists_ofc_network(ctx, net_id),
             mock.call.delete_ofc_network(ctx, net_id, net),
         ]
         self.ofc.assert_has_calls(expected)
@@ -676,6 +676,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.delete_ofc_port(ctx, port_id, port),
             mock.call.exists_ofc_port(ctx, port_id),
             mock.call.delete_ofc_port(ctx, port_id, port),
+            mock.call.exists_ofc_network(ctx, net_id),
             mock.call.delete_ofc_network(ctx, net_id, net)
         ]
         self.ofc.assert_has_calls(expected)
@@ -742,6 +743,7 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
             mock.call.delete_ofc_port(ctx, p1['id'], mock.ANY),
 
             mock.call.exists_ofc_port(ctx, p1['id']),
+            mock.call.exists_ofc_network(ctx, net['id']),
             mock.call.delete_ofc_network(ctx, net['id'], mock.ANY),
             mock.call.exists_ofc_tenant(ctx, self._tenant_id),
             mock.call.delete_ofc_tenant(ctx, self._tenant_id)
@@ -801,8 +803,8 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
                                    nexc.OFCException(reason='hoge'))
 
             body = {'port': {'admin_state_up': False}}
-            res = self._update('ports', port_id, body)
-            self.assertEqual(res['port']['status'], 'ERROR')
+            self._update('ports', port_id, body,
+                         expected_code=webob.exc.HTTPInternalServerError.code)
             port_ref = self._show('ports', port_id)
             self.assertEqual(port_ref['port']['status'], 'ERROR')
 
@@ -833,6 +835,27 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
         ]
         self.ofc.assert_has_calls(expected)
         self.assertEqual(self.ofc.delete_ofc_port.call_count, 2)
+
+    def test_delete_port_with_error_status(self):
+        self.ofc.set_raise_exc('create_ofc_port',
+                               nexc.OFCException(reason='fake'))
+
+        with self.port() as port:
+            port_id = port['port']['id']
+            portinfo = {'id': port_id, 'port_no': 123}
+            self.rpcapi_update_ports(added=[portinfo])
+            port_ref = self._show('ports', port_id)
+            self.assertEqual(port_ref['port']['status'], 'ERROR')
+
+        ctx = mock.ANY
+        port = mock.ANY
+        expected = [
+            mock.call.exists_ofc_port(ctx, port_id),
+            mock.call.create_ofc_port(ctx, port_id, port),
+            mock.call.exists_ofc_port(ctx, port_id),
+        ]
+        self.ofc.assert_has_calls(expected)
+        self.assertFalse(self.ofc.delete_ofc_port.call_count)
 
     def test_delete_port_with_ofc_deletion_failure(self):
         self.ofc.set_raise_exc('delete_ofc_port',
@@ -901,3 +924,8 @@ class TestNecPluginOfcManager(NecPluginV2TestCase):
     def test_delete_port_for_noofcmap_ofc_port(self):
         self._test_delete_port_for_disappeared_ofc_port(
             nexc.OFCMappingNotFound(resource='port', neutron_id='port1'))
+
+
+class TestNecAllowedAddressPairs(NecPluginV2TestCase,
+                                 test_pair.TestAllowedAddressPairs):
+    pass

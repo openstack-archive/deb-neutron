@@ -179,7 +179,6 @@ class ServiceTypeExtensionTestCaseBase(testlib_api.WebTestCase):
         cfg.CONF.set_override('service_plugins',
                               ["%s.%s" % (dp.__name__,
                                           dp.DummyServicePlugin.__name__)])
-        self.addCleanup(cfg.CONF.reset)
         # Ensure existing ExtensionManager is not used
         extensions.PluginAwareExtensionManager._instance = None
         ext_mgr = TestServiceTypeExtensionManager()
@@ -195,7 +194,6 @@ class ServiceTypeExtensionTestCase(ServiceTypeExtensionTestCaseBase):
         self._patcher = mock.patch(
             "neutron.db.servicetype_db.ServiceTypeManager",
             autospec=True)
-        self.addCleanup(self._patcher.stop)
         self.mock_mgr = self._patcher.start()
         self.mock_mgr.get_instance.return_value = self.mock_mgr.return_value
         super(ServiceTypeExtensionTestCase, self).setUp()

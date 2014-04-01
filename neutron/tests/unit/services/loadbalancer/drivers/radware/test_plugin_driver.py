@@ -16,10 +16,10 @@
 #
 # @author: Avishay Balderman, Radware
 
+import Queue
 import re
 
 import contextlib
-import eventlet
 import mock
 
 from neutron import context
@@ -34,8 +34,16 @@ from neutron.tests.unit.db.loadbalancer import test_db_loadbalancer
 GET_200 = ('/api/workflow/', '/api/service/', '/api/workflowTemplate')
 
 
-def rest_call_function_mock(action, resource, data, headers, binary=False):
+class QueueMock(Queue.Queue):
+    def __init__(self, completion_handler):
+        self.completion_handler = completion_handler
+        super(QueueMock, self).__init__()
 
+    def put_nowait(self, oper):
+        self.completion_handler(oper)
+
+
+def rest_call_function_mock(action, resource, data, headers, binary=False):
     if rest_call_function_mock.RESPOND_WITH_ERROR:
         return 400, 'error_status', 'error_description', None
 
@@ -107,16 +115,26 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
         rest_call_function_mock.__dict__.update(
             {'TEMPLATES_MISSING': False})
 
-        self.rest_call_mock = mock.Mock(name='rest_call_mock',
-                                        side_effect=rest_call_function_mock,
-                                        spec=self.plugin_instance.
-                                        drivers['radware'].
-                                        rest_client.call)
+        self.operation_completer_start_mock = mock.Mock(
+            return_value=None)
+        self.operation_completer_join_mock = mock.Mock(
+            return_value=None)
+        self.driver_rest_call_mock = mock.Mock(
+            side_effect=rest_call_function_mock)
+
         radware_driver = self.plugin_instance.drivers['radware']
-        radware_driver.rest_client.call = self.rest_call_mock
+        radware_driver.completion_handler.start = (
+            self.operation_completer_start_mock)
+        radware_driver.completion_handler.join = (
+            self.operation_completer_join_mock)
+        radware_driver.rest_client.call = self.driver_rest_call_mock
+        radware_driver.completion_handler.rest_client.call = (
+            self.driver_rest_call_mock)
+
+        radware_driver.queue = QueueMock(
+            radware_driver.completion_handler.handle_operation_completion)
 
         self.addCleanup(radware_driver.completion_handler.join)
-        self.addCleanup(mock.patch.stopall)
 
     def test_verify_workflow_templates(self):
         """Test the rest call failure handling by Exception raising."""
@@ -129,7 +147,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_create_vip_failure(self):
         """Test the rest call failure handling by Exception raising."""
-        self.rest_call_mock.reset_mock()
         with self.network(do_delete=False) as network:
             with self.subnet(network=network, do_delete=False) as subnet:
                 with self.pool(no_delete=True, provider='radware') as pool:
@@ -156,7 +173,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                       {'vip': vip_data})
 
     def test_create_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware') as pool:
                 vip_data = {
@@ -210,10 +226,8 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                     mock.call('GET', '/api/workflow/' +
                               pool['pool']['id'], None, None)
                 ]
-                self.rest_call_mock.assert_has_calls(calls, any_order=True)
-
-                # sleep to wait for the operation completion
-                eventlet.greenthread.sleep(0)
+                self.driver_rest_call_mock.assert_has_calls(calls,
+                                                            any_order=True)
 
                 #Test DB
                 new_vip = self.plugin_instance.get_vip(
@@ -231,10 +245,10 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                     mock.call('DELETE', u'/api/workflow/' + pool['pool']['id'],
                               None, None)
                 ]
-                self.rest_call_mock.assert_has_calls(calls, any_order=True)
+                self.driver_rest_call_mock.assert_has_calls(
+                    calls, any_order=True)
 
     def test_update_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware', no_delete=True) as pool:
                 vip_data = {
@@ -265,15 +279,9 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                               '/action/BaseCreate',
                               mock.ANY, driver.TEMPLATE_HEADER),
                 ]
-                self.rest_call_mock.assert_has_calls(calls, any_order=True)
+                self.driver_rest_call_mock.assert_has_calls(
+                    calls, any_order=True)
 
-                updated_vip = self.plugin_instance.get_vip(
-                    context.get_admin_context(), vip['id'])
-                self.assertEqual(updated_vip['status'],
-                                 constants.PENDING_UPDATE)
-
-                # sleep to wait for the operation completion
-                eventlet.greenthread.sleep(1)
                 updated_vip = self.plugin_instance.get_vip(
                     context.get_admin_context(), vip['id'])
                 self.assertEqual(updated_vip['status'], constants.ACTIVE)
@@ -283,7 +291,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                     context.get_admin_context(), vip['id'])
 
     def test_delete_vip_failure(self):
-        self.rest_call_mock.reset_mock()
         plugin = self.plugin_instance
 
         with self.network(do_delete=False) as network:
@@ -302,8 +309,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                         plugin.create_pool_health_monitor(
                             context.get_admin_context(), hm, pool['pool']['id']
                         )
-
-                        eventlet.greenthread.sleep(1)
 
                         rest_call_function_mock.__dict__.update(
                             {'RESPOND_WITH_ERROR': True})
@@ -330,7 +335,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                         self.assertEqual(u_phm['status'], constants.ACTIVE)
 
     def test_delete_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware', no_delete=True) as pool:
                 vip_data = {
@@ -357,14 +361,14 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                     mock.call('DELETE', '/api/workflow/' + pool['pool']['id'],
                               None, None)
                 ]
-                self.rest_call_mock.assert_has_calls(calls, any_order=True)
+                self.driver_rest_call_mock.assert_has_calls(
+                    calls, any_order=True)
 
                 self.assertRaises(loadbalancer.VipNotFound,
                                   self.plugin_instance.get_vip,
                                   context.get_admin_context(), vip['id'])
 
     def test_update_pool(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet():
             with self.pool() as pool:
                 del pool['pool']['provider']
@@ -377,7 +381,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                 self.assertEqual(pool_db['status'], constants.PENDING_UPDATE)
 
     def test_delete_pool_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware', no_delete=True) as pool:
                 with self.vip(pool=pool, subnet=subnet):
@@ -387,7 +390,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                       pool['pool']['id'])
 
     def test_create_member_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware') as p:
                 with self.vip(pool=p, subnet=subnet):
@@ -404,11 +406,10 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 mock.ANY, driver.TEMPLATE_HEADER
                             )
                         ]
-                        self.rest_call_mock.assert_has_calls(calls,
-                                                             any_order=True)
+                        self.driver_rest_call_mock.assert_has_calls(
+                            calls, any_order=True)
 
     def test_update_member_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware') as p:
                 with self.member(pool_id=p['pool']['id']) as member:
@@ -429,16 +430,14 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 mock.ANY, driver.TEMPLATE_HEADER
                             )
                         ]
-                        self.rest_call_mock.assert_has_calls(calls,
-                                                             any_order=True)
+                        self.driver_rest_call_mock.assert_has_calls(
+                            calls, any_order=True)
 
                         updated_member = self.plugin_instance.get_member(
                             context.get_admin_context(),
                             member['member']['id']
                         )
 
-                        # sleep to wait for the operation completion
-                        eventlet.greenthread.sleep(0)
                         updated_member = self.plugin_instance.get_member(
                             context.get_admin_context(),
                             member['member']['id']
@@ -447,7 +446,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                          constants.ACTIVE)
 
     def test_update_member_without_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet():
             with self.pool(provider='radware') as pool:
                 with self.member(pool_id=pool['pool']['id']) as member:
@@ -460,7 +458,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                      constants.PENDING_UPDATE)
 
     def test_delete_member_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.pool(provider='radware') as p:
                 with self.member(pool_id=p['pool']['id'],
@@ -471,21 +468,22 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                         # wait for being sure the member
                         # Changed status from PENDING-CREATE
                         # to ACTIVE
-                        self.rest_call_mock.reset_mock()
-                        eventlet.greenthread.sleep(1)
 
                         self.plugin_instance.delete_member(
                             context.get_admin_context(),
                             m['member']['id']
                         )
 
-                        args, kwargs = self.rest_call_mock.call_args
+                        name, args, kwargs = (
+                            self.driver_rest_call_mock.mock_calls[-2]
+                        )
                         deletion_post_graph = str(args[2])
 
                         self.assertTrue(re.search(
                             r'.*\'member_address_array\': \[\].*',
                             deletion_post_graph
                         ))
+
                         calls = [
                             mock.call(
                                 'POST', '/api/workflow/' + p['pool']['id'] +
@@ -493,17 +491,15 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 mock.ANY, driver.TEMPLATE_HEADER
                             )
                         ]
-                        self.rest_call_mock.assert_has_calls(
+                        self.driver_rest_call_mock.assert_has_calls(
                             calls, any_order=True)
 
-                        eventlet.greenthread.sleep(1)
                         self.assertRaises(loadbalancer.MemberNotFound,
                                           self.plugin_instance.get_member,
                                           context.get_admin_context(),
                                           m['member']['id'])
 
     def test_delete_member_without_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet():
             with self.pool(provider='radware') as p:
                 with self.member(pool_id=p['pool']['id'], no_delete=True) as m:
@@ -516,7 +512,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                       m['member']['id'])
 
     def test_create_hm_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.health_monitor() as hm:
                 with self.pool(provider='radware') as pool:
@@ -540,10 +535,8 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 mock.ANY, driver.TEMPLATE_HEADER
                             )
                         ]
-                        self.rest_call_mock.assert_has_calls(
+                        self.driver_rest_call_mock.assert_has_calls(
                             calls, any_order=True)
-
-                        eventlet.greenthread.sleep(1)
 
                         phm = self.plugin_instance.get_pool_health_monitor(
                             context.get_admin_context(),
@@ -552,7 +545,6 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                         self.assertEqual(phm['status'], constants.ACTIVE)
 
     def test_delete_pool_hm_with_vip(self):
-        self.rest_call_mock.reset_mock()
         with self.subnet() as subnet:
             with self.health_monitor(no_delete=True) as hm:
                 with self.pool(provider='radware') as pool:
@@ -562,21 +554,15 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                             hm, pool['pool']['id']
                         )
 
-                        # Reset mock and
-                        # wait for being sure that status
-                        # changed from PENDING-CREATE
-                        # to ACTIVE
-                        self.rest_call_mock.reset_mock()
-                        eventlet.greenthread.sleep(1)
-
                         self.plugin_instance.delete_pool_health_monitor(
                             context.get_admin_context(),
                             hm['health_monitor']['id'],
                             pool['pool']['id']
                         )
 
-                        eventlet.greenthread.sleep(1)
-                        name, args, kwargs = self.rest_call_mock.mock_calls[-2]
+                        name, args, kwargs = (
+                            self.driver_rest_call_mock.mock_calls[-2]
+                        )
                         deletion_post_graph = str(args[2])
 
                         self.assertTrue(re.search(
@@ -591,7 +577,7 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 mock.ANY, driver.TEMPLATE_HEADER
                             )
                         ]
-                        self.rest_call_mock.assert_has_calls(
+                        self.driver_rest_call_mock.assert_has_calls(
                             calls, any_order=True)
 
                         self.assertRaises(

@@ -14,10 +14,12 @@
 # limitations under the License.
 
 import contextlib
+import copy
 import inspect
 import logging
 import mock
 
+import six
 import webob.exc as wexc
 
 from neutron.api import extensions
@@ -30,6 +32,7 @@ from neutron.db import l3_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
 from neutron.manager import NeutronManager
+from neutron.openstack.common import gettextutils
 from neutron.plugins.cisco.common import cisco_constants as const
 from neutron.plugins.cisco.common import cisco_exceptions as c_exc
 from neutron.plugins.cisco.common import config as cisco_config
@@ -101,7 +104,6 @@ class CiscoNetworkPluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
             for group in config[module]:
                 for opt, val in config[module][group].items():
                     module.cfg.CONF.set_override(opt, val, group)
-            self.addCleanup(module.cfg.CONF.reset)
 
         # Configure the Nexus switch dictionary
         # TODO(Henry): add tests for other devices
@@ -132,7 +134,6 @@ class CiscoNetworkPluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
         # Used for SVI placement when round-robin placement is disabled.
         mock.patch.object(cisco_config, 'first_device_ip',
                           new=NEXUS_IP_ADDR).start()
-        self.addCleanup(mock.patch.stopall)
 
     def _get_plugin_ref(self):
         return getattr(NeutronManager.get_plugin(),
@@ -230,6 +231,38 @@ class CiscoNetworkPluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
         self.assertEqual(status, expected_http)
 
 
+class TestCiscoGetAttribute(CiscoNetworkPluginV2TestCase):
+
+    def test_get_unsupported_attr_in_lazy_gettext_mode(self):
+        """Test get of unsupported attribute in lazy gettext mode.
+
+        This test also checks that this operation does not cause
+        excessive nesting of calls to deepcopy.
+        """
+        plugin = NeutronManager.get_plugin()
+
+        def _lazy_gettext(msg):
+            return gettextutils.Message(msg, domain='neutron')
+
+        with mock.patch.dict(six.moves.builtins.__dict__,
+                             {'_': _lazy_gettext}):
+            self.nesting_count = 0
+
+            def _count_nesting(*args, **kwargs):
+                self.nesting_count += 1
+
+            with mock.patch.object(copy, 'deepcopy',
+                                   side_effect=_count_nesting,
+                                   wraps=copy.deepcopy):
+                self.assertRaises(AttributeError, getattr, plugin,
+                                  'an_unsupported_attribute')
+                # If there were no nested calls to deepcopy, then the total
+                # number of calls to deepcopy should be 2 (1 call for
+                # each mod'd field in the AttributeError message raised
+                # by the plugin).
+                self.assertEqual(self.nesting_count, 2)
+
+
 class TestCiscoBasicGet(CiscoNetworkPluginV2TestCase,
                         test_db_plugin.TestBasicGet):
     pass
@@ -270,11 +303,9 @@ class TestCiscoPortsV2(CiscoNetworkPluginV2TestCase,
                 res = self._create_port(self.fmt, net_id, arg_list=args,
                                         context=ctx, **port_dict)
                 port = self.deserialize(self.fmt, res)
-                try:
-                    yield res
-                finally:
-                    if do_delete:
-                        self._delete('ports', port['port']['id'])
+                yield res
+                if do_delete:
+                    self._delete('ports', port['port']['id'])
 
     def test_create_ports_bulk_emulated_plugin_failure(self):
         real_has_attr = hasattr
@@ -860,6 +891,14 @@ class TestCiscoPortsV2(CiscoNetworkPluginV2TestCase,
                                     data['device_id'],
                                     NEXUS_PORT_2)
 
+    def test_delete_ports_by_device_id_second_call_failure(self):
+        plugin_ref = self._get_plugin_ref()
+        self._test_delete_ports_by_device_id_second_call_failure(plugin_ref)
+
+    def test_delete_ports_ignores_port_not_found(self):
+        plugin_ref = self._get_plugin_ref()
+        self._test_delete_ports_ignores_port_not_found(plugin_ref)
+
 
 class TestCiscoNetworksV2(CiscoNetworkPluginV2TestCase,
                           test_db_plugin.TestNetworksV2):
@@ -920,11 +959,9 @@ class TestCiscoNetworksV2(CiscoNetworkPluginV2TestCase,
         res = self._create_network(self.fmt, net_name, True,
                                    arg_list=arg_list, **provider_attrs)
         network = self.deserialize(self.fmt, res)['network']
-        try:
-            yield network
-        finally:
-            req = self.new_delete_request('networks', network['id'])
-            req.get_response(self.api)
+        yield network
+        req = self.new_delete_request('networks', network['id'])
+        req.get_response(self.api)
 
     def test_create_provider_vlan_network(self):
         with self._provider_vlan_network(PHYS_NET, '1234',
@@ -1009,7 +1046,16 @@ class TestCiscoSubnetsV2(CiscoNetworkPluginV2TestCase,
 class TestCiscoRouterInterfacesV2(CiscoNetworkPluginV2TestCase):
 
     def setUp(self):
-        """Configure an API extension manager."""
+        """Configure a log exception counter and an API extension manager."""
+        self.log_exc_count = 0
+
+        def _count_exception_logs(*args, **kwargs):
+            self.log_exc_count += 1
+
+        mock.patch.object(logging.LoggerAdapter, 'exception',
+                          autospec=True,
+                          side_effect=_count_exception_logs,
+                          wraps=logging.LoggerAdapter.exception).start()
         super(TestCiscoRouterInterfacesV2, self).setUp()
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
@@ -1024,10 +1070,8 @@ class TestCiscoRouterInterfacesV2(CiscoNetworkPluginV2TestCase):
                 request = self.new_create_request('routers', data, self.fmt)
                 response = request.get_response(self.ext_api)
                 router = self.deserialize(self.fmt, response)
-                try:
-                    yield network, subnet, router
-                finally:
-                    self._delete('routers', router['router']['id'])
+                yield network, subnet, router
+                self._delete('routers', router['router']['id'])
 
     @contextlib.contextmanager
     def _router_interface(self, router, subnet, **kwargs):
@@ -1040,15 +1084,15 @@ class TestCiscoRouterInterfacesV2(CiscoNetworkPluginV2TestCase):
                                           router['router']['id'],
                                           'add_router_interface')
         response = request.get_response(self.ext_api)
-        try:
-            yield response
-        finally:
-            # If router interface was created successfully, delete it now.
-            if response.status_int == wexc.HTTPOk.code:
-                request = self.new_action_request('routers', interface_data,
-                                                  router['router']['id'],
-                                                  'remove_router_interface')
-                request.get_response(self.ext_api)
+
+        yield response
+
+        # If router interface was created successfully, delete it now.
+        if response.status_int == wexc.HTTPOk.code:
+            request = self.new_action_request('routers', interface_data,
+                                              router['router']['id'],
+                                              'remove_router_interface')
+            request.get_response(self.ext_api)
 
     @contextlib.contextmanager
     def _network_subnet_router_interface(self, **kwargs):
@@ -1057,6 +1101,18 @@ class TestCiscoRouterInterfacesV2(CiscoNetworkPluginV2TestCase):
             with self._router_interface(router, subnet,
                                         **kwargs) as response:
                 yield response
+
+    def test_port_list_filtered_by_router_id(self):
+        """Test port list command filtered by router ID."""
+        with self._network_subnet_router() as (network, subnet, router):
+            with self._router_interface(router, subnet):
+                query_params = "device_id=%s" % router['router']['id']
+                req = self.new_list_request('ports', self.fmt, query_params)
+                res = self.deserialize(self.fmt, req.get_response(self.api))
+                self.assertEqual(len(res['ports']), 1)
+                self.assertEqual(res['ports'][0]['device_id'],
+                                 router['router']['id'])
+                self.assertFalse(self.log_exc_count)
 
     def test_add_remove_router_intf_with_nexus_l3_enabled(self):
         """Verifies proper add/remove intf operation with Nexus L3 enabled.
