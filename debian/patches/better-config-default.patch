@@ -3,16 +3,16 @@ Description: Better config default
  parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2014-03-13
+Last-Update: 2014-04-01
 
---- neutron-2014.1~b3.orig/etc/l3_agent.ini
-+++ neutron-2014.1~b3/etc/l3_agent.ini
-@@ -4,11 +4,9 @@
+--- neutron-2014.1~rc1.orig/etc/l3_agent.ini
++++ neutron-2014.1~rc1/etc/l3_agent.ini
+@@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
  # matches your plugin.
 -# interface_driver =
--
+ 
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
  # that supports L3 agent
 -# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
@@ -20,8 +20,8 @@ Last-Update: 2014-03-13
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.1~b3.orig/etc/neutron.conf
-+++ neutron-2014.1~b3/etc/neutron.conf
+--- neutron-2014.1~rc1.orig/etc/neutron.conf
++++ neutron-2014.1~rc1/etc/neutron.conf
 @@ -50,8 +50,7 @@ lock_path = $state_path/lock
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -62,7 +62,7 @@ Last-Update: 2014-03-13
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -348,7 +347,7 @@ notification_driver = neutron.openstack.
+@@ -380,7 +379,7 @@ notification_driver = neutron.openstack.
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -71,13 +71,12 @@ Last-Update: 2014-03-13
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -368,11 +367,10 @@ signing_dir = $state_path/keystone-signi
+@@ -400,11 +399,9 @@ signing_dir = $state_path/keystone-signi
  
  [database]
  # This line MUST be changed to actually run the plugin.
 -# Example:
 -# connection = mysql://root:pass@127.0.0.1:3306/neutron
-+# Example: connection = mysql://root:pass@127.0.0.1:3306/neutron
  # Replace 127.0.0.1 above with the IP address of the database used by the
  # main neutron server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
@@ -85,8 +84,8 @@ Last-Update: 2014-03-13
  
  # The SQLAlchemy connection string used to connect to the slave database
  # slave_connection =
---- neutron-2014.1~b3.orig/etc/lbaas_agent.ini
-+++ neutron-2014.1~b3/etc/lbaas_agent.ini
+--- neutron-2014.1~rc1.orig/etc/lbaas_agent.ini
++++ neutron-2014.1~rc1/etc/lbaas_agent.ini
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -100,8 +99,8 @@ Last-Update: 2014-03-13
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.1~b3.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2014.1~b3/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+--- neutron-2014.1~rc1.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2014.1~rc1/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,7 +30,7 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -130,12 +129,18 @@ Last-Update: 2014-03-13
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -130,36 +130,4 @@
+@@ -130,40 +130,10 @@
  
  [securitygroup]
  # Firewall driver for realizing neutron security group function.
 -# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
--# Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++# Example2: neutron.agent.firewall.NoopFirewallDriver
++firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ 
+ # Controls if neutron security group is enabled or not.
+ # It should be false when you use nova security group.
+ # enable_security_group = True
 -
 -#-----------------------------------------------------------------------------
 -# Sample Configurations.
@@ -167,4 +172,3 @@ Last-Update: 2014-03-13
 -# local_ip = 10.0.0.3
 -# [agent]
 -# tunnel_types = vxlan
-+firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
