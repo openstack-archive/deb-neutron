@@ -449,53 +449,6 @@ class VPNPluginDbTestCase(VPNTestMixin,
         app = config.load_paste_app('extensions_test_app')
         self.ext_api = ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
-    def _check_ipsec_site_connection(self, ipsec_site_connection, keys, dpd):
-        self.assertEqual(
-            keys,
-            dict((k, v) for k, v
-                 in ipsec_site_connection.items()
-                 if k in keys))
-        self.assertEqual(
-            dpd,
-            dict((k, v) for k, v
-                 in ipsec_site_connection['dpd'].items()
-                 if k in dpd))
-
-    def _set_active(self, model, resource_id):
-        service_plugin = manager.NeutronManager.get_service_plugins()[
-            constants.VPN]
-        adminContext = context.get_admin_context()
-        with adminContext.session.begin(subtransactions=True):
-            resource_db = service_plugin._get_resource(
-                adminContext,
-                model,
-                resource_id)
-            resource_db.status = constants.ACTIVE
-
-
-class VPNPluginDbTestCase(VPNTestMixin,
-                          test_l3_plugin.L3NatTestCaseMixin,
-                          test_db_plugin.NeutronDbPluginV2TestCase):
-    def setUp(self, core_plugin=None, vpnaas_plugin=DB_VPN_PLUGIN_KLASS):
-        service_plugins = {'vpnaas_plugin': vpnaas_plugin}
-        plugin_str = ('neutron.tests.unit.db.vpn.'
-                      'test_db_vpnaas.TestVpnCorePlugin')
-
-        super(VPNPluginDbTestCase, self).setUp(
-            plugin_str,
-            service_plugins=service_plugins
-        )
-        self._subnet_id = uuidutils.generate_uuid()
-        self.core_plugin = TestVpnCorePlugin
-        self.plugin = vpn_plugin.VPNPlugin()
-        ext_mgr = PluginAwareExtensionManager(
-            extensions_path,
-            {constants.CORE: self.core_plugin,
-             constants.VPN: self.plugin}
-        )
-        app = config.load_paste_app('extensions_test_app')
-        self.ext_api = ExtensionMiddleware(app, ext_mgr=ext_mgr)
-
 
 class TestVpnaas(VPNPluginDbTestCase):
 

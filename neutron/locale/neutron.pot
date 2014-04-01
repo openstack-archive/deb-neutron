@@ -1269,7 +1269,7 @@ msgstr ""
 msgid "Found failed openvswitch port: %s"
 msgstr ""
 
-#: neutron/agent/linux/ovs_lib.py:464
+#: neutron/agent/linux/ovs_lib.py:400
 #, python-format
 msgid "Port: %(port_name)s is on %(switch)s, not on %(br_name)s"
 msgstr ""
@@ -3879,21 +3879,6 @@ msgid ""
 "characters. Please use unicode() or translate() instead."
 msgstr ""
 
-#: neutron/openstack/common/excutils.py:91
-#, python-format
-msgid "Unexpected exception occurred %d time(s)... retrying."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:262
-msgid "Message objects do not support addition."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:271
-msgid ""
-"Message objects do not support str() because they may contain non-ascii "
-"characters. Please use unicode() or translate() instead."
-msgstr ""
-
 #: neutron/openstack/common/lockutils.py:103
 #, python-format
 msgid "Could not release the acquired lock `%s`"
@@ -4194,45 +4179,6 @@ msgid "Unknown sort direction, must be 'desc' or 'asc'"
 msgstr ""
 
 #: neutron/openstack/common/db/sqlalchemy/utils.py:193
-#, python-format
-msgid ""
-"Please specify column %s in col_name_col_instance param. It is required "
-"because column has unsupported type by sqlite)."
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:199
-#, python-format
-msgid ""
-"col_name_col_instance param has wrong type of column instance for column "
-"%s It should be instance of sqlalchemy.Column."
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:279
-#, python-format
-msgid "Deleting duplicated row with id: %(id)s from table: %(table)s"
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:300
-msgid "Unsupported id columns type"
-msgstr ""
-
-#: neutron/openstack/common/middleware/catch_errors.py:40
-#, python-format
-msgid "An error occurred during processing the request: %s"
-msgstr ""
-
-#: neutron/openstack/common/middleware/notifier.py:40
-#, python-format
-msgid "An exception occurred processing the API call: %s "
-msgstr ""
-
-#: neutron/openstack/common/middleware/sizelimit.py:55
-#: neutron/openstack/common/middleware/sizelimit.py:64
-#: neutron/openstack/common/middleware/sizelimit.py:75
-msgid "Request is too large."
-msgstr ""
-
-#: neutron/openstack/common/notifier/api.py:125
 #, python-format
 msgid ""
 "Please specify column %s in col_name_col_instance param. It is required "
@@ -12675,7 +12621,7 @@ msgstr ""
 
 #: neutron/plugins/vmware/dbexts/nsxrouter.py:61
 #, python-format
-msgid "DSCP value (%s) will be ignored with 'trusted' marking"
+msgid "Nsx router extension successfully processed for router:%s"
 msgstr ""
 
 #: neutron/plugins/vmware/dbexts/qos_db.py:286
@@ -13052,10 +12998,6 @@ msgstr ""
 
 #: neutron/plugins/vmware/nsxlib/router.py:605
 #, python-format
-msgid "Creating NAT rule: %s"
-msgstr ""
-
-#: neutron/plugins/vmware/nsxlib/router.py:460
 msgid ""
 "An exception occurred while updating IP addresses on a router logical "
 "port:%s"
@@ -13168,14 +13110,6 @@ msgstr ""
 
 #: neutron/plugins/vmware/plugins/base.py:249
 #, python-format
-msgid "Port not found, Error: %s"
-msgstr ""
-
-#: neutron/plugins/vmware/nsxlib/versioning.py:56
-msgid "Operation may not be supported"
-msgstr ""
-
-#: neutron/plugins/vmware/nsxlib/versioning.py:64
 msgid ""
 "Unable to create logical router port for neutron port id %(port_id)s on "
 "router %(nsx_router_id)s"

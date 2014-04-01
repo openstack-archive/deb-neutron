@@ -3894,21 +3894,6 @@ msgid ""
 "characters. Please use unicode() or translate() instead."
 msgstr ""
 
-#: neutron/openstack/common/excutils.py:91
-#, python-format
-msgid "Unexpected exception occurred %d time(s)... retrying."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:262
-msgid "Message objects do not support addition."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:271
-msgid ""
-"Message objects do not support str() because they may contain non-ascii "
-"characters. Please use unicode() or translate() instead."
-msgstr ""
-
 #: neutron/openstack/common/lockutils.py:103
 #, python-format
 msgid "Could not release the acquired lock `%s`"
@@ -4209,45 +4194,6 @@ msgid "Unknown sort direction, must be 'desc' or 'asc'"
 msgstr ""
 
 #: neutron/openstack/common/db/sqlalchemy/utils.py:193
-#, python-format
-msgid ""
-"Please specify column %s in col_name_col_instance param. It is required "
-"because column has unsupported type by sqlite)."
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:199
-#, python-format
-msgid ""
-"col_name_col_instance param has wrong type of column instance for column "
-"%s It should be instance of sqlalchemy.Column."
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:279
-#, python-format
-msgid "Deleting duplicated row with id: %(id)s from table: %(table)s"
-msgstr ""
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:300
-msgid "Unsupported id columns type"
-msgstr ""
-
-#: neutron/openstack/common/middleware/catch_errors.py:40
-#, python-format
-msgid "An error occurred during processing the request: %s"
-msgstr ""
-
-#: neutron/openstack/common/middleware/notifier.py:40
-#, python-format
-msgid "An exception occurred processing the API call: %s "
-msgstr ""
-
-#: neutron/openstack/common/middleware/sizelimit.py:55
-#: neutron/openstack/common/middleware/sizelimit.py:64
-#: neutron/openstack/common/middleware/sizelimit.py:75
-msgid "Request is too large."
-msgstr ""
-
-#: neutron/openstack/common/notifier/api.py:125
 #, python-format
 msgid ""
 "Please specify column %s in col_name_col_instance param. It is required "
@@ -5257,163 +5203,6 @@ msgstr "迴圈反覆運算已超出間隔（%(polling_interval)s 與 %(elapsed)s
 msgid "Consistency hash for group %(hash_id)s updated to %(hash)s"
 msgstr ""
 
-#: neutron/plugins/bigswitch/servermanager.py:196
-msgid "ServerPool: initialization done"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:239
-#, python-format
-msgid "Received an empty port ID for host_id '%s'"
-msgstr ""
-
-#: neutron/plugins/bigswitch/db/porttracker_db.py:42
-#, python-format
-msgid "Received an empty host_id for port '%s'"
-msgstr ""
-
-#: neutron/plugins/bigswitch/db/porttracker_db.py:44
-#, python-format
-msgid "Logging port %(port)s on host_id %(host)s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:245
-#, python-format
-msgid ""
-"ServerProxy: Error details: status=%(status)d, reason=%(reason)r, "
-"ret=%(ret)s, data=%(data)r"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:252
-#, python-format
-msgid "ServerProxy: %(action)s failure for all servers: %(server)r"
-msgstr "ServerProxy：對所有伺服器 %(server)r 執行的 %(action)s 失敗"
-
-#: neutron/plugins/bigswitch/servermanager.py:274
-#, python-format
-msgid ""
-"NeutronRestProxyV2: Received and ignored error code %(code)s on "
-"%(action)s action to resource %(resource)s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:284
-#, python-format
-msgid "Unable to create remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:290
-#, python-format
-msgid "Unable to update remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:295
-#, python-format
-msgid "Unable to delete remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:301
-#, python-format
-msgid "Unable to add router interface: %s"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:66
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:33
-msgid "The address of the host to SSH to"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:68
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:35
-msgid "The SSH username to use"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:70
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:37
-msgid "The SSH password to use"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:332
-#, python-format
-msgid "No device MAC attached to port %s. Skipping notification to controller."
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:337
-#, python-format
-msgid "Unable to create remote port: %s"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:134
-#: neutron/plugins/hyperv/rpc_callbacks.py:55
-#: neutron/plugins/linuxbridge/lb_neutron_plugin.py:89
-#: neutron/plugins/mlnx/rpc_callbacks.py:76
-#: neutron/plugins/openvswitch/ovs_neutron_plugin.py:96
-#, python-format
-msgid "Unable to delete remote port: %s"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:148
-#: neutron/plugins/brocade/NeutronPlugin.py:165
-#: neutron/plugins/hyperv/rpc_callbacks.py:71
-#: neutron/plugins/hyperv/rpc_callbacks.py:90
-#: neutron/plugins/linuxbridge/lb_neutron_plugin.py:112
-#: neutron/plugins/linuxbridge/lb_neutron_plugin.py:139
-#: neutron/plugins/linuxbridge/lb_neutron_plugin.py:162
-#: neutron/plugins/mlnx/rpc_callbacks.py:98
-#: neutron/plugins/mlnx/rpc_callbacks.py:117
-#: neutron/plugins/mlnx/rpc_callbacks.py:132
-#: neutron/plugins/openvswitch/ovs_neutron_plugin.py:114
-#: neutron/plugins/openvswitch/ovs_neutron_plugin.py:141
-#: neutron/plugins/openvswitch/ovs_neutron_plugin.py:164
-#, python-format
-msgid "Unable to create floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:357
-#, python-format
-msgid "Unable to update floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:362
-#, python-format
-msgid "Unable to delete floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:113
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:236
-msgid "Port update received"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:117
-#, python-format
-msgid "Port %s is not present on this host."
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:120
-#, python-format
-msgid "Port %s found. Refreshing firewall."
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:148
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:269
-msgid "Agent loop has new device"
-msgstr "代理程式迴圈具有新裝置"
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:152
-#: neutron/plugins/mlnx/agent/eswitch_neutron_agent.py:401
-#: neutron/plugins/nec/agent/nec_neutron_agent.py:222
-#: neutron/plugins/ofagent/agent/ofa_neutron_agent.py:1313
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:273
-msgid "Error in agent event loop"
-msgstr "代理程式事件迴圈發生錯誤"
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:158
-#: neutron/plugins/ibm/agent/sdnve_neutron_agent.py:201
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:975
-#: neutron/plugins/ofagent/agent/ofa_neutron_agent.py:1328
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1236
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:279
-#, python-format
-msgid "Loop iteration exceeded interval (%(polling_interval)s vs. %(elapsed)s)!"
-msgstr "迴圈反覆運算已超出間隔（%(polling_interval)s 與 %(elapsed)s）！"
-
 #: neutron/plugins/bigswitch/db/porttracker_db.py:36
 msgid "No host_id in port request to track port location."
 msgstr ""
@@ -5466,14 +5255,17 @@ msgid "Duplicate router rules (src,dst)  found '%s'"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:66
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:33
 msgid "The address of the host to SSH to"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:68
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:35
 msgid "The SSH username to use"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:70
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:37
 msgid "The SSH password to use"
 msgstr ""
 
@@ -8386,7 +8178,7 @@ msgstr ""
 
 #: neutron/plugins/midonet/midonet_lib.py:273
 #, python-format
-msgid "%s. Agent terminated!"
+msgid "MidoClient.update_port called: id=%(id)s, kwargs=%(kwargs)s"
 msgstr ""
 
 #: neutron/plugins/midonet/midonet_lib.py:298
@@ -12878,7 +12670,7 @@ msgstr ""
 
 #: neutron/plugins/vmware/dbexts/nsxrouter.py:61
 #, python-format
-msgid "DSCP value (%s) will be ignored with 'trusted' marking"
+msgid "Nsx router extension successfully processed for router:%s"
 msgstr ""
 
 #: neutron/plugins/vmware/dbexts/qos_db.py:286
@@ -15081,22 +14873,22 @@ msgstr ""
 msgid "Pool %(pool_id)s is scheduled to lbaas agent %(agent_id)s"
 msgstr ""
 
-#: neutron/services/loadbalancer/plugin.py:81
+#: neutron/services/loadbalancer/plugin.py:82
 #, python-format
 msgid "Delete associated loadbalancer pools before removing providers %s"
 msgstr ""
 
-#: neutron/services/loadbalancer/plugin.py:90
+#: neutron/services/loadbalancer/plugin.py:91
 #, python-format
 msgid "Error retrieving driver for provider %s"
 msgstr ""
 
-#: neutron/services/loadbalancer/plugin.py:98
+#: neutron/services/loadbalancer/plugin.py:99
 #, python-format
 msgid "Error retrieving provider for pool %s"
 msgstr ""
 
-#: neutron/services/loadbalancer/plugin.py:181
+#: neutron/services/loadbalancer/plugin.py:190
 #, python-format
 msgid "Failed to delete pool %s, putting it in ERROR state"
 msgstr ""
@@ -15122,216 +14914,6 @@ msgstr "匯入負載平衡器裝置驅動程式時發生錯誤：%s"
 #: neutron/services/loadbalancer/agent/agent_manager.py:101
 #, python-format
 msgid "Multiple device drivers with the same name found: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:141
-msgid "Error upating stats"
-msgstr "更新統計資料時發生錯誤"
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:156
-msgid "Unable to retrieve ready devices"
-msgstr "無法擷取備妥的裝置"
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:173
-#: neutron/services/loadbalancer/agent/agent_manager.py:238
-#, python-format
-msgid "No device driver on agent: %s."
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:183
-#, python-format
-msgid "Unable to deploy instance for pool: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:193
-#, python-format
-msgid "Unable to destroy device for pool: %s"
-msgstr "無法毀損儲存區的裝置：%s"
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:206
-#, python-format
-msgid "%(operation)s %(obj)s %(id)s failed on device driver %(driver)s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:332
-#, python-format
-msgid "Destroying pool %s due to agent disabling"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:335
-#, python-format
-msgid "Agent_updated by server side %s!"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:44
-msgid "Driver to use for scheduling pool to a default loadbalancer agent"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:52
-msgid "Device driver for agent should be specified in plugin driver."
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:79
-#, python-format
-msgid "Multiple lbaas agents found on host %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:99
-msgid "Expected active pool"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:161
-#, python-format
-msgid "Unknown object type: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:172
-#, python-format
-msgid ""
-"Cannot update status: %(obj_type)s %(obj_id)s not found in the DB, it was"
-" probably deleted concurrently"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:195
-#, python-format
-msgid "Unable to find port %s to plug."
-msgstr "找不到要插入的埠 %s。"
-
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:219
-#: neutron/services/loadbalancer/drivers/common/agent_driver_base.py:236
-#, python-format
-msgid ""
-"Unable to find port %s to unplug.  This can occur when the Vip has been "
-"deleted first."
-msgstr "找不到要拔除的埠 %s。如果先刪除 VIP，則可能會發生此情況。"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:48
-msgid "Location to store config and state files"
-msgstr "配置檔及狀態檔的儲存位置"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:54
-msgid "The user group"
-msgstr "使用者群組"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:70
-#, python-format
-msgid "Error importing interface driver: %s"
-msgstr "匯入介面驅動程式時發生錯誤：%s"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:160
-#, python-format
-msgid "Stats socket not found for pool %s"
-msgstr "找不到儲存區 %s 的統計資料 Socket"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:202
-#, python-format
-msgid "Error while connecting to stats socket: %s"
-msgstr "連接至統計資料 Socket 時發生錯誤：%s"
-
-#: neutron/services/loadbalancer/drivers/haproxy/namespace_driver.py:348
-#, python-format
-msgid "Unable to kill haproxy process: %s"
-msgstr "無法結束 haproxy 處理程序：%s"
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:43
-#, python-format
-msgid "NCC Error %d"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:54
-msgid "No NetScaler Control Center URI specified. Cannot connect."
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:133
-#, python-format
-msgid "Connection error occurred while connecting to %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:138
-#, python-format
-msgid "SSL error occurred while connecting to %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:143
-#, python-format
-msgid "Request to %s timed out"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:150
-msgid "Request did not specify a valid URL"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:154
-#, python-format
-msgid "Too many redirects occurred for request to %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:158
-#, python-format
-msgid "A request error while connecting to %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:163
-#, python-format
-msgid "A unknown error occurred during request to %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:168
-#, python-format
-msgid "Response: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:171
-#, python-format
-msgid "Unable to login. Invalid credentials passed.for: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/drivers/netscaler/ncc_client.py:175
-#, python-format
-msgid "Failed %(method)s operation on %(url)s status code: %(response_status)s"
-msgstr ""
-
-#: neutron/services/loadbalancer/plugin.py:82
-#, python-format
-msgid "Delete associated loadbalancer pools before removing providers %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/plugin.py:91
-#, python-format
-msgid "Error retrieving driver for provider %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/plugin.py:99
-#, python-format
-msgid "Error retrieving provider for pool %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/plugin.py:190
-#, python-format
-msgid "NetScaler driver vip creation: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent.py:34
-msgid "Seconds between periodic task runs"
-msgstr "定期執行作業的間隔秒數"
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:40
-msgid "Drivers used to manage loadbalancing devices"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:46
-#, python-format
-msgid "NetScaler driver vip removal: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:94
-#, python-format
-msgid "NetScaler driver pool creation: %s"
-msgstr ""
-
-#: neutron/services/loadbalancer/agent/agent_manager.py:101
-#, python-format
-msgid "NetScaler driver pool %(pool_id)s update: %(pool_obj)s"
 msgstr ""
 
 #: neutron/services/loadbalancer/agent/agent_manager.py:141

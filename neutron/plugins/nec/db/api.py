@@ -15,8 +15,6 @@
 #    under the License.
 # @author: Ryota MIBU
 
-# TODO(amotoki): bug 1287432: Rename quantum_id column in ID mapping tables.
-
 import sqlalchemy as sa
 
 from neutron.db import api as db

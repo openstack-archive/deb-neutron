@@ -3879,21 +3879,6 @@ msgid ""
 "characters. Please use unicode() or translate() instead."
 msgstr ""
 
-#: neutron/openstack/common/excutils.py:91
-#, python-format
-msgid "Unexpected exception occurred %d time(s)... retrying."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:262
-msgid "Message objects do not support addition."
-msgstr ""
-
-#: neutron/openstack/common/gettextutils.py:271
-msgid ""
-"Message objects do not support str() because they may contain non-ascii "
-"characters. Please use unicode() or translate() instead."
-msgstr ""
-
 #: neutron/openstack/common/lockutils.py:103
 #, python-format
 msgid "Could not release the acquired lock `%s`"
@@ -4234,29 +4219,29 @@ msgstr ""
 
 #: neutron/openstack/common/notifier/api.py:125
 #, python-format
-msgid "Invalid SSL version : %s"
+msgid "%s not in valid priorities"
 msgstr ""
 
-#: neutron/openstack/common/versionutils.py:69
+#: neutron/openstack/common/notifier/api.py:141
 #, python-format
 msgid ""
-"%(what)s is deprecated as of %(as_of)s in favor of %(in_favor_of)s and "
-"may be removed in %(remove_in)s."
+"Problem '%(e)s' attempting to send to notification system. "
+"Payload=%(payload)s"
 msgstr ""
 
-#: neutron/openstack/common/versionutils.py:73
+#: neutron/openstack/common/notifier/api.py:171
 #, python-format
-msgid ""
-"%(what)s is deprecated as of %(as_of)s and may be removed in "
-"%(remove_in)s. It will not be superseded."
+msgid "Failed to load notifier %s. These notifications will not be sent."
 msgstr ""
 
-#: neutron/openstack/common/db/api.py:97
-msgid "DB exceeded retry limit."
+#: neutron/openstack/common/notifier/rabbit_notifier.py:27
+msgid "The rabbit_notifier is now deprecated. Please use rpc_notifier instead."
 msgstr ""
 
-#: neutron/openstack/common/db/api.py:101
-msgid "DB connection error."
+#: neutron/openstack/common/notifier/rpc_notifier.py:45
+#: neutron/openstack/common/notifier/rpc_notifier2.py:51
+#, python-format
+msgid "Could not send notification to %(topic)s. Payload=%(message)s"
 msgstr ""
 
 #: neutron/openstack/common/rpc/__init__.py:103
@@ -5197,194 +5182,6 @@ msgstr ""
 msgid "Consistency hash for group %(hash_id)s updated to %(hash)s"
 msgstr ""
 
-#: neutron/plugins/bigswitch/servermanager.py:115
-#, python-format
-msgid "ServerProxy: server=%(server)s, port=%(port)d, ssl=%(ssl)r"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:118
-#, python-format
-msgid "Received an empty port ID for host_id '%s'"
-msgstr ""
-
-#: neutron/plugins/bigswitch/db/porttracker_db.py:42
-#, python-format
-msgid "Received an empty host_id for port '%s'"
-msgstr ""
-
-#: neutron/plugins/bigswitch/db/porttracker_db.py:44
-#, python-format
-msgid "Logging port %(port)s on host_id %(host)s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:128
-msgid "ServerProxy: Could not establish HTTPS connection"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:135
-msgid "ServerProxy: Could not establish HTTP connection"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:152
-#, python-format
-msgid "ServerProxy: %(action)s failure, %(e)r"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:156
-#, python-format
-msgid ""
-"ServerProxy: status=%(status)d, reason=%(reason)r, ret=%(ret)s, "
-"data=%(data)r"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:168
-msgid "ServerPool: initializing"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:184
-msgid "Servers not defined. Aborting server manager."
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:190
-#, python-format
-msgid "Servers must be defined as <ip>:<port>. Configuration was %s"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:66
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:33
-msgid "The address of the host to SSH to"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:68
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:35
-msgid "The SSH username to use"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:70
-#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:37
-msgid "The SSH password to use"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:252
-#, python-format
-msgid "ServerProxy: %(action)s failure for all servers: %(server)r"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:274
-#, python-format
-msgid ""
-"NeutronRestProxyV2: Received and ignored error code %(code)s on "
-"%(action)s action to resource %(resource)s"
-msgstr ""
-
-#: neutron/plugins/brocade/NeutronPlugin.py:134
-#: neutron/plugins/hyperv/rpc_callbacks.py:55
-#: neutron/plugins/linuxbridge/lb_neutron_plugin.py:89
-#: neutron/plugins/mlnx/rpc_callbacks.py:76
-#: neutron/plugins/openvswitch/ovs_neutron_plugin.py:96
-#, python-format
-msgid "Unable to create remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:290
-#, python-format
-msgid "Unable to update remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:295
-#, python-format
-msgid "Unable to delete remote router: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:301
-#, python-format
-msgid "Unable to add router interface: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:306
-#, python-format
-msgid "Unable to delete remote intf: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:312
-#, python-format
-msgid "Unable to create remote network: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:318
-#: neutron/plugins/bigswitch/servermanager.py:323
-#, python-format
-msgid "Unable to update remote network: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:332
-#, python-format
-msgid "No device MAC attached to port %s. Skipping notification to controller."
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:337
-#, python-format
-msgid "Unable to create remote port: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:342
-#, python-format
-msgid "Unable to delete remote port: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:352
-#, python-format
-msgid "Unable to create floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:357
-#, python-format
-msgid "Unable to update floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/servermanager.py:362
-#, python-format
-msgid "Unable to delete floating IP: %s"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:113
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:236
-msgid "Port update received"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:117
-#, python-format
-msgid "Port %s is not present on this host."
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:120
-#, python-format
-msgid "Port %s found. Refreshing firewall."
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:148
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:269
-msgid "Agent loop has new device"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:152
-#: neutron/plugins/mlnx/agent/eswitch_neutron_agent.py:401
-#: neutron/plugins/nec/agent/nec_neutron_agent.py:222
-#: neutron/plugins/ofagent/agent/ofa_neutron_agent.py:1313
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:273
-msgid "Error in agent event loop"
-msgstr ""
-
-#: neutron/plugins/bigswitch/agent/restproxy_agent.py:158
-#: neutron/plugins/ibm/agent/sdnve_neutron_agent.py:201
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:975
-#: neutron/plugins/ofagent/agent/ofa_neutron_agent.py:1328
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1236
-#: neutron/plugins/ryu/agent/ryu_neutron_agent.py:279
-#, python-format
-msgid "Loop iteration exceeded interval (%(polling_interval)s vs. %(elapsed)s)!"
-msgstr ""
-
 #: neutron/plugins/bigswitch/db/porttracker_db.py:36
 msgid "No host_id in port request to track port location."
 msgstr ""
@@ -5437,14 +5234,17 @@ msgid "Duplicate router rules (src,dst)  found '%s'"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:66
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:33
 msgid "The address of the host to SSH to"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:68
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:35
 msgid "The SSH username to use"
 msgstr ""
 
 #: neutron/plugins/brocade/NeutronPlugin.py:70
+#: neutron/plugins/ml2/drivers/brocade/mechanism_brocade.py:37
 msgid "The SSH password to use"
 msgstr ""
 
@@ -11592,10 +11392,6 @@ msgstr ""
 
 #: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1242
 #, python-format
-msgid "Creating NAT rule: %s"
-msgstr ""
-
-#: neutron/plugins/vmware/nsxlib/router.py:460
 msgid ""
 "Agent rpc_loop - iteration:%(iter_num)d -ancillary port info retrieved. "
 "Elapsed:%(elapsed).3f"

@@ -134,17 +134,6 @@ class TestNecPluginPacketFilter(TestNecPluginPacketFilterBase):
         del self.ofc.driver.validate_filter_create
         del self.ofc.driver.validate_filter_update
 
-
-class TestNecPluginPacketFilter(TestNecPluginPacketFilterBase):
-
-    def setUp(self):
-        super(TestNecPluginPacketFilter, self).setUp()
-        # Remove attributes explicitly from mock object to check
-        # a case where there are no update_filter and validate_*.
-        del self.ofc.driver.update_filter
-        del self.ofc.driver.validate_filter_create
-        del self.ofc.driver.validate_filter_update
-
     def test_list_packet_filters(self):
         self._list('packet_filters')
 

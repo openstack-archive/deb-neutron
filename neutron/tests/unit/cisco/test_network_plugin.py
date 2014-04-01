@@ -1059,7 +1059,6 @@ class TestCiscoRouterInterfacesV2(CiscoNetworkPluginV2TestCase):
         super(TestCiscoRouterInterfacesV2, self).setUp()
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
-        self.addCleanup(cisco_config.CONF.reset)
 
     @contextlib.contextmanager
     def _network_subnet_router(self):

@@ -135,25 +135,6 @@ class SimpleAgentMechanismDriverBase(AgentMechanismDriverBase):
             return False
 
     @abstractmethod
-    def try_to_bind_segment_for_agent(self, context, segment, agent):
-        """Try to bind with segment for agent.
-
-        :param context: PortContext instance describing the port
-        :param segment: segment dictionary describing segment to bind
-        :param agent: agents_db entry describing agent to bind
-        :returns: True iff segment has been bound for agent
-
-        Called inside transaction during bind_port() so that derived
-        MechanismDrivers can use agent_db data along with built-in
-        knowledge of the corresponding agent's capabilities to attempt
-        to bind to the specified network segment for the agent.
-
-        If the segment can be bound for the agent, this function must
-        call context.set_binding() with appropriate values and then
-        return True. Otherwise, it must return False.
-        """
-
-    @abstractmethod
     def check_segment_for_agent(self, segment, agent):
         """Check if segment can be bound for agent.
 
@@ -167,13 +148,3 @@ class SimpleAgentMechanismDriverBase(AgentMechanismDriverBase):
         determine whether or not the specified network segment can be
         bound for the agent.
         """
-        super(SimpleAgentMechanismDriverBase, self).__init__(
-            agent_type, supported_vnic_types)
-        self.vif_type = vif_type
-        self.vif_details = vif_details
-
-    def try_to_bind_segment_for_agent(self, context, segment, agent):
-        if self.check_segment_for_agent(segment, agent):
-            context.set_binding(segment[api.ID],
-                                self.vif_type,
-                                self.vif_details)

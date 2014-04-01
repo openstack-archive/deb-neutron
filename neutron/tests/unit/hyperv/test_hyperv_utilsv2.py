@@ -50,14 +50,6 @@ class TestHyperVUtilsV2(base.BaseTestCase):
     _FAKE_REMOTE_ADDR = '0.0.0.0/0'
     _FAKE_WEIGHT = 'fake_weight'
 
-    _FAKE_ACL_ACT = 'fake_acl_action'
-    _FAKE_ACL_DIR = 'fake_acl_dir'
-    _FAKE_ACL_TYPE = 'fake_acl_type'
-    _FAKE_LOCAL_PORT = 'fake_local_port'
-    _FAKE_PROTOCOL = 'fake_port_protocol'
-    _FAKE_REMOTE_ADDR = '0.0.0.0/0'
-    _FAKE_WEIGHT = 'fake_weight'
-
     def setUp(self):
         super(TestHyperVUtilsV2, self).setUp()
         self._utils = utilsv2.HyperVUtilsV2()

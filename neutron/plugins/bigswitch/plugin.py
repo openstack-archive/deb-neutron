@@ -59,6 +59,7 @@ from neutron.common import constants as const
 from neutron.common import exceptions
 from neutron.common import rpc as q_rpc
 from neutron.common import topics
+from neutron.common import utils
 from neutron import context as qcontext
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
