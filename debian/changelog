@@ -1,3 +1,10 @@
+neutron (2014.1~rc1-3) UNRELEASED; urgency=medium
+
+  * Fixes an issue using ml2 and openvswitch plugin, openvswitch agent wasn't 
+  loading it's config file.
+
+ -- gustavo panizzo <gfa@zumbi.com.ar>  Wed, 02 Apr 2014 02:06:05 -0300
+
 neutron (2014.1~rc1-2) experimental; urgency=low
 
   * New upstream release.
