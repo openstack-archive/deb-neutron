@@ -3,7 +3,7 @@ Description: Better config default
  parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2014-04-01
+Last-Update: 2014-04-02
 
 --- neutron-2014.1~rc1.orig/etc/l3_agent.ini
 +++ neutron-2014.1~rc1/etc/l3_agent.ini
@@ -101,7 +101,7 @@ Last-Update: 2014-04-01
  # Support kernels with limited namespace support
 --- neutron-2014.1~rc1.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 +++ neutron-2014.1~rc1/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-@@ -30,7 +30,7 @@
+@@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
  #
@@ -110,7 +110,14 @@ Last-Update: 2014-04-01
  
  # (StrOpt) The type of tunnel network, if any, supported by the plugin. If
  # this is set, it will cause tunneling to be enabled. If this is not set and
-@@ -44,8 +44,8 @@
+ # the option enable_tunneling is set, this will default to 'gre'.
+ #
+-# tunnel_type =
+ # Example: tunnel_type = gre
+ # Example: tunnel_type = vxlan
++tunnel_type = gre
+ 
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples
  # enumerating ranges of GRE or VXLAN tunnel IDs that are available for
  # tenant network allocation if tenant_network_type is 'gre' or 'vxlan'.
  #
