@@ -38,7 +38,7 @@ Last-Update: 2014-04-02
  #
 -# service_plugins =
  # Example: service_plugins = router,firewall,lbaas,vpnaas,metering
-+service_plugins = l3_router,firewall,metering
++service_plugins = l3_router,fwaas,metering
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
