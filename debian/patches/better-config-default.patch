@@ -28,7 +28,7 @@ Last-Update: 2014-04-02
  #
 -# core_plugin =
 -# Example: core_plugin = ml2
-+core_plugin = neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
++core_plugin = neutron.plugins.ml2.plugin.Ml2Plugin
  
  # (ListOpt) List of service plugin entrypoints to be loaded from the
  # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of

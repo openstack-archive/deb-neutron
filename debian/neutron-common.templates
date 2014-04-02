@@ -35,7 +35,7 @@ Template: neutron/plugin-select
 Type: select
 __Choices: OpenVSwitch, LinuxBridge, ml2, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, ml2/ml2_conf.ini, MetaPlugin, BigSwitch, Cisco, PLUMgrid
 Choices-C: OpenVSwitch, LinuxBridge, ml2, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, ml2/ml2_conf.ini, MetaPlugin, BigSwitch, Cisco, PLUMgrid
-Default: OpenVSwitch
+Default: ml2
 _Description: Neutron plugin:
  Neutron uses a plugin architecture to manage networking. When starting the
  Neutron server daemon, the configuration file corresponding to the plugin you
