@@ -28,7 +28,12 @@ script
 	neutron_core_plugin_to_plugin_name ${CURRENT_PLUGIN}
 	neutron_plugin_ini_path ${NEUTRON_PLUGIN_NAME}
 	[ -r "$NEUTRON_PLUGIN_CONFIG" ] && CONF_ARG="--config-file $NEUTRON_PLUGIN_CONFIG"
+	[ -r /etc/default/openstack ] && . /etc/default/openstack
+	[ -r /etc/default/$UPSTART_JOB ] && . /etc/default/$UPSTART_JOB
+
+	[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+	[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=/var/log/neutron/ovs-agent.log"
 	exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-openvswitch-agent -- \
 		--config-file=/etc/neutron/neutron.conf \
-		--log-file=/var/log/neutron/ovs-agent.log $CONF_ARG
+		$CONF_ARG $DAEMON_ARGS
 end script

@@ -18,7 +18,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="OpenStack Neutron DHCP agent"
 NAME=neutron-dhcp-agent
 DAEMON=/usr/bin/neutron-dhcp-agent
-DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/dhcp_agent.ini --log-file=/var/log/neutron/dhcp-agent.log"
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/dhcp_agent.ini"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
@@ -26,6 +26,12 @@ SCRIPTNAME=/etc/init.d/$NAME
 [ -x $DAEMON ] || exit 0
 
 . /lib/lsb/init-functions
+
+[ -r /etc/default/openstack ] && . /etc/default/openstack
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=/var/log/neutron/dhcp-agent.log"
 
 do_start()
 {

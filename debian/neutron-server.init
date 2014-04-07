@@ -19,12 +19,18 @@ PIDFILE=/var/run/neutron/${NAME}.pid
 SCRIPTNAME=/etc/init.d/${NAME}
 LOGFILE=/var/log/neutron/neutron-server.log
 DAEMON_DIR=/var/run
-DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=$LOGFILE"
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf"
 
 # Exit if the package is not installed
 [ -x $DAEMON ] || exit 0
 
 . /lib/lsb/init-functions
+
+[ -r /etc/default/openstack ] && . /etc/default/openstack
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=$LOGFILE"
 
 [ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
 . /usr/share/neutron-common/plugin_guess_func

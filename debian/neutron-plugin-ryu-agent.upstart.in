@@ -11,4 +11,14 @@ pre-start script
 	chown neutron:root /var/run/neutron
 end script
 
-exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-ryu-agent -- --config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/ryu/ryu.ini --log-file=/var/log/neutron/ryu-agent.log
+script
+	[ -r /etc/default/openstack ] && . /etc/default/openstack
+	[ -r /etc/default/$UPSTART_JOB ] && . /etc/default/$UPSTART_JOB
+
+	[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+	[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=/var/log/neutron/ryu-agent.log"
+
+	exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-ryu-agent -- \
+	                       --config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/ryu/ryu.ini \
+	                       $DAEMON_ARGS
+end script

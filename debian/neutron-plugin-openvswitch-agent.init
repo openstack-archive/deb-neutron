@@ -18,7 +18,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Openstack Neutron OpenVSwitch Plugin Agent"
 NAME=neutron-openvswitch-agent
 DAEMON=/usr/bin/neutron-openvswitch-agent
-DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --log-file=/var/log/neutron/ovs-agent.log"
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
@@ -27,7 +27,11 @@ CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 [ -x $DAEMON ] || exit 0
 
 # Read configuration variable file if it is present
+[ -r /etc/default/openstack ] && . /etc/default/openstack
 [ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="${DAEMON_ARGS} --use-syslog"
+[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="${DAEMON_ARGS} --log-file=/var/log/neutron/ovs-agent.log"
 
 . /lib/lsb/init-functions
 

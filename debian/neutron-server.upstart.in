@@ -15,6 +15,12 @@ script
 	[ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
 	. /usr/share/neutron-common/plugin_guess_func
 
+	[ -r /etc/default/openstack ] && . /etc/default/openstack
+	[ -r /etc/default/$UPSTART_JOB ] && . /etc/default/$UPSTART_JOB
+
+	[ "x$USE_SYSLOG" = "xyes" ] && DAEMON_ARGS="$DAEMON_ARGS --use-syslog"
+	[ "x$USE_LOGFILE" != "xno" ] && DAEMON_ARGS="$DAEMON_ARGS --log-file=/var/log/neutron/server.log"
+
 	if ! [ -r /etc/neutron/neutron.conf ] ; then
 		echo "Cloud not read /etc/neutron/neutron.conf: exiting"
 		exit 0
@@ -30,5 +36,5 @@ script
         [ -r "$NEUTRON_PLUGIN_CONFIG" ] && CONF_ARG="--config-file $NEUTRON_PLUGIN_CONFIG"
         exec start-stop-daemon --start --chuid neutron:neutron --exec /usr/bin/neutron-server -- \
             --config-file /etc/neutron/neutron.conf \
-            --log-file /var/log/neutron/server.log $CONF_ARG
+            $DAEMON_ARGS $CONF_ARG
 end script
