@@ -1,3 +1,9 @@
+neutron (2014.1~rc1-2) experimental; urgency=low
+
+  * More SQLite migration fixes for Icehouse.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 07 Apr 2014 14:23:29 +0800
+
 neutron (2014.1~rc1-1) experimental; urgency=medium
 
   [ gustavo panizzo ]
