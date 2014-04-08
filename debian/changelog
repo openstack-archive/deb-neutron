@@ -1,6 +1,7 @@
 neutron (2014.1~rc1-2) experimental; urgency=low
 
   * More SQLite migration fixes for Icehouse.
+  * Added OVS_lib_defer_apply_doesn_t_handle_concurrency.patch
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 07 Apr 2014 14:23:29 +0800
 

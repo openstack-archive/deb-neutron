@@ -1,0 +1,38 @@
+Description: OVS lib defer apply doesn't handle concurrency
+ OVS lib defer apply doesn't handle concurrency
+ .
+ The OVS lib deferred apply methods use a dict to save flows to add,
+ modify or delete when deffered apply is switched off.
+ If another thread adds, modifies or deletes flows on that dict during
+ another process called deffered_apply_off, its flows could be ignored.
+ .
+ This fix stash reference flows list and point the flows list to a new
+ cleared flows list. Then, it applies flows from the stashed flows list.
+Author: Édouard Thuleau <edouard.thuleau@cloudwatt.com>
+Origin: upstream, https://review.openstack.org/#/c/85492
+Date: Mon, 3 Mar 2014 17:08:33 +0000 (+0100)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=dc4ce5946de0686e07eff79704be497c649734d2
+Bug-Ubuntu: https://launchpad.net/bugs/1263866
+Last-Update: 2014-04-08
+
+--- neutron-2014.1~rc1.orig/neutron/agent/linux/ovs_lib.py
++++ neutron-2014.1~rc1/neutron/agent/linux/ovs_lib.py
+@@ -213,9 +213,16 @@ class OVSBridge(BaseOVS):
+                 for line in flows.splitlines():
+                     LOG.debug(_('%(action)s: %(flow)s'),
+                               {'action': action, 'flow': line})
+-                self.run_ofctl('%s-flows' % action, ['-'], flows)
++        # Note(ethuleau): stash flows and disable deferred mode. Then apply
++        # flows from the stashed reference to be sure to not purge flows that
++        # were added between two ofctl commands.
++        stashed_deferred_flows, self.deferred_flows = (
++            self.deferred_flows, {'add': '', 'mod': '', 'del': ''}
++        )
+         self.defer_apply_flows = False
+-        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
++        for action, flows in stashed_deferred_flows.items():
++            if flows:
++                self.run_ofctl('%s-flows' % action, ['-'], flows)
+ 
+     def add_tunnel_port(self, port_name, remote_ip, local_ip,
+                         tunnel_type=p_const.TYPE_GRE,
