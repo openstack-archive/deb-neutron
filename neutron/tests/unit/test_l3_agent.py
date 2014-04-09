@@ -96,7 +96,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         ri = l3_agent.RouterInfo(id, self.conf.root_helper,
                                  self.conf.use_namespaces, None)
 
-        self.assertTrue(ri.ns_name().endswith(id))
+        self.assertTrue(ri.ns_name.endswith(id))
 
     def test_router_info_create_with_router(self):
         id = _uuid()
@@ -113,7 +113,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
             'gw_port': ex_gw_port}
         ri = l3_agent.RouterInfo(id, self.conf.root_helper,
                                  self.conf.use_namespaces, router)
-        self.assertTrue(ri.ns_name().endswith(id))
+        self.assertTrue(ri.ns_name.endswith(id))
         self.assertEqual(ri.router, router)
 
     def test_agent_create(self):
@@ -745,6 +745,31 @@ class TestBasicRouterOperations(base.BaseTestCase):
                 mock.ANY, ri.router_id,
                 {fip_id: l3_constants.FLOATINGIP_STATUS_DOWN})
 
+    def test_process_router_floatingip_exception(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        agent.process_router_floating_ip_addresses = mock.Mock()
+        agent.process_router_floating_ip_addresses.side_effect = RuntimeError
+        with mock.patch.object(
+            agent.plugin_rpc,
+            'update_floatingip_statuses') as mock_update_fip_status:
+            fip_id = _uuid()
+            router = self._prepare_router_data(num_internal_ports=1)
+            router[l3_constants.FLOATINGIP_KEY] = [
+                {'id': fip_id,
+                 'floating_ip_address': '8.8.8.8',
+                 'fixed_ip_address': '7.7.7.7',
+                 'port_id': router[l3_constants.INTERFACE_KEY][0]['id']}]
+
+            ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
+                                     self.conf.use_namespaces, router=router)
+            agent.external_gateway_added = mock.Mock()
+            agent.process_router(ri)
+            # Assess the call for putting the floating IP into Error
+            # was performed
+            mock_update_fip_status.assert_called_once_with(
+                mock.ANY, ri.router_id,
+                {fip_id: l3_constants.FLOATINGIP_STATUS_ERROR})
+
     def test_handle_router_snat_rules_add_back_jump(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = mock.MagicMock()
@@ -838,7 +863,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
             self.assertEqual(self.mock_driver.unplug.call_count,
                              len(stale_devnames))
             calls = [mock.call(stale_devname,
-                               namespace=ri.ns_name(),
+                               namespace=ri.ns_name,
                                prefix=l3_agent.INTERNAL_DEV_PREFIX)
                      for stale_devname in stale_devnames]
             self.mock_driver.unplug.assert_has_calls(calls, any_order=True)
@@ -867,19 +892,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.mock_driver.unplug.assert_called_with(
             stale_devnames[0],
             bridge="br-ex",
-            namespace=ri.ns_name(),
+            namespace=ri.ns_name,
             prefix=l3_agent.EXTERNAL_DEV_PREFIX)
-
-    def test_routers_with_admin_state_down(self):
-        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
-        self.plugin_api.get_external_network_id.return_value = None
-
-        routers = [
-            {'id': _uuid(),
-             'admin_state_up': False,
-             'external_gateway_info': {}}]
-        agent._process_routers(routers)
-        self.assertNotIn(routers[0]['id'], agent.router_info)
 
     def test_router_deleted(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)

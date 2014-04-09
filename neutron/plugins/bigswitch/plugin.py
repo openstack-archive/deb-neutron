@@ -363,7 +363,11 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
                           "[%s]. Defaulting to ovs."),
                         cfg_vif_type)
             cfg_vif_type = portbindings.VIF_TYPE_OVS
-        hostid = porttracker_db.get_port_hostid(context, port['id'])
+        # In ML2, the host_id is already populated
+        if portbindings.HOST_ID in port:
+            hostid = port[portbindings.HOST_ID]
+        else:
+            hostid = porttracker_db.get_port_hostid(context, port['id'])
         if hostid:
             port[portbindings.HOST_ID] = hostid
             override = self._check_hostvif_override(hostid)
@@ -474,7 +478,7 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         pl_config.register_config()
         self.evpool = eventlet.GreenPool(cfg.CONF.RESTPROXY.thread_pool_size)
 
-        # Include the BigSwitch Extensions path in the api_extensions
+        # Include the Big Switch Extensions path in the api_extensions
         neutron_extensions.append_api_extensions_path(extensions.__path__)
 
         self.add_meta_server_route = cfg.CONF.RESTPROXY.add_meta_server_route
