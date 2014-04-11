@@ -1,6 +1,10 @@
 neutron (2014.1~rc2-1) experimental; urgency=low
 
+  [ Thomas Goirand ]
   * New upstream pre-release.
+
+  [ Sylvain Baubeau ]
+  * Allow selecting log destination for Neutron daemons
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 09 Apr 2014 23:46:07 +0800
 
