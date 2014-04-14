@@ -2,6 +2,8 @@ neutron (2014.1~rc2-1) experimental; urgency=low
 
   [ Thomas Goirand ]
   * New upstream pre-release.
+  * Readded 0004-Fix-Metering-doesn-t-respect-the-l3-agent-binding.patch with
+    the last review from upstream.
 
   [ Sylvain Baubeau ]
   * Allow selecting log destination for Neutron daemons
