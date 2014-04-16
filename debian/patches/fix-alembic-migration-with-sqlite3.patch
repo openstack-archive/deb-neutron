@@ -233,27 +233,6 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/11c6e18605c8_pool_monitor_status_.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/11c6e18605c8_pool_monitor_status_.py
-@@ -43,9 +43,15 @@ def upgrade(active_plugins=None, options
-     if not migration.should_run(active_plugins, migration_for_plugins):
-         return
- 
--    op.add_column('poolmonitorassociations', sa.Column('status',
--                                                       sa.String(16),
--                                                       nullable=False))
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
-+        op.add_column('poolmonitorassociations', sa.Column('status',
-+                                                           sa.String(16)))
-+    else:
-+        op.add_column('poolmonitorassociations', sa.Column('status',
-+                                                           sa.String(16),
-+                                                           nullable=False))
-     op.add_column('poolmonitorassociations', sa.Column('status_description',
-                                                        sa.String(255)))
- 
 --- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
 +++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
 @@ -47,11 +47,17 @@ def upgrade(active_plugins=None, options
