@@ -1,4 +1,4 @@
-neutron (2014.1~rc2-1) experimental; urgency=low
+neutron (2014.1-1) unstable; urgency=medium
 
   [ Thomas Goirand ]
   * New upstream pre-release.
