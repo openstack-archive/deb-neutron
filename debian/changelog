@@ -1,3 +1,9 @@
+neutron (2014.1-2) UNRELEASED; urgency=low
+
+  * Fixed fr.po (Closes: #745249). Thanks to Christian Perrier for this.
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 20 Apr 2014 09:50:09 +0800
+
 neutron (2014.1-1) unstable; urgency=medium
 
   [ Thomas Goirand ]
