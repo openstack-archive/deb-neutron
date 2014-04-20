@@ -1,6 +1,7 @@
 neutron (2014.1-2) UNRELEASED; urgency=low
 
   * Fixed fr.po (Closes: #745249). Thanks to Christian Perrier for this.
+  * Added a Provides: neutron-plugin-ml2 in neutron-common (LP: #1309858).
 
  -- Thomas Goirand <zigo@debian.org>  Sun, 20 Apr 2014 09:50:09 +0800
 
