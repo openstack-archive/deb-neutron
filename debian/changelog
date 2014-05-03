@@ -1,3 +1,10 @@
+neutron (2014.1-2) unstable; urgency=medium
+
+  * Unbreaks fr.po, thanks to Christian Perrier (Closes: #745249).
+  * Added it.po thanks to Beatrice Torracca (Closes: #746575).
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 03 May 2014 02:22:50 +0000
+
 neutron (2014.1-1) unstable; urgency=medium
 
   [ Thomas Goirand ]
