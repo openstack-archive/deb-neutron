@@ -18,9 +18,10 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Openstack Neutron LinuxBridge Plugin Agent"
 NAME=neutron-linuxbridge-agent
 DAEMON=/usr/bin/neutron-linuxbridge-agent
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini --log-file=/var/log/neutron/linuxbridge-agent.log"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
-CONF_FILE=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini
+CONF_FILE="/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini"
 
 # Exit if the package is not installed
 [ -x $DAEMON ] || exit 0
@@ -35,7 +36,7 @@ do_start()
 	start-stop-daemon --start --background --quiet --chuid neutron:neutron --make-pidfile --pidfile $PIDFILE --startas $DAEMON --test > /dev/null \
 		|| return 1
 	start-stop-daemon --start --background --quiet --chuid neutron:neutron --make-pidfile --pidfile $PIDFILE --startas $DAEMON -- \
-	        $CONF_FILE \
+		$DAEMON_ARGS \
 		|| return 2
 }
 
