@@ -4,11 +4,5 @@
     compress
     delaycompress
     notifempty
-    postrotate
-        if dpkg-vendor --derives-from ubuntu ; then
-            service neutron-vpn-agent restart >/dev/null 2>&1 || true
-        else
-            invoke-rc.d neutron-vpn-agent restart >/dev/null 2>&1 || true
-        fi
-    endscript
+    copytruncate
 }

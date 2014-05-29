@@ -3,4 +3,5 @@
     missingok
     compress
     delaycompress
+    copytruncate
 }
