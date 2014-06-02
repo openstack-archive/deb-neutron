@@ -1,3 +1,11 @@
+neutron (2014.1-6) unstable; urgency=high
+
+  * Adds Install_SNAT_rules_for_ipv4_only.patch. Note that without this patch,
+    it's possible to destroy an OpenStack cloud network, which is why I'm
+    putting urgency=high in this upload.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 03 Jun 2014 00:07:08 +0800
+
 neutron (2014.1-5) unstable; urgency=medium
 
   * Switched from restarting daemons to copytruncate for logrotate.
