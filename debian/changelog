@@ -1,3 +1,9 @@
+neutron (2014.1-7) unstable; urgency=medium
+
+  * Added missing dbconfig-common dependency.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 03 Jun 2014 15:46:32 +0800
+
 neutron (2014.1-6) unstable; urgency=high
 
   * Adds Install_SNAT_rules_for_ipv4_only.patch. Note that without this patch,

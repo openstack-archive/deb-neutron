@@ -165,6 +165,7 @@ Package: neutron-common
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
+         dbconfig-common,
          debconf,
          dpkg-dev,
          python-cliff,
