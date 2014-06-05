@@ -9,30 +9,93 @@ Description: OVS lib defer apply doesn't handle concurrency
  This fix stash reference flows list and point the flows list to a new
  cleared flows list. Then, it applies flows from the stashed flows list.
 Author: Édouard Thuleau <edouard.thuleau@cloudwatt.com>
-Origin: upstream, https://review.openstack.org/#/c/85492
+Origin: upstream, https://review.openstack.org/94250
 Date: Mon, 3 Mar 2014 17:08:33 +0000 (+0100)
-X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=dc4ce5946de0686e07eff79704be497c649734d2
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=efa4f2895f739ba191cfdd8dbe35e37fbead06c4
 Bug-Ubuntu: https://launchpad.net/bugs/1263866
-Last-Update: 2014-04-08
+Last-Update: 2014-06-05
 
---- neutron-2014.1~rc1.orig/neutron/agent/linux/ovs_lib.py
-+++ neutron-2014.1~rc1/neutron/agent/linux/ovs_lib.py
-@@ -213,9 +213,16 @@ class OVSBridge(BaseOVS):
-                 for line in flows.splitlines():
-                     LOG.debug(_('%(action)s: %(flow)s'),
-                               {'action': action, 'flow': line})
--                self.run_ofctl('%s-flows' % action, ['-'], flows)
+diff --git a/neutron/agent/linux/ovs_lib.py b/neutron/agent/linux/ovs_lib.py
+index e117223..64cf1ba 100644
+--- a/neutron/agent/linux/ovs_lib.py
++++ b/neutron/agent/linux/ovs_lib.py
+@@ -206,7 +206,14 @@ class OVSBridge(BaseOVS):
+ 
+     def defer_apply_off(self):
+         LOG.debug(_('defer_apply_off'))
+-        for action, flows in self.deferred_flows.items():
 +        # Note(ethuleau): stash flows and disable deferred mode. Then apply
 +        # flows from the stashed reference to be sure to not purge flows that
 +        # were added between two ofctl commands.
 +        stashed_deferred_flows, self.deferred_flows = (
 +            self.deferred_flows, {'add': '', 'mod': '', 'del': ''}
 +        )
-         self.defer_apply_flows = False
--        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
++        self.defer_apply_flows = False
 +        for action, flows in stashed_deferred_flows.items():
-+            if flows:
-+                self.run_ofctl('%s-flows' % action, ['-'], flows)
+             if flows:
+                 LOG.debug(_('Applying following deferred flows '
+                             'to bridge %s'), self.br_name)
+@@ -214,8 +221,6 @@ class OVSBridge(BaseOVS):
+                     LOG.debug(_('%(action)s: %(flow)s'),
+                               {'action': action, 'flow': line})
+                 self.run_ofctl('%s-flows' % action, ['-'], flows)
+-        self.defer_apply_flows = False
+-        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
  
      def add_tunnel_port(self, port_name, remote_ip, local_ip,
                          tunnel_type=p_const.TYPE_GRE,
+diff --git a/neutron/tests/unit/openvswitch/test_ovs_lib.py b/neutron/tests/unit/openvswitch/test_ovs_lib.py
+index a9c1b98..7b7d9d1 100644
+--- a/neutron/tests/unit/openvswitch/test_ovs_lib.py
++++ b/neutron/tests/unit/openvswitch/test_ovs_lib.py
+@@ -401,6 +401,50 @@ class OVS_Lib_Test(base.BaseTestCase):
+             mock.call('del-flows', ['-'], 'deleted_flow_1\n')
+         ])
+ 
++    def test_defer_apply_flows_concurrently(self):
++        flow_expr = mock.patch.object(ovs_lib, '_build_flow_expr_str').start()
++        flow_expr.side_effect = ['added_flow_1', 'deleted_flow_1',
++                                 'modified_flow_1', 'added_flow_2',
++                                 'deleted_flow_2', 'modified_flow_2']
++
++        run_ofctl = mock.patch.object(self.br, 'run_ofctl').start()
++
++        def run_ofctl_fake(cmd, args, process_input=None):
++            self.br.defer_apply_on()
++            if cmd == 'add-flows':
++                self.br.add_flow(flow='added_flow_2')
++            elif cmd == 'del-flows':
++                self.br.delete_flows(flow='deleted_flow_2')
++            elif cmd == 'mod-flows':
++                self.br.mod_flow(flow='modified_flow_2')
++        run_ofctl.side_effect = run_ofctl_fake
++
++        self.br.defer_apply_on()
++        self.br.add_flow(flow='added_flow_1')
++        self.br.delete_flows(flow='deleted_flow_1')
++        self.br.mod_flow(flow='modified_flow_1')
++        self.br.defer_apply_off()
++
++        run_ofctl.side_effect = None
++        self.br.defer_apply_off()
++
++        flow_expr.assert_has_calls([
++            mock.call({'flow': 'added_flow_1'}, 'add'),
++            mock.call({'flow': 'deleted_flow_1'}, 'del'),
++            mock.call({'flow': 'modified_flow_1'}, 'mod'),
++            mock.call({'flow': 'added_flow_2'}, 'add'),
++            mock.call({'flow': 'deleted_flow_2'}, 'del'),
++            mock.call({'flow': 'modified_flow_2'}, 'mod')
++        ])
++        run_ofctl.assert_has_calls([
++            mock.call('add-flows', ['-'], 'added_flow_1\n'),
++            mock.call('del-flows', ['-'], 'deleted_flow_1\n'),
++            mock.call('mod-flows', ['-'], 'modified_flow_1\n'),
++            mock.call('add-flows', ['-'], 'added_flow_2\n'),
++            mock.call('del-flows', ['-'], 'deleted_flow_2\n'),
++            mock.call('mod-flows', ['-'], 'modified_flow_2\n')
++        ])
++
+     def test_add_tunnel_port(self):
+         pname = "tap99"
+         local_ip = "1.1.1.1"
