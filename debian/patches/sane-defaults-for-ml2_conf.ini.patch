@@ -1,0 +1,46 @@
+Description: Sane defaults for the ML2 ml2_conf.ini
+ By default, it just doesn't work. This patch makes situation better.
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: no
+Last-Update: 2014-06-07
+
+--- neutron-2014.1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-2014.1/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -2,19 +2,19 @@
+ # (ListOpt) List of network type driver entrypoints to be loaded from
+ # the neutron.ml2.type_drivers namespace.
+ #
+-# type_drivers = local,flat,vlan,gre,vxlan
++type_drivers = gre
+ # Example: type_drivers = flat,vlan,gre,vxlan
+ 
+ # (ListOpt) Ordered list of network_types to allocate as tenant
+ # networks. The default value 'local' is useful for single-box testing
+ # but provides no connectivity between hosts.
+ #
+-# tenant_network_types = local
++tenant_network_types = gre
+ # Example: tenant_network_types = vlan,gre,vxlan
+ 
+ # (ListOpt) Ordered list of networking mechanism driver entrypoints
+ # to be loaded from the neutron.ml2.mechanism_drivers namespace.
+-# mechanism_drivers =
++mechanism_drivers = openvswitch
+ # Example: mechanism drivers = openvswitch,mlnx
+ # Example: mechanism_drivers = arista
+ # Example: mechanism_drivers = cisco,logger
+@@ -41,7 +41,7 @@
+ 
+ [ml2_type_gre]
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
+-# tunnel_id_ranges =
++tunnel_id_ranges = 1:1000
+ 
+ [ml2_type_vxlan]
+ # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
+@@ -59,4 +59,4 @@
+ [securitygroup]
+ # Controls if neutron security group is enabled or not.
+ # It should be false when you use nova security group.
+-# enable_security_group = True
++enable_security_group = True
