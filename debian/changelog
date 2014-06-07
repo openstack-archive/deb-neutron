@@ -2,6 +2,7 @@ neutron (2014.1-8) unstable; urgency=medium
 
   * Added sane-defaults-for-ml2_conf.ini.patch.
   * Added missing dbconfig-common dependency.
+  * Also patches dhcp_agent.ini and dhcp_agent.ini for sane defaults.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 07 Jun 2014 17:27:55 +0800
 

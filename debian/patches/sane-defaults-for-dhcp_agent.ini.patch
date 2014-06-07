@@ -1,0 +1,40 @@
+Description: Sane defaults for dhcp_agent.ini
+ Otherwise it doesn't work by default, which is a pitty...
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: no
+Last-Update: 2014-06-07
+
+--- neutron-2014.1.orig/etc/dhcp_agent.ini
++++ neutron-2014.1/etc/dhcp_agent.ini
+@@ -9,26 +9,21 @@
+ 
+ # The DHCP agent requires an interface driver be set. Choose the one that best
+ # matches your plugin.
+-# interface_driver =
+-
+-# Example of interface_driver option for OVS based plugins(OVS, Ryu, NEC, NVP,
+-# BigSwitch/Floodlight)
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++# Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC, NVP, BigSwitch/Floodlight): interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++# Example of interface_driver option for LinuxBridge: interface_driver = neutron.agent.linux.interface.BridgeInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Name of Open vSwitch bridge to use
+-# ovs_integration_bridge = br-int
++ovs_integration_bridge = br-int
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
+ # (e.g. RHEL 6.5) so long as ovs_use_veth is set to True.
+ # ovs_use_veth = False
+ 
+-# Example of interface_driver option for LinuxBridge
+-# interface_driver = neutron.agent.linux.interface.BridgeInterfaceDriver
+-
+ # The agent can use other DHCP drivers.  Dnsmasq is the simplest and requires
+ # no additional setup of the DHCP server.
+-# dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
++dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
+ 
+ # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
+ # iproute2 package that supports namespaces).
