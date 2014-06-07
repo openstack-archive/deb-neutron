@@ -3,6 +3,7 @@ neutron (2014.1-7) unstable; urgency=medium
   * Updates the OVS_lib_defer_apply_doesn_t_handle_concurrency.patch patch
     (Closes: #750415).
   * Now build-depends on openstack-pkg-tools (>= 12~).
+  * Added missing dbconfig-common dependency.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 05 Jun 2014 07:25:38 +0000
 
