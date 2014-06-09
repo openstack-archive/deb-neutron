@@ -1,6 +1,8 @@
 neutron (2014.1.1-1) unstable; urgency=medium
 
   * New upstream release.
+  * Removed OVS_lib_defer_apply_doesn_t_handle_concurrency.patch applied
+    upstream.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 09 Jun 2014 23:06:59 +0800
 
