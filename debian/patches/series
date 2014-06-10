@@ -4,4 +4,4 @@ better-config-default.patch
 0004-Fix-Metering-doesn-t-respect-the-l3-agent-binding.patch
 Properly_apply_column_default_in_migration_pool_monitor_status.patch
 #sane-defaults-for-ml2_conf.ini.patch
-sane-defaults-for-dhcp_agent.ini.patch
+#sane-defaults-for-dhcp_agent.ini.patch
