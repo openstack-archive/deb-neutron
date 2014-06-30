@@ -164,7 +164,6 @@ def _build_match_rule(action, target):
        action is being executed
        (e.g.: create_router:external_gateway_info:network_id)
     """
-
     match_rule = policy.RuleCheck('rule', action)
     resource, is_write = get_resource_and_action(action)
     # Attribute-based checks shall not be enforced on GETs
@@ -317,7 +316,6 @@ class FieldCheck(policy.Check):
 
 def _prepare_check(context, action, target):
     """Prepare rule, target, and credentials for the policy engine."""
-    init()
     # Compare with None to distinguish case in which target is {}
     if target is None:
         target = {}
@@ -326,7 +324,7 @@ def _prepare_check(context, action, target):
     return match_rule, target, credentials
 
 
-def check(context, action, target, plugin=None):
+def check(context, action, target, plugin=None, might_not_exist=False):
     """Verifies that the action is valid on the target in this context.
 
     :param context: neutron context
@@ -337,25 +335,14 @@ def check(context, action, target, plugin=None):
         location of the object e.g. ``{'project_id': context.project_id}``
     :param plugin: currently unused and deprecated.
         Kept for backward compatibility.
+    :param might_not_exist: If True the policy check is skipped (and the
+        function returns True) if the specified policy does not exist.
+        Defaults to false.
 
     :return: Returns True if access is permitted else False.
     """
-    return policy.check(*(_prepare_check(context, action, target)))
-
-
-def check_if_exists(context, action, target):
-    """Verify if the action can be authorized, and raise if it is unknown.
-
-    Check whether the action can be performed on the target within this
-    context, and raise a PolicyRuleNotFound exception if the action is
-    not defined in the policy engine.
-    """
-    # TODO(salvatore-orlando): Consider modifying oslo policy engine in
-    # order to allow to raise distinct exception when check fails and
-    # when policy is missing
-    # Raise if there's no match for requested action in the policy engine
-    if not policy._rules or action not in policy._rules:
-        raise exceptions.PolicyRuleNotFound(rule=action)
+    if might_not_exist and not (policy._rules and action in policy._rules):
+        return True
     return policy.check(*(_prepare_check(context, action, target)))
 
 
@@ -374,7 +361,6 @@ def enforce(context, action, target, plugin=None):
     :raises neutron.exceptions.PolicyNotAuthorized: if verification fails.
     """
 
-    init()
     rule, target, credentials = _prepare_check(context, action, target)
     result = policy.check(rule, target, credentials, action=action)
     if not result:

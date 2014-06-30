@@ -28,12 +28,12 @@ import six
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron import context
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.services.vpn.common import topics
@@ -444,7 +444,7 @@ class OpenSwanProcess(BaseSwanProcess):
         self.connection_status = {}
 
 
-class IPsecVpnDriverApi(proxy.RpcProxy):
+class IPsecVpnDriverApi(rpc_compat.RpcProxy):
     """IPSecVpnDriver RPC api."""
     IPSEC_PLUGIN_VERSION = '1.0'
 
@@ -627,7 +627,7 @@ class IPsecDriver(device_drivers.DeviceDriver):
     def update_downed_connections(self, process_id, new_status):
         """Update info to be reported, if connections just went down.
 
-        If there is no longer any information for a connection (because it
+        If there is no longer any information for a connection, because it
         has been removed (e.g. due to an admin down of VPN service or IPSec
         connection), but there was previous status information for the
         connection, mark the connection as down for reporting purposes.

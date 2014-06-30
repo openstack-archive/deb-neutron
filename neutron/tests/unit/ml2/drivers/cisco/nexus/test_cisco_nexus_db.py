@@ -76,8 +76,8 @@ class CiscoNexusDbTest(base.BaseTestCase):
         return nexus_db_v2.get_nexusvlan_binding(npb.vlan, npb.switch)
 
     def _get_nexusvm_binding(self, npb):
-        """Gets port bindings based on vlan and instance."""
-        return nexus_db_v2.get_nexusvm_binding(npb.vlan, npb.instance)
+        """Gets port binding based on vlan and instance."""
+        return nexus_db_v2.get_nexusvm_bindings(npb.vlan, npb.instance)[0]
 
     def _get_port_vlan_switch_binding(self, npb):
         """Gets port bindings based on port, vlan, and switch."""
@@ -149,7 +149,7 @@ class CiscoNexusDbTest(base.BaseTestCase):
         self._assert_bindings_match(npb, npb22)
 
         with testtools.ExpectedException(exceptions.NexusPortBindingNotFound):
-            nexus_db_v2.get_nexusvm_binding(npb21.vlan, "dummyInstance")
+            nexus_db_v2.get_nexusvm_bindings(npb21.vlan, "dummyInstance")[0]
 
     def test_nexusportvlanswitchbinding_get(self):
         """Tests get of port bindings based on port, vlan, and switch."""
@@ -180,21 +180,6 @@ class CiscoNexusDbTest(base.BaseTestCase):
 
         npb = nexus_db_v2.get_port_switch_bindings(npb21.port, "dummySwitch")
         self.assertIsNone(npb)
-
-    def test_nexussvibinding_get(self):
-        """Tests get of switch virtual interface port bindings."""
-        npbr1 = self._npb_test_obj('router', 100)
-        npb21 = self._npb_test_obj(20, 100)
-        self._add_bindings_to_db([npbr1, npb21])
-
-        npb_svi = nexus_db_v2.get_nexussvi_bindings()
-        self.assertEqual(len(npb_svi), 1)
-        self._assert_bindings_match(npb_svi[0], npbr1)
-
-        npbr2 = self._npb_test_obj('router', 200)
-        self._add_binding_to_db(npbr2)
-        npb_svi = nexus_db_v2.get_nexussvi_bindings()
-        self.assertEqual(len(npb_svi), 2)
 
     def test_nexusbinding_update(self):
         """Tests update of vlan IDs for port bindings."""

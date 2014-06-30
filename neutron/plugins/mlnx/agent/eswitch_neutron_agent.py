@@ -21,18 +21,20 @@ import sys
 import time
 
 import eventlet
+eventlet.monkey_patch()
+
 from oslo.config import cfg
 
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
 from neutron.common import constants as q_constants
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils as q_utils
 from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import common as rpc_common
 from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.mlnx.agent import utils
@@ -57,7 +59,7 @@ class EswitchManager(object):
         err_msg = _("Agent cache inconsistency - port id "
                     "is not stored for %s") % port_mac
         LOG.error(err_msg)
-        raise exceptions.MlnxException(err_msg)
+        raise exceptions.MlnxException(err_msg=err_msg)
 
     def get_vnics_mac(self):
         return set(self.utils.get_attached_vnics().keys())
@@ -74,7 +76,7 @@ class EswitchManager(object):
     def port_down(self, network_id, physical_network, port_mac):
         """Sets port to down.
 
-        Check  internal network map for port data.
+        Check internal network map for port data.
         If port exists set port to Down
         """
         for network_id, data in self.network_map.iteritems():
@@ -89,7 +91,7 @@ class EswitchManager(object):
         """Sets port to up.
 
         Update internal network map with port data.
-        -Check if vnic defined
+        - Check if vnic defined
         - configure eswitch vport
         - set port to Up
         """
@@ -202,7 +204,7 @@ class MlnxEswitchRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
                         port['mac_address'],
                         self.agent.agent_id,
                         cfg.CONF.host)
-            except rpc_common.Timeout:
+            except rpc_compat.MessagingTimeout:
                 LOG.error(_("RPC timeout while updating port %s"), port['id'])
         else:
             LOG.debug(_("No port %s defined on agent."), port['id'])
@@ -278,7 +280,8 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
 
         report_interval = cfg.CONF.AGENT.report_interval
         if report_interval:
-            heartbeat = loopingcall.LoopingCall(self._report_state)
+            heartbeat = loopingcall.FixedIntervalLoopingCall(
+                self._report_state)
             heartbeat.start(interval=report_interval)
 
     def update_ports(self, registered_ports):
@@ -416,7 +419,6 @@ class MlnxEswitchNeutronAgent(sg_rpc.SecurityGroupAgentRpcMixin):
 
 
 def main():
-    eventlet.monkey_patch()
     cfg.CONF(project='neutron')
     logging_config.setup_logging(cfg.CONF)
 

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 #    (c) Copyright 2013 Hewlett-Packard Development Company, L.P.
 #    All Rights Reserved.
 #
@@ -26,7 +24,7 @@ from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
 from neutron.common import exceptions as qexception
 from neutron.plugins.common import constants
-from neutron.services.service_base import ServicePluginBase
+from neutron.services import service_base
 
 
 class VPNServiceNotFound(qexception.NotFound):
@@ -56,7 +54,8 @@ class IPsecPolicyNotFound(qexception.NotFound):
 
 
 class IKEPolicyInUse(qexception.InUse):
-    message = _("IKEPolicy %(ikepolicy_id)s is still in use")
+    message = _("IKEPolicy %(ikepolicy_id)s is in use by existing "
+                "IPsecSiteConnection and can't be updated or deleted")
 
 
 class VPNServiceInUse(qexception.InUse):
@@ -73,7 +72,8 @@ class VPNStateInvalidToUpdate(qexception.BadRequest):
 
 
 class IPsecPolicyInUse(qexception.InUse):
-    message = _("IPsecPolicy %(ipsecpolicy_id)s is still in use")
+    message = _("IPsecPolicy %(ipsecpolicy_id)s is in use by existing "
+                "IPsecSiteConnection and can't be updated or deleted")
 
 
 class DeviceDriverImportError(qexception.NeutronException):
@@ -388,7 +388,7 @@ class Vpnaas(extensions.ExtensionDescriptor):
 
 
 @six.add_metaclass(abc.ABCMeta)
-class VPNPluginBase(ServicePluginBase):
+class VPNPluginBase(service_base.ServicePluginBase):
 
     def get_plugin_name(self):
         return constants.VPN

@@ -15,20 +15,21 @@
 # @author: Paul Michali, Cisco Systems, Inc.
 
 import abc
-from collections import namedtuple
+import collections
 import requests
 
 import netaddr
 from oslo.config import cfg
+import six
 
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
+from neutron.common import rpc_compat
 from neutron import context as ctx
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.services.vpn.common import topics
@@ -46,11 +47,17 @@ cfg.CONF.register_opts(ipsec_opts, 'cisco_csr_ipsec')
 
 LOG = logging.getLogger(__name__)
 
-RollbackStep = namedtuple('RollbackStep', ['action', 'resource_id', 'title'])
+RollbackStep = collections.namedtuple('RollbackStep',
+                                      ['action', 'resource_id', 'title'])
 
 
 class CsrResourceCreateFailure(exceptions.NeutronException):
     message = _("Cisco CSR failed to create %(resource)s (%(which)s)")
+
+
+class CsrAdminStateChangeFailure(exceptions.NeutronException):
+    message = _("Cisco CSR failed to change %(tunnel)s admin state to "
+                "%(state)s")
 
 
 class CsrDriverMismatchError(exceptions.NeutronException):
@@ -144,7 +151,7 @@ def find_available_csrs_from_config(config_files):
     return csrs_found
 
 
-class CiscoCsrIPsecVpnDriverApi(proxy.RpcProxy):
+class CiscoCsrIPsecVpnDriverApi(rpc_compat.RpcProxy):
     """RPC API for agent to plugin messaging."""
 
     def get_vpn_services_on_host(self, context, host):
@@ -166,6 +173,7 @@ class CiscoCsrIPsecVpnDriverApi(proxy.RpcProxy):
                          topic=self.topic)
 
 
+@six.add_metaclass(abc.ABCMeta)
 class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
     """Cisco CSR VPN Device Driver for IPSec.
 
@@ -179,7 +187,6 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
     #   1.0 Initial version
 
     RPC_API_VERSION = '1.0'
-    __metaclass__ = abc.ABCMeta
 
     def __init__(self, agent, host):
         self.host = host
@@ -239,36 +246,37 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
         conn_id = conn_data['id']
         conn_is_admin_up = conn_data[u'admin_state_up']
 
-        if conn_id in vpn_service.conn_state:
+        if conn_id in vpn_service.conn_state:  # Existing connection...
             ipsec_conn = vpn_service.conn_state[conn_id]
+            config_changed = ipsec_conn.check_for_changes(conn_data)
+            if config_changed:
+                LOG.debug(_("Update: Existing connection %s changed"), conn_id)
+                ipsec_conn.delete_ipsec_site_connection(context, conn_id)
+                ipsec_conn.create_ipsec_site_connection(context, conn_data)
+                ipsec_conn.conn_info = conn_data
+
             if ipsec_conn.forced_down:
                 if vpn_service.is_admin_up and conn_is_admin_up:
                     LOG.debug(_("Update: Connection %s no longer admin down"),
                               conn_id)
-                    # TODO(pcm) Do no shut on tunnel, once CSR supports
+                    ipsec_conn.set_admin_state(is_up=True)
                     ipsec_conn.forced_down = False
-                    ipsec_conn.create_ipsec_site_connection(context, conn_data)
             else:
                 if not vpn_service.is_admin_up or not conn_is_admin_up:
                     LOG.debug(_("Update: Connection %s forced to admin down"),
                               conn_id)
-                    # TODO(pcm) Do shut on tunnel, once CSR supports
+                    ipsec_conn.set_admin_state(is_up=False)
                     ipsec_conn.forced_down = True
-                    ipsec_conn.delete_ipsec_site_connection(context, conn_id)
-                else:
-                    # TODO(pcm) FUTURE handle connection update
-                    LOG.debug(_("Update: Ignoring existing connection %s"),
-                              conn_id)
         else:  # New connection...
             ipsec_conn = vpn_service.create_connection(conn_data)
+            ipsec_conn.create_ipsec_site_connection(context, conn_data)
             if not vpn_service.is_admin_up or not conn_is_admin_up:
-                # TODO(pcm) Create, but set tunnel down, once CSR supports
                 LOG.debug(_("Update: Created new connection %s in admin down "
                             "state"), conn_id)
+                ipsec_conn.set_admin_state(is_up=False)
                 ipsec_conn.forced_down = True
             else:
                 LOG.debug(_("Update: Created new connection %s"), conn_id)
-                ipsec_conn.create_ipsec_site_connection(context, conn_data)
 
         ipsec_conn.is_dirty = False
         ipsec_conn.last_status = conn_data['status']
@@ -538,12 +546,33 @@ class CiscoCsrIPSecConnection(object):
     """State and actions for IPSec site-to-site connections."""
 
     def __init__(self, conn_info, csr):
-        self.conn_id = conn_info['id']
+        self.conn_info = conn_info
         self.csr = csr
         self.steps = []
         self.forced_down = False
-        self.is_admin_up = conn_info[u'admin_state_up']
-        self.tunnel = conn_info['cisco']['site_conn_id']
+        self.changed = False
+
+    @property
+    def conn_id(self):
+        return self.conn_info['id']
+
+    @property
+    def is_admin_up(self):
+        return self.conn_info['admin_state_up']
+
+    @is_admin_up.setter
+    def is_admin_up(self, is_up):
+        self.conn_info['admin_state_up'] = is_up
+
+    @property
+    def tunnel(self):
+        return self.conn_info['cisco']['site_conn_id']
+
+    def check_for_changes(self, curr_conn):
+        return not all([self.conn_info[attr] == curr_conn[attr]
+                        for attr in ('mtu', 'psk', 'peer_address',
+                                     'peer_cidrs', 'ike_policy',
+                                     'ipsec_policy', 'cisco')])
 
     def find_current_status_in(self, statuses):
         if self.tunnel in statuses:
@@ -567,9 +596,8 @@ class CiscoCsrIPSecConnection(object):
                                   # encryption_algorithm -> encryption
                                   '3des': u'3des',
                                   'aes-128': u'aes',
-                                  # TODO(pcm) update these 2 once CSR updated
-                                  'aes-192': u'aes',
-                                  'aes-256': u'aes',
+                                  'aes-192': u'aes192',
+                                  'aes-256': u'aes256',
                                   # pfs -> dhGroup
                                   'group2': 2,
                                   'group5': 5,
@@ -584,9 +612,8 @@ class CiscoCsrIPSecConnection(object):
                                     # encryption_algorithm -> esp-encryption
                                     '3des': u'esp-3des',
                                     'aes-128': u'esp-aes',
-                                    # TODO(pcm) update these 2 once CSR updated
-                                    'aes-192': u'esp-aes',
-                                    'aes-256': u'esp-aes',
+                                    'aes-192': u'esp-192-aes',
+                                    'aes-256': u'esp-256-aes',
                                     # pfs -> pfs
                                     'group2': u'group2',
                                     'group5': u'group5',
@@ -664,8 +691,7 @@ class CiscoCsrIPSecConnection(object):
                         u'esp-authentication': auth_algorithm},
                     u'lifetime-sec': lifetime,
                     u'pfs': group,
-                    # TODO(pcm): Remove when CSR fixes 'Disable'
-                    u'anti-replay-window-size': u'64'}
+                    u'anti-replay-window-size': u'disable'}
         if transform_protocol:
             settings[u'protection-suite'][u'ah'] = transform_protocol
         return settings
@@ -685,7 +711,7 @@ class CiscoCsrIPSecConnection(object):
                 u'ip-address': u'GigabitEthernet3',
                 # TODO(pcm): FUTURE - Get IP address of router's public
                 # I/F, once CSR is used as embedded router.
-                u'tunnel-ip-address': u'172.24.4.23'
+                u'tunnel-ip-address': self.csr.tunnel_ip
                 # u'tunnel-ip-address': u'%s' % gw_ip
             },
             u'remote-device': {
@@ -824,3 +850,12 @@ class CiscoCsrIPSecConnection(object):
 
         LOG.info(_("SUCCESS: Deleted IPSec site-to-site connection %s"),
                  conn_id)
+
+    def set_admin_state(self, is_up):
+        """Change the admin state for the IPSec connection."""
+        self.csr.set_ipsec_connection_state(self.tunnel, admin_up=is_up)
+        if self.csr.status != requests.codes.NO_CONTENT:
+            state = "UP" if is_up else "DOWN"
+            LOG.error(_("Unable to change %(tunnel)s admin state to "
+                        "%(state)s"), {'tunnel': self.tunnel, 'state': state})
+            raise CsrAdminStateChangeFailure(tunnel=self.tunnel, state=state)

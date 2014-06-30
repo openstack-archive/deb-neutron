@@ -30,12 +30,6 @@ VXLAN_UDP_PORT = 4789
 VETH_INTEGRATION_PREFIX = 'int-'
 VETH_PHYSICAL_PREFIX = 'phy-'
 
-# The minimum version of OVS which supports VXLAN tunneling
-MINIMUM_OVS_VXLAN_VERSION = "1.10"
-
-# The first version of the Linux kernel with converged VXLAN code for OVS
-MINIMUM_LINUX_KERNEL_OVS_VXLAN = "3.13.0"
-
 # The different types of tunnels
 TUNNEL_NETWORK_TYPES = [p_const.TYPE_GRE, p_const.TYPE_VXLAN]
 
@@ -45,8 +39,9 @@ GRE_TUN_TO_LV = 2
 VXLAN_TUN_TO_LV = 3
 LEARN_FROM_TUN = 10
 UCAST_TO_TUN = 20
-FLOOD_TO_TUN = 21
-CANARY_TABLE = 22
+ARP_RESPONDER = 21
+FLOOD_TO_TUN = 22
+CANARY_TABLE = 23
 
 # Map tunnel types to tables number
 TUN_TABLE = {p_const.TYPE_GRE: GRE_TUN_TO_LV,
@@ -54,3 +49,6 @@ TUN_TABLE = {p_const.TYPE_GRE: GRE_TUN_TO_LV,
 
 # The default respawn interval for the ovsdb monitor
 DEFAULT_OVSDBMON_RESPAWN = 30
+
+# Special return value for an invalid OVS ofport
+INVALID_OFPORT = '-1'

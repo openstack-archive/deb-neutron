@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 OpenStack Foundation.
 # All rights reserved.
 #
@@ -15,8 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from abc import ABCMeta
-from abc import abstractmethod
+import abc
 import netaddr
 
 from oslo.config import cfg
@@ -45,6 +42,11 @@ class SecurityGroupInvalidPortValue(qexception.InvalidInput):
 class SecurityGroupInvalidIcmpValue(qexception.InvalidInput):
     message = _("Invalid value for ICMP %(field)s (%(attr)s) "
                 "%(value)s. It must be 0 to 255.")
+
+
+class SecurityGroupMissingIcmpType(qexception.InvalidInput):
+    message = _("ICMP code (port-range-max) %(value)s is provided"
+                " but ICMP type (port-range-min) is missing.")
 
 
 class SecurityGroupInUse(qexception.InUse):
@@ -308,45 +310,45 @@ class Securitygroup(extensions.ExtensionDescriptor):
             return {}
 
 
-@six.add_metaclass(ABCMeta)
+@six.add_metaclass(abc.ABCMeta)
 class SecurityGroupPluginBase(object):
 
-    @abstractmethod
+    @abc.abstractmethod
     def create_security_group(self, context, security_group):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def update_security_group(self, context, id, security_group):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def delete_security_group(self, context, id):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_security_groups(self, context, filters=None, fields=None,
                             sorts=None, limit=None, marker=None,
                             page_reverse=False):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_security_group(self, context, id, fields=None):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def create_security_group_rule(self, context, security_group_rule):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def delete_security_group_rule(self, context, id):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_security_group_rules(self, context, filters=None, fields=None,
                                  sorts=None, limit=None, marker=None,
                                  page_reverse=False):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def get_security_group_rule(self, context, id, fields=None):
         pass

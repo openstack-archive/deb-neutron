@@ -23,7 +23,7 @@ import mock
 
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
-from neutron.manager import NeutronManager
+from neutron import manager
 from neutron.openstack.common import importutils
 from neutron.plugins.plumgrid.plumgrid_plugin import plumgrid_plugin
 from neutron.tests.unit import _test_extension_portbindings as test_bindings
@@ -81,18 +81,17 @@ class TestPlumgridPluginPortsV2(test_plugin.TestPortsV2,
 
 class TestPlumgridPluginSubnetsV2(test_plugin.TestSubnetsV2,
                                   PLUMgridPluginV2TestCase):
-    def test_create_subnet_default_gw_conflict_allocation_pool_returns_409(
-            self):
-        self.skipTest("Plugin does not support Neutron allocation process")
+    _unsupported = (
+        'test_create_subnet_default_gw_conflict_allocation_pool_returns_409',
+        'test_create_subnet_defaults', 'test_create_subnet_gw_values',
+        'test_update_subnet_gateway_in_allocation_pool_returns_409',
+        'test_update_subnet_allocation_pools',
+        'test_update_subnet_allocation_pools_invalid_pool_for_cidr')
 
-    def test_create_subnet_defaults(self):
-        self.skipTest("Plugin does not support Neutron allocation process")
-
-    def test_create_subnet_gw_values(self):
-        self.skipTest("Plugin does not support Neutron allocation process")
-
-    def test_update_subnet_gateway_in_allocation_pool_returns_409(self):
-        self.skipTest("Plugin does not support Neutron allocation process")
+    def setUp(self):
+        if self._testMethodName in self._unsupported:
+            self.skipTest("Plugin does not support Neutron allocation process")
+        super(TestPlumgridPluginSubnetsV2, self).setUp()
 
 
 class TestPlumgridPluginPortBinding(PLUMgridPluginV2TestCase,
@@ -111,7 +110,7 @@ class TestPlumgridNetworkAdminState(PLUMgridPluginV2TestCase):
         network = {'network': {'name': name,
                                'admin_state_up': admin_status_up,
                                'tenant_id': tenant_id}}
-        plugin = NeutronManager.get_plugin()
+        plugin = manager.NeutronManager.get_plugin()
         self.assertEqual(plugin._network_admin_state(network), network)
 
 
@@ -125,7 +124,7 @@ class TestPlumgridAllocationPool(PLUMgridPluginV2TestCase):
         allocation_pool = [{"start": '10.0.0.2',
                             "end": '10.0.0.253'}]
         context = None
-        plugin = NeutronManager.get_plugin()
+        plugin = manager.NeutronManager.get_plugin()
         pool = plugin._allocate_pools_for_subnet(context, subnet)
         self.assertEqual(allocation_pool, pool)
 

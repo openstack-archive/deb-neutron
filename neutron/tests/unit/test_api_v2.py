@@ -25,15 +25,14 @@ from webob import exc
 import webtest
 
 from neutron.api import api_common
-from neutron.api.extensions import PluginAwareExtensionManager
+from neutron.api import extensions
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.api.v2 import base as v2_base
 from neutron.api.v2 import router
-from neutron.common import config
 from neutron.common import exceptions as n_exc
 from neutron import context
-from neutron.manager import NeutronManager
+from neutron import manager
 from neutron.openstack.common.notifier import api as notifer_api
 from neutron.openstack.common import policy as common_policy
 from neutron.openstack.common import uuidutils
@@ -44,14 +43,9 @@ from neutron.tests.unit import testlib_api
 
 
 ROOTDIR = os.path.dirname(os.path.dirname(__file__))
-ETCDIR = os.path.join(ROOTDIR, 'etc')
 EXTDIR = os.path.join(ROOTDIR, 'unit/extensions')
 
 _uuid = uuidutils.generate_uuid
-
-
-def etcdir(*p):
-    return os.path.join(ETCDIR, *p)
 
 
 def _get_path(resource, id=None, action=None, fmt=None):
@@ -100,10 +94,9 @@ class APIv2TestBase(base.BaseTestCase):
 
         plugin = 'neutron.neutron_plugin_base_v2.NeutronPluginBaseV2'
         # Ensure existing ExtensionManager is not used
-        PluginAwareExtensionManager._instance = None
+        extensions.PluginAwareExtensionManager._instance = None
         # Create the default configurations
-        args = ['--config-file', etcdir('neutron.conf.test')]
-        config.parse(args=args)
+        self.config_parse()
         # Update the plugin
         self.setup_coreplugin(plugin)
         cfg.CONF.set_override('allow_pagination', True)
@@ -113,7 +106,6 @@ class APIv2TestBase(base.BaseTestCase):
         instance = self.plugin.return_value
         instance._NeutronPluginBaseV2__native_pagination_support = True
         instance._NeutronPluginBaseV2__native_sorting_support = True
-        self.addCleanup(self._plugin_patcher.stop)
 
         api = router.APIRouter()
         self.api = webtest.TestApp(api)
@@ -1130,20 +1122,18 @@ class SubresourceTest(base.BaseTestCase):
         super(SubresourceTest, self).setUp()
 
         plugin = 'neutron.tests.unit.test_api_v2.TestSubresourcePlugin'
-        PluginAwareExtensionManager._instance = None
+        extensions.PluginAwareExtensionManager._instance = None
 
         # Save the global RESOURCE_ATTRIBUTE_MAP
         self.saved_attr_map = {}
         for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
             self.saved_attr_map[resource] = attrs.copy()
 
-        args = ['--config-file', etcdir('neutron.conf.test')]
-        config.parse(args=args)
+        self.config_parse()
         self.setup_coreplugin(plugin)
 
         self._plugin_patcher = mock.patch(plugin, autospec=True)
         self.plugin = self._plugin_patcher.start()
-        self.addCleanup(self._plugin_patcher.stop)
 
         router.SUB_RESOURCES['dummy'] = {
             'collection_name': 'dummies',
@@ -1404,7 +1394,7 @@ class ExtensionTestCase(base.BaseTestCase):
         plugin = 'neutron.neutron_plugin_base_v2.NeutronPluginBaseV2'
 
         # Ensure existing ExtensionManager is not used
-        PluginAwareExtensionManager._instance = None
+        extensions.PluginAwareExtensionManager._instance = None
 
         # Save the global RESOURCE_ATTRIBUTE_MAP
         self.saved_attr_map = {}
@@ -1412,8 +1402,7 @@ class ExtensionTestCase(base.BaseTestCase):
             self.saved_attr_map[resource] = attrs.copy()
 
         # Create the default configurations
-        args = ['--config-file', etcdir('neutron.conf.test')]
-        config.parse(args=args)
+        self.config_parse()
 
         # Update the plugin and extensions path
         self.setup_coreplugin(plugin)
@@ -1423,7 +1412,8 @@ class ExtensionTestCase(base.BaseTestCase):
         self.plugin = self._plugin_patcher.start()
 
         # Instantiate mock plugin and enable the V2attributes extension
-        NeutronManager.get_plugin().supported_extension_aliases = ["v2attrs"]
+        manager.NeutronManager.get_plugin().supported_extension_aliases = (
+            ["v2attrs"])
 
         api = router.APIRouter()
         self.api = webtest.TestApp(api)
@@ -1434,7 +1424,6 @@ class ExtensionTestCase(base.BaseTestCase):
 
     def tearDown(self):
         super(ExtensionTestCase, self).tearDown()
-        self._plugin_patcher.stop()
         self.api = None
         self.plugin = None
         # Restore the global RESOURCE_ATTRIBUTE_MAP

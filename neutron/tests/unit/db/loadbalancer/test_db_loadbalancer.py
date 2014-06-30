@@ -15,15 +15,13 @@
 
 import contextlib
 import logging
-import os
 
 import mock
 from oslo.config import cfg
 import testtools
 import webob.exc
 
-from neutron.api.extensions import ExtensionMiddleware
-from neutron.api.extensions import PluginAwareExtensionManager
+from neutron.api import extensions
 from neutron.common import config
 from neutron import context
 import neutron.db.l3_db  # noqa
@@ -35,9 +33,7 @@ from neutron.plugins.common import constants
 from neutron.services.loadbalancer import (
     plugin as loadbalancer_plugin
 )
-from neutron.services.loadbalancer.drivers import (
-    abstract_driver
-)
+from neutron.services.loadbalancer.drivers import abstract_driver
 from neutron.services import provider_configuration as pconf
 from neutron.tests.unit import test_db_plugin
 
@@ -51,16 +47,10 @@ DB_LB_PLUGIN_KLASS = (
 )
 NOOP_DRIVER_KLASS = ('neutron.tests.unit.db.loadbalancer.test_db_loadbalancer.'
                      'NoopLbaaSDriver')
-ROOTDIR = os.path.dirname(__file__) + '../../../..'
-ETCDIR = os.path.join(ROOTDIR, 'etc')
 
 extensions_path = ':'.join(neutron.extensions.__path__)
 
 _subnet_id = "0c798ed8-33ba-11e2-8b28-000c291c4d14"
-
-
-def etcdir(*p):
-    return os.path.join(ETCDIR, *p)
 
 
 class NoopLbaaSDriver(abstract_driver.LoadBalancerAbstractDriver):
@@ -156,7 +146,7 @@ class LoadBalancerTestMixin(object):
                          'protocol': protocol,
                          'admin_state_up': admin_state_up,
                          'tenant_id': self._tenant_id}}
-        for arg in ('description', 'provider'):
+        for arg in ('description', 'provider', 'subnet_id'):
             if arg in kwargs and kwargs[arg] is not None:
                 data['pool'][arg] = kwargs[arg]
         pool_req = self.new_create_request('pools', data, fmt)
@@ -331,12 +321,12 @@ class LoadBalancerPluginDbTestCase(LoadBalancerTestMixin,
 
         if not ext_mgr:
             self.plugin = loadbalancer_plugin.LoadBalancerPlugin()
-            ext_mgr = PluginAwareExtensionManager(
+            ext_mgr = extensions.PluginAwareExtensionManager(
                 extensions_path,
                 {constants.LOADBALANCER: self.plugin}
             )
             app = config.load_paste_app('extensions_test_app')
-            self.ext_api = ExtensionMiddleware(app, ext_mgr=ext_mgr)
+            self.ext_api = extensions.ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
         get_lbaas_agent_patcher = mock.patch(
             'neutron.services.loadbalancer.agent_scheduler'
@@ -974,6 +964,29 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
         with self.health_monitor() as monitor:
             for k, v in keys:
                 self.assertEqual(monitor['health_monitor'][k], v)
+
+    def test_create_health_monitor_with_timeout_delay_invalid(self):
+        data = {'health_monitor': {'type': type,
+                                   'delay': 3,
+                                   'timeout': 6,
+                                   'max_retries': 2,
+                                   'admin_state_up': True,
+                                   'tenant_id': self._tenant_id}}
+        req = self.new_create_request('health_monitors', data, self.fmt)
+        res = req.get_response(self.ext_api)
+        self.assertEqual(webob.exc.HTTPBadRequest.code, res.status_int)
+
+    def test_update_health_monitor_with_timeout_delay_invalid(self):
+        with self.health_monitor() as monitor:
+            data = {'health_monitor': {'delay': 10,
+                                       'timeout': 20,
+                                       'max_retries': 2,
+                                       'admin_state_up': False}}
+            req = self.new_update_request("health_monitors",
+                                          data,
+                                          monitor['health_monitor']['id'])
+            res = req.get_response(self.ext_api)
+            self.assertEqual(webob.exc.HTTPBadRequest.code, res.status_int)
 
     def test_update_healthmonitor(self):
         keys = [('type', "TCP"),

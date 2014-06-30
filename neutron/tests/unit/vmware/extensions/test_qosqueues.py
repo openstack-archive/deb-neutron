@@ -24,8 +24,8 @@ from neutron.plugins.vmware.dbexts import qos_db
 from neutron.plugins.vmware.extensions import qos as ext_qos
 from neutron.plugins.vmware import nsxlib
 from neutron.tests.unit import test_extensions
-from neutron.tests.unit.vmware import NSXEXT_PATH
-from neutron.tests.unit.vmware.test_nsx_plugin import NsxPluginV2TestCase
+from neutron.tests.unit import vmware
+from neutron.tests.unit.vmware import test_nsx_plugin
 
 
 class QoSTestExtensionManager(object):
@@ -40,10 +40,10 @@ class QoSTestExtensionManager(object):
         return []
 
 
-class TestQoSQueue(NsxPluginV2TestCase):
+class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
 
     def setUp(self, plugin=None):
-        cfg.CONF.set_override('api_extensions_path', NSXEXT_PATH)
+        cfg.CONF.set_override('api_extensions_path', vmware.NSXEXT_PATH)
         super(TestQoSQueue, self).setUp()
         ext_mgr = QoSTestExtensionManager()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
@@ -94,7 +94,7 @@ class TestQoSQueue(NsxPluginV2TestCase):
 
     def test_create_trusted_qos_queue(self):
         with mock.patch.object(qos_db.LOG, 'info') as log:
-            with mock.patch.object(nsxlib.queue, 'do_request',
+            with mock.patch.object(nsxlib, 'do_request',
                                    return_value={"uuid": "fake_queue"}):
                 with self.qos_queue(name='fake_lqueue', min=34, max=44,
                                     qos_marking='trusted', default=False) as q:

@@ -22,7 +22,6 @@ from alembic import script as alembic_script
 from alembic import util as alembic_util
 from oslo.config import cfg
 
-from neutron.common import legacy
 
 HEAD_FILENAME = 'HEAD'
 
@@ -46,12 +45,16 @@ _db_opts = [
     cfg.StrOpt('connection',
                deprecated_name='sql_connection',
                default='',
+               secret=True,
                help=_('URL to database')),
+    cfg.StrOpt('engine',
+               default='',
+               help=_('Database engine')),
 ]
 
 CONF = cfg.ConfigOpts()
-CONF.register_opts(_core_opts)
-CONF.register_opts(_db_opts, 'database')
+CONF.register_cli_opts(_core_opts)
+CONF.register_cli_opts(_db_opts, 'database')
 CONF.register_opts(_quota_opts, 'QUOTAS')
 
 
@@ -165,5 +168,4 @@ def main():
 
     CONF()
     #TODO(gongysh) enable logging
-    legacy.modernize_quantum_config(CONF)
     CONF.command.func(config, CONF.command.name)

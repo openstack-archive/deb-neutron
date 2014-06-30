@@ -16,7 +16,6 @@
 
 import mock
 
-from neutron.common import config as n_config
 from neutron import context
 from neutron.openstack.common import uuidutils
 from neutron.plugins.vmware.dbexts import vcns_db
@@ -24,8 +23,7 @@ from neutron.plugins.vmware.vshield.common import exceptions as vcns_exc
 from neutron.plugins.vmware.vshield import vcns_driver
 from neutron.services.loadbalancer import constants as lb_constants
 from neutron.tests.unit.db.loadbalancer import test_db_loadbalancer
-from neutron.tests.unit.vmware import get_fake_conf
-from neutron.tests.unit.vmware import VCNS_NAME
+from neutron.tests.unit import vmware
 from neutron.tests.unit.vmware.vshield import fake_vcns
 
 _uuid = uuidutils.generate_uuid
@@ -36,7 +34,7 @@ POOL_MAP_INFO = {
     'edge_id': VSE_ID,
     'pool_vseid': 'pool-1'}
 
-VCNS_CONFIG_FILE = get_fake_conf("vcns.ini.test")
+VCNS_CONFIG_FILE = vmware.get_fake_conf("vcns.ini.test")
 
 
 class VcnsDriverTestCase(test_db_loadbalancer.LoadBalancerPluginDbTestCase):
@@ -78,10 +76,10 @@ class VcnsDriverTestCase(test_db_loadbalancer.LoadBalancerPluginDbTestCase):
 
     def setUp(self):
 
-        n_config.parse(['--config-file', VCNS_CONFIG_FILE])
+        self.config_parse(args=['--config-file', VCNS_CONFIG_FILE])
         # mock vcns
         self.fc2 = fake_vcns.FakeVcns(unique_router_name=False)
-        self.mock_vcns = mock.patch(VCNS_NAME, autospec=True)
+        self.mock_vcns = mock.patch(vmware.VCNS_NAME, autospec=True)
         self.vcns_loadbalancer_patch()
 
         self.driver = vcns_driver.VcnsDriver(mock.Mock())

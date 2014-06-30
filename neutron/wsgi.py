@@ -30,7 +30,7 @@ from xml.etree import ElementTree as etree
 from xml.parsers import expat
 
 import eventlet.wsgi
-eventlet.patcher.monkey_patch(all=False, socket=True)
+eventlet.patcher.monkey_patch(all=False, socket=True, thread=True)
 from oslo.config import cfg
 import routes.middleware
 import webob.dec
@@ -39,12 +39,12 @@ import webob.exc
 from neutron.common import constants
 from neutron.common import exceptions as exception
 from neutron import context
-from neutron.openstack.common.db.sqlalchemy import session
+from neutron.db import api
 from neutron.openstack.common import excutils
 from neutron.openstack.common import gettextutils
 from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common.service import ProcessLauncher
+from neutron.openstack.common import service as common_service
 
 socket_opts = [
     cfg.IntOpt('backlog',
@@ -65,15 +65,12 @@ socket_opts = [
                 default=False,
                 help=_('Enable SSL on the API server')),
     cfg.StrOpt('ssl_ca_file',
-               default=None,
                help=_("CA certificate file to use to verify "
                       "connecting clients")),
     cfg.StrOpt('ssl_cert_file',
-               default=None,
                help=_("Certificate file to use when starting "
                       "the server securely")),
     cfg.StrOpt('ssl_key_file',
-               default=None,
                help=_("Private key file to use when starting "
                       "the server securely")),
 ]
@@ -95,7 +92,7 @@ class WorkerService(object):
         # We may have just forked from parent process.  A quick disposal of the
         # existing sql connections avoids producting 500 errors later when they
         # are discovered to be broken.
-        session.get_engine(sqlite_fk=True).pool.dispose()
+        api.get_engine().pool.dispose()
         self._server = self._service.pool.spawn(self._service._run,
                                                 self._application,
                                                 self._service._socket)
@@ -142,7 +139,9 @@ class Server(object):
                 raise RuntimeError(_("Unable to find ssl_cert_file "
                                      ": %s") % CONF.ssl_cert_file)
 
-            if not os.path.exists(CONF.ssl_key_file):
+            # ssl_key_file is optional because the key may be embedded in the
+            # certificate file
+            if CONF.ssl_key_file and not os.path.exists(CONF.ssl_key_file):
                 raise RuntimeError(_("Unable to find "
                                      "ssl_key_file : %s") % CONF.ssl_key_file)
 
@@ -214,7 +213,7 @@ class Server(object):
         else:
             # Minimize the cost of checking for child exit by extending the
             # wait interval past the default of 0.01s.
-            self._launcher = ProcessLauncher(wait_interval=1.0)
+            self._launcher = common_service.ProcessLauncher(wait_interval=1.0)
             self._server = WorkerService(self, application)
             self._launcher.launch_service(self._server, workers=workers)
 

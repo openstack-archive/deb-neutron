@@ -25,12 +25,15 @@ from neutron.api import extensions as neutron_extensions
 from neutron.api.v2 import attributes
 from neutron.common import constants as os_constants
 from neutron.common import exceptions as n_exc
+from neutron.common import utils
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
+from neutron.db import extraroute_db
 from neutron.db import l3_db
 from neutron.db import models_v2
 from neutron.db import quota_db  # noqa
+from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
@@ -45,12 +48,13 @@ from neutron import policy
 
 class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                   external_net_db.External_net_db_mixin,
+                  extraroute_db.ExtraRoute_db_mixin,
                   l3_db.L3_NAT_db_mixin,
                   netpartition.NetPartitionPluginBase):
     """Class that implements Nuage Networks' plugin functionality."""
     supported_extension_aliases = ["router", "binding", "external-net",
                                    "net-partition", "nuage-router",
-                                   "nuage-subnet", "quotas"]
+                                   "nuage-subnet", "quotas", "extraroute"]
 
     binding_view = "extension:port_binding:view"
 
@@ -304,11 +308,13 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return net
 
     def delete_network(self, context, id):
-        filter = {'network_id': [id]}
-        subnets = self.get_subnets(context, filters=filter)
-        for subnet in subnets:
-            self.delete_subnet(context, subnet['id'])
-        super(NuagePlugin, self).delete_network(context, id)
+        with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, id)
+            filter = {'network_id': [id]}
+            subnets = self.get_subnets(context, filters=filter)
+            for subnet in subnets:
+                self.delete_subnet(context, subnet['id'])
+            super(NuagePlugin, self).delete_network(context, id)
 
     def _get_net_partition_for_subnet(self, context, subnet):
         subn = subnet['subnet']
@@ -603,11 +609,77 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                             nuage_group_id=group_id)
         return neutron_router
 
+    def _validate_nuage_staticroutes(self, old_routes, added, removed):
+        cidrs = []
+        for old in old_routes:
+            if old not in removed:
+                ip = netaddr.IPNetwork(old['destination'])
+                cidrs.append(ip)
+        for route in added:
+            ip = netaddr.IPNetwork(route['destination'])
+            matching = netaddr.all_matching_cidrs(ip.ip, cidrs)
+            if matching:
+                msg = _('for same subnet, multiple static routes not allowed')
+                raise n_exc.BadRequest(resource='router', msg=msg)
+            cidrs.append(ip)
+
+    def update_router(self, context, id, router):
+        r = router['router']
+        with context.session.begin(subtransactions=True):
+            if 'routes' in r:
+                old_routes = self._get_extra_routes_by_router_id(context,
+                                                                 id)
+                added, removed = utils.diff_list_of_dict(old_routes,
+                                                         r['routes'])
+                self._validate_nuage_staticroutes(old_routes, added, removed)
+                ent_rtr_mapping = nuagedb.get_ent_rtr_mapping_by_rtrid(
+                    context.session, id)
+                if not ent_rtr_mapping:
+                    msg = (_("Router %s does not hold net-partition "
+                             "assoc on VSD. extra-route failed") % id)
+                    raise n_exc.BadRequest(resource='router', msg=msg)
+                # Let it do internal checks first and verify it.
+                router_updated = super(NuagePlugin,
+                                       self).update_router(context,
+                                                           id,
+                                                           router)
+                for route in removed:
+                    rtr_rt_mapping = nuagedb.get_router_route_mapping(
+                        context.session, id, route)
+                    if rtr_rt_mapping:
+                        self.nuageclient.delete_nuage_staticroute(
+                            rtr_rt_mapping['nuage_route_id'])
+                        nuagedb.delete_static_route(context.session,
+                                                    rtr_rt_mapping)
+                for route in added:
+                    params = {
+                        'parent_id': ent_rtr_mapping['nuage_router_id'],
+                        'net': netaddr.IPNetwork(route['destination']),
+                        'nexthop': route['nexthop']
+                    }
+                    nuage_rt_id = self.nuageclient.create_nuage_staticroute(
+                        params)
+                    nuagedb.add_static_route(context.session,
+                                             id, nuage_rt_id,
+                                             route['destination'],
+                                             route['nexthop'])
+            else:
+                router_updated = super(NuagePlugin, self).update_router(
+                    context, id, router)
+        return router_updated
+
     def delete_router(self, context, id):
         session = context.session
         ent_rtr_mapping = nuagedb.get_ent_rtr_mapping_by_rtrid(session,
                                                                id)
         if ent_rtr_mapping:
+            filters = {
+                'device_id': [id],
+                'device_owner': [os_constants.DEVICE_OWNER_ROUTER_INTF]
+            }
+            ports = self.get_ports(context, filters)
+            if ports:
+                raise l3.RouterInUse(router_id=id)
             nuage_router_id = ent_rtr_mapping['nuage_router_id']
             self.nuageclient.delete_router(nuage_router_id)
         router_zone = nuagedb.get_rtr_zone_mapping(session, id)

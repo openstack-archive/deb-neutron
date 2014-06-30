@@ -18,10 +18,15 @@
 
 """Utilities and helper functions."""
 
+import datetime
+import functools
+import hashlib
 import logging as std_logging
 import os
+import random
 import signal
 import socket
+import uuid
 
 from eventlet.green import subprocess
 from oslo.config import cfg
@@ -36,6 +41,64 @@ LOG = logging.getLogger(__name__)
 SYNCHRONIZED_PREFIX = 'neutron-'
 
 synchronized = lockutils.synchronized_with_prefix(SYNCHRONIZED_PREFIX)
+
+
+class cache_method_results(object):
+    """This decorator is intended for object methods only."""
+
+    def __init__(self, func):
+        self.func = func
+        functools.update_wrapper(self, func)
+        self._first_call = True
+        self._not_cached = object()
+
+    def _get_from_cache(self, target_self, *args, **kwargs):
+        func_name = "%(module)s.%(class)s.%(func_name)s" % {
+            'module': target_self.__module__,
+            'class': target_self.__class__.__name__,
+            'func_name': self.func.__name__,
+        }
+        key = (func_name,) + args
+        if kwargs:
+            key += dict2tuple(kwargs)
+        try:
+            item = target_self._cache.get(key, self._not_cached)
+        except TypeError:
+            LOG.debug(_("Method %(func_name)s cannot be cached due to "
+                        "unhashable parameters: args: %(args)s, kwargs: "
+                        "%(kwargs)s"),
+                      {'func_name': func_name,
+                       'args': args,
+                       'kwargs': kwargs})
+            return self.func(target_self, *args, **kwargs)
+
+        if item is self._not_cached:
+            item = self.func(target_self, *args, **kwargs)
+            target_self._cache.set(key, item, None)
+
+        return item
+
+    def __call__(self, target_self, *args, **kwargs):
+        if not hasattr(target_self, '_cache'):
+            raise NotImplementedError(
+                "Instance of class %(module)s.%(class)s must contain _cache "
+                "attribute" % {
+                    'module': target_self.__module__,
+                    'class': target_self.__class__.__name__})
+        if not target_self._cache:
+            if self._first_call:
+                LOG.debug(_("Instance of class %(module)s.%(class)s doesn't "
+                            "contain attribute _cache therefore results "
+                            "cannot be cached for %(func_name)s."),
+                          {'module': target_self.__module__,
+                           'class': target_self.__class__.__name__,
+                           'func_name': self.func.__name__})
+                self._first_call = False
+            return self.func(target_self, *args, **kwargs)
+        return self._get_from_cache(target_self, *args, **kwargs)
+
+    def __get__(self, obj, objtype):
+        return functools.partial(self.__call__, obj)
 
 
 def read_cached_file(filename, cache_info, reload_func=None):
@@ -180,6 +243,12 @@ def str2dict(string):
     return res_dict
 
 
+def dict2tuple(d):
+    items = d.items()
+    items.sort()
+    return tuple(items)
+
+
 def diff_list_of_dict(old_list, new_list):
     new_set = set([dict2str(l) for l in new_list])
     old_set = set([dict2str(l) for l in old_list])
@@ -199,3 +268,26 @@ def log_opt_values(log):
 
 def is_valid_vlan_tag(vlan):
     return q_const.MIN_VLAN_TAG <= vlan <= q_const.MAX_VLAN_TAG
+
+
+def get_random_string(length):
+    """Get a random hex string of the specified length.
+
+    based on Cinder library
+      cinder/transfer/api.py
+    """
+    rndstr = ""
+    random.seed(datetime.datetime.now().microsecond)
+    while len(rndstr) < length:
+        rndstr += hashlib.sha224(str(random.random())).hexdigest()
+
+    return rndstr[0:length]
+
+
+def get_dhcp_agent_device_id(network_id, host):
+    # Split host so as to always use only the hostname and
+    # not the domain name. This will guarantee consistentcy
+    # whether a local hostname or an fqdn is passed in.
+    local_hostname = host.split('.')[0]
+    host_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, str(local_hostname))
+    return 'dhcp%s-%s' % (host_uuid, network_id)

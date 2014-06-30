@@ -24,6 +24,7 @@ from neutron.api.v2 import attributes
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
@@ -45,7 +46,6 @@ from neutron import manager
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.linuxbridge.common import constants
@@ -162,7 +162,7 @@ class LinuxBridgeRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
             LOG.debug(_("%s can not be found in database"), device)
 
 
-class AgentNotifierApi(proxy.RpcProxy,
+class AgentNotifierApi(rpc_compat.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     '''Agent side of the linux bridge rpc API.
 
@@ -444,6 +444,7 @@ class LinuxBridgePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         session = context.session
         with session.begin(subtransactions=True):
             binding = db.get_network_binding(session, id)
+            self._process_l3_delete(context, id)
             super(LinuxBridgePluginV2, self).delete_network(context, id)
             if binding.vlan_id != constants.LOCAL_VLAN_ID:
                 db.release_network(session, binding.physical_network,

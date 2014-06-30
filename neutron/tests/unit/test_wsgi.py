@@ -47,7 +47,7 @@ class TestWSGIServer(base.BaseTestCase):
         server.stop()
         server.wait()
 
-    @mock.patch('neutron.wsgi.ProcessLauncher')
+    @mock.patch('neutron.openstack.common.service.ProcessLauncher')
     def test_start_multiple_workers(self, ProcessLauncher):
         launcher = ProcessLauncher.return_value
 
@@ -1080,6 +1080,25 @@ class TestWSGIServerWithSSL(base.BaseTestCase):
                          os.path.join(TEST_VAR_DIR, 'certificate.crt'))
         CONF.set_default("ssl_key_file",
                          os.path.join(TEST_VAR_DIR, 'privatekey.key'))
+
+        greetings = 'Hello, World!!!'
+
+        @webob.dec.wsgify
+        def hello_world(req):
+            return greetings
+
+        server = wsgi.Server("test_app")
+        server.start(hello_world, 0, host="127.0.0.1")
+
+        response = urllib2.urlopen('https://127.0.0.1:%d/' % server.port)
+        self.assertEqual(greetings, response.read())
+
+        server.stop()
+
+    def test_app_using_ssl_combined_cert_and_key(self):
+        CONF.set_default('use_ssl', True)
+        CONF.set_default("ssl_cert_file",
+                         os.path.join(TEST_VAR_DIR, 'certandkey.pem'))
 
         greetings = 'Hello, World!!!'
 

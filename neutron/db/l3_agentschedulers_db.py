@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -24,7 +22,7 @@ from sqlalchemy.orm import joinedload
 
 from neutron.common import constants
 from neutron.db import agents_db
-from neutron.db.agentschedulers_db import AgentSchedulerDbMixin
+from neutron.db import agentschedulers_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3agentscheduler
@@ -54,7 +52,7 @@ class RouterL3AgentBinding(model_base.BASEV2, models_v2.HasId):
 
 
 class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
-                              AgentSchedulerDbMixin):
+                              agentschedulers_db.AgentSchedulerDbMixin):
     """Mixin class to add l3 agent scheduler extension to plugins
     using the l3 agent for routing.
     """
@@ -99,6 +97,13 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         which leads to re-schedule or be added to another agent manually.
         """
         agent = self._get_agent(context, agent_id)
+        self._unbind_router(context, router_id, agent_id)
+        l3_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_L3)
+        if l3_notifier:
+            l3_notifier.router_removed_from_agent(
+                context, router_id, agent.host)
+
+    def _unbind_router(self, context, router_id, agent_id):
         with context.session.begin(subtransactions=True):
             query = context.session.query(RouterL3AgentBinding)
             query = query.filter(
@@ -110,10 +115,32 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 raise l3agentscheduler.RouterNotHostedByL3Agent(
                     router_id=router_id, agent_id=agent_id)
             context.session.delete(binding)
+
+    def reschedule_router(self, context, router_id, candidates=None):
+        """Reschedule router to a new l3 agent
+
+        Remove the router from the agent(s) currently hosting it and
+        schedule it again
+        """
+        cur_agents = self.list_l3_agents_hosting_router(
+            context, router_id)['agents']
+        with context.session.begin(subtransactions=True):
+            for agent in cur_agents:
+                self._unbind_router(context, router_id, agent['id'])
+
+            new_agent = self.schedule_router(context, router_id,
+                                             candidates=candidates)
+            if not new_agent:
+                raise l3agentscheduler.RouterReschedulingFailed(
+                    router_id=router_id)
+
         l3_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_L3)
         if l3_notifier:
-            l3_notifier.router_removed_from_agent(
-                context, router_id, agent.host)
+            for agent in cur_agents:
+                l3_notifier.router_removed_from_agent(
+                    context, router_id, agent['host'])
+            l3_notifier.router_added_to_agent(
+                context, [router_id], new_agent.host)
 
     def list_routers_on_l3_agent(self, context, agent_id):
         query = context.session.query(RouterL3AgentBinding.router_id)
@@ -210,7 +237,8 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
 
         return [l3_agent
                 for l3_agent in query
-                if AgentSchedulerDbMixin.is_eligible_agent(active, l3_agent)]
+                if agentschedulers_db.AgentSchedulerDbMixin.is_eligible_agent(
+                    active, l3_agent)]
 
     def get_l3_agent_candidates(self, sync_router, l3_agents):
         """Get the valid l3 agents for the router from a list of l3_agents."""
@@ -241,10 +269,10 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             return self.router_scheduler.auto_schedule_routers(
                 self, context, host, router_ids)
 
-    def schedule_router(self, context, router):
+    def schedule_router(self, context, router, candidates=None):
         if self.router_scheduler:
             return self.router_scheduler.schedule(
-                self, context, router)
+                self, context, router, candidates)
 
     def schedule_routers(self, context, routers):
         """Schedule the routers to l3 agents."""

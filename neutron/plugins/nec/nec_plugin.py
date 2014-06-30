@@ -23,6 +23,7 @@ from neutron.api.v2 import attributes as attrs
 from neutron.common import constants as const
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
@@ -41,7 +42,6 @@ from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.nec.common import config
@@ -104,7 +104,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def __init__(self):
         super(NECPluginV2, self).__init__()
-        self.ofc = ofc_manager.OFCManager(self)
+        self.ofc = ofc_manager.OFCManager(self.safe_reference)
         self.base_binding_dict = self._get_base_binding_dict()
         portbindings_base.register_port_dict_function()
 
@@ -120,7 +120,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             config.CONF.router_scheduler_driver
         )
 
-        nec_router.load_driver(self, self.ofc)
+        nec_router.load_driver(self.safe_reference, self.ofc)
         self.port_handlers = {
             'create': {
                 const.DEVICE_OWNER_ROUTER_GW: self.create_router_port,
@@ -148,7 +148,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         # NOTE: callback_sg is referred to from the sg unit test.
         self.callback_sg = SecurityGroupServerRpcCallback()
-        callbacks = [NECPluginV2RPCCallbacks(self),
+        callbacks = [NECPluginV2RPCCallbacks(self.safe_reference),
                      DhcpRpcCallback(),
                      L3RpcCallback(),
                      self.callback_sg,
@@ -373,17 +373,24 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         tenant_id = net_db['tenant_id']
         ports = self.get_ports(context, filters={'network_id': [id]})
 
-        # check if there are any tenant owned ports in-use
+        # check if there are any tenant owned ports in-use;
+        # consider ports owned by floating ips as auto_delete as if there are
+        # no other tenant owned ports, those floating ips are disassociated
+        # and will be auto deleted with self._process_l3_delete()
         only_auto_del = all(p['device_owner'] in
-                            db_base_plugin_v2.AUTO_DELETE_PORT_OWNERS
+                            db_base_plugin_v2.AUTO_DELETE_PORT_OWNERS or
+                            p['device_owner'] == const.DEVICE_OWNER_FLOATINGIP
                             for p in ports)
         if not only_auto_del:
             raise n_exc.NetworkInUse(net_id=id)
 
+        self._process_l3_delete(context, id)
+
         # Make sure auto-delete ports on OFC are deleted.
         # If an error occurs during port deletion,
         # delete_network will be aborted.
-        for port in ports:
+        for port in [p for p in ports if p['device_owner']
+                     in db_base_plugin_v2.AUTO_DELETE_PORT_OWNERS]:
             port = self.deactivate_port(context, port)
 
         # delete all packet_filters of the network from the controller
@@ -604,7 +611,6 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     "id=%(id)s port=%(port)s ."),
                   {'id': id, 'port': port})
         need_port_update_notify = False
-        changed_fixed_ips = 'fixed_ips' in port['port']
         with context.session.begin(subtransactions=True):
             old_port = super(NECPluginV2, self).get_port(context, id)
             new_port = super(NECPluginV2, self).update_port(context, id, port)
@@ -615,9 +621,6 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     self.update_address_pairs_on_port(context, id, port,
                                                       old_port,
                                                       new_port))
-            elif changed_fixed_ips:
-                self._check_fixed_ips_and_address_pairs_no_overlap(
-                    context, new_port)
             need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, old_port, new_port)
 
@@ -658,7 +661,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.notify_security_groups_member_updated(context, port)
 
 
-class NECPluginV2AgentNotifierApi(proxy.RpcProxy,
+class NECPluginV2AgentNotifierApi(rpc_compat.RpcProxy,
                                   sg_rpc.SecurityGroupAgentRpcApiMixin):
     '''RPC API for NEC plugin agent.'''
 

@@ -14,6 +14,8 @@
 #
 
 import eventlet
+eventlet.monkey_patch()
+
 import netaddr
 from oslo.config import cfg
 
@@ -25,7 +27,7 @@ from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ovs_lib  # noqa
 from neutron.agent import rpc as agent_rpc
 from neutron.common import constants as l3_constants
-from neutron.common import legacy
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils as common_utils
 from neutron import context
@@ -37,8 +39,6 @@ from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import periodic_task
 from neutron.openstack.common import processutils
-from neutron.openstack.common.rpc import common as rpc_common
-from neutron.openstack.common.rpc import proxy
 from neutron.openstack.common import service
 from neutron import service as neutron_service
 from neutron.services.firewall.agents.l3reference import firewall_l3_agent
@@ -51,7 +51,7 @@ RPC_LOOP_INTERVAL = 1
 FLOATING_IP_CIDR_SUFFIX = '/32'
 
 
-class L3PluginApi(proxy.RpcProxy):
+class L3PluginApi(rpc_compat.RpcProxy):
     """Agent side of the l3 agent RPC API.
 
     API version history:
@@ -77,9 +77,9 @@ class L3PluginApi(proxy.RpcProxy):
     def get_external_network_id(self, context):
         """Make a remote process call to retrieve the external network id.
 
-        @raise common.RemoteError: with TooManyExternalNetworks
-                                   as exc_type if there are
-                                   more than one external network
+        @raise rpc_compat.RemoteError: with TooManyExternalNetworks
+                                       as exc_type if there are
+                                       more than one external network
         """
         return self.call(context,
                          self.make_msg('get_external_network_id',
@@ -165,7 +165,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
                    help=_("TCP Port used by Neutron metadata namespace "
                           "proxy.")),
         cfg.IntOpt('send_arp_for_ha',
-                   default=0,
+                   default=3,
                    help=_("Send this many gratuitous ARPs for HA setup, if "
                           "less than or equal to 0, the feature is disabled")),
         cfg.StrOpt('router_id', default='',
@@ -207,7 +207,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             msg = _("Error importing interface driver "
                     "'%s'") % self.conf.interface_driver
             LOG.error(msg)
-            raise SystemExit(msg)
+            raise SystemExit(1)
 
         self.context = context.get_admin_context_without_session()
         self.plugin_rpc = L3PluginApi(topics.L3PLUGIN, host)
@@ -216,8 +216,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         self.removed_routers = set()
         self.sync_progress = False
 
-        self._delete_stale_namespaces = (self.conf.use_namespaces and
-                                         self.conf.router_delete_namespaces)
+        self._clean_stale_namespaces = self.conf.use_namespaces
 
         self.rpc_loop = loopingcall.FixedIntervalLoopingCall(
             self._rpc_loop)
@@ -235,17 +234,17 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         if not self.conf.interface_driver:
             msg = _('An interface driver must be specified')
             LOG.error(msg)
-            raise SystemExit(msg)
+            raise SystemExit(1)
 
         if not self.conf.use_namespaces and not self.conf.router_id:
             msg = _('Router id is required if not using namespaces.')
             LOG.error(msg)
-            raise SystemExit(msg)
+            raise SystemExit(1)
 
     def _cleanup_namespaces(self, routers):
         """Destroy stale router namespaces on host when L3 agent restarts
 
-        This routine is called when self._delete_stale_namespaces is True.
+        This routine is called when self._clean_stale_namespaces is True.
 
         The argument routers is the list of routers that are recorded in
         the database as being hosted on this node.
@@ -281,7 +280,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             except RuntimeError:
                 LOG.exception(_('Failed to destroy stale router namespace '
                                 '%s'), ns)
-        self._delete_stale_namespaces = False
+        self._clean_stale_namespaces = False
 
     def _destroy_router_namespace(self, namespace):
         ns_ip = ip_lib.IPWrapper(self.root_helper, namespace=namespace)
@@ -326,7 +325,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             self.target_ex_net_id = self.plugin_rpc.get_external_network_id(
                 self.context)
             return self.target_ex_net_id
-        except rpc_common.RemoteError as e:
+        except rpc_compat.RemoteError as e:
             with excutils.save_and_reraise_exception() as ctx:
                 if e.exc_type == 'TooManyExternalNetworks':
                     ctx.reraise = False
@@ -462,7 +461,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
         interface_name = None
         if ex_gw_port_id:
             interface_name = self.get_external_device_name(ex_gw_port_id)
-        if ex_gw_port and not ri.ex_gw_port:
+        if ex_gw_port and ex_gw_port != ri.ex_gw_port:
             self._set_subnet_info(ex_gw_port)
             self.external_gateway_added(ri, ex_gw_port,
                                         interface_name, internal_cidrs)
@@ -654,16 +653,11 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
 
         self.driver.init_l3(interface_name, [ex_gw_port['ip_cidr']],
                             namespace=ri.ns_name,
+                            gateway=ex_gw_port['subnet'].get('gateway_ip'),
+                            extra_subnets=ex_gw_port.get('extra_subnets', []),
                             preserve_ips=preserve_ips)
         ip_address = ex_gw_port['ip_cidr'].split('/')[0]
         self._send_gratuitous_arp_packet(ri, interface_name, ip_address)
-
-        gw_ip = ex_gw_port['subnet']['gateway_ip']
-        if ex_gw_port['subnet']['gateway_ip']:
-            cmd = ['route', 'add', 'default', 'gw', gw_ip]
-            ip_wrapper = ip_lib.IPWrapper(self.root_helper,
-                                          namespace=ri.ns_name)
-            ip_wrapper.netns.execute(cmd, check_exit_code=False)
 
     def external_gateway_removed(self, ri, ex_gw_port,
                                  interface_name, internal_cidrs):
@@ -864,7 +858,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             self._process_routers(routers, all_routers=True)
             self.fullsync = False
             LOG.debug(_("_sync_routers_task successfully completed"))
-        except rpc_common.RPCException:
+        except rpc_compat.RPCException:
             LOG.exception(_("Failed synchronizing routers due to RPC error"))
             self.fullsync = True
             return
@@ -874,7 +868,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
 
         # Resync is not necessary for the cleanup of stale
         # namespaces.
-        if self._delete_stale_namespaces:
+        if self._clean_stale_namespaces:
             self._cleanup_namespaces(routers)
 
     def after_start(self):
@@ -920,6 +914,7 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 'router_id': self.conf.router_id,
                 'handle_internal_only_routers':
                 self.conf.handle_internal_only_routers,
+                'external_network_bridge': self.conf.external_network_bridge,
                 'gateway_external_network_id':
                 self.conf.gateway_external_network_id,
                 'interface_driver': self.conf.interface_driver},
@@ -974,7 +969,6 @@ class L3NATAgentWithStateReport(L3NATAgent):
 
 
 def main(manager='neutron.agent.l3_agent.L3NATAgentWithStateReport'):
-    eventlet.monkey_patch()
     conf = cfg.CONF
     conf.register_opts(L3NATAgent.OPTS)
     config.register_interface_driver_opts_helper(conf)
@@ -985,7 +979,6 @@ def main(manager='neutron.agent.l3_agent.L3NATAgentWithStateReport'):
     conf.register_opts(external_process.OPTS)
     conf(project='neutron')
     config.setup_logging(conf)
-    legacy.modernize_quantum_config(conf)
     server = neutron_service.Service.create(
         binary='neutron-l3-agent',
         topic=topics.L3_AGENT,

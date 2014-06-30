@@ -22,7 +22,7 @@ from neutron.api.v2 import base
 from neutron.common import constants as n_const
 from neutron import context
 from neutron.extensions import portbindings
-from neutron.manager import NeutronManager
+from neutron import manager
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import config as ml2_config
@@ -152,6 +152,29 @@ class CiscoML2MechanismTestCase(test_db_plugin.NeutronDbPluginV2TestCase):
         config = {attr: None}
         self.mock_ncclient.configure_mock(**config)
 
+    @staticmethod
+    def _config_dependent_side_effect(match_config, exc):
+        """Generates a config-dependent side effect for ncclient edit_config.
+
+        This method generates a mock side-effect function which can be
+        configured on the mock ncclient module for the edit_config method.
+        This side effect will cause a given exception to be raised whenever
+        the XML config string that is passed to edit_config contains all
+        words in a given match config string.
+
+        :param match_config: String containing keywords to be matched
+        :param exc: Exception to be raised when match is found
+        :return: Side effect function for the mock ncclient module's
+                 edit_config method.
+
+        """
+        keywords = match_config.split()
+
+        def _side_effect_function(target, config):
+            if all(word in config for word in keywords):
+                raise exc
+        return _side_effect_function
+
     def _is_in_nexus_cfg(self, words):
         """Check if any config sent to Nexus contains all words in a list."""
         for call in (self.mock_ncclient.connect.return_value.
@@ -251,7 +274,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
 
         with mock.patch('__builtin__.hasattr',
                         new=fakehasattr):
-            plugin_obj = NeutronManager.get_plugin()
+            plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_port
             with mock.patch.object(plugin_obj,
                                    'create_port') as patched_plugin:
@@ -285,7 +308,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
             self.skipTest("Plugin does not support native bulk port create")
         ctx = context.get_admin_context()
         with self.network() as net:
-            plugin_obj = NeutronManager.get_plugin()
+            plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_port
             with mock.patch.object(plugin_obj,
                                    'create_port') as patched_plugin:
@@ -332,6 +355,35 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
 
             # Return to first segment for delete port calls.
             self.mock_bound_segment.return_value = BOUND_SEGMENT1
+
+    def test_nexus_add_trunk(self):
+        """Verify syntax to enable a vlan on an interface.
+
+        Test also verifies that the vlan interface is not created.
+
+        Test of the following ml2_conf_cisco_ini config:
+        [ml2_mech_cisco_nexus:1.1.1.1]
+        hostA=1/1
+        hostB=1/2
+        where vlan_id = 100
+
+        Confirm that for the first host configured on a Nexus interface,
+        the command string sent to the switch does not contain the
+        keyword 'add'.
+
+        Confirm that for the second host configured on a Nexus interface,
+        the command staring sent to the switch contains does not contain
+        the keyword 'name' [signifies vlan intf creation].
+
+        """
+        with self._create_resources(name='net1', cidr=CIDR_1):
+            self.assertTrue(self._is_in_last_nexus_cfg(['allowed', 'vlan']))
+            self.assertFalse(self._is_in_last_nexus_cfg(['add']))
+            with self._create_resources(name='net2',
+                                        cidr=CIDR_2, host_id=COMP_HOST_NAME_2):
+                self.assertTrue(
+                    self._is_in_last_nexus_cfg(['allowed', 'vlan']))
+                self.assertFalse(self._is_in_last_nexus_cfg(['name']))
 
     def test_nexus_connect_fail(self):
         """Test failure to connect to a Nexus switch.
@@ -418,8 +470,10 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
         with self._create_resources() as result:
             # Verify initial database entry.
             # Use port_id to verify that 1st host name was used.
-            binding = nexus_db_v2.get_nexusvm_binding(VLAN_START, DEVICE_ID_1)
-            self.assertEqual(binding.port_id, NEXUS_INTERFACE)
+            binding = nexus_db_v2.get_nexusvm_bindings(VLAN_START,
+                                                       DEVICE_ID_1)[0]
+            intf_type, nexus_port = binding.port_id.split(':')
+            self.assertEqual(nexus_port, NEXUS_INTERFACE)
 
             port = self.deserialize(self.fmt, result)
             port_id = port['port']['id']
@@ -434,7 +488,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
 
             # Verify that port entry has been deleted.
             self.assertRaises(c_exc.NexusPortBindingNotFound,
-                              nexus_db_v2.get_nexusvm_binding,
+                              nexus_db_v2.get_nexusvm_bindings,
                               VLAN_START, DEVICE_ID_1)
 
             # Trigger update event to bind segment with new host.
@@ -445,8 +499,10 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
 
             # Verify that port entry has been added using new host name.
             # Use port_id to verify that 2nd host name was used.
-            binding = nexus_db_v2.get_nexusvm_binding(VLAN_START, DEVICE_ID_1)
-            self.assertEqual(binding.port_id, NEXUS_INTERFACE_2)
+            binding = nexus_db_v2.get_nexusvm_bindings(VLAN_START,
+                                                       DEVICE_ID_1)[0]
+            intf_type, nexus_port = binding.port_id.split(':')
+            self.assertEqual(nexus_port, NEXUS_INTERFACE_2)
 
     def test_nexus_config_fail(self):
         """Test a Nexus switch configuration failure.
@@ -501,18 +557,19 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
         for the extended VLAN range).
 
         """
-        def mock_edit_config(target, config):
-            if all(word in config for word in ['state', 'active']):
-                raise ValueError
-        with self._patch_ncclient(
-            'connect.return_value.edit_config.side_effect',
-            mock_edit_config):
-            with self._create_resources() as result:
-                # Confirm that the last configuration sent to the Nexus
-                # switch was deletion of the VLAN.
-                self.assertTrue(self._is_in_last_nexus_cfg(['<no>', '<vlan>']))
-                self._assertExpectedHTTP(result.status_int,
-                                         c_exc.NexusConfigFailed)
+        vlan_state_configs = ['state active', 'no shutdown']
+        for config in vlan_state_configs:
+            with self._patch_ncclient(
+                'connect.return_value.edit_config.side_effect',
+                self._config_dependent_side_effect(config, ValueError)):
+                with self._create_resources() as result:
+                    # Confirm that the last configuration sent to the Nexus
+                    # switch was deletion of the VLAN.
+                    self.assertTrue(
+                        self._is_in_last_nexus_cfg(['<no>', '<vlan>'])
+                    )
+                    self._assertExpectedHTTP(result.status_int,
+                                             c_exc.NexusConfigFailed)
 
     def test_nexus_host_not_configured(self):
         """Test handling of a NexusComputeHostNotConfigured exception.
@@ -548,7 +605,7 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
                 return False
             return real_has_attr(item, attr)
 
-        plugin_obj = NeutronManager.get_plugin()
+        plugin_obj = manager.NeutronManager.get_plugin()
         orig = plugin_obj.create_network
         #ensures the API choose the emulation code path
         with mock.patch('__builtin__.hasattr',
@@ -570,7 +627,7 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
     def test_create_networks_bulk_native_plugin_failure(self):
         if self._skip_native_bulk:
             self.skipTest("Plugin does not support native bulk network create")
-        plugin_obj = NeutronManager.get_plugin()
+        plugin_obj = manager.NeutronManager.get_plugin()
         orig = plugin_obj.create_network
         with mock.patch.object(plugin_obj,
                                'create_network') as patched_plugin:
@@ -602,7 +659,7 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
 
         with mock.patch('__builtin__.hasattr',
                         new=fakehasattr):
-            plugin_obj = NeutronManager.get_plugin()
+            plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_subnet
             with mock.patch.object(plugin_obj,
                                    'create_subnet') as patched_plugin:
@@ -625,7 +682,7 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
     def test_create_subnets_bulk_native_plugin_failure(self):
         if self._skip_native_bulk:
             self.skipTest("Plugin does not support native bulk subnet create")
-        plugin_obj = NeutronManager.get_plugin()
+        plugin_obj = manager.NeutronManager.get_plugin()
         orig = plugin_obj.create_subnet
         with mock.patch.object(plugin_obj,
                                'create_subnet') as patched_plugin:

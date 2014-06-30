@@ -21,9 +21,10 @@ import mock
 from oslo.config import cfg
 
 from neutron.api.v2 import attributes as attr
-from neutron.common import config
 from neutron.common import constants
+from neutron.common import exceptions as n_exc
 from neutron import context
+from neutron.extensions import l3
 from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log
 from neutron.plugins.vmware.api_client import client
@@ -36,10 +37,8 @@ from neutron.plugins.vmware import nsxlib
 from neutron.plugins.vmware import plugin
 from neutron.tests import base
 from neutron.tests.unit import test_api_v2
+from neutron.tests.unit import vmware
 from neutron.tests.unit.vmware.apiclient import fake
-from neutron.tests.unit.vmware import get_fake_conf
-from neutron.tests.unit.vmware import NSXAPI_NAME
-from neutron.tests.unit.vmware import STUBS_PATH
 
 LOG = log.getLogger(__name__)
 
@@ -258,8 +257,8 @@ class SyncTestCase(base.BaseTestCase):
 
     def setUp(self):
         # mock api client
-        self.fc = fake.FakeClient(STUBS_PATH)
-        mock_api = mock.patch(NSXAPI_NAME, autospec=True)
+        self.fc = fake.FakeClient(vmware.STUBS_PATH)
+        mock_api = mock.patch(vmware.NSXAPI_NAME, autospec=True)
         # Avoid runs of the synchronizer looping call
         # These unit tests will excplicitly invoke synchronization
         patch_sync = mock.patch.object(sync, '_start_loopingcall')
@@ -283,9 +282,9 @@ class SyncTestCase(base.BaseTestCase):
             redirects=self.fake_cluster.redirects)
         # Instantiate Neutron plugin
         # and setup needed config variables
-        args = ['--config-file', get_fake_conf('neutron.conf.test'),
-                '--config-file', get_fake_conf('nsx.ini.test')]
-        config.parse(args=args)
+        args = ['--config-file', vmware.get_fake_conf('neutron.conf.test'),
+                '--config-file', vmware.get_fake_conf('nsx.ini.test')]
+        self.config_parse(args=args)
         cfg.CONF.set_override('allow_overlapping_ips', True)
         self._plugin = plugin.NsxPlugin()
         # Mock neutron manager plugin load functions to speed up tests
@@ -298,10 +297,6 @@ class SyncTestCase(base.BaseTestCase):
         mock_nm_get_service_plugins.start()
         super(SyncTestCase, self).setUp()
         self.addCleanup(self.fc.reset_all)
-        self.addCleanup(patch_sync.stop)
-        self.addCleanup(mock_api.stop)
-        self.addCleanup(mock_nm_get_plugin.stop)
-        self.addCleanup(mock_nm_get_service_plugins.stop)
 
     @contextlib.contextmanager
     def _populate_data(self, ctx, net_size=2, port_size=2, router_size=2):
@@ -559,6 +554,21 @@ class SyncTestCase(base.BaseTestCase):
                     exp_status = constants.NET_STATUS_ACTIVE
                 self.assertEqual(exp_status, q_net['status'])
 
+    def test_synchronize_network_not_found_in_db_no_raise(self):
+        ctx = context.get_admin_context()
+        with self._populate_data(ctx):
+            # Put a network down to verify synchronization
+            ls_uuid = self.fc._fake_lswitch_dict.keys()[0]
+            q_net_id = self._get_tag_dict(
+                self.fc._fake_lswitch_dict[ls_uuid]['tags'])['quantum_net_id']
+            self.fc._fake_lswitch_dict[ls_uuid]['status'] = 'false'
+            q_net_data = self._plugin._get_network(ctx, q_net_id)
+            with mock.patch.object(self._plugin,
+                                   '_get_network') as _get_network:
+                _get_network.side_effect = n_exc.NetworkNotFound(
+                    net_id=q_net_data['id'])
+                self._plugin._synchronizer.synchronize_network(ctx, q_net_data)
+
     def test_synchronize_network_on_get(self):
         cfg.CONF.set_override('always_read_status', True, 'NSX_SYNC')
         ctx = context.get_admin_context()
@@ -570,6 +580,21 @@ class SyncTestCase(base.BaseTestCase):
             self.fc._fake_lswitch_dict[ls_uuid]['status'] = 'false'
             q_net_data = self._plugin.get_network(ctx, q_net_id)
             self.assertEqual(constants.NET_STATUS_DOWN, q_net_data['status'])
+
+    def test_synchronize_port_not_found_in_db_no_raise(self):
+        ctx = context.get_admin_context()
+        with self._populate_data(ctx):
+            # Put a port down to verify synchronization
+            lp_uuid = self.fc._fake_lswitch_lport_dict.keys()[0]
+            lport = self.fc._fake_lswitch_lport_dict[lp_uuid]
+            q_port_id = self._get_tag_dict(lport['tags'])['q_port_id']
+            lport['status'] = 'true'
+            q_port_data = self._plugin._get_port(ctx, q_port_id)
+            with mock.patch.object(self._plugin,
+                                   '_get_port') as _get_port:
+                _get_port.side_effect = n_exc.PortNotFound(
+                    port_id=q_port_data['id'])
+                self._plugin._synchronizer.synchronize_port(ctx, q_port_data)
 
     def test_synchronize_port(self):
         ctx = context.get_admin_context()
@@ -602,6 +627,21 @@ class SyncTestCase(base.BaseTestCase):
             q_port_data = self._plugin.get_port(ctx, q_port_id)
             self.assertEqual(constants.PORT_STATUS_DOWN,
                              q_port_data['status'])
+
+    def test_synchronize_routernot_found_in_db_no_raise(self):
+        ctx = context.get_admin_context()
+        with self._populate_data(ctx):
+            # Put a router down to verify synchronization
+            lr_uuid = self.fc._fake_lrouter_dict.keys()[0]
+            q_rtr_id = self._get_tag_dict(
+                self.fc._fake_lrouter_dict[lr_uuid]['tags'])['q_router_id']
+            self.fc._fake_lrouter_dict[lr_uuid]['status'] = 'false'
+            q_rtr_data = self._plugin._get_router(ctx, q_rtr_id)
+            with mock.patch.object(self._plugin,
+                                   '_get_router') as _get_router:
+                _get_router.side_effect = l3.RouterNotFound(
+                    router_id=q_rtr_data['id'])
+                self._plugin._synchronizer.synchronize_router(ctx, q_rtr_data)
 
     def test_synchronize_router(self):
         ctx = context.get_admin_context()

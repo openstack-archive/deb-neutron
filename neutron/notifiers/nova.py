@@ -14,6 +14,7 @@
 #    under the License.
 
 import eventlet
+from novaclient import exceptions as nova_exceptions
 import novaclient.v1_1.client as nclient
 from novaclient.v1_1.contrib import server_external_events
 from oslo.config import cfg
@@ -48,6 +49,8 @@ class Notifier(object):
             project_id=None,
             tenant_id=cfg.CONF.nova_admin_tenant_id,
             auth_url=cfg.CONF.nova_admin_auth_url,
+            cacert=cfg.CONF.nova_ca_certificates_file,
+            insecure=cfg.CONF.nova_api_insecure,
             bypass_url=bypass_url,
             region_name=cfg.CONF.nova_region_name,
             extensions=[server_external_events])
@@ -72,7 +75,7 @@ class Notifier(object):
         If a thread is already alive and waiting, this call will simply queue
         the event and return leaving it up to the thread to send it.
 
-        :param event: the event that occured.
+        :param event: the event that occurred.
         """
         if not event:
             return
@@ -117,7 +120,7 @@ class Notifier(object):
                             returned_obj):
         """Called when a network change is made that nova cares about.
 
-        :param action: the event that occured.
+        :param action: the event that occurred.
         :param original_obj: the previous value of resource before action.
         :param returned_obj: the body returned to client as result of action.
         """
@@ -208,17 +211,19 @@ class Notifier(object):
         port._notify_event = None
 
     def send_events(self):
-        batched_events = []
-        for event in range(len(self.pending_events)):
-            batched_events.append(self.pending_events.pop())
-
-        if not batched_events:
+        if not self.pending_events:
             return
+
+        batched_events = self.pending_events
+        self.pending_events = []
 
         LOG.debug(_("Sending events: %s"), batched_events)
         try:
             response = self.nclient.server_external_events.create(
                 batched_events)
+        except nova_exceptions.NotFound:
+            LOG.warning(_("Nova returned NotFound for event: %s"),
+                        batched_events)
         except Exception:
             LOG.exception(_("Failed to notify nova on events: %s"),
                           batched_events)

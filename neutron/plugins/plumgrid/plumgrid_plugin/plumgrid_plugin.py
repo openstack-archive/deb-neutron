@@ -36,10 +36,9 @@ from neutron.extensions import portbindings
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.plugins.plumgrid.common import exceptions as plum_excep
-from neutron.plugins.plumgrid.plumgrid_plugin.plugin_ver import VERSION
+from neutron.plugins.plumgrid.plumgrid_plugin import plugin_ver
 
 LOG = logging.getLogger(__name__)
-PLUM_DRIVER = 'neutron.plugins.plumgrid.drivers.plumlib.Plumlib'
 
 director_server_opts = [
     cfg.StrOpt('director_server', default='localhost',
@@ -51,7 +50,10 @@ director_server_opts = [
     cfg.StrOpt('password', default='password', secret=True,
                help=_("PLUMgrid Director admin password")),
     cfg.IntOpt('servertimeout', default=5,
-               help=_("PLUMgrid Director server timeout")), ]
+               help=_("PLUMgrid Director server timeout")),
+    cfg.StrOpt('driver',
+               default="neutron.plugins.plumgrid.drivers.plumlib.Plumlib",
+               help=_("PLUMgrid Driver")), ]
 
 cfg.CONF.register_opts(director_server_opts, "plumgriddirector")
 
@@ -83,10 +85,11 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
         director_admin = cfg.CONF.plumgriddirector.username
         director_password = cfg.CONF.plumgriddirector.password
         timeout = cfg.CONF.plumgriddirector.servertimeout
+        plum_driver = cfg.CONF.plumgriddirector.driver
 
         # PLUMgrid Director info validation
         LOG.info(_('Neutron PLUMgrid Director: %s'), director_plumgrid)
-        self._plumlib = importutils.import_object(PLUM_DRIVER)
+        self._plumlib = importutils.import_object(plum_driver)
         self._plumlib.director_conn(director_plumgrid, director_port, timeout,
                                     director_admin, director_password)
 
@@ -157,6 +160,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
                        self).get_network(context, net_id)
 
         with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, net_id)
             # Plugin DB - Network Delete
             super(NeutronPluginPLUMgridV2, self).delete_network(context,
                                                                 net_id)
@@ -554,7 +558,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
     """
 
     def _get_plugin_version(self):
-        return VERSION
+        return plugin_ver.VERSION
 
     def _port_viftype_binding(self, context, port):
         port[portbindings.VIF_TYPE] = portbindings.VIF_TYPE_IOVISOR
@@ -566,8 +570,8 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _network_admin_state(self, network):
         if network["network"].get("admin_state_up") is False:
-            LOG.warning("Networks with admin_state_up=False are not "
-                        "supported by PLUMgrid plugin yet.")
+            LOG.warning(_("Networks with admin_state_up=False are not "
+                          "supported by PLUMgrid plugin yet."))
         return network
 
     def _allocate_pools_for_subnet(self, context, subnet):

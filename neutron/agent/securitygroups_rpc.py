@@ -28,7 +28,6 @@ SG_RPC_VERSION = "1.1"
 security_group_opts = [
     cfg.StrOpt(
         'firewall_driver',
-        default=None,
         help=_('Driver for security groups firewall in the L2 agent')),
     cfg.BoolOpt(
         'enable_security_group',
@@ -56,7 +55,8 @@ def _is_valid_driver_combination():
 
 def is_firewall_enabled():
     if not _is_valid_driver_combination():
-        LOG.warn("Driver configuration don't match with enable_security_group")
+        LOG.warn(_("Driver configuration doesn't match with "
+                   "enable_security_group"))
 
     return cfg.CONF.SECURITYGROUP.enable_security_group
 
@@ -139,8 +139,8 @@ class SecurityGroupAgentRpcMixin(object):
         firewall_driver = cfg.CONF.SECURITYGROUP.firewall_driver
         LOG.debug(_("Init firewall settings (driver=%s)"), firewall_driver)
         if not _is_valid_driver_combination():
-            LOG.warn("Driver configuration doesn't match "
-                     "with enable_security_group")
+            LOG.warn(_("Driver configuration doesn't match "
+                       "with enable_security_group"))
         if not firewall_driver:
             firewall_driver = 'neutron.agent.firewall.NoopFirewallDriver'
         self.firewall = importutils.import_object(firewall_driver)

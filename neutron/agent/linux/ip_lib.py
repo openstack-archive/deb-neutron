@@ -28,6 +28,7 @@ OPTS = [
 ]
 
 
+VETH_MAX_NAME_LENGTH = 15
 LOOPBACK_DEVNAME = 'lo'
 # NOTE(ethuleau): depend of the version of iproute2, the vlan
 # interface details vary.
@@ -192,6 +193,7 @@ class IPDevice(SubProcessBase):
         self.link = IpLinkCommand(self)
         self.addr = IpAddrCommand(self)
         self.route = IpRouteCommand(self)
+        self.neigh = IpNeighCommand(self)
 
     def __eq__(self, other):
         return (other is not None and self.name == other.name
@@ -375,6 +377,22 @@ class IpRouteCommand(IpDeviceCommandBase):
                       'dev',
                       self.name)
 
+    def list_onlink_routes(self):
+        def iterate_routes():
+            output = self._run('list', 'dev', self.name, 'scope', 'link')
+            for line in output.split('\n'):
+                line = line.strip()
+                if line and not line.count('src'):
+                    yield line
+
+        return [x for x in iterate_routes()]
+
+    def add_onlink_route(self, cidr):
+        self._as_root('replace', cidr, 'dev', self.name, 'scope', 'link')
+
+    def delete_onlink_route(self, cidr):
+        self._as_root('del', cidr, 'dev', self.name, 'scope', 'link')
+
     def get_gateway(self, scope=None, filters=None):
         if filters is None:
             filters = []
@@ -439,6 +457,30 @@ class IpRouteCommand(IpDeviceCommandBase):
                                   'dev', device)
 
 
+class IpNeighCommand(IpDeviceCommandBase):
+    COMMAND = 'neigh'
+
+    def add(self, ip_version, ip_address, mac_address):
+        self._as_root('replace',
+                      ip_address,
+                      'lladdr',
+                      mac_address,
+                      'nud',
+                      'permanent',
+                      'dev',
+                      self.name,
+                      options=[ip_version])
+
+    def delete(self, ip_version, ip_address, mac_address):
+        self._as_root('del',
+                      ip_address,
+                      'lladdr',
+                      mac_address,
+                      'dev',
+                      self.name,
+                      options=[ip_version])
+
+
 class IpNetnsCommand(IpCommandBase):
     COMMAND = 'netns'
 
@@ -480,6 +522,17 @@ def device_exists(device_name, root_helper=None, namespace=None):
     except RuntimeError:
         return False
     return bool(address)
+
+
+def ensure_device_is_ready(device_name, root_helper=None, namespace=None):
+    dev = IPDevice(device_name, root_helper, namespace)
+    try:
+        # Ensure the device is up, even if it is already up. If the device
+        # doesn't exist, a RuntimeError will be raised.
+        dev.link.set_up()
+    except RuntimeError:
+        return False
+    return True
 
 
 def iproute_arg_supported(command, arg, root_helper=None):

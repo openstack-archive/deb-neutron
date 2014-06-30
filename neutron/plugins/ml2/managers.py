@@ -65,7 +65,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
                 msg = _("No type driver for tenant network_type: %s. "
                         "Service terminated!") % network_type
                 LOG.error(msg)
-                raise SystemExit(msg)
+                raise SystemExit(1)
         LOG.info(_("Tenant network_types: %s"), self.tenant_network_types)
 
     def initialize(self):
@@ -98,6 +98,16 @@ class TypeManager(stevedore.named.NamedExtensionManager):
     def release_segment(self, session, segment):
         network_type = segment.get(api.NETWORK_TYPE)
         driver = self.drivers.get(network_type)
+        # ML2 may have been reconfigured since the segment was created,
+        # so a driver may no longer exist for this network_type.
+        # REVISIT: network_type-specific db entries may become orphaned
+        # if a network is deleted and the driver isn't available to release
+        # the segment. This may be fixed with explicit foreign-key references
+        # or consistency checks on driver initialization.
+        if not driver:
+            LOG.error(_("Failed to release segment '%s' because "
+                        "network type is not supported."), segment)
+            return
         driver.obj.release_segment(session, segment)
 
 
@@ -215,14 +225,13 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         :raises: neutron.plugins.ml2.common.MechanismDriverError
         if any mechanism driver update_network_postcommit call fails.
 
-        Called after the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propagated
-        to the caller, where an error is returned to the user. The
-        user is expected to take the appropriate action, whether by
-        retrying the call or deleting the network. There is no
-        guarantee that all mechanism drivers are called in this case.
+        Called after the database transaction. If any mechanism driver
+        raises an error, then the error is logged but we continue to
+        call every other mechanism driver. A MechanismDriverError is
+        then reraised at the end to notify the caller of a failure.
         """
-        self._call_on_drivers("update_network_postcommit", context)
+        self._call_on_drivers("update_network_postcommit", context,
+                              continue_on_failure=True)
 
     def delete_network_precommit(self, context):
         """Notify all mechanism drivers during network deletion.
@@ -301,14 +310,13 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         :raises: neutron.plugins.ml2.common.MechanismDriverError
         if any mechanism driver update_subnet_postcommit call fails.
 
-        Called after the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propagated
-        to the caller, where an error is returned to the user. The
-        user is expected to take the appropriate action, whether by
-        retrying the call or deleting the subnet. There is no
-        guarantee that all mechanism drivers are called in this case.
+        Called after the database transaction. If any mechanism driver
+        raises an error, then the error is logged but we continue to
+        call every other mechanism driver. A MechanismDriverError is
+        then reraised at the end to notify the caller of a failure.
         """
-        self._call_on_drivers("update_subnet_postcommit", context)
+        self._call_on_drivers("update_subnet_postcommit", context,
+                              continue_on_failure=True)
 
     def delete_subnet_precommit(self, context):
         """Notify all mechanism drivers during subnet deletion.
@@ -387,14 +395,13 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         :raises: neutron.plugins.ml2.common.MechanismDriverError
         if any mechanism driver update_port_postcommit call fails.
 
-        Called after the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propagated
-        to the caller, where an error is returned to the user. The
-        user is expected to take the appropriate action, whether by
-        retrying the call or deleting the port. There is no
-        guarantee that all mechanism drivers are called in this case.
+        Called after the database transaction. If any mechanism driver
+        raises an error, then the error is logged but we continue to
+        call every other mechanism driver. A MechanismDriverError is
+        then reraised at the end to notify the caller of a failure.
         """
-        self._call_on_drivers("update_port_postcommit", context)
+        self._call_on_drivers("update_port_postcommit", context,
+                              continue_on_failure=True)
 
     def delete_port_precommit(self, context):
         """Notify all mechanism drivers during port deletion.

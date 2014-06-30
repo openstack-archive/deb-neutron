@@ -14,7 +14,7 @@
 #
 # @author: Mark McClain, DreamHost
 
-from logging.config import fileConfig
+from logging import config as logging_config
 
 from alembic import context
 from sqlalchemy import create_engine, pool
@@ -32,7 +32,7 @@ neutron_config = config.neutron_config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-fileConfig(config.config_file_name)
+logging_config.fileConfig(config.config_file_name)
 
 plugin_class_path = neutron_config.core_plugin
 active_plugins = [plugin_class_path]
@@ -48,16 +48,19 @@ target_metadata = model_base.BASEV2.metadata
 def run_migrations_offline():
     """Run migrations in 'offline' mode.
 
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
+    This configures the context with either a URL
+    or an Engine.
 
     Calls to context.execute() here emit the given string to the
     script output.
 
     """
-    context.configure(url=neutron_config.database.connection)
+    kwargs = dict()
+    if neutron_config.database.connection:
+        kwargs['url'] = neutron_config.database.connection
+    else:
+        kwargs['dialect_name'] = neutron_config.database.engine
+    context.configure(**kwargs)
 
     with context.begin_transaction():
         context.run_migrations(active_plugins=active_plugins,

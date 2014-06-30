@@ -23,10 +23,9 @@ from neutron.openstack.common import log as logging
 from neutron.plugins.vmware.common import utils
 from neutron.plugins.vmware.vshield.common import (
     constants as vcns_const)
-from neutron.plugins.vmware.vshield.common.constants import RouterStatus
+from neutron.plugins.vmware.vshield.common import constants as common_constants
 from neutron.plugins.vmware.vshield.common import exceptions
-from neutron.plugins.vmware.vshield.tasks.constants import TaskState
-from neutron.plugins.vmware.vshield.tasks.constants import TaskStatus
+from neutron.plugins.vmware.vshield.tasks import constants
 from neutron.plugins.vmware.vshield.tasks import tasks
 
 LOG = logging.getLogger(__name__)
@@ -114,11 +113,11 @@ class EdgeApplianceDriver(object):
 
     def _edge_status_to_level(self, status):
         if status == 'GREEN':
-            status_level = RouterStatus.ROUTER_STATUS_ACTIVE
+            status_level = common_constants.RouterStatus.ROUTER_STATUS_ACTIVE
         elif status in ('GREY', 'YELLOW'):
-            status_level = RouterStatus.ROUTER_STATUS_DOWN
+            status_level = common_constants.RouterStatus.ROUTER_STATUS_DOWN
         else:
-            status_level = RouterStatus.ROUTER_STATUS_ERROR
+            status_level = common_constants.RouterStatus.ROUTER_STATUS_ERROR
         return status_level
 
     def _enable_loadbalancer(self, edge):
@@ -137,12 +136,13 @@ class EdgeApplianceDriver(object):
         except exceptions.VcnsApiException as e:
             LOG.exception(_("VCNS: Failed to get edge status:\n%s"),
                           e.response)
-            status_level = RouterStatus.ROUTER_STATUS_ERROR
+            status_level = common_constants.RouterStatus.ROUTER_STATUS_ERROR
             try:
                 desc = jsonutils.loads(e.response)
                 if desc.get('errorCode') == (
                     vcns_const.VCNS_ERROR_CODE_EDGE_NOT_RUNNING):
-                    status_level = RouterStatus.ROUTER_STATUS_DOWN
+                    status_level = (
+                        common_constants.RouterStatus.ROUTER_STATUS_DOWN)
             except ValueError:
                 LOG.exception(e.response)
 
@@ -165,17 +165,17 @@ class EdgeApplianceDriver(object):
         try:
             self.vcns.update_interface(edge_id, config)
         except exceptions.VcnsApiException as e:
-            LOG.exception(_("VCNS: Failed to update vnic %(config)s:\n"
-                            "%(response)s"), {
-                                'config': config,
-                                'response': e.response})
-            raise e
-        except Exception as e:
-            LOG.exception(_("VCNS: Failed to update vnic %d"),
-                          config['index'])
-            raise e
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: Failed to update vnic %(config)s:\n"
+                                "%(response)s"), {
+                                    'config': config,
+                                    'response': e.response})
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: Failed to update vnic %d"),
+                              config['index'])
 
-        return TaskStatus.COMPLETED
+        return constants.TaskStatus.COMPLETED
 
     def update_interface(self, router_id, edge_id, index, network,
                          address=None, netmask=None, secondary=None,
@@ -220,11 +220,11 @@ class EdgeApplianceDriver(object):
             edge_id = response['edgeId']
             LOG.debug(_("VCNS: deploying edge %s"), edge_id)
             userdata['edge_id'] = edge_id
-            status = TaskStatus.PENDING
-        except exceptions.VcnsApiException as e:
-            LOG.exception(_("VCNS: deploy edge failed for router %s."),
-                          name)
-            raise e
+            status = constants.TaskStatus.PENDING
+        except exceptions.VcnsApiException:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: deploy edge failed for router %s."),
+                              name)
 
         return status
 
@@ -235,15 +235,15 @@ class EdgeApplianceDriver(object):
             task.userdata['retries'] = 0
             system_status = response.get('systemStatus', None)
             if system_status is None:
-                status = TaskStatus.PENDING
+                status = constants.TaskStatus.PENDING
             elif system_status == 'good':
-                status = TaskStatus.COMPLETED
+                status = constants.TaskStatus.COMPLETED
             else:
-                status = TaskStatus.ERROR
-        except exceptions.VcnsApiException as e:
-            LOG.exception(_("VCNS: Edge %s status query failed."), edge_id)
-            raise e
-        except Exception as e:
+                status = constants.TaskStatus.ERROR
+        except exceptions.VcnsApiException:
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: Edge %s status query failed."), edge_id)
+        except Exception:
             retries = task.userdata.get('retries', 0) + 1
             if retries < 3:
                 task.userdata['retries'] = retries
@@ -252,19 +252,19 @@ class EdgeApplianceDriver(object):
                             'edge_id': edge_id,
                             'retries': retries}
                 LOG.exception(msg)
-                status = TaskStatus.PENDING
+                status = constants.TaskStatus.PENDING
             else:
                 msg = _("VCNS: Unable to retrieve edge %s status. "
                         "Abort.") % edge_id
                 LOG.exception(msg)
-                status = TaskStatus.ERROR
+                status = constants.TaskStatus.ERROR
         LOG.debug(_("VCNS: Edge %s status"), edge_id)
         return status
 
     def _result_edge(self, task):
         router_name = task.userdata['router_name']
         edge_id = task.userdata.get('edge_id')
-        if task.status != TaskStatus.COMPLETED:
+        if task.status != constants.TaskStatus.COMPLETED:
             LOG.error(_("VCNS: Failed to deploy edge %(edge_id)s "
                         "for %(name)s, status %(status)d"), {
                             'edge_id': edge_id,
@@ -280,7 +280,7 @@ class EdgeApplianceDriver(object):
     def _delete_edge(self, task):
         edge_id = task.userdata['edge_id']
         LOG.debug(_("VCNS: start destroying edge %s"), edge_id)
-        status = TaskStatus.COMPLETED
+        status = constants.TaskStatus.COMPLETED
         if edge_id:
             try:
                 self.vcns.delete_edge(edge_id)
@@ -291,10 +291,10 @@ class EdgeApplianceDriver(object):
                         "%(response)s") % {
                             'edge_id': edge_id, 'response': e.response}
                 LOG.exception(msg)
-                status = TaskStatus.ERROR
+                status = constants.TaskStatus.ERROR
             except Exception:
                 LOG.exception(_("VCNS: Failed to delete %s"), edge_id)
-                status = TaskStatus.ERROR
+                status = constants.TaskStatus.ERROR
 
         return status
 
@@ -302,8 +302,8 @@ class EdgeApplianceDriver(object):
         try:
             return self.vcns.get_edges()[1]
         except exceptions.VcnsApiException as e:
-            LOG.exception(_("VCNS: Failed to get edges:\n%s"), e.response)
-            raise e
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: Failed to get edges:\n%s"), e.response)
 
     def deploy_edge(self, router_id, name, internal_network, jobdata=None,
                     wait_for_exec=False, loadbalancer_enable=True):
@@ -346,8 +346,8 @@ class EdgeApplianceDriver(object):
         self.task_manager.add(task)
 
         if wait_for_exec:
-            # waitl until the deploy task is executed so edge_id is available
-            task.wait(TaskState.EXECUTED)
+            # wait until the deploy task is executed so edge_id is available
+            task.wait(constants.TaskState.EXECUTED)
 
         return task
 
@@ -380,9 +380,9 @@ class EdgeApplianceDriver(object):
         try:
             return self.vcns.get_nat_config(edge_id)[1]
         except exceptions.VcnsApiException as e:
-            LOG.exception(_("VCNS: Failed to get nat config:\n%s"),
-                          e.response)
-            raise e
+            with excutils.save_and_reraise_exception():
+                LOG.exception(_("VCNS: Failed to get nat config:\n%s"),
+                              e.response)
 
     def _create_nat_rule(self, task):
         # TODO(fank): use POST for optimization
@@ -402,11 +402,11 @@ class EdgeApplianceDriver(object):
 
         try:
             self.vcns.update_nat_config(edge_id, nat)
-            status = TaskStatus.COMPLETED
+            status = constants.TaskStatus.COMPLETED
         except exceptions.VcnsApiException as e:
             LOG.exception(_("VCNS: Failed to create snat rule:\n%s"),
                           e.response)
-            status = TaskStatus.ERROR
+            status = constants.TaskStatus.ERROR
 
         return status
 
@@ -439,7 +439,7 @@ class EdgeApplianceDriver(object):
             'type': addrtype, 'addr': address})
         nat = self.get_nat_config(edge_id)
         del nat['version']
-        status = TaskStatus.COMPLETED
+        status = constants.TaskStatus.COMPLETED
         for nat_rule in nat['rules']['natRulesDtos']:
             if nat_rule[addrtype] == address:
                 rule_id = nat_rule['ruleId']
@@ -448,7 +448,7 @@ class EdgeApplianceDriver(object):
                 except exceptions.VcnsApiException as e:
                     LOG.exception(_("VCNS: Failed to delete snat rule:\n"
                                     "%s"), e.response)
-                    status = TaskStatus.ERROR
+                    status = constants.TaskStatus.ERROR
 
         return status
 
@@ -513,7 +513,7 @@ class EdgeApplianceDriver(object):
         if task != self.updated_task['nat'][edge_id]:
             # this task does not have the latest config, abort now
             # for speedup
-            return TaskStatus.ABORT
+            return constants.TaskStatus.ABORT
 
         rules = task.userdata['rules']
         LOG.debug(_("VCNS: start updating nat rules: %s"), rules)
@@ -527,11 +527,11 @@ class EdgeApplianceDriver(object):
 
         try:
             self.vcns.update_nat_config(edge_id, nat)
-            status = TaskStatus.COMPLETED
+            status = constants.TaskStatus.COMPLETED
         except exceptions.VcnsApiException as e:
             LOG.exception(_("VCNS: Failed to create snat rule:\n%s"),
                           e.response)
-            status = TaskStatus.ERROR
+            status = constants.TaskStatus.ERROR
 
         return status
 
@@ -572,7 +572,7 @@ class EdgeApplianceDriver(object):
             task.userdata.get('skippable', True)):
             # this task does not have the latest config, abort now
             # for speedup
-            return TaskStatus.ABORT
+            return constants.TaskStatus.ABORT
         gateway = task.userdata['gateway']
         routes = task.userdata['routes']
         LOG.debug(_("VCNS: start updating routes for %s"), edge_id)
@@ -597,11 +597,11 @@ class EdgeApplianceDriver(object):
             }
         try:
             self.vcns.update_routes(edge_id, request)
-            status = TaskStatus.COMPLETED
+            status = constants.TaskStatus.COMPLETED
         except exceptions.VcnsApiException as e:
             LOG.exception(_("VCNS: Failed to update routes:\n%s"),
                           e.response)
-            status = TaskStatus.ERROR
+            status = constants.TaskStatus.ERROR
 
         return status
 

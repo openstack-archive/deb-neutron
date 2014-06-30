@@ -28,6 +28,7 @@ from neutron.db.vpn import vpn_db
 from neutron.extensions import firewall as fw_ext
 from neutron.extensions import l3
 from neutron.extensions import routedserviceinsertion as rsi
+from neutron.extensions import vpnaas as vpn_ext
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as service_constants
@@ -43,10 +44,8 @@ from neutron.plugins.vmware.nsxlib import router as routerlib
 from neutron.plugins.vmware.nsxlib import switch as switchlib
 from neutron.plugins.vmware.plugins import base
 from neutron.plugins.vmware.vshield.common import constants as vcns_const
-from neutron.plugins.vmware.vshield.common.constants import RouterStatus
 from neutron.plugins.vmware.vshield.common import exceptions
-from neutron.plugins.vmware.vshield.tasks.constants import TaskState
-from neutron.plugins.vmware.vshield.tasks.constants import TaskStatus
+from neutron.plugins.vmware.vshield.tasks import constants as tasks_const
 from neutron.plugins.vmware.vshield import vcns_driver
 from sqlalchemy.orm import exc as sa_exc
 
@@ -64,15 +63,15 @@ ROUTER_STATUS = [
 ]
 
 ROUTER_STATUS_LEVEL = {
-    service_constants.ACTIVE: RouterStatus.ROUTER_STATUS_ACTIVE,
-    service_constants.DOWN: RouterStatus.ROUTER_STATUS_DOWN,
+    service_constants.ACTIVE: vcns_const.RouterStatus.ROUTER_STATUS_ACTIVE,
+    service_constants.DOWN: vcns_const.RouterStatus.ROUTER_STATUS_DOWN,
     service_constants.PENDING_CREATE: (
-        RouterStatus.ROUTER_STATUS_PENDING_CREATE
+        vcns_const.RouterStatus.ROUTER_STATUS_PENDING_CREATE
     ),
     service_constants.PENDING_DELETE: (
-        RouterStatus.ROUTER_STATUS_PENDING_DELETE
+        vcns_const.RouterStatus.ROUTER_STATUS_PENDING_DELETE
     ),
-    service_constants.ERROR: RouterStatus.ROUTER_STATUS_ERROR
+    service_constants.ERROR: vcns_const.RouterStatus.ROUTER_STATUS_ERROR
 }
 
 
@@ -111,7 +110,7 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
 
         # cache router type based on router id
         self._router_type = {}
-        self.callbacks = VcnsCallbacks(self)
+        self.callbacks = VcnsCallbacks(self.safe_reference)
 
         # load the vCNS driver
         self._load_vcns_drivers()
@@ -310,7 +309,7 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             self.vcns_driver.external_network,
             addr, mask, secondary=secondary)
         if sync:
-            task.wait(TaskState.RESULT)
+            task.wait(tasks_const.TaskState.RESULT)
 
     def _update_router_gw_info(self, context, router_id, info):
         if not self._is_advanced_service_router(context, router_id):
@@ -500,12 +499,35 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
         lrouter['status'] = service_constants.PENDING_CREATE
         return lrouter
 
+    def check_router_in_use(self, context, router_id):
+        router_filter = {'router_id': [router_id]}
+        vpnservices = self.get_vpnservices(
+            context, filters={'router_id': [router_id]})
+        if vpnservices:
+            raise vpn_ext.RouterInUseByVPNService(
+                router_id=router_id,
+                vpnservice_id=vpnservices[0]['id'])
+        vips = self.get_vips(
+            context, filters=router_filter)
+        if vips:
+            raise nsx_exc.RouterInUseByLBService(
+                router_id=router_id,
+                vip_id=vips[0]['id'])
+        firewalls = self.get_firewalls(
+            context, filters=router_filter)
+        if firewalls:
+            raise nsx_exc.RouterInUseByFWService(
+                router_id=router_id,
+                firewall_id=firewalls[0]['id'])
+
     def _delete_lrouter(self, context, router_id, nsx_router_id):
         binding = vcns_db.get_vcns_router_binding(context.session, router_id)
         if not binding:
             super(NsxAdvancedPlugin, self)._delete_lrouter(
                 context, router_id, nsx_router_id)
         else:
+            #Check whether router has an advanced service inserted.
+            self.check_router_in_use(context, router_id)
             vcns_db.update_vcns_router_binding(
                 context.session, router_id,
                 status=service_constants.PENDING_DELETE)
@@ -576,11 +598,11 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             lrouter = routerlib.get_lrouter(self.cluster, id)
             lr_status = lrouter["_relations"]["LogicalRouterStatus"]
             if lr_status["fabric_status"]:
-                nsx_status = RouterStatus.ROUTER_STATUS_ACTIVE
+                nsx_status = vcns_const.RouterStatus.ROUTER_STATUS_ACTIVE
             else:
-                nsx_status = RouterStatus.ROUTER_STATUS_DOWN
+                nsx_status = vcns_const.RouterStatus.ROUTER_STATUS_DOWN
         except n_exc.NotFound:
-            nsx_status = RouterStatus.ROUTER_STATUS_ERROR
+            nsx_status = vcns_const.RouterStatus.ROUTER_STATUS_ERROR
 
         return nsx_status
 
@@ -606,11 +628,11 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             if (nsx_lrouter["_relations"]["LogicalRouterStatus"]
                 ["fabric_status"]):
                 nsx_status[nsx_lrouter['uuid']] = (
-                    RouterStatus.ROUTER_STATUS_ACTIVE
+                    vcns_const.RouterStatus.ROUTER_STATUS_ACTIVE
                 )
             else:
                 nsx_status[nsx_lrouter['uuid']] = (
-                    RouterStatus.ROUTER_STATUS_DOWN
+                    vcns_const.RouterStatus.ROUTER_STATUS_DOWN
                 )
 
         return nsx_status
@@ -685,7 +707,8 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             if router_type == ROUTER_TYPE_ADVANCED:
                 vse_status_level = vse_status_all.get(router['id'])
                 if vse_status_level is None:
-                    vse_status_level = RouterStatus.ROUTER_STATUS_ERROR
+                    vse_status_level = (
+                        vcns_const.RouterStatus.ROUTER_STATUS_ERROR)
                 if vse_status_level > ROUTER_STATUS_LEVEL[router['status']]:
                     router['status'] = ROUTER_STATUS[vse_status_level]
 
@@ -753,20 +776,25 @@ class NsxAdvancedPlugin(sr_db.ServiceRouter_mixin,
             self._update_nat_rules(context, router)
 
     def disassociate_floatingips(self, context, port_id):
+        routers = set()
+
         try:
             fip_qry = context.session.query(l3_db.FloatingIP)
-            fip_db = fip_qry.filter_by(fixed_port_id=port_id).one()
-            router_id = fip_db.router_id
+            fip_dbs = fip_qry.filter_by(fixed_port_id=port_id)
+            for fip_db in fip_dbs:
+                routers.add(fip_db.router_id)
         except sa_exc.NoResultFound:
-            router_id = None
+            pass
         super(NsxAdvancedPlugin, self).disassociate_floatingips(context,
                                                                 port_id)
-        if router_id and self._is_advanced_service_router(context, router_id):
-            router = self._get_router(context, router_id)
-            # TODO(fank): do rollback on error, or have a dedicated thread
-            # do sync work (rollback, re-configure, or make router down)
-            self._update_interface(context, router)
-            self._update_nat_rules(context, router)
+
+        for router_id in routers:
+            if self._is_advanced_service_router(context, router_id):
+                router = self._get_router(context, router_id)
+                # TODO(fank): do rollback on error, or have a dedicated thread
+                # do sync work (rollback, re-configure, or make router down)
+                self._update_interface(context, router)
+                self._update_nat_rules(context, router)
 
     #
     # FWaaS plugin implementation
@@ -1724,7 +1752,7 @@ class VcnsCallbacks(object):
             # Router might have been deleted before deploy finished
             LOG.exception(_("Router %s not found"), lrouter['uuid'])
 
-        if task.status == TaskStatus.COMPLETED:
+        if task.status == tasks_const.TaskStatus.COMPLETED:
             LOG.debug(_("Successfully deployed %(edge_id)s for "
                         "router %(name)s"), {
                             'edge_id': task.userdata['edge_id'],
@@ -1752,7 +1780,7 @@ class VcnsCallbacks(object):
         jobdata = task.userdata['jobdata']
         router_id = task.userdata['router_id']
         context = jobdata['context']
-        if task.status == TaskStatus.COMPLETED:
+        if task.status == tasks_const.TaskStatus.COMPLETED:
             vcns_db.delete_vcns_router_binding(context.session,
                                                router_id)
 
@@ -1791,7 +1819,3 @@ def _process_base_create_lswitch_args(*args, **kwargs):
     if kwargs.get("tags"):
         tags.extend(kwargs["tags"])
     return switch_name, tz_config, tags
-
-
-# For backward compatibility
-NvpAdvancedPlugin = NsxAdvancedPlugin

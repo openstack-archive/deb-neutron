@@ -148,7 +148,6 @@ class TestSubProcessBase(base.BaseTestCase):
         super(TestSubProcessBase, self).setUp()
         self.execute_p = mock.patch('neutron.agent.linux.utils.execute')
         self.execute = self.execute_p.start()
-        self.addCleanup(self.execute_p.stop)
 
     def test_execute_wrapper(self):
         ip_lib.SubProcessBase._execute('o', 'link', ('list',), 'sudo')
@@ -200,7 +199,6 @@ class TestIpWrapper(base.BaseTestCase):
         super(TestIpWrapper, self).setUp()
         self.execute_p = mock.patch.object(ip_lib.IPWrapper, '_execute')
         self.execute = self.execute_p.start()
-        self.addCleanup(self.execute_p.stop)
 
     def test_get_devices(self):
         self.execute.return_value = '\n'.join(LINK_SAMPLE)
@@ -791,3 +789,32 @@ class TestDeviceExists(base.BaseTestCase):
             _execute.return_value = ''
             _execute.side_effect = RuntimeError
             self.assertFalse(ip_lib.device_exists('eth0'))
+
+    def test_ensure_device_is_ready(self):
+        ip_lib_mock = mock.Mock()
+        with mock.patch.object(ip_lib, 'IPDevice', return_value=ip_lib_mock):
+            self.assertTrue(ip_lib.ensure_device_is_ready("eth0"))
+            self.assertTrue(ip_lib_mock.link.set_up.called)
+            ip_lib_mock.reset_mock()
+            # device doesn't exists
+            ip_lib_mock.link.set_up.side_effect = RuntimeError
+            self.assertFalse(ip_lib.ensure_device_is_ready("eth0"))
+
+
+class TestIpNeighCommand(TestIPCmdBase):
+    def setUp(self):
+        super(TestIpNeighCommand, self).setUp()
+        self.parent.name = 'tap0'
+        self.command = 'neigh'
+        self.neigh_cmd = ip_lib.IpNeighCommand(self.parent)
+
+    def test_add_entry(self):
+        self.neigh_cmd.add(4, '192.168.45.100', 'cc:dd:ee:ff:ab:cd')
+        self._assert_sudo([4], ('replace', '192.168.45.100', 'lladdr',
+                                'cc:dd:ee:ff:ab:cd', 'nud', 'permanent',
+                                'dev', 'tap0'))
+
+    def test_delete_entry(self):
+        self.neigh_cmd.delete(4, '192.168.45.100', 'cc:dd:ee:ff:ab:cd')
+        self._assert_sudo([4], ('del', '192.168.45.100', 'lladdr',
+                                'cc:dd:ee:ff:ab:cd', 'dev', 'tap0'))

@@ -20,7 +20,7 @@ import random
 
 import six
 from sqlalchemy.orm import exc
-from sqlalchemy.sql import exists
+from sqlalchemy import sql
 
 from neutron.common import constants
 from neutron.db import agents_db
@@ -36,7 +36,7 @@ LOG = logging.getLogger(__name__)
 class L3Scheduler(object):
 
     @abc.abstractmethod
-    def schedule(self, plugin, context, router_id):
+    def schedule(self, plugin, context, router_id, candidates=None):
         """Schedule the router to an active L3 agent.
 
         Schedule the router only if it is not already scheduled.
@@ -58,7 +58,7 @@ class L3Scheduler(object):
             query = query.filter(agents_db.Agent.agent_type ==
                                  constants.AGENT_TYPE_L3,
                                  agents_db.Agent.host == host,
-                                 agents_db.Agent.admin_state_up == True)
+                                 agents_db.Agent.admin_state_up == sql.true())
             try:
                 l3_agent = query.one()
             except (exc.MultipleResultsFound, exc.NoResultFound):
@@ -87,7 +87,7 @@ class L3Scheduler(object):
             else:
                 # get all routers that are not hosted
                 #TODO(gongysh) consider the disabled agent's router
-                stmt = ~exists().where(
+                stmt = ~sql.exists().where(
                     l3_db.Router.id ==
                     l3_agentschedulers_db.RouterL3AgentBinding.router_id)
                 unscheduled_router_ids = [router_id_[0] for router_id_ in
@@ -161,10 +161,11 @@ class L3Scheduler(object):
 class ChanceScheduler(L3Scheduler):
     """Randomly allocate an L3 agent for a router."""
 
-    def schedule(self, plugin, context, router_id):
+    def schedule(self, plugin, context, router_id, candidates=None):
         with context.session.begin(subtransactions=True):
             sync_router = plugin.get_router(context, router_id)
-            candidates = self.get_candidates(plugin, context, sync_router)
+            candidates = candidates or self.get_candidates(
+                plugin, context, sync_router)
             if not candidates:
                 return
 
@@ -176,10 +177,11 @@ class ChanceScheduler(L3Scheduler):
 class LeastRoutersScheduler(L3Scheduler):
     """Allocate to an L3 agent with the least number of routers bound."""
 
-    def schedule(self, plugin, context, router_id):
+    def schedule(self, plugin, context, router_id, candidates=None):
         with context.session.begin(subtransactions=True):
             sync_router = plugin.get_router(context, router_id)
-            candidates = self.get_candidates(plugin, context, sync_router)
+            candidates = candidates or self.get_candidates(
+                plugin, context, sync_router)
             if not candidates:
                 return
 

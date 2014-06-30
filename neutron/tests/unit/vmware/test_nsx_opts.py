@@ -18,8 +18,7 @@ import fixtures
 import mock
 from oslo.config import cfg
 
-from neutron.common import config as q_config
-from neutron.manager import NeutronManager
+from neutron import manager
 from neutron.openstack.common import uuidutils
 from neutron.plugins.vmware.api_client import client
 from neutron.plugins.vmware.api_client import version
@@ -29,15 +28,14 @@ from neutron.plugins.vmware.common import sync
 from neutron.plugins.vmware import nsx_cluster
 from neutron.plugins.vmware.nsxlib import lsn as lsnlib
 from neutron.tests import base
-from neutron.tests.unit.vmware import get_fake_conf
-from neutron.tests.unit.vmware import PLUGIN_NAME
+from neutron.tests.unit import vmware
 
-BASE_CONF_PATH = get_fake_conf('neutron.conf.test')
-NSX_INI_PATH = get_fake_conf('nsx.ini.basic.test')
-NSX_INI_FULL_PATH = get_fake_conf('nsx.ini.full.test')
-NSX_INI_AGENTLESS_PATH = get_fake_conf('nsx.ini.agentless.test')
-NSX_INI_COMBINED_PATH = get_fake_conf('nsx.ini.combined.test')
-NVP_INI_DEPR_PATH = get_fake_conf('nvp.ini.full.test')
+BASE_CONF_PATH = vmware.get_fake_conf('neutron.conf.test')
+NSX_INI_PATH = vmware.get_fake_conf('nsx.ini.basic.test')
+NSX_INI_FULL_PATH = vmware.get_fake_conf('nsx.ini.full.test')
+NSX_INI_AGENTLESS_PATH = vmware.get_fake_conf('nsx.ini.agentless.test')
+NSX_INI_COMBINED_PATH = vmware.get_fake_conf('nsx.ini.combined.test')
+NVP_INI_DEPR_PATH = vmware.get_fake_conf('nvp.ini.full.test')
 
 
 class NSXClusterTest(base.BaseTestCase):
@@ -83,7 +81,6 @@ class ConfigurationTest(base.BaseTestCase):
         # Avoid runs of the synchronizer looping call
         patch_sync = mock.patch.object(sync, '_start_loopingcall')
         patch_sync.start()
-        self.addCleanup(patch_sync.stop)
 
     def _assert_required_options(self, cluster):
         self.assertEqual(cluster.nsx_controllers, ['fake_1:443', 'fake_2:443'])
@@ -101,19 +98,19 @@ class ConfigurationTest(base.BaseTestCase):
         self.assertEqual('whatever', cluster.default_interface_name)
 
     def test_load_plugin_with_full_options(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_FULL_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
-        plugin = NeutronManager().get_plugin()
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_FULL_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
+        plugin = manager.NeutronManager().get_plugin()
         cluster = plugin.cluster
         self._assert_required_options(cluster)
         self._assert_extra_options(cluster)
 
     def test_load_plugin_with_required_options_only(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
-        plugin = NeutronManager().get_plugin()
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
+        plugin = manager.NeutronManager().get_plugin()
         self._assert_required_options(plugin.cluster)
 
     def test_defaults(self):
@@ -128,7 +125,7 @@ class ConfigurationTest(base.BaseTestCase):
         self.assertEqual('admin', cfg.CONF.nsx_user)
         self.assertEqual('admin', cfg.CONF.nsx_password)
         self.assertEqual(30, cfg.CONF.req_timeout)
-        self.assertEqual(10, cfg.CONF.http_timeout)
+        self.assertEqual(30, cfg.CONF.http_timeout)
         self.assertEqual(2, cfg.CONF.retries)
         self.assertEqual(2, cfg.CONF.redirects)
         self.assertIsNone(cfg.CONF.nsx_controllers)
@@ -137,17 +134,17 @@ class ConfigurationTest(base.BaseTestCase):
         self.assertEqual('breth0', cfg.CONF.default_interface_name)
 
     def test_load_api_extensions(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_FULL_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_FULL_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         # Load the configuration, and initialize the plugin
-        NeutronManager().get_plugin()
+        manager.NeutronManager().get_plugin()
         self.assertIn('extensions', cfg.CONF.api_extensions_path)
 
     def test_agentless_extensions(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_AGENTLESS_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         self.assertEqual(config.AgentModes.AGENTLESS,
                          cfg.CONF.NSX.agent_mode)
         # The version returned from NSX does not really matter here
@@ -157,7 +154,7 @@ class ConfigurationTest(base.BaseTestCase):
             with mock.patch.object(lsnlib,
                                    'service_cluster_exists',
                                    return_value=True):
-                plugin = NeutronManager().get_plugin()
+                plugin = manager.NeutronManager().get_plugin()
                 self.assertNotIn('agent',
                                  plugin.supported_extension_aliases)
                 self.assertNotIn('dhcp_agent_scheduler',
@@ -166,20 +163,21 @@ class ConfigurationTest(base.BaseTestCase):
                                  plugin.supported_extension_aliases)
 
     def test_agentless_extensions_version_fail(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_AGENTLESS_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         self.assertEqual(config.AgentModes.AGENTLESS,
                          cfg.CONF.NSX.agent_mode)
         with mock.patch.object(client.NsxApiClient,
                                'get_version',
                                return_value=version.Version("3.2")):
-            self.assertRaises(exceptions.NsxPluginException, NeutronManager)
+            self.assertRaises(exceptions.NsxPluginException,
+                              manager.NeutronManager)
 
     def test_agentless_extensions_unmet_deps_fail(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_AGENTLESS_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_AGENTLESS_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         self.assertEqual(config.AgentModes.AGENTLESS,
                          cfg.CONF.NSX.agent_mode)
         with mock.patch.object(client.NsxApiClient,
@@ -189,24 +187,24 @@ class ConfigurationTest(base.BaseTestCase):
                                    'service_cluster_exists',
                                    return_value=False):
                 self.assertRaises(exceptions.NsxPluginException,
-                                  NeutronManager)
+                                  manager.NeutronManager)
 
     def test_agent_extensions(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_FULL_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_FULL_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         self.assertEqual(config.AgentModes.AGENT,
                          cfg.CONF.NSX.agent_mode)
-        plugin = NeutronManager().get_plugin()
+        plugin = manager.NeutronManager().get_plugin()
         self.assertIn('agent',
                       plugin.supported_extension_aliases)
         self.assertIn('dhcp_agent_scheduler',
                       plugin.supported_extension_aliases)
 
     def test_combined_extensions(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NSX_INI_COMBINED_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NSX_INI_COMBINED_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
         self.assertEqual(config.AgentModes.COMBINED,
                          cfg.CONF.NSX.agent_mode)
         with mock.patch.object(client.NsxApiClient,
@@ -215,7 +213,7 @@ class ConfigurationTest(base.BaseTestCase):
             with mock.patch.object(lsnlib,
                                    'service_cluster_exists',
                                    return_value=True):
-                plugin = NeutronManager().get_plugin()
+                plugin = manager.NeutronManager().get_plugin()
                 self.assertIn('agent',
                               plugin.supported_extension_aliases)
                 self.assertIn('dhcp_agent_scheduler',
@@ -234,7 +232,6 @@ class OldNVPConfigurationTest(base.BaseTestCase):
         # Avoid runs of the synchronizer looping call
         patch_sync = mock.patch.object(sync, '_start_loopingcall')
         patch_sync.start()
-        self.addCleanup(patch_sync.stop)
 
     def _assert_required_options(self, cluster):
         self.assertEqual(cluster.nsx_controllers, ['fake_1:443', 'fake_2:443'])
@@ -243,10 +240,10 @@ class OldNVPConfigurationTest(base.BaseTestCase):
         self.assertEqual(cluster.default_tz_uuid, 'fake_tz_uuid')
 
     def test_load_plugin_with_deprecated_options(self):
-        q_config.parse(['--config-file', BASE_CONF_PATH,
-                        '--config-file', NVP_INI_DEPR_PATH])
-        cfg.CONF.set_override('core_plugin', PLUGIN_NAME)
-        plugin = NeutronManager().get_plugin()
+        self.config_parse(args=['--config-file', BASE_CONF_PATH,
+                                '--config-file', NVP_INI_DEPR_PATH])
+        cfg.CONF.set_override('core_plugin', vmware.PLUGIN_NAME)
+        plugin = manager.NeutronManager().get_plugin()
         cluster = plugin.cluster
         # Verify old nvp_* params have been fully parsed
         self._assert_required_options(cluster)

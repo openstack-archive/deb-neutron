@@ -17,7 +17,7 @@
 # @author: Mark McClain, DreamHost
 
 import itertools
-from six.moves import xrange
+from six import moves
 
 from neutron.agent.linux import utils
 from neutron.plugins.common import constants as qconstants
@@ -199,7 +199,8 @@ def _get_session_persistence(config):
     if persistence['type'] == constants.SESSION_PERSISTENCE_SOURCE_IP:
         opts.append('stick-table type ip size 10k')
         opts.append('stick on src')
-    elif persistence['type'] == constants.SESSION_PERSISTENCE_HTTP_COOKIE:
+    elif (persistence['type'] == constants.SESSION_PERSISTENCE_HTTP_COOKIE and
+          config.get('members')):
         opts.append('cookie SRV insert indirect nocache')
     elif (persistence['type'] == constants.SESSION_PERSISTENCE_APP_COOKIE and
           persistence.get('cookie_name')):
@@ -230,7 +231,7 @@ def _expand_expected_codes(codes):
             continue
         elif '-' in code:
             low, hi = code.split('-')[:2]
-            retval.update(str(i) for i in xrange(int(low), int(hi) + 1))
+            retval.update(str(i) for i in moves.xrange(int(low), int(hi) + 1))
         else:
             retval.add(code)
     return retval

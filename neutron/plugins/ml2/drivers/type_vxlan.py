@@ -37,7 +37,7 @@ vxlan_opts = [
                 help=_("Comma-separated list of <vni_min>:<vni_max> tuples "
                        "enumerating ranges of VXLAN VNI IDs that are "
                        "available for tenant network allocation")),
-    cfg.StrOpt('vxlan_group', default=None,
+    cfg.StrOpt('vxlan_group',
                help=_("Multicast group for VXLAN. If unset, disables VXLAN "
                       "multicast mode.")),
 ]
@@ -153,7 +153,7 @@ class VxlanTypeDriver(type_tunnel.TunnelTypeDriver):
         session = db_api.get_session()
         with session.begin(subtransactions=True):
             # remove from table unallocated tunnels not currently allocatable
-            allocs = session.query(VxlanAllocation)
+            allocs = session.query(VxlanAllocation).with_lockmode("update")
             for alloc in allocs:
                 try:
                     # see if tunnel is allocatable

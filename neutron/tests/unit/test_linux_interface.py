@@ -22,7 +22,7 @@ from neutron.agent.linux import dhcp
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
-from neutron.extensions.flavor import (FLAVOR_NETWORK)
+from neutron.extensions import flavor
 from neutron.openstack.common import uuidutils
 from neutron.tests import base
 
@@ -65,13 +65,10 @@ class TestBase(base.BaseTestCase):
         config.register_root_helper(self.conf)
         self.ip_dev_p = mock.patch.object(ip_lib, 'IPDevice')
         self.ip_dev = self.ip_dev_p.start()
-        self.addCleanup(self.ip_dev_p.stop)
         self.ip_p = mock.patch.object(ip_lib, 'IPWrapper')
         self.ip = self.ip_p.start()
-        self.addCleanup(self.ip_p.stop)
         self.device_exists_p = mock.patch.object(ip_lib, 'device_exists')
         self.device_exists = self.device_exists_p.start()
-        self.addCleanup(self.device_exists_p.stop)
 
 
 class TestABCDriver(TestBase):
@@ -84,15 +81,32 @@ class TestABCDriver(TestBase):
         addresses = [dict(ip_version=4, scope='global',
                           dynamic=False, cidr='172.16.77.240/24')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        self.ip_dev().route.list_onlink_routes.return_value = []
+
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns,
+                   extra_subnets=[{'cidr': '172.20.0.0/24'}])
+        self.ip_dev.assert_has_calls(
+            [mock.call('tap0', 'sudo', namespace=ns),
+             mock.call().addr.list(scope='global', filters=['permanent']),
+             mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255'),
+             mock.call().addr.delete(4, '172.16.77.240/24'),
+             mock.call().route.list_onlink_routes(),
+             mock.call().route.add_onlink_route('172.20.0.0/24')])
+
+    def test_l3_init_delete_onlink_routes(self):
+        addresses = [dict(ip_version=4, scope='global',
+                          dynamic=False, cidr='172.16.77.240/24')]
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        self.ip_dev().route.list_onlink_routes.return_value = ['172.20.0.0/24']
 
         bc = BaseChild(self.conf)
         ns = '12345678-1234-5678-90ab-ba0987654321'
         bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns)
         self.ip_dev.assert_has_calls(
-            [mock.call('tap0', 'sudo', namespace=ns),
-             mock.call().addr.list(scope='global', filters=['permanent']),
-             mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255'),
-             mock.call().addr.delete(4, '172.16.77.240/24')])
+            [mock.call().route.list_onlink_routes(),
+             mock.call().route.delete_onlink_route('172.20.0.0/24')])
 
     def test_l3_init_with_preserve(self):
         addresses = [dict(ip_version=4, scope='global',
@@ -108,6 +122,46 @@ class TestABCDriver(TestBase):
              mock.call().addr.list(scope='global', filters=['permanent']),
              mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255')])
         self.assertFalse(self.ip_dev().addr.delete.called)
+
+    def test_l3_init_with_ipv6(self):
+        addresses = [dict(ip_version=6,
+                          scope='global',
+                          dynamic=False,
+                          cidr='2001:db8:a::123/64')]
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0', ['2001:db8:a::124/64'], namespace=ns)
+        self.ip_dev.assert_has_calls(
+            [mock.call('tap0', 'sudo', namespace=ns),
+             mock.call().addr.list(scope='global', filters=['permanent']),
+             mock.call().addr.add(6, '2001:db8:a::124/64',
+                                  '2001:db8:a:0:ffff:ffff:ffff:ffff'),
+             mock.call().addr.delete(6, '2001:db8:a::123/64')])
+
+    def test_l3_init_with_duplicated_ipv6(self):
+        addresses = [dict(ip_version=6,
+                          scope='global',
+                          dynamic=False,
+                          cidr='2001:db8:a::123/64')]
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0', ['2001:db8:a::123/64'], namespace=ns)
+        self.assertFalse(self.ip_dev().addr.add.called)
+
+    def test_l3_init_with_duplicated_ipv6_uncompact(self):
+        addresses = [dict(ip_version=6,
+                          scope='global',
+                          dynamic=False,
+                          cidr='2001:db8:a::123/64')]
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0',
+                   ['2001:db8:a:0000:0000:0000:0000:0123/64'],
+                   namespace=ns)
+        self.assertFalse(self.ip_dev().addr.add.called)
 
 
 class TestOVSInterfaceDriver(TestBase):
@@ -364,7 +418,7 @@ class TestBridgeInterfaceDriver(TestBase):
         with mock.patch('neutron.agent.linux.interface.LOG.debug') as log:
             br = interface.BridgeInterfaceDriver(self.conf)
             br.unplug('tap0')
-            log.assert_called_once()
+            self.assertEqual(log.call_count, 1)
 
         self.ip_dev.assert_has_calls([mock.call('tap0', 'sudo', None),
                                       mock.call().link.delete()])
@@ -377,11 +431,10 @@ class TestMetaInterfaceDriver(TestBase):
         self.conf.register_opts(dhcp.OPTS)
         self.client_cls_p = mock.patch('neutronclient.v2_0.client.Client')
         client_cls = self.client_cls_p.start()
-        self.addCleanup(self.client_cls_p.stop)
         self.client_inst = mock.Mock()
         client_cls.return_value = self.client_inst
 
-        fake_network = {'network': {FLAVOR_NETWORK: 'fake1'}}
+        fake_network = {'network': {flavor.FLAVOR_NETWORK: 'fake1'}}
         fake_port = {'ports':
                      [{'mac_address':
                       'aa:bb:cc:dd:ee:ffa', 'network_id': 'test'}]}
@@ -519,8 +572,6 @@ class TestMidonetInterfaceDriver(TestBase):
         self.conf = config.setup_conf()
         self.conf.register_opts(interface.OPTS)
         config.register_root_helper(self.conf)
-        self.device_exists_p = mock.patch.object(ip_lib, 'device_exists')
-        self.device_exists = self.device_exists_p.start()
         self.driver = interface.MidonetInterfaceDriver(self.conf)
         self.network_id = uuidutils.generate_uuid()
         self.port_id = uuidutils.generate_uuid()

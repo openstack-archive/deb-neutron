@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 OpenStack Foundation.
 # All rights reserved.
 #
@@ -15,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from abc import abstractmethod
+import abc
 
 from neutron.api import extensions
 from neutron.api.v2 import base
@@ -137,18 +135,18 @@ class DhcpAgentSchedulerPluginBase(object):
     All of method must be in an admin context.
     """
 
-    @abstractmethod
+    @abc.abstractmethod
     def add_network_to_dhcp_agent(self, context, id, network_id):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def remove_network_from_dhcp_agent(self, context, id, network_id):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def list_networks_on_dhcp_agent(self, context, id):
         pass
 
-    @abstractmethod
+    @abc.abstractmethod
     def list_dhcp_agents_hosting_network(self, context, network_id):
         pass

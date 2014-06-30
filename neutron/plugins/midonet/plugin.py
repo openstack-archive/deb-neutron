@@ -516,7 +516,9 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         LOG.debug(_("MidonetPluginV2.delete_network called: id=%r"), id)
         self.client.delete_bridge(id)
         try:
-            super(MidonetPluginV2, self).delete_network(context, id)
+            with context.session.begin(subtransactions=True):
+                self._process_l3_delete(context, id)
+                super(MidonetPluginV2, self).delete_network(context, id)
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_('Failed to delete neutron db, while Midonet '
@@ -755,8 +757,7 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     self._update_router_gw_info(context, router_db['id'],
                                                 gw_info)
 
-            router_data = self._make_router_dict(router_db,
-                                                 process_extensions=False)
+            router_data = self._make_router_dict(router_db)
 
         except Exception:
             # Try removing the midonet router
@@ -1110,8 +1111,9 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """Disassociate floating IPs (if any) from this port."""
         try:
             fip_qry = context.session.query(l3_db.FloatingIP)
-            fip_db = fip_qry.filter_by(fixed_port_id=port_id).one()
-            self._remove_nat_rules(context, fip_db)
+            fip_dbs = fip_qry.filter_by(fixed_port_id=port_id)
+            for fip_db in fip_dbs:
+                self._remove_nat_rules(context, fip_db)
         except sa_exc.NoResultFound:
             pass
 

@@ -24,6 +24,7 @@ from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.common import constants as q_const
 from neutron.common import exceptions as nexception
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
@@ -71,7 +72,7 @@ class NVSDPluginRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return port
 
 
-class NVSDPluginV2AgentNotifierApi(rpc.proxy.RpcProxy,
+class NVSDPluginV2AgentNotifierApi(rpc_compat.RpcProxy,
                                    sg_rpc.SecurityGroupAgentRpcApiMixin):
 
     BASE_RPC_API_VERSION = '1.0'
@@ -84,9 +85,8 @@ class NVSDPluginV2AgentNotifierApi(rpc.proxy.RpcProxy,
 
     def port_update(self, context, port):
         self.fanout_cast(context,
-                         self.make_msg('port_update',
-                                       port=port,
-                                       topic=self.topic_port_update))
+                         self.make_msg('port_update', port=port),
+                         topic=self.topic_port_update)
 
 
 class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
@@ -221,6 +221,7 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             #get all the subnets under the network to delete them
             subnets = self._get_subnets_by_network(context, net_id)
 
+            self._process_l3_delete(context, net_id)
             super(OneConvergencePluginV2, self).delete_network(context,
                                                                net_id)
 

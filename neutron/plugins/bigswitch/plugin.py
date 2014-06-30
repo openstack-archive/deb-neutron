@@ -58,6 +58,7 @@ from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.common import constants as const
 from neutron.common import exceptions
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils
 from neutron import context as qcontext
@@ -88,7 +89,7 @@ from neutron.plugins.bigswitch.db import porttracker_db
 from neutron.plugins.bigswitch import extensions
 from neutron.plugins.bigswitch import routerrule_db
 from neutron.plugins.bigswitch import servermanager
-from neutron.plugins.bigswitch.version import version_string_with_vcs
+from neutron.plugins.bigswitch import version
 
 LOG = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ SYNTAX_ERROR_MESSAGE = _('Syntax error in server config file, aborting plugin')
 METADATA_SERVER_IP = '169.254.169.254'
 
 
-class AgentNotifierApi(rpc.proxy.RpcProxy,
+class AgentNotifierApi(rpc_compat.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
 
     BASE_RPC_API_VERSION = '1.1'
@@ -474,7 +475,7 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
     def __init__(self, server_timeout=None):
         super(NeutronRestProxyV2, self).__init__()
         LOG.info(_('NeutronRestProxy: Starting plugin. Version=%s'),
-                 version_string_with_vcs())
+                 version.version_string_with_vcs())
         pl_config.register_config()
         self.evpool = eventlet.GreenPool(cfg.CONF.RESTPROXY.thread_pool_size)
 
@@ -615,18 +616,8 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
 
         # Validate args
         orig_net = super(NeutronRestProxyV2, self).get_network(context, net_id)
-
-        filter = {'network_id': [net_id]}
-        ports = self.get_ports(context, filters=filter)
-
-        # check if there are any tenant owned ports in-use
-        auto_delete_port_owners = db_base_plugin_v2.AUTO_DELETE_PORT_OWNERS
-        only_auto_del = all(p['device_owner'] in auto_delete_port_owners
-                            for p in ports)
-
-        if not only_auto_del:
-            raise exceptions.NetworkInUse(net_id=net_id)
         with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, net_id)
             ret_val = super(NeutronRestProxyV2, self).delete_network(context,
                                                                      net_id)
             self._send_delete_network(orig_net, context)
@@ -664,8 +655,12 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         with context.session.begin(subtransactions=True):
             self._ensure_default_security_group_on_port(context, port)
             sgids = self._get_security_groups_on_port(context, port)
-            # set port status to pending. updated after rest call completes
-            port['port']['status'] = const.PORT_STATUS_BUILD
+            # non-router port status is set to pending. it is then updated
+            # after the async rest call completes. router ports are synchronous
+            if port['port']['device_owner'] == l3_db.DEVICE_OWNER_ROUTER_INTF:
+                port['port']['status'] = const.PORT_STATUS_ACTIVE
+            else:
+                port['port']['status'] = const.PORT_STATUS_BUILD
             dhcp_opts = port['port'].get(edo_ext.EXTRADHCPOPTS, [])
             new_port = super(NeutronRestProxyV2, self).create_port(context,
                                                                    port)
@@ -691,8 +686,15 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
 
         # create on network ctrl
         mapped_port = self._map_state_and_status(new_port)
-        self.evpool.spawn_n(self.async_port_create, net["tenant_id"],
-                            new_port["network_id"], mapped_port)
+        # ports have to be created synchronously when creating a router
+        # port since adding router interfaces is a multi-call process
+        if mapped_port['device_owner'] == l3_db.DEVICE_OWNER_ROUTER_INTF:
+            self.servers.rest_create_port(net["tenant_id"],
+                                          new_port["network_id"],
+                                          mapped_port)
+        else:
+            self.evpool.spawn_n(self.async_port_create, net["tenant_id"],
+                                new_port["network_id"], mapped_port)
         self.notify_security_groups_member_updated(context, new_port)
         return new_port
 
@@ -753,9 +755,6 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
                 ctrl_update_required |= (
                     self.update_address_pairs_on_port(context, port_id, port,
                                                       orig_port, new_port))
-            if 'fixed_ips' in port['port']:
-                self._check_fixed_ips_and_address_pairs_no_overlap(
-                    context, new_port)
             self._update_extra_dhcp_opts_on_port(context, port_id, port,
                                                  new_port)
             old_host_id = porttracker_db.get_port_hostid(context,
@@ -1080,6 +1079,18 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         super(NeutronRestProxyV2, self).disassociate_floatingips(context,
                                                                  port_id)
         self._send_floatingip_update(context)
+
+    # overriding method from l3_db as original method calls
+    # self.delete_floatingip() which in turn calls self.delete_port() which
+    # is locked with 'bsn-port-barrier'
+    def delete_disassociated_floatingips(self, context, network_id):
+        query = self._model_query(context, l3_db.FloatingIP)
+        query = query.filter_by(floating_network_id=network_id,
+                                fixed_port_id=None,
+                                router_id=None)
+        for fip in query:
+            context.session.delete(fip)
+            self._delete_port(context.elevated(), fip['floating_port_id'])
 
     def _send_floatingip_update(self, context):
         try:

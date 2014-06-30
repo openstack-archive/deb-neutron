@@ -16,10 +16,8 @@ import sqlalchemy as sa
 
 from sqlalchemy import orm
 from sqlalchemy.orm import exc as sa_orm_exc
-from webob import exc as web_exc
 
 from neutron.api.v2 import attributes
-from neutron.api.v2 import base
 from neutron.common import exceptions
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -71,7 +69,7 @@ class GatewayConnectionInUse(exceptions.InUse):
                 "network gateway '%(gateway_id)s'.")
 
 
-class MultipleGatewayConnections(exceptions.NeutronException):
+class MultipleGatewayConnections(exceptions.Conflict):
     message = _("Multiple network connections found on '%(gateway_id)s' "
                 "with provided criteria.")
 
@@ -84,13 +82,6 @@ class GatewayConnectionNotFound(exceptions.NotFound):
 class NetworkGatewayUnchangeable(exceptions.InUse):
     message = _("The network gateway %(gateway_id)s "
                 "cannot be updated or deleted")
-
-# Add exceptions to HTTP Faults mappings
-base.FAULT_MAP.update({GatewayInUse: web_exc.HTTPConflict,
-                       NetworkGatewayPortInUse: web_exc.HTTPConflict,
-                       GatewayConnectionInUse: web_exc.HTTPConflict,
-                       GatewayConnectionNotFound: web_exc.HTTPNotFound,
-                       MultipleGatewayConnections: web_exc.HTTPConflict})
 
 
 class NetworkConnection(model_base.BASEV2, models_v2.HasTenant):
@@ -259,9 +250,12 @@ class NetworkGatewayMixin(networkgw.NetworkGatewayPluginBase):
                 tenant_id=tenant_id,
                 name=gw_data.get('name'))
             # Device list is guaranteed to be a valid list
-            # TODO(salv-orlando): Enforce that gateway device identifiers
-            # in this list are among the tenant's NSX network gateway devices
-            # to avoid risk a tenant 'guessing' other tenant's network devices
+            device_query = self._query_gateway_devices(
+                context, filters={'id': [device['id']
+                                         for device in gw_data['devices']]})
+            for device in device_query:
+                if device['tenant_id'] != tenant_id:
+                    raise GatewayDeviceNotFound(device_id=device['id'])
             gw_db.devices.extend([NetworkGatewayDeviceReference(**device)
                                   for device in gw_data['devices']])
             context.session.add(gw_db)
@@ -402,7 +396,7 @@ class NetworkGatewayMixin(networkgw.NetworkGatewayPluginBase):
                 raise MultipleGatewayConnections(
                     gateway_id=network_gateway_id)
             # Remove gateway port from network
-            # FIXME(salvatore-orlando): Ensure state of port in NVP is
+            # FIXME(salvatore-orlando): Ensure state of port in NSX is
             # consistent with outcome of transaction
             self.delete_port(context, net_connection['port_id'],
                              nw_gw_port_check=False)
@@ -443,19 +437,25 @@ class NetworkGatewayMixin(networkgw.NetworkGatewayPluginBase):
             self._get_gateway_device(context, device_id),
             fields, include_nsx_id)
 
+    def _query_gateway_devices(self, context,
+                               filters=None, sorts=None,
+                               limit=None, marker=None,
+                               page_reverse=None):
+        marker_obj = self._get_marker_obj(
+            context, 'gateway_device', limit, marker)
+        return self._get_collection_query(context,
+                                          NetworkGatewayDevice,
+                                          filters=filters,
+                                          sorts=sorts,
+                                          limit=limit,
+                                          marker_obj=marker_obj,
+                                          page_reverse=page_reverse)
+
     def get_gateway_devices(self, context, filters=None, fields=None,
                             sorts=None, limit=None, marker=None,
                             page_reverse=False, include_nsx_id=False):
-        marker_obj = self._get_marker_obj(
-            context, 'gateway_device', limit, marker)
-        query = self._get_collection_query(context,
-                                           NetworkGatewayDevice,
-                                           filters=filters,
-                                           fields=fields,
-                                           sorts=sorts,
-                                           limit=limit,
-                                           marker_obj=marker_obj,
-                                           page_reverse=page_reverse)
+        query = self._query_gateway_devices(context, filters, sorts, limit,
+                                            marker, page_reverse)
         return [self._make_gateway_device_dict(row, fields, include_nsx_id)
                 for row in query]
 

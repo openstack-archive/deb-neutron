@@ -22,17 +22,15 @@ import random
 from oslo.config import cfg
 
 from neutron.common import config
-from neutron.common import legacy
 from neutron import context
+from neutron.db import api as session
 from neutron import manager
-from neutron import neutron_plugin_base_v2
-from neutron.openstack.common.db.sqlalchemy import session
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common.rpc import service
-from neutron.openstack.common.service import ProcessLauncher
+from neutron.openstack.common import service as common_service
 from neutron import wsgi
 
 
@@ -91,7 +89,6 @@ class NeutronApiService(WsgiService):
         # Log the options used when starting if we're in debug mode...
 
         config.setup_logging(cfg.CONF)
-        legacy.modernize_quantum_config(cfg.CONF)
         # Dump the initial option values
         cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
         service = cls(app_name)
@@ -101,13 +98,8 @@ class NeutronApiService(WsgiService):
 def serve_wsgi(cls):
 
     try:
-        try:
-            service = cls.create()
-            service.start()
-        except RuntimeError:
-            LOG.exception(_('Error occurred: trying old api-paste.ini.'))
-            service = cls.create('quantum')
-            service.start()
+        service = cls.create()
+        service.start()
     except Exception:
         with excutils.save_and_reraise_exception():
             LOG.exception(_('Unrecoverable error: please check log '
@@ -126,7 +118,7 @@ class RpcWorker(object):
         # We may have just forked from parent process.  A quick disposal of the
         # existing sql connections avoids producing errors later when they are
         # discovered to be broken.
-        session.get_engine(sqlite_fk=True).pool.dispose()
+        session.get_engine().pool.dispose()
         self._server = self._plugin.start_rpc_listener()
 
     def wait(self):
@@ -144,10 +136,9 @@ def serve_rpc():
 
     # If 0 < rpc_workers then start_rpc_listener would be called in a
     # subprocess and we cannot simply catch the NotImplementedError.  It is
-    # simpler to check this up front by testing whether the plugin overrides
-    # start_rpc_listener.
-    base = neutron_plugin_base_v2.NeutronPluginBaseV2
-    if plugin.__class__.start_rpc_listener == base.start_rpc_listener:
+    # simpler to check this up front by testing whether the plugin supports
+    # multiple RPC workers.
+    if not plugin.rpc_workers_supported():
         LOG.debug(_("Active plugin doesn't implement start_rpc_listener"))
         if 0 < cfg.CONF.rpc_workers:
             msg = _("'rpc_workers = %d' ignored because start_rpc_listener "
@@ -162,7 +153,7 @@ def serve_rpc():
             rpc.start()
             return rpc
         else:
-            launcher = ProcessLauncher(wait_interval=1.0)
+            launcher = common_service.ProcessLauncher(wait_interval=1.0)
             launcher.launch_service(rpc, workers=cfg.CONF.rpc_workers)
             return launcher
     except Exception:

@@ -15,8 +15,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import os
-
 import mock
 from oslo.config import cfg
 import testtools
@@ -27,17 +25,12 @@ from neutron import context
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
 from neutron.db import models_v2
-from neutron.extensions.flavor import (FLAVOR_NETWORK, FLAVOR_ROUTER)
+from neutron.extensions import flavor as ext_flavor
 from neutron.openstack.common import uuidutils
-from neutron.plugins.metaplugin.meta_neutron_plugin import (
-    FaildToAddFlavorBinding)
-from neutron.plugins.metaplugin.meta_neutron_plugin import FlavorNotFound
-from neutron.plugins.metaplugin.meta_neutron_plugin import MetaPluginV2
+from neutron.plugins.metaplugin import meta_neutron_plugin
 from neutron.tests import base
 
 CONF_FILE = ""
-ROOTDIR = os.path.dirname(os.path.dirname(__file__))
-ETCDIR = os.path.join(ROOTDIR, 'etc')
 META_PATH = "neutron.plugins.metaplugin"
 FAKE_PATH = "neutron.tests.unit.metaplugin"
 PROXY_PATH = "%s.proxy_neutron_plugin.ProxyPluginV2" % META_PATH
@@ -47,10 +40,6 @@ fake1:%s.fake_plugin.Fake1,fake2:%s.fake_plugin.Fake2,proxy:%s
 L3_PLUGIN_LIST = """
 fake1:%s.fake_plugin.Fake1,fake2:%s.fake_plugin.Fake2
 """.strip() % (FAKE_PATH, FAKE_PATH)
-
-
-def etcdir(*p):
-    return os.path.join(ETCDIR, *p)
 
 
 def setup_metaplugin_conf(has_l3=True):
@@ -120,9 +109,10 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
         self.client_inst.delete_network.return_value = True
         self.client_inst.delete_port.return_value = True
         self.client_inst.delete_subnet.return_value = True
-        plugin = MetaPluginV2.__module__ + '.' + MetaPluginV2.__name__
+        plugin = (meta_neutron_plugin.MetaPluginV2.__module__ + '.'
+                  + meta_neutron_plugin.MetaPluginV2.__name__)
         self.setup_coreplugin(plugin)
-        self.plugin = MetaPluginV2(configfile=None)
+        self.plugin = meta_neutron_plugin.MetaPluginV2(configfile=None)
 
     def _fake_network(self, flavor):
         data = {'network': {'name': flavor,
@@ -130,7 +120,7 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
                             'shared': False,
                             'router:external': [],
                             'tenant_id': self.fake_tenant_id,
-                            FLAVOR_NETWORK: flavor}}
+                            ext_flavor.FLAVOR_NETWORK: flavor}}
         return data
 
     def _fake_port(self, net_id):
@@ -162,22 +152,22 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
     def _fake_router(self, flavor):
         data = {'router': {'name': flavor, 'admin_state_up': True,
                            'tenant_id': self.fake_tenant_id,
-                           FLAVOR_ROUTER: flavor,
+                           ext_flavor.FLAVOR_ROUTER: flavor,
                            'external_gateway_info': None}}
         return data
 
     def test_create_delete_network(self):
         network1 = self._fake_network('fake1')
         ret1 = self.plugin.create_network(self.context, network1)
-        self.assertEqual('fake1', ret1[FLAVOR_NETWORK])
+        self.assertEqual('fake1', ret1[ext_flavor.FLAVOR_NETWORK])
 
         network2 = self._fake_network('fake2')
         ret2 = self.plugin.create_network(self.context, network2)
-        self.assertEqual('fake2', ret2[FLAVOR_NETWORK])
+        self.assertEqual('fake2', ret2[ext_flavor.FLAVOR_NETWORK])
 
         network3 = self._fake_network('proxy')
         ret3 = self.plugin.create_network(self.context, network3)
-        self.assertEqual('proxy', ret3[FLAVOR_NETWORK])
+        self.assertEqual('proxy', ret3[ext_flavor.FLAVOR_NETWORK])
 
         db_ret1 = self.plugin.get_network(self.context, ret1['id'])
         self.assertEqual('fake1', db_ret1['name'])
@@ -191,8 +181,9 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
         db_ret4 = self.plugin.get_networks(self.context)
         self.assertEqual(3, len(db_ret4))
 
-        db_ret5 = self.plugin.get_networks(self.context,
-                                           {FLAVOR_NETWORK: ['fake1']})
+        db_ret5 = self.plugin.get_networks(
+            self.context,
+            {ext_flavor.FLAVOR_NETWORK: ['fake1']})
         self.assertEqual(1, len(db_ret5))
         self.assertEqual('fake1', db_ret5[0]['name'])
         self.plugin.delete_network(self.context, ret1['id'])
@@ -307,18 +298,18 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
         router2 = self._fake_router('fake2')
         router_ret2 = self.plugin.create_router(self.context, router2)
 
-        self.assertEqual('fake1', router_ret1[FLAVOR_ROUTER])
-        self.assertEqual('fake2', router_ret2[FLAVOR_ROUTER])
+        self.assertEqual('fake1', router_ret1[ext_flavor.FLAVOR_ROUTER])
+        self.assertEqual('fake2', router_ret2[ext_flavor.FLAVOR_ROUTER])
 
         router_in_db1 = self.plugin.get_router(self.context, router_ret1['id'])
         router_in_db2 = self.plugin.get_router(self.context, router_ret2['id'])
 
-        self.assertEqual('fake1', router_in_db1[FLAVOR_ROUTER])
-        self.assertEqual('fake2', router_in_db2[FLAVOR_ROUTER])
+        self.assertEqual('fake1', router_in_db1[ext_flavor.FLAVOR_ROUTER])
+        self.assertEqual('fake2', router_in_db2[ext_flavor.FLAVOR_ROUTER])
 
         self.plugin.delete_router(self.context, router_ret1['id'])
         self.plugin.delete_router(self.context, router_ret2['id'])
-        with testtools.ExpectedException(FlavorNotFound):
+        with testtools.ExpectedException(meta_neutron_plugin.FlavorNotFound):
             self.plugin.get_router(self.context, router_ret1['id'])
 
     def test_extension_method(self):
@@ -340,7 +331,7 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
                         'add_network_flavor_binding',
                         side_effect=Exception):
             network = self._fake_network('fake1')
-            self.assertRaises(FaildToAddFlavorBinding,
+            self.assertRaises(meta_neutron_plugin.FaildToAddFlavorBinding,
                               self.plugin.create_network,
                               self.context,
                               network)
@@ -352,7 +343,7 @@ class MetaNeutronPluginV2Test(base.BaseTestCase):
                         'add_router_flavor_binding',
                         side_effect=Exception):
             router = self._fake_router('fake1')
-            self.assertRaises(FaildToAddFlavorBinding,
+            self.assertRaises(meta_neutron_plugin.FaildToAddFlavorBinding,
                               self.plugin.create_router,
                               self.context,
                               router)
@@ -390,12 +381,24 @@ class MetaNeutronPluginV2TestRpcFlavor(base.BaseTestCase):
     def test_rpc_flavor(self):
         setup_metaplugin_conf()
         cfg.CONF.set_override('rpc_flavor', 'fake1', 'META')
-        self.plugin = MetaPluginV2()
+        self.plugin = meta_neutron_plugin.MetaPluginV2()
         self.assertEqual(topics.PLUGIN, 'q-plugin')
+        ret = self.plugin.rpc_workers_supported()
+        self.assertFalse(ret)
 
     def test_invalid_rpc_flavor(self):
         setup_metaplugin_conf()
         cfg.CONF.set_override('rpc_flavor', 'fake-fake', 'META')
         self.assertRaises(exc.Invalid,
-                          MetaPluginV2)
+                          meta_neutron_plugin.MetaPluginV2)
         self.assertEqual(topics.PLUGIN, 'q-plugin')
+
+    def test_rpc_flavor_multiple_rpc_workers(self):
+        setup_metaplugin_conf()
+        cfg.CONF.set_override('rpc_flavor', 'fake2', 'META')
+        self.plugin = meta_neutron_plugin.MetaPluginV2()
+        self.assertEqual(topics.PLUGIN, 'q-plugin')
+        ret = self.plugin.rpc_workers_supported()
+        self.assertTrue(ret)
+        ret = self.plugin.start_rpc_listener()
+        self.assertEqual('OK', ret)

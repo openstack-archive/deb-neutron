@@ -24,6 +24,7 @@ from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.db import api as db
 from neutron.db import db_base_plugin_v2
@@ -39,7 +40,6 @@ from neutron.extensions import portbindings
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.ryu.common import config  # noqa
 from neutron.plugins.ryu.db import api_v2 as db_api_v2
@@ -72,7 +72,7 @@ class RyuRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return port
 
 
-class AgentNotifierApi(proxy.RpcProxy,
+class AgentNotifierApi(rpc_compat.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
 
     BASE_RPC_API_VERSION = '1.0'
@@ -163,10 +163,18 @@ class RyuNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.tun_client.create_tunnel_key(net_id, tunnel_key)
 
     def _client_delete_network(self, net_id):
+        RyuNeutronPluginV2._safe_client_delete_network(self.safe_reference,
+                                                       net_id)
+
+    @staticmethod
+    def _safe_client_delete_network(safe_reference, net_id):
+        # Avoid handing naked plugin references to the client.  When
+        # the client is mocked for testing, such references can
+        # prevent the plugin from being deallocated.
         client.ignore_http_not_found(
-            lambda: self.client.delete_network(net_id))
+            lambda: safe_reference.client.delete_network(net_id))
         client.ignore_http_not_found(
-            lambda: self.tun_client.delete_tunnel_key(net_id))
+            lambda: safe_reference.tun_client.delete_tunnel_key(net_id))
 
     def create_network(self, context, network):
         session = context.session
@@ -202,6 +210,7 @@ class RyuNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         session = context.session
         with session.begin(subtransactions=True):
             self.tunnel_key.delete(session, id)
+            self._process_l3_delete(context, id)
             super(RyuNeutronPluginV2, self).delete_network(context, id)
 
     def create_port(self, context, port):

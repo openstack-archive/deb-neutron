@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import mock
 
 from oslo.config import cfg
@@ -148,13 +149,12 @@ class TestCiscoNexusPlugin(base.BaseTestCase):
         self.addCleanup(db.clear_db)
         # Use a mock netconf client
         self.mock_ncclient = mock.Mock()
-        self.patch_obj = mock.patch.dict('sys.modules',
-                                         {'ncclient': self.mock_ncclient})
-        self.patch_obj.start()
-        self.addCleanup(self.patch_obj.stop)
 
-        with mock.patch.object(cisco_nexus_plugin_v2.NexusPlugin,
-                               '__init__', new=new_nexus_init):
+        with contextlib.nested(
+            mock.patch.dict('sys.modules', {'ncclient': self.mock_ncclient}),
+            mock.patch.object(cisco_nexus_plugin_v2.NexusPlugin,
+                              '__init__', new=new_nexus_init)
+        ):
             self._cisco_nexus_plugin = cisco_nexus_plugin_v2.NexusPlugin()
 
         # Set the Cisco config module's first configured device IP address
@@ -194,7 +194,7 @@ class TestCiscoNexusPlugin(base.BaseTestCase):
             # Create a provider network
             new_net_dict = self._cisco_nexus_plugin.create_network(
                 self.providernet, self.attachment1)
-            mock_db.assert_called_once()
+            self.assertEqual(mock_db.call_count, 1)
             for attr in NET_ATTRS:
                 self.assertEqual(new_net_dict[attr], self.providernet[attr])
             # Delete the provider network

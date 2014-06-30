@@ -21,7 +21,7 @@ from neutron.db import portsecurity_db
 from neutron.db import securitygroups_db
 from neutron.extensions import portsecurity as psec
 from neutron.extensions import securitygroup as ext_sg
-from neutron.manager import NeutronManager
+from neutron import manager
 from neutron.tests.unit import test_db_plugin
 from neutron.tests.unit import test_extension_security_group
 
@@ -39,7 +39,7 @@ class PortSecurityTestCase(
         super(PortSecurityTestCase, self).setUp(plugin=plugin, ext_mgr=ext_mgr)
 
         # Check if a plugin supports security groups
-        plugin_obj = NeutronManager.get_plugin()
+        plugin_obj = manager.NeutronManager.get_plugin()
         self._skip_security_group = ('security-group' not in
                                      plugin_obj.supported_extension_aliases)
 
@@ -136,7 +136,7 @@ class PortSecurityTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
             # Port security/IP was updated off. Need to check that no security
             # groups are on port.
-            if (ret_port[psec.PORTSECURITY] != True or not has_ip):
+            if ret_port[psec.PORTSECURITY] is not True or not has_ip:
                 if has_security_groups:
                     raise psec.PortSecurityAndIPRequiredForSecurityGroups()
 

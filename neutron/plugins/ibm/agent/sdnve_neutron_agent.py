@@ -21,6 +21,8 @@ import socket
 import time
 
 import eventlet
+eventlet.monkey_patch()
+
 from oslo.config import cfg
 
 from neutron.agent.linux import ip_lib
@@ -28,7 +30,6 @@ from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.common import config as logging_config
 from neutron.common import constants as n_const
-from neutron.common import legacy
 from neutron.common import topics
 from neutron.common import utils as n_utils
 from neutron import context
@@ -162,7 +163,7 @@ class SdnveNeutronAgent():
         Otherwise, creates the bridge if not already existing.
         :param bridge_name: the name of the integration bridge.
         :param reset_br: A boolean to rest the bridge if True.
-        :param out_of_band: A boolean inidicating controller is out of band.
+        :param out_of_band: A boolean indicating controller is out of band.
         :param controller_ip: IP address to use as the bridge controller.
         :returns: the integration bridge
         '''
@@ -253,11 +254,9 @@ def create_agent_config_map(config):
 
 
 def main():
-    eventlet.monkey_patch()
     cfg.CONF.register_opts(ip_lib.OPTS)
     cfg.CONF(project='neutron')
     logging_config.setup_logging(cfg.CONF)
-    legacy.modernize_quantum_config(cfg.CONF)
 
     try:
         agent_config = create_agent_config_map(cfg.CONF)

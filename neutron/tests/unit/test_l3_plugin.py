@@ -29,15 +29,19 @@ from neutron import context
 from neutron.db import api as qdbapi
 from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_db
+from neutron.db import l3_rpc_base
 from neutron.db import model_base
 from neutron.extensions import external_net
 from neutron.extensions import l3
-from neutron.manager import NeutronManager
+from neutron import manager
+from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common.notifier import test_notifier
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
+from neutron.tests.unit import test_agent_ext_plugin
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_api_v2_extension
 from neutron.tests.unit import test_db_plugin
@@ -234,8 +238,13 @@ class TestL3NatBasePlugin(db_base_plugin_v2.NeutronDbPluginV2,
             self._process_l3_update(context, net, network['network'])
         return net
 
+    def delete_network(self, context, id):
+        with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, id)
+            super(TestL3NatBasePlugin, self).delete_network(context, id)
+
     def delete_port(self, context, id, l3_port_check=True):
-        plugin = NeutronManager.get_service_plugins().get(
+        plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
         if plugin:
             if l3_port_check:
@@ -249,6 +258,18 @@ class TestL3NatIntPlugin(TestL3NatBasePlugin,
                          l3_db.L3_NAT_db_mixin):
 
     supported_extension_aliases = ["external-net", "router"]
+
+
+# This plugin class is for tests with plugin that integrates L3 and L3 agent
+# scheduling.
+class TestL3NatIntAgentSchedulingPlugin(TestL3NatIntPlugin,
+                                        l3_agentschedulers_db.
+                                        L3AgentSchedulerDbMixin):
+
+    supported_extension_aliases = ["external-net", "router",
+                                   "l3_agent_scheduler"]
+    router_scheduler = importutils.import_object(
+        cfg.CONF.router_scheduler_driver)
 
 
 # This plugin class is for tests with plugin not supporting L3.
@@ -275,6 +296,15 @@ class TestL3NatServicePlugin(db_base_plugin_v2.CommonDbMixin,
 
     def get_plugin_description(self):
         return "L3 Routing Service Plugin for testing"
+
+
+# A L3 routing with L3 agent scheduling service plugin class for tests with
+# plugins that delegate away L3 routing functionality
+class TestL3NatAgentSchedulingServicePlugin(TestL3NatServicePlugin,
+                                            l3_agentschedulers_db.
+                                            L3AgentSchedulerDbMixin):
+
+    supported_extension_aliases = ["router", "l3_agent_scheduler"]
 
 
 class L3NatTestCaseMixin(object):
@@ -321,10 +351,11 @@ class L3NatTestCaseMixin(object):
                             neutron_context=neutron_context)
 
     def _remove_external_gateway_from_router(self, router_id, network_id,
-                                             expected_code=exc.HTTPOk.code):
+                                             expected_code=exc.HTTPOk.code,
+                                             external_gw_info=None):
         return self._update('routers', router_id,
                             {'router': {'external_gateway_info':
-                                       {}}},
+                                        external_gw_info}},
                             expected_code=expected_code)
 
     def _router_interface_action(self, action, router_id, subnet_id, port_id,
@@ -489,6 +520,18 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
             for k, v in expected_value:
                 self.assertEqual(router['router'][k], v)
 
+    def test_router_create_call_extensions(self):
+        self.extension_called = False
+
+        def _extend_router_dict_test_attr(*args, **kwargs):
+            self.extension_called = True
+
+        db_base_plugin_v2.NeutronDbPluginV2.register_dict_extend_funcs(
+            l3.ROUTERS, [_extend_router_dict_test_attr])
+        self.assertFalse(self.extension_called)
+        with self.router():
+            self.assertTrue(self.extension_called)
+
     def test_router_create_with_gwinfo(self):
         with self.subnet() as s:
             self._set_net_external(s['subnet']['network_id'])
@@ -585,9 +628,13 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                     net_id = (body['router']
                               ['external_gateway_info']['network_id'])
                     self.assertEqual(net_id, s2['subnet']['network_id'])
+                    # Validate that we can clear the gateway with
+                    # an empty dict, in any other case, we fall back
+                    # on None as default value
                     self._remove_external_gateway_from_router(
                         r['router']['id'],
-                        s2['subnet']['network_id'])
+                        s2['subnet']['network_id'],
+                        external_gw_info={})
 
     def test_router_update_gateway_with_existed_floatingip(self):
         with self.subnet() as subnet:
@@ -640,7 +687,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
 
                 for n in test_notifier.NOTIFICATIONS:
                     if n['event_type'].startswith('router.interface.'):
-                        payload = n['payload']['router.interface']
+                        payload = n['payload']['router_interface']
                         self.assertIn('id', payload)
                         self.assertEqual(payload['id'], r['router']['id'])
                         self.assertIn('tenant_id', payload)
@@ -1269,6 +1316,72 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 self.assertEqual(body['floatingip']['fixed_ip_address'],
                                  ip_address)
 
+    def test_floatingip_create_different_fixed_ip_same_port(self):
+        '''This tests that it is possible to delete a port that has
+        multiple floating ip addresses associated with it (each floating
+        address associated with a unique fixed address).
+        '''
+
+        with self.router() as r:
+            with self.subnet(cidr='11.0.0.0/24') as public_sub:
+                self._set_net_external(public_sub['subnet']['network_id'])
+                self._add_external_gateway_to_router(
+                    r['router']['id'],
+                    public_sub['subnet']['network_id'])
+
+                with self.subnet() as private_sub:
+                    ip_range = list(netaddr.IPNetwork(
+                        private_sub['subnet']['cidr']))
+                    fixed_ips = [{'ip_address': str(ip_range[-3])},
+                                 {'ip_address': str(ip_range[-2])}]
+
+                    self._router_interface_action(
+                        'add', r['router']['id'],
+                        private_sub['subnet']['id'], None)
+
+                    with self.port(subnet=private_sub,
+                                   fixed_ips=fixed_ips) as p:
+
+                        fip1 = self._make_floatingip(
+                            self.fmt,
+                            public_sub['subnet']['network_id'],
+                            p['port']['id'],
+                            fixed_ip=str(ip_range[-2]))
+                        fip2 = self._make_floatingip(
+                            self.fmt,
+                            public_sub['subnet']['network_id'],
+                            p['port']['id'],
+                            fixed_ip=str(ip_range[-3]))
+
+                        # Test that floating ips are assigned successfully.
+                        body = self._show('floatingips',
+                                          fip1['floatingip']['id'])
+                        self.assertEqual(
+                            body['floatingip']['port_id'],
+                            fip1['floatingip']['port_id'])
+
+                        body = self._show('floatingips',
+                                          fip2['floatingip']['id'])
+                        self.assertEqual(
+                            body['floatingip']['port_id'],
+                            fip2['floatingip']['port_id'])
+
+                    # Test that port has been successfully deleted.
+                    body = self._show('ports', p['port']['id'],
+                                      expected_code=exc.HTTPNotFound.code)
+
+                    for fip in [fip1, fip2]:
+                        self._delete('floatingips',
+                                     fip['floatingip']['id'])
+
+                    self._router_interface_action(
+                        'remove', r['router']['id'],
+                        private_sub['subnet']['id'], None)
+
+                self._remove_external_gateway_from_router(
+                    r['router']['id'],
+                    public_sub['subnet']['network_id'])
+
     def test_floatingip_update_different_fixed_ip_same_port(self):
         with self.subnet() as s:
             ip_range = list(netaddr.IPNetwork(s['subnet']['cidr']))
@@ -1618,6 +1731,13 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                                               s['subnet']['id'],
                                               None)
 
+    def test_delete_ext_net_with_disassociated_floating_ips(self):
+        with self.network() as net:
+            net_id = net['network']['id']
+            self._set_net_external(net_id)
+            with self.subnet(network=net, do_delete=False):
+                self._make_floatingip(self.fmt, net_id)
+
 
 class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
 
@@ -1705,7 +1825,7 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
     def _test_notify_op_agent(self, target_func, *args):
         l3_rpc_agent_api_str = (
             'neutron.api.rpc.agentnotifiers.l3_rpc_agent_api.L3AgentNotifyAPI')
-        plugin = NeutronManager.get_service_plugins()[
+        plugin = manager.NeutronManager.get_service_plugins()[
             service_constants.L3_ROUTER_NAT]
         oldNotify = plugin.l3_rpc_notifier
         try:
@@ -1767,12 +1887,19 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
 
 class L3BaseForIntTests(test_db_plugin.NeutronDbPluginV2TestCase):
 
+    mock_rescheduling = True
+
     def setUp(self, plugin=None, ext_mgr=None, service_plugins=None):
         if not plugin:
             plugin = 'neutron.tests.unit.test_l3_plugin.TestL3NatIntPlugin'
         # for these tests we need to enable overlapping ips
         cfg.CONF.set_default('allow_overlapping_ips', True)
         ext_mgr = ext_mgr or L3TestExtensionManager()
+
+        if self.mock_rescheduling:
+            mock.patch('%s._check_router_needs_rescheduling' % plugin,
+                       new=lambda *a: False).start()
+
         super(L3BaseForIntTests, self).setUp(plugin=plugin, ext_mgr=ext_mgr,
                                              service_plugins=service_plugins)
 
@@ -1798,6 +1925,103 @@ class L3BaseForSepTests(test_db_plugin.NeutronDbPluginV2TestCase):
                                              service_plugins=service_plugins)
 
         self.setup_notification_driver()
+
+
+class L3NatDBIntAgentSchedulingTestCase(L3BaseForIntTests,
+                                        L3NatTestCaseMixin,
+                                        test_agent_ext_plugin.
+                                        AgentDBTestMixIn):
+
+    """Unit tests for core plugin with L3 routing and scheduling integrated."""
+
+    def setUp(self, plugin='neutron.tests.unit.test_l3_plugin.'
+                           'TestL3NatIntAgentSchedulingPlugin',
+              ext_mgr=None, service_plugins=None):
+        self.mock_rescheduling = False
+        super(L3NatDBIntAgentSchedulingTestCase, self).setUp(
+            plugin, ext_mgr, service_plugins)
+        self.adminContext = context.get_admin_context()
+
+    def _assert_router_on_agent(self, router_id, agent_host):
+        plugin = manager.NeutronManager.get_service_plugins().get(
+            service_constants.L3_ROUTER_NAT)
+        agents = plugin.list_l3_agents_hosting_router(
+            self.adminContext, router_id)['agents']
+        self.assertEqual(len(agents), 1)
+        self.assertEqual(agents[0]['host'], agent_host)
+
+    def test_update_gateway_agent_exists_supporting_network(self):
+        with contextlib.nested(self.router(),
+                               self.subnet(),
+                               self.subnet()) as (r, s1, s2):
+            self._set_net_external(s1['subnet']['network_id'])
+            l3_rpc = l3_rpc_base.L3RpcCallbackMixin()
+            self._register_one_l3_agent(
+                host='host1',
+                ext_net_id=s1['subnet']['network_id'])
+            self._register_one_l3_agent(
+                host='host2', internal_only=False,
+                ext_net_id=s2['subnet']['network_id'])
+            l3_rpc.sync_routers(self.adminContext,
+                                host='host1')
+            self._assert_router_on_agent(r['router']['id'], 'host1')
+
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                s1['subnet']['network_id'])
+            self._assert_router_on_agent(r['router']['id'], 'host1')
+
+            self._set_net_external(s2['subnet']['network_id'])
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                s2['subnet']['network_id'])
+            self._assert_router_on_agent(r['router']['id'], 'host2')
+
+            self._remove_external_gateway_from_router(
+                r['router']['id'],
+                s2['subnet']['network_id'])
+
+    def test_update_gateway_agent_exists_supporting_multiple_network(self):
+        with contextlib.nested(self.router(),
+                               self.subnet(),
+                               self.subnet()) as (r, s1, s2):
+            self._set_net_external(s1['subnet']['network_id'])
+            l3_rpc = l3_rpc_base.L3RpcCallbackMixin()
+            self._register_one_l3_agent(
+                host='host1',
+                ext_net_id=s1['subnet']['network_id'])
+            self._register_one_l3_agent(
+                host='host2', internal_only=False,
+                ext_net_id='', ext_bridge='')
+            l3_rpc.sync_routers(self.adminContext,
+                                host='host1')
+            self._assert_router_on_agent(r['router']['id'], 'host1')
+
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                s1['subnet']['network_id'])
+            self._assert_router_on_agent(r['router']['id'], 'host1')
+
+            self._set_net_external(s2['subnet']['network_id'])
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                s2['subnet']['network_id'])
+            self._assert_router_on_agent(r['router']['id'], 'host2')
+
+            self._remove_external_gateway_from_router(
+                r['router']['id'],
+                s2['subnet']['network_id'])
+
+    def test_router_update_gateway_no_eligible_l3_agent(self):
+        with self.router() as r:
+            with self.subnet() as s1:
+                with self.subnet() as s2:
+                    self._set_net_external(s1['subnet']['network_id'])
+                    self._set_net_external(s2['subnet']['network_id'])
+                    self._add_external_gateway_to_router(
+                        r['router']['id'],
+                        s1['subnet']['network_id'],
+                        expected_code=exc.HTTPBadRequest.code)
 
 
 class L3AgentDbIntTestCase(L3BaseForIntTests, L3AgentDbTestCaseBase):

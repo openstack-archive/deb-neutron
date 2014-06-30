@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -27,10 +25,14 @@ from neutron.api.v2 import resource_helper
 from neutron.common import exceptions as qexception
 from neutron import manager
 from neutron.plugins.common import constants
-from neutron.services.service_base import ServicePluginBase
+from neutron.services import service_base
 
 
 # Loadbalancer Exceptions
+class DelayOrTimeoutInvalid(qexception.BadRequest):
+    message = _("Delay must be greater than or equal to timeout")
+
+
 class NoEligibleBackend(qexception.NotFound):
     message = _("No eligible backend for pool %(pool_id)s")
 
@@ -252,6 +254,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                   'convert_to': attr.convert_to_int,
                   'is_visible': True},
         'timeout': {'allow_post': True, 'allow_put': True,
+                    'validate': {'type:non_negative': None},
                     'convert_to': attr.convert_to_int,
                     'is_visible': True},
         'max_retries': {'allow_post': True, 'allow_put': True,
@@ -353,7 +356,8 @@ class Loadbalancer(extensions.ExtensionDescriptor):
         resources = resource_helper.build_resource_info(plural_mappings,
                                                         RESOURCE_ATTRIBUTE_MAP,
                                                         constants.LOADBALANCER,
-                                                        action_map=action_map)
+                                                        action_map=action_map,
+                                                        register_quota=True)
         plugin = manager.NeutronManager.get_service_plugins()[
             constants.LOADBALANCER]
         for collection_name in SUB_RESOURCE_ATTRIBUTE_MAP:
@@ -394,7 +398,7 @@ class Loadbalancer(extensions.ExtensionDescriptor):
 
 
 @six.add_metaclass(abc.ABCMeta)
-class LoadBalancerPluginBase(ServicePluginBase):
+class LoadBalancerPluginBase(service_base.ServicePluginBase):
 
     def get_plugin_name(self):
         return constants.LOADBALANCER

@@ -18,7 +18,7 @@
 # @author: Abhishek Raut, Cisco Systems Inc.
 # @author: Sourabh Patwardhan, Cisco Systems Inc.
 
-from mock import patch
+import mock
 
 from neutron.api import extensions as neutron_extensions
 from neutron.api.v2 import attributes
@@ -38,6 +38,8 @@ from neutron.tests.unit import _test_extension_portbindings as test_bindings
 from neutron.tests.unit.cisco.n1kv import fake_client
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit import test_l3_plugin
+from neutron.tests.unit import test_l3_schedulers
 
 
 PHYS_NET = 'some-phys-net'
@@ -48,20 +50,18 @@ VLAN_MAX = 110
 class FakeResponse(object):
 
     """
-    This object is returned by mocked httplib instead of a normal response.
+    This object is returned by mocked requests lib instead of normal response.
 
-    Initialize it with the status code, content type and buffer contents
-    you wish to return.
+    Initialize it with the status code, header and buffer contents you wish to
+    return.
 
     """
-    def __init__(self, status, response_text, content_type):
+    def __init__(self, status, response_text, headers):
         self.buffer = response_text
-        self.status = status
+        self.status_code = status
+        self.headers = headers
 
-    def __getitem__(cls, val):
-        return "application/xml"
-
-    def read(self, *args, **kwargs):
+    def json(self, *args, **kwargs):
         return self.buffer
 
 
@@ -152,63 +152,41 @@ class N1kvPluginTestCase(test_plugin.NeutronDbPluginV2TestCase):
 
         """
         if not self.DEFAULT_RESP_BODY:
-            self.DEFAULT_RESP_BODY = (
-                """<?xml version="1.0" encoding="utf-8"?>
-                <set name="events_set">
-                <instance name="1" url="/api/hyper-v/events/1">
-                <properties>
-                <cmd>configure terminal ; port-profile type vethernet grizzlyPP
-                    (SUCCESS)
-                </cmd>
-                <id>42227269-e348-72ed-bdb7-7ce91cd1423c</id>
-                <time>1369223611</time>
-                <name>grizzlyPP</name>
-                </properties>
-                </instance>
-                <instance name="2" url="/api/hyper-v/events/2">
-                <properties>
-                <cmd>configure terminal ; port-profile type vethernet havanaPP
-                    (SUCCESS)
-                </cmd>
-                <id>3fc83608-ae36-70e7-9d22-dec745623d06</id>
-                <time>1369223661</time>
-                <name>havanaPP</name>
-                </properties>
-                </instance>
-                </set>
-                """)
-        # Creating a mock HTTP connection object for httplib. The N1KV client
-        # interacts with the VSM via HTTP. Since we don't have a VSM running
-        # in the unit tests, we need to 'fake' it by patching the HTTP library
-        # itself. We install a patch for a fake HTTP connection class.
+            self.DEFAULT_RESP_BODY = {
+                "icehouse-pp": {"properties": {"name": "icehouse-pp",
+                                               "id": "some-uuid-1"}},
+                "havana_pp": {"properties": {"name": "havana_pp",
+                                             "id": "some-uuid-2"}},
+                "dhcp_pp": {"properties": {"name": "dhcp_pp",
+                                           "id": "some-uuid-3"}},
+            }
+        # Creating a mock HTTP connection object for requests lib. The N1KV
+        # client interacts with the VSM via HTTP. Since we don't have a VSM
+        # running in the unit tests, we need to 'fake' it by patching the HTTP
+        # library itself. We install a patch for a fake HTTP connection class.
         # Using __name__ to avoid having to enter the full module path.
-        http_patcher = patch(n1kv_client.httplib2.__name__ + ".Http")
+        http_patcher = mock.patch(n1kv_client.requests.__name__ + ".request")
         FakeHttpConnection = http_patcher.start()
         # Now define the return values for a few functions that may be called
         # on any instance of the fake HTTP connection class.
-        instance = FakeHttpConnection.return_value
-        instance.getresponse.return_value = (FakeResponse(
-                                             self.DEFAULT_RESP_CODE,
-                                             self.DEFAULT_RESP_BODY,
-                                             'application/xml'))
-        instance.request.return_value = (instance.getresponse.return_value,
-                                         self.DEFAULT_RESP_BODY)
+        self.resp_headers = {"content-type": "application/json"}
+        FakeHttpConnection.return_value = (FakeResponse(
+                                           self.DEFAULT_RESP_CODE,
+                                           self.DEFAULT_RESP_BODY,
+                                           self.resp_headers))
 
         # Patch some internal functions in a few other parts of the system.
         # These help us move along, without having to mock up even more systems
         # in the background.
 
         # Return a dummy VSM IP address
-        get_vsm_hosts_patcher = patch(n1kv_client.__name__ +
-                                      ".Client._get_vsm_hosts")
-        fake_get_vsm_hosts = get_vsm_hosts_patcher.start()
-        fake_get_vsm_hosts.return_value = ["127.0.0.1"]
+        mock.patch(n1kv_client.__name__ + ".Client._get_vsm_hosts",
+                   new=lambda self: "127.0.0.1").start()
 
         # Return dummy user profiles
-        get_cred_name_patcher = patch(cdb.__name__ + ".get_credential_name")
-        fake_get_cred_name = get_cred_name_patcher.start()
-        fake_get_cred_name.return_value = {"user_name": "admin",
-                                           "password": "admin_password"}
+        mock.patch(cdb.__name__ + ".get_credential_name",
+                   new=lambda self: {"user_name": "admin",
+                                     "password": "admin_password"}).start()
 
         n1kv_neutron_plugin.N1kvNeutronPluginV2._setup_vsm = _fake_setup_vsm
 
@@ -264,6 +242,8 @@ class TestN1kvNetworkProfiles(N1kvPluginTestCase):
             netp['network_profile']['sub_type'] = 'enhanced' or 'native_vxlan'
             netp['network_profile']['multicast_ip_range'] = ("224.1.1.1-"
                                                              "224.1.1.10")
+        elif segment_type == 'trunk':
+            netp['network_profile']['sub_type'] = 'vlan'
         return netp
 
     def test_create_network_profile_vlan(self):
@@ -277,6 +257,19 @@ class TestN1kvNetworkProfiles(N1kvPluginTestCase):
         net_p_req = self.new_create_request('network_profiles', data)
         res = net_p_req.get_response(self.ext_api)
         self.assertEqual(res.status_int, 201)
+
+    def test_create_network_profile_trunk(self):
+        data = self._prepare_net_profile_data('trunk')
+        net_p_req = self.new_create_request('network_profiles', data)
+        res = net_p_req.get_response(self.ext_api)
+        self.assertEqual(res.status_int, 201)
+
+    def test_create_network_profile_trunk_missing_subtype(self):
+        data = self._prepare_net_profile_data('trunk')
+        data['network_profile'].pop('sub_type')
+        net_p_req = self.new_create_request('network_profiles', data)
+        res = net_p_req.get_response(self.ext_api)
+        self.assertEqual(res.status_int, 400)
 
     def test_create_network_profile_overlay_unreasonable_seg_range(self):
         data = self._prepare_net_profile_data('overlay')
@@ -478,8 +471,8 @@ class TestN1kvPorts(test_plugin.TestPortsV2,
         """Test parameters for first port create sent to the VSM."""
         profile_obj = self._make_test_policy_profile(name='test_profile')
         with self.network() as network:
-            client_patch = patch(n1kv_client.__name__ + ".Client",
-                                 new=fake_client.TestClientInvalidRequest)
+            client_patch = mock.patch(n1kv_client.__name__ + ".Client",
+                                      new=fake_client.TestClientInvalidRequest)
             client_patch.start()
             data = {'port': {n1kv.PROFILE_ID: profile_obj.id,
                              'tenant_id': self.tenant_id,
@@ -493,8 +486,8 @@ class TestN1kvPorts(test_plugin.TestPortsV2,
     def test_create_next_port_invalid_parameters_fail(self):
         """Test parameters for subsequent port create sent to the VSM."""
         with self.port() as port:
-            client_patch = patch(n1kv_client.__name__ + ".Client",
-                                 new=fake_client.TestClientInvalidRequest)
+            client_patch = mock.patch(n1kv_client.__name__ + ".Client",
+                                      new=fake_client.TestClientInvalidRequest)
             client_patch.start()
             data = {'port': {n1kv.PROFILE_ID: port['port']['n1kv:profile_id'],
                              'tenant_id': port['port']['tenant_id'],
@@ -507,8 +500,8 @@ class TestN1kvPorts(test_plugin.TestPortsV2,
 
 class TestN1kvPolicyProfiles(N1kvPluginTestCase):
     def test_populate_policy_profile(self):
-        client_patch = patch(n1kv_client.__name__ + ".Client",
-                             new=fake_client.TestClient)
+        client_patch = mock.patch(n1kv_client.__name__ + ".Client",
+                                  new=fake_client.TestClient)
         client_patch.start()
         instance = n1kv_neutron_plugin.N1kvNeutronPluginV2()
         instance._populate_policy_profiles()
@@ -520,11 +513,11 @@ class TestN1kvPolicyProfiles(N1kvPluginTestCase):
 
     def test_populate_policy_profile_delete(self):
         # Patch the Client class with the TestClient class
-        with patch(n1kv_client.__name__ + ".Client",
-                   new=fake_client.TestClient):
+        with mock.patch(n1kv_client.__name__ + ".Client",
+                        new=fake_client.TestClient):
             # Patch the _get_total_profiles() method to return a custom value
-            with patch(fake_client.__name__ +
-                       '.TestClient._get_total_profiles') as obj_inst:
+            with mock.patch(fake_client.__name__ +
+                            '.TestClient._get_total_profiles') as obj_inst:
                 # Return 3 policy profiles
                 obj_inst.return_value = 3
                 plugin = manager.NeutronManager.get_plugin()
@@ -594,5 +587,16 @@ class TestN1kvNetworks(test_plugin.TestNetworksV2,
 
 class TestN1kvSubnets(test_plugin.TestSubnetsV2,
                       N1kvPluginTestCase):
+
+    def setUp(self):
+        super(TestN1kvSubnets, self).setUp()
+
+
+class TestN1kvL3Test(test_l3_plugin.L3NatExtensionTestCase):
+
+    pass
+
+
+class TestN1kvL3SchedulersTest(test_l3_schedulers.L3SchedulerTestCase):
 
     pass

@@ -24,6 +24,8 @@ import sys
 import time
 
 import eventlet
+eventlet.monkey_patch()
+
 from oslo.config import cfg
 from ryu.app import client
 from ryu.app import conf_switch_key
@@ -31,7 +33,6 @@ from ryu.app import rest_nw_id
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
-from neutron.agent.linux.ovs_lib import VifPort
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
@@ -143,7 +144,7 @@ class OVSBridge(ovs_lib.OVSBridge):
             return
 
         ofport = self.get_ofport(name)
-        return VifPort(name, ofport, None, None, self)
+        return ovs_lib.VifPort(name, ofport, None, None, self)
 
     def get_external_ports(self):
         return self._get_ports(self._get_external_port)
@@ -283,7 +284,6 @@ class OVSNeutronOFPRyuAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
 
 def main():
-    eventlet.monkey_patch()
     cfg.CONF(project='neutron')
 
     logging_config.setup_logging(cfg.CONF)

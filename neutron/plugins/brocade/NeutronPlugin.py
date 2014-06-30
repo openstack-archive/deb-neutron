@@ -32,6 +32,7 @@ from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.common import constants as q_const
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
@@ -51,7 +52,6 @@ from neutron.openstack.common import context
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.brocade.db import models as brocade_db
 from neutron.plugins.brocade import vlanbm as vbm
 from neutron.plugins.common import constants as svc_constants
@@ -166,7 +166,7 @@ class BridgeRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return entry
 
 
-class AgentNotifierApi(proxy.RpcProxy,
+class AgentNotifierApi(rpc_compat.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     """Agent side of the linux bridge rpc API.
 
@@ -318,6 +318,7 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """
 
         with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, net_id)
             result = super(BrocadePluginV2, self).delete_network(context,
                                                                  net_id)
             # we must delete all ports in db first (foreign key constraint)

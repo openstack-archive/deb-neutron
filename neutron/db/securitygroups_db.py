@@ -91,7 +91,7 @@ class SecurityGroupRule(model_base.BASEV2, models_v2.HasId,
 
 
 class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
-    """Mixin class to add security group to db_plugin_base_v2."""
+    """Mixin class to add security group to db_base_plugin_v2."""
 
     __native_bulk_support = True
 
@@ -313,6 +313,10 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 if rule[attr] > 255:
                     raise ext_sg.SecurityGroupInvalidIcmpValue(
                         field=field, attr=attr, value=rule[attr])
+            if (rule['port_range_min'] is None and
+                    rule['port_range_max']):
+                raise ext_sg.SecurityGroupMissingIcmpType(
+                    value=rule['port_range_max'])
 
     def _validate_security_group_rules(self, context, security_group_rule):
         """Check that rules being installed.

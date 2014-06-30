@@ -27,6 +27,8 @@ import sys
 import time
 
 import eventlet
+eventlet.monkey_patch()
+
 from oslo.config import cfg
 
 from neutron.agent import l2population_rpc as l2pop_rpc
@@ -37,12 +39,12 @@ from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as logging_config
 from neutron.common import constants
 from neutron.common import exceptions
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils as q_utils
 from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import common as rpc_common
 from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.linuxbridge.common import config  # noqa
@@ -85,15 +87,6 @@ class LinuxBridgeManager:
                               'must be provided'))
         # Store network mapping to segments
         self.network_map = {}
-
-    def device_exists(self, device):
-        """Check if ethernet device exists."""
-        try:
-            utils.execute(['ip', 'link', 'show', 'dev', device],
-                          root_helper=self.root_helper)
-        except RuntimeError:
-            return False
-        return True
 
     def interface_exists_on_bridge(self, bridge, interface):
         directory = '/sys/class/net/%s/brif' % bridge
@@ -139,10 +132,12 @@ class LinuxBridgeManager:
         return neutron_bridge_list
 
     def get_interfaces_on_bridge(self, bridge_name):
-        if self.device_exists(bridge_name):
+        if ip_lib.device_exists(bridge_name, root_helper=self.root_helper):
             bridge_interface_path = BRIDGE_INTERFACES_FS.replace(
                 BRIDGE_NAME_PLACEHOLDER, bridge_name)
             return os.listdir(bridge_interface_path)
+        else:
+            return []
 
     def get_tap_devices_count(self, bridge_name):
             bridge_interface_path = BRIDGE_INTERFACES_FS.replace(
@@ -219,7 +214,7 @@ class LinuxBridgeManager:
     def ensure_vlan(self, physical_interface, vlan_id):
         """Create a vlan unless it already exists."""
         interface = self.get_subinterface_name(physical_interface, vlan_id)
-        if not self.device_exists(interface):
+        if not ip_lib.device_exists(interface, root_helper=self.root_helper):
             LOG.debug(_("Creating subinterface %(interface)s for "
                         "VLAN %(vlan_id)s on interface "
                         "%(physical_interface)s"),
@@ -239,7 +234,7 @@ class LinuxBridgeManager:
     def ensure_vxlan(self, segmentation_id):
         """Create a vxlan unless it already exists."""
         interface = self.get_vxlan_device_name(segmentation_id)
-        if not self.device_exists(interface):
+        if not ip_lib.device_exists(interface, root_helper=self.root_helper):
             LOG.debug(_("Creating vxlan interface %(interface)s for "
                         "VNI %(segmentation_id)s"),
                       {'interface': interface,
@@ -286,10 +281,28 @@ class LinuxBridgeManager:
                 src_device.addr.delete(ip_version=ip['ip_version'],
                                        cidr=ip['cidr'])
 
+    def _bridge_exists_and_ensure_up(self, bridge_name):
+        """Check if the bridge exists and make sure it is up."""
+        br = ip_lib.IPDevice(bridge_name, self.root_helper)
+        try:
+            # If the device doesn't exist this will throw a RuntimeError
+            br.link.set_up()
+        except RuntimeError:
+            return False
+        return True
+
     def ensure_bridge(self, bridge_name, interface=None, ips=None,
                       gateway=None):
         """Create a bridge unless it already exists."""
-        if not self.device_exists(bridge_name):
+        # _bridge_exists_and_ensure_up instead of device_exists is used here
+        # because there are cases where the bridge exists but it's not UP,
+        # for example:
+        # 1) A greenthread was executing this function and had not yet executed
+        # "ip link set bridge_name up" before eventlet switched to this
+        # thread running the same function
+        # 2) The Nova VIF driver was running concurrently and had just created
+        #    the bridge, but had not yet put it UP
+        if not self._bridge_exists_and_ensure_up(bridge_name):
             LOG.debug(_("Starting bridge %(bridge_name)s for subinterface "
                         "%(interface)s"),
                       {'bridge_name': bridge_name, 'interface': interface})
@@ -367,7 +380,8 @@ class LinuxBridgeManager:
         If a VIF has been plugged into a network, this function will
         add the corresponding tap device to the relevant bridge.
         """
-        if not self.device_exists(tap_device_name):
+        if not ip_lib.device_exists(tap_device_name,
+                                    root_helper=self.root_helper):
             LOG.debug(_("Tap device: %s does not exist on "
                         "this host, skipped"), tap_device_name)
             return False
@@ -411,7 +425,7 @@ class LinuxBridgeManager:
                                       tap_device_name)
 
     def delete_vlan_bridge(self, bridge_name):
-        if self.device_exists(bridge_name):
+        if ip_lib.device_exists(bridge_name, root_helper=self.root_helper):
             interfaces_on_bridge = self.get_interfaces_on_bridge(bridge_name)
             for interface in interfaces_on_bridge:
                 self.remove_interface(bridge_name, interface)
@@ -454,7 +468,7 @@ class LinuxBridgeManager:
                 del self.network_map[network_id]
 
     def remove_interface(self, bridge_name, interface_name):
-        if self.device_exists(bridge_name):
+        if ip_lib.device_exists(bridge_name, root_helper=self.root_helper):
             if not self.is_device_on_bridge(interface_name):
                 return True
             LOG.debug(_("Removing device %(interface_name)s from bridge "
@@ -477,7 +491,7 @@ class LinuxBridgeManager:
             return False
 
     def delete_vlan(self, interface):
-        if self.device_exists(interface):
+        if ip_lib.device_exists(interface, root_helper=self.root_helper):
             LOG.debug(_("Deleting subinterface %s for vlan"), interface)
             if utils.execute(['ip', 'link', 'set', interface, 'down'],
                              root_helper=self.root_helper):
@@ -488,7 +502,7 @@ class LinuxBridgeManager:
             LOG.debug(_("Done deleting subinterface %s"), interface)
 
     def delete_vxlan(self, interface):
-        if self.device_exists(interface):
+        if ip_lib.device_exists(interface, root_helper=self.root_helper):
             LOG.debug(_("Deleting vxlan interface %s for vlan"),
                       interface)
             int_vxlan = self.ip.device(interface)
@@ -525,8 +539,9 @@ class LinuxBridgeManager:
                          'mode': 'VXLAN UCAST'})
             return False
         for segmentation_id in range(1, constants.MAX_VXLAN_VNI + 1):
-            if not self.device_exists(
-                    self.get_vxlan_device_name(segmentation_id)):
+            if not ip_lib.device_exists(
+                    self.get_vxlan_device_name(segmentation_id),
+                    root_helper=self.root_helper):
                 break
         else:
             LOG.error(_('No valid Segmentation ID to perform UCAST test.'))
@@ -712,7 +727,7 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                                                          tap_device_name,
                                                          self.agent.agent_id,
                                                          cfg.CONF.host)
-        except rpc_common.Timeout:
+        except rpc_compat.MessagingTimeout:
             LOG.error(_("RPC timeout while updating port %s"), port['id'])
 
     def fdb_add(self, context, fdb_entries):
@@ -953,6 +968,7 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
         self.remove_devices_filter(devices)
         for device in devices:
             LOG.info(_("Attachment %s removed"), device)
+            details = None
             try:
                 details = self.plugin_rpc.update_device_down(self.context,
                                                              device,
@@ -962,7 +978,7 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
                 LOG.debug(_("port_removed failed for %(device)s: %(e)s"),
                           {'device': device, 'e': e})
                 resync = True
-            if details['exists']:
+            if details and details['exists']:
                 LOG.info(_("Port %s updated."), device)
             else:
                 LOG.debug(_("Device %s not defined on plugin"), device)
@@ -1011,7 +1027,6 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
 
 
 def main():
-    eventlet.monkey_patch()
     cfg.CONF(project='neutron')
 
     logging_config.setup_logging(cfg.CONF)

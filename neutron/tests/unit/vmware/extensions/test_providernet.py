@@ -17,11 +17,11 @@ from oslo.config import cfg
 
 from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import providernet as pnet
-from neutron.tests.unit.vmware import NSXEXT_PATH
-from neutron.tests.unit.vmware.test_nsx_plugin import NsxPluginV2TestCase
+from neutron.tests.unit import vmware
+from neutron.tests.unit.vmware import test_nsx_plugin
 
 
-class TestProvidernet(NsxPluginV2TestCase):
+class TestProvidernet(test_nsx_plugin.NsxPluginV2TestCase):
 
     def test_create_provider_network_default_physical_net(self):
         data = {'network': {'name': 'net1',
@@ -48,10 +48,10 @@ class TestProvidernet(NsxPluginV2TestCase):
         self.assertEqual(net['network'][pnet.PHYSICAL_NETWORK], 'physnet1')
 
 
-class TestMultiProviderNetworks(NsxPluginV2TestCase):
+class TestMultiProviderNetworks(test_nsx_plugin.NsxPluginV2TestCase):
 
     def setUp(self, plugin=None):
-        cfg.CONF.set_override('api_extensions_path', NSXEXT_PATH)
+        cfg.CONF.set_override('api_extensions_path', vmware.NSXEXT_PATH)
         super(TestMultiProviderNetworks, self).setUp()
 
     def test_create_network_provider(self):
@@ -66,6 +66,19 @@ class TestMultiProviderNetworks(NsxPluginV2TestCase):
         self.assertEqual(network['network'][pnet.NETWORK_TYPE], 'vlan')
         self.assertEqual(network['network'][pnet.PHYSICAL_NETWORK], 'physnet1')
         self.assertEqual(network['network'][pnet.SEGMENTATION_ID], 1)
+        self.assertNotIn(mpnet.SEGMENTS, network['network'])
+
+    def test_create_network_provider_flat(self):
+        data = {'network': {'name': 'net1',
+                            pnet.NETWORK_TYPE: 'flat',
+                            pnet.PHYSICAL_NETWORK: 'physnet1',
+                            'tenant_id': 'tenant_one'}}
+        network_req = self.new_create_request('networks', data)
+        network = self.deserialize(self.fmt,
+                                   network_req.get_response(self.api))
+        self.assertEqual('flat', network['network'][pnet.NETWORK_TYPE])
+        self.assertEqual('physnet1', network['network'][pnet.PHYSICAL_NETWORK])
+        self.assertEqual(0, network['network'][pnet.SEGMENTATION_ID])
         self.assertNotIn(mpnet.SEGMENTS, network['network'])
 
     def test_create_network_single_multiple_provider(self):

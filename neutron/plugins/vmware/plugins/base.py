@@ -60,7 +60,7 @@ from neutron.plugins.vmware.common import exceptions as nsx_exc
 from neutron.plugins.vmware.common import nsx_utils
 from neutron.plugins.vmware.common import securitygroups as sg_utils
 from neutron.plugins.vmware.common import sync
-from neutron.plugins.vmware.common.utils import NetworkTypes
+from neutron.plugins.vmware.common import utils as c_utils
 from neutron.plugins.vmware.dbexts import db as nsx_db
 from neutron.plugins.vmware.dbexts import distributedrouter as dist_rtr
 from neutron.plugins.vmware.dbexts import maclearning as mac_db
@@ -107,7 +107,6 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                    "mac-learning",
                                    "multi-provider",
                                    "network-gateway",
-                                   "nvp-qos",
                                    "port-security",
                                    "provider",
                                    "qos-queue",
@@ -174,7 +173,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         self._is_default_net_gw_in_sync = False
         # Create a synchronizer instance for backend sync
         self._synchronizer = sync.NsxSynchronizer(
-            self, self.cluster,
+            self.safe_reference, self.cluster,
             self.nsx_sync_opts.state_sync_interval,
             self.nsx_sync_opts.min_sync_req_delay,
             self.nsx_sync_opts.min_chunk_size,
@@ -374,8 +373,8 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         max_ports = self.nsx_opts.max_lp_per_overlay_ls
         allow_extra_lswitches = False
         for network_binding in network_bindings:
-            if network_binding.binding_type in (NetworkTypes.FLAT,
-                                                NetworkTypes.VLAN):
+            if network_binding.binding_type in (c_utils.NetworkTypes.FLAT,
+                                                c_utils.NetworkTypes.VLAN):
                 max_ports = self.nsx_opts.max_lp_per_bridged_ls
                 allow_extra_lswitches = True
                 break
@@ -621,7 +620,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                       True,
                                       ip_addresses)
         ext_network = self.get_network(context, port_data['network_id'])
-        if ext_network.get(pnet.NETWORK_TYPE) == NetworkTypes.L3_EXT:
+        if ext_network.get(pnet.NETWORK_TYPE) == c_utils.NetworkTypes.L3_EXT:
             # Update attachment
             physical_network = (ext_network[pnet.PHYSICAL_NETWORK] or
                                 self.cluster.default_l3_gw_service_uuid)
@@ -758,12 +757,13 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             err_msg = None
             if not network_type_set:
                 err_msg = _("%s required") % pnet.NETWORK_TYPE
-            elif network_type in (NetworkTypes.GRE, NetworkTypes.STT,
-                                  NetworkTypes.FLAT):
+            elif network_type in (c_utils.NetworkTypes.GRE,
+                                  c_utils.NetworkTypes.STT,
+                                  c_utils.NetworkTypes.FLAT):
                 if segmentation_id_set:
                     err_msg = _("Segmentation ID cannot be specified with "
                                 "flat network type")
-            elif network_type == NetworkTypes.VLAN:
+            elif network_type == c_utils.NetworkTypes.VLAN:
                 if not segmentation_id_set:
                     err_msg = _("Segmentation ID must be specified with "
                                 "vlan network type")
@@ -782,7 +782,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                         raise n_exc.VlanIdInUse(
                             vlan_id=segmentation_id,
                             physical_network=physical_network)
-            elif network_type == NetworkTypes.L3_EXT:
+            elif network_type == c_utils.NetworkTypes.L3_EXT:
                 if (segmentation_id_set and
                     not utils.is_valid_vlan_tag(segmentation_id)):
                     err_msg = (_("%(segmentation_id)s out of range "
@@ -888,9 +888,10 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         if bindings:
             transport_entry = {}
             for binding in bindings:
-                if binding.binding_type in [NetworkTypes.FLAT,
-                                            NetworkTypes.VLAN]:
-                    transport_entry['transport_type'] = NetworkTypes.BRIDGE
+                if binding.binding_type in [c_utils.NetworkTypes.FLAT,
+                                            c_utils.NetworkTypes.VLAN]:
+                    transport_entry['transport_type'] = (
+                        c_utils.NetworkTypes.BRIDGE)
                     transport_entry['binding_config'] = {}
                     vlan_id = binding.vlan_id
                     if vlan_id:
@@ -910,8 +911,9 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
 
             transport_entry = {}
             transport_type = transport_zone.get(pnet.NETWORK_TYPE)
-            if transport_type in [NetworkTypes.FLAT, NetworkTypes.VLAN]:
-                transport_entry['transport_type'] = NetworkTypes.BRIDGE
+            if transport_type in [c_utils.NetworkTypes.FLAT,
+                                  c_utils.NetworkTypes.VLAN]:
+                transport_entry['transport_type'] = c_utils.NetworkTypes.BRIDGE
                 transport_entry['binding_config'] = {}
                 vlan_id = transport_zone.get(pnet.SEGMENTATION_ID)
                 if vlan_id:
@@ -1003,11 +1005,15 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 isinstance(provider_type, bool)):
                 net_bindings = []
                 for tz in net_data[mpnet.SEGMENTS]:
+                    segmentation_id = tz.get(pnet.SEGMENTATION_ID, 0)
+                    segmentation_id_set = attr.is_attr_set(segmentation_id)
+                    if not segmentation_id_set:
+                        segmentation_id = 0
                     net_bindings.append(nsx_db.add_network_binding(
                         context.session, new_net['id'],
                         tz.get(pnet.NETWORK_TYPE),
                         tz.get(pnet.PHYSICAL_NETWORK),
-                        tz.get(pnet.SEGMENTATION_ID, 0)))
+                        segmentation_id))
                 if provider_type:
                     nsx_db.set_multiprovider_network(context.session,
                                                      new_net['id'])
@@ -1033,7 +1039,10 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         if not external:
             lswitch_ids = nsx_utils.get_nsx_switch_ids(
                 context.session, self.cluster, id)
-        super(NsxPluginV2, self).delete_network(context, id)
+        with context.session.begin(subtransactions=True):
+            self._process_l3_delete(context, id)
+            super(NsxPluginV2, self).delete_network(context, id)
+
         # clean up network owned ports
         for port in router_iface_ports:
             try:
@@ -1169,10 +1178,6 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 self._create_mac_learning_state(context, port_data)
             elif mac_ext.MAC_LEARNING in port_data:
                 port_data.pop(mac_ext.MAC_LEARNING)
-
-            LOG.debug(_("create_port completed on NSX for tenant "
-                        "%(tenant_id)s: (%(id)s)"), port_data)
-
             self._process_portbindings_create_and_update(context,
                                                          port['port'],
                                                          port_data)
@@ -1183,6 +1188,8 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 port_data['device_owner'],
                 self._port_drivers['create']['default'])
             port_create_func(context, port_data)
+            LOG.debug(_("port created on NSX backend for tenant "
+                        "%(tenant_id)s: (%(id)s)"), port_data)
         except n_exc.NotFound:
             LOG.warning(_("Logical switch for network %s was not "
                           "found in NSX."), port_data['network_id'])
@@ -1204,7 +1211,6 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         return port_data
 
     def update_port(self, context, id, port):
-        changed_fixed_ips = 'fixed_ips' in port['port']
         delete_security_groups = self._check_update_deletes_security_groups(
             port)
         has_security_groups = self._check_update_has_security_groups(port)
@@ -1246,9 +1252,6 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 self._delete_allowed_address_pairs(context, id)
                 self._process_create_allowed_address_pairs(
                     context, ret_port, ret_port[addr_pair.ADDRESS_PAIRS])
-            elif changed_fixed_ips:
-                self._check_fixed_ips_and_address_pairs_no_overlap(context,
-                                                                   ret_port)
             # checks if security groups were updated adding/modifying
             # security groups, port security is set and port has ip
             if not (has_ip and ret_port[psec.PORTSECURITY]):
@@ -1982,15 +1985,17 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
     def disassociate_floatingips(self, context, port_id):
         try:
             fip_qry = context.session.query(l3_db.FloatingIP)
-            fip_db = fip_qry.filter_by(fixed_port_id=port_id).one()
-            nsx_router_id = nsx_utils.get_nsx_router_id(
-                context.session, self.cluster, fip_db.router_id)
-            self._retrieve_and_delete_nat_rules(context,
-                                                fip_db.floating_ip_address,
-                                                fip_db.fixed_ip_address,
-                                                nsx_router_id,
-                                                min_num_rules_expected=1)
-            self._remove_floatingip_address(context, fip_db)
+            fip_dbs = fip_qry.filter_by(fixed_port_id=port_id)
+
+            for fip_db in fip_dbs:
+                nsx_router_id = nsx_utils.get_nsx_router_id(
+                    context.session, self.cluster, fip_db.router_id)
+                self._retrieve_and_delete_nat_rules(context,
+                                                    fip_db.floating_ip_address,
+                                                    fip_db.fixed_ip_address,
+                                                    nsx_router_id,
+                                                    min_num_rules_expected=1)
+                self._remove_floatingip_address(context, fip_db)
         except sa_exc.NoResultFound:
             LOG.debug(_("The port '%s' is not associated with floating IPs"),
                       port_id)
@@ -2017,12 +2022,14 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 device['interface_name'] = self.cluster.default_interface_name
         try:
             # Replace Neutron device identifiers with NSX identifiers
-            # TODO(salv-orlando): Make this operation more efficient doing a
-            # single DB query for all devices
-            nsx_devices = [{'id': self._get_nsx_device_id(context,
-                                                          device['id']),
-                            'interface_name': device['interface_name']} for
-                           device in devices]
+            dev_map = dict((dev['id'], dev['interface_name']) for
+                           dev in devices)
+            nsx_devices = []
+            for db_device in self._query_gateway_devices(
+                context, filters={'id': [device['id'] for device in devices]}):
+                nsx_devices.append(
+                    {'id': db_device['nsx_id'],
+                     'interface_name': dev_map[db_device['id']]})
             nsx_res = l2gwlib.create_l2_gw_service(
                 self.cluster, tenant_id, gw_data['name'], nsx_devices)
             nsx_uuid = nsx_res.get('uuid')
@@ -2231,11 +2238,13 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         gw_device['status'] = device_status
         return gw_device
 
-    def get_gateway_devices(self, context, filters=None, fields=None):
+    def get_gateway_devices(self, context, filters=None, fields=None,
+                            sorts=None, limit=None, marker=None,
+                            page_reverse=False):
         # Get devices from database
         devices = super(NsxPluginV2, self).get_gateway_devices(
             context, filters, fields, include_nsx_id=True)
-        # Fetch operational status from NVP, filter by tenant tag
+        # Fetch operational status from NSX, filter by tenant tag
         # TODO(salv-orlando): Asynchronous sync for gateway device status
         tenant_id = context.tenant_id if not context.is_admin else None
         nsx_statuses = nsx_utils.get_nsx_device_statuses(self.cluster,
@@ -2304,7 +2313,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
     def create_security_group(self, context, security_group, default_sg=False):
         """Create security group.
 
-        If default_sg is true that means a we are creating a default security
+        If default_sg is true that means we are creating a default security
         group and we don't need to check if one exists.
         """
         s = security_group.get('security_group')
@@ -2315,7 +2324,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         # NOTE(salv-orlando): Pre-generating Neutron ID for security group.
         neutron_id = str(uuid.uuid4())
         nsx_secgroup = secgrouplib.create_security_profile(
-            self.cluster, neutron_id, tenant_id, s)
+            self.cluster, tenant_id, neutron_id, s)
         with context.session.begin(subtransactions=True):
             s['id'] = neutron_id
             sec_group = super(NsxPluginV2, self).create_security_group(
@@ -2495,7 +2504,3 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 return
         queuelib.delete_lqueue(self.cluster, queue_id)
         return super(NsxPluginV2, self).delete_qos_queue(context, queue_id)
-
-
-# for backward compatibility
-NvpPluginV2 = NsxPluginV2

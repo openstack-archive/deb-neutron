@@ -24,10 +24,10 @@ from paste import deploy
 
 from neutron.api.v2 import attributes
 from neutron.common import utils
-from neutron.openstack.common.db.sqlalchemy import session as db_session
+from neutron.openstack.common.db import options as db_options
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.version import version_info as neutron_version
+from neutron import version
 
 
 LOG = logging.getLogger(__name__)
@@ -100,6 +100,10 @@ core_opts = [
                default='http://localhost:5000/v2.0',
                help=_('Authorization URL for connecting to nova in admin '
                       'context')),
+    cfg.StrOpt('nova_ca_certificates_file',
+               help=_('CA file for novaclient to verify server certificates')),
+    cfg.BoolOpt('nova_api_insecure', default=False,
+                help=_("If True, ignore any SSL validation issues")),
     cfg.StrOpt('nova_region_name',
                help=_('Name of nova region to use. Useful if keystone manages'
                       ' more than one region.')),
@@ -124,14 +128,15 @@ rpc.set_defaults(control_exchange='neutron')
 _SQL_CONNECTION_DEFAULT = 'sqlite://'
 # Update the default QueuePool parameters. These can be tweaked by the
 # configuration variables - max_pool_size, max_overflow and pool_timeout
-db_session.set_defaults(sql_connection=_SQL_CONNECTION_DEFAULT,
+db_options.set_defaults(sql_connection=_SQL_CONNECTION_DEFAULT,
                         sqlite_db='', max_pool_size=10,
                         max_overflow=20, pool_timeout=10)
 
 
-def parse(args):
+def parse(args, **kwargs):
     cfg.CONF(args=args, project='neutron',
-             version='%%prog %s' % neutron_version.release_string())
+             version='%%prog %s' % version.version_info.release_string(),
+             **kwargs)
 
     # Validate that the base_mac is of the correct format
     msg = attributes._validate_regex(cfg.CONF.base_mac,

@@ -22,6 +22,8 @@ import os
 import socket
 
 import eventlet
+eventlet.monkey_patch()
+
 import httplib2
 from neutronclient.v2_0 import client
 from oslo.config import cfg
@@ -35,6 +37,7 @@ from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron.common import utils
 from neutron import context
+from neutron.openstack.common.cache import cache
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
@@ -64,7 +67,6 @@ class MetadataProxyHandler(object):
                     help=_("Turn off verification of the certificate for"
                            " ssl")),
         cfg.StrOpt('auth_ca_cert',
-                   default=None,
                    help=_("Certificate Authority public key (CA cert) "
                           "file for ssl")),
         cfg.StrOpt('endpoint_type',
@@ -79,12 +81,29 @@ class MetadataProxyHandler(object):
         cfg.StrOpt('metadata_proxy_shared_secret',
                    default='',
                    help=_('Shared secret to sign instance-id request'),
-                   secret=True)
+                   secret=True),
+        cfg.StrOpt('nova_metadata_protocol',
+                   default='http',
+                   choices=['http', 'https'],
+                   help=_("Protocol to access nova metadata, http or https")),
+        cfg.BoolOpt('nova_metadata_insecure', default=False,
+                    help=_("Allow to perform insecure SSL (https) requests to "
+                           "nova metadata")),
+        cfg.StrOpt('nova_client_cert',
+                   default='',
+                   help=_("Client certificate for nova metadata api server.")),
+        cfg.StrOpt('nova_client_priv_key',
+                   default='',
+                   help=_("Private key of client certificate."))
     ]
 
     def __init__(self, conf):
         self.conf = conf
         self.auth_info = {}
+        if self.conf.cache_url:
+            self._cache = cache.get_cache(self.conf.cache_url)
+        else:
+            self._cache = False
 
     def _get_neutron_client(self):
         qclient = client.Client(
@@ -119,6 +138,49 @@ class MetadataProxyHandler(object):
                     'Please try your request again.')
             return webob.exc.HTTPInternalServerError(explanation=unicode(msg))
 
+    @utils.cache_method_results
+    def _get_router_networks(self, router_id):
+        """Find all networks connected to given router."""
+        qclient = self._get_neutron_client()
+
+        internal_ports = qclient.list_ports(
+            device_id=router_id,
+            device_owner=n_const.DEVICE_OWNER_ROUTER_INTF)['ports']
+        return tuple(p['network_id'] for p in internal_ports)
+
+    @utils.cache_method_results
+    def _get_ports_for_remote_address(self, remote_address, networks):
+        """Get list of ports that has given ip address and are part of
+        given networks.
+
+        :param networks: list of networks in which the ip address will be
+                         searched for
+
+        """
+        qclient = self._get_neutron_client()
+
+        return qclient.list_ports(
+            network_id=networks,
+            fixed_ips=['ip_address=%s' % remote_address])['ports']
+
+    def _get_ports(self, remote_address, network_id=None, router_id=None):
+        """Search for all ports that contain passed ip address and belongs to
+        given network.
+
+        If no network is passed ports are searched on all networks connected to
+        given router. Either one of network_id or router_id must be passed.
+
+        """
+        if network_id:
+            networks = (network_id,)
+        elif router_id:
+            networks = self._get_router_networks(router_id)
+        else:
+            raise TypeError(_("Either one of parameter network_id or router_id"
+                              " must be passed to _get_ports method."))
+
+        return self._get_ports_for_remote_address(remote_address, networks)
+
     def _get_instance_and_tenant_id(self, req):
         qclient = self._get_neutron_client()
 
@@ -126,18 +188,7 @@ class MetadataProxyHandler(object):
         network_id = req.headers.get('X-Neutron-Network-ID')
         router_id = req.headers.get('X-Neutron-Router-ID')
 
-        if network_id:
-            networks = [network_id]
-        else:
-            internal_ports = qclient.list_ports(
-                device_id=router_id,
-                device_owner=n_const.DEVICE_OWNER_ROUTER_INTF)['ports']
-
-            networks = [p['network_id'] for p in internal_ports]
-
-        ports = qclient.list_ports(
-            network_id=networks,
-            fixed_ips=['ip_address=%s' % remote_address])['ports']
+        ports = self._get_ports(remote_address, network_id, router_id)
 
         self.auth_info = qclient.get_auth_info()
         if len(ports) == 1:
@@ -152,15 +203,22 @@ class MetadataProxyHandler(object):
             'X-Instance-ID-Signature': self._sign_instance_id(instance_id)
         }
 
+        nova_ip_port = '%s:%s' % (self.conf.nova_metadata_ip,
+                                  self.conf.nova_metadata_port)
         url = urlparse.urlunsplit((
-            'http',
-            '%s:%s' % (self.conf.nova_metadata_ip,
-                       self.conf.nova_metadata_port),
+            self.conf.nova_metadata_protocol,
+            nova_ip_port,
             req.path_info,
             req.query_string,
             ''))
 
-        h = httplib2.Http()
+        h = httplib2.Http(ca_certs=self.conf.auth_ca_cert,
+                          disable_ssl_certificate_validation=
+                          self.conf.nova_metadata_insecure)
+        if self.conf.nova_client_cert and self.conf.nova_client_priv_key:
+            h.add_certificate(self.conf.nova_client_priv_key,
+                              self.conf.nova_client_cert,
+                              nova_ip_port)
         resp, content = h.request(url, method=req.method, headers=headers,
                                   body=req.body)
 
@@ -321,9 +379,10 @@ class UnixDomainMetadataProxy(object):
 
 
 def main():
-    eventlet.monkey_patch()
     cfg.CONF.register_opts(UnixDomainMetadataProxy.OPTS)
     cfg.CONF.register_opts(MetadataProxyHandler.OPTS)
+    cache.register_oslo_configs(cfg.CONF)
+    cfg.CONF.set_default(name='cache_url', default='memory://?default_ttl=5')
     agent_conf.register_agent_state_opts_helper(cfg.CONF)
     cfg.CONF(project='neutron')
     config.setup_logging(cfg.CONF)

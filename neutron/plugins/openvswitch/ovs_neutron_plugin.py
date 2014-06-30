@@ -24,6 +24,7 @@ from neutron.api.v2 import attributes
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as q_rpc
+from neutron.common import rpc_compat
 from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
@@ -48,7 +49,6 @@ from neutron import manager
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
-from neutron.openstack.common.rpc import proxy
 from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.openvswitch.common import config  # noqa
@@ -182,7 +182,7 @@ class OVSRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return entry
 
 
-class AgentNotifierApi(proxy.RpcProxy,
+class AgentNotifierApi(rpc_compat.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     '''Agent side of the openvswitch rpc API.
 
@@ -526,6 +526,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         session = context.session
         with session.begin(subtransactions=True):
             binding = ovs_db_v2.get_network_binding(session, id)
+            self._process_l3_delete(context, id)
             super(OVSNeutronPluginV2, self).delete_network(context, id)
             if binding.network_type in constants.TUNNEL_NETWORK_TYPES:
                 ovs_db_v2.release_tunnel(session, binding.segmentation_id,
@@ -582,7 +583,6 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     def update_port(self, context, id, port):
         session = context.session
         need_port_update_notify = False
-        changed_fixed_ips = 'fixed_ips' in port['port']
         with session.begin(subtransactions=True):
             original_port = super(OVSNeutronPluginV2, self).get_port(
                 context, id)
@@ -593,9 +593,6 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                     self.update_address_pairs_on_port(context, id, port,
                                                       original_port,
                                                       updated_port))
-            elif changed_fixed_ips:
-                self._check_fixed_ips_and_address_pairs_no_overlap(
-                    context, updated_port)
             need_port_update_notify |= self.update_security_group_on_port(
                 context, id, port, original_port, updated_port)
             self._process_portbindings_create_and_update(context,

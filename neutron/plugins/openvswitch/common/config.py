@@ -75,11 +75,16 @@ agent_opts = [
                        "(gre and/or vxlan)")),
     cfg.IntOpt('vxlan_udp_port', default=constants.VXLAN_UDP_PORT,
                help=_("The UDP port to use for VXLAN tunnels.")),
-    cfg.IntOpt('veth_mtu', default=None,
+    cfg.IntOpt('veth_mtu',
                help=_("MTU size of veth interfaces")),
     cfg.BoolOpt('l2_population', default=False,
                 help=_("Use ml2 l2population mechanism driver to learn "
                        "remote mac and IPs and improve tunnel scalability")),
+    cfg.BoolOpt('arp_responder', default=False,
+                help=_("Enable local ARP responder if it is supported")),
+    cfg.BoolOpt('dont_fragment', default=True,
+                help=_("Set or un-set the don't fragment (DF) bit on "
+                       "outgoing IP packet carrying GRE/VXLAN tunnel")),
 ]
 
 

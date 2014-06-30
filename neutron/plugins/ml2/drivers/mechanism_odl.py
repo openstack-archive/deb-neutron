@@ -68,6 +68,10 @@ def try_del(d, keys):
             pass
 
 
+class OpendaylightAuthError(n_exc.NeutronException):
+    message = '%(msg)s'
+
+
 class JsessionId(requests.auth.AuthBase):
 
     """Attaches the JSESSIONID and JSESSIONIDSSO cookies to an HTTP Request.
@@ -95,8 +99,16 @@ class JsessionId(requests.auth.AuthBase):
     def obtain_auth_cookies(self):
         """Make a REST call to obtain cookies for ODL authenticiation."""
 
-        r = requests.get(self.url, auth=(self.username, self.password))
-        r.raise_for_status()
+        try:
+            r = requests.get(self.url, auth=(self.username, self.password))
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            raise OpendaylightAuthError(msg=_("Failed to authenticate with "
+                                              "OpenDaylight: %s") % e)
+        except requests.exceptions.Timeout as e:
+            raise OpendaylightAuthError(msg=_("Authentication Timed"
+                                              " Out: %s") % e)
+
         jsessionid = r.cookies.get('JSESSIONID')
         jsessionidsso = r.cookies.get('JSESSIONIDSSO')
         if jsessionid and jsessionidsso:
@@ -129,6 +141,10 @@ class OpenDaylightMechanismDriver(api.MechanismDriver):
         self.timeout = cfg.CONF.ml2_odl.timeout
         self.username = cfg.CONF.ml2_odl.username
         self.password = cfg.CONF.ml2_odl.password
+        required_opts = ('url', 'username', 'password')
+        for opt in required_opts:
+            if not getattr(self, opt):
+                raise cfg.RequiredOptError(opt, 'ml2_odl')
         self.auth = JsessionId(self.url, self.username, self.password)
         self.vif_type = portbindings.VIF_TYPE_OVS
         self.vif_details = {portbindings.CAP_PORT_FILTER: True}
@@ -199,9 +215,11 @@ class OpenDaylightMechanismDriver(api.MechanismDriver):
                 urlpath = collection_name + '/' + resource['id']
                 self.sendjson('get', urlpath, None)
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    attr_filter(resource, context, dbcontext)
-                    to_be_synced.append(resource)
+                with excutils.save_and_reraise_exception() as ctx:
+                    if e.response.status_code == 404:
+                        attr_filter(resource, context, dbcontext)
+                        to_be_synced.append(resource)
+                        ctx.reraise = False
 
         key = resource_name if len(to_be_synced) == 1 else collection_name
 
@@ -311,18 +329,17 @@ class OpenDaylightMechanismDriver(api.MechanismDriver):
 
         headers = {'Content-Type': 'application/json'}
         data = jsonutils.dumps(obj, indent=2) if obj else None
-        if self.url:
-            url = '/'.join([self.url, urlpath])
-            LOG.debug(_('ODL-----> sending URL (%s) <-----ODL') % url)
-            LOG.debug(_('ODL-----> sending JSON (%s) <-----ODL') % obj)
-            r = requests.request(method, url=url,
-                                 headers=headers, data=data,
-                                 auth=self.auth, timeout=self.timeout)
+        url = '/'.join([self.url, urlpath])
+        LOG.debug(_('ODL-----> sending URL (%s) <-----ODL') % url)
+        LOG.debug(_('ODL-----> sending JSON (%s) <-----ODL') % obj)
+        r = requests.request(method, url=url,
+                             headers=headers, data=data,
+                             auth=self.auth, timeout=self.timeout)
 
-            # ignorecodes contains a list of HTTP error codes to ignore.
-            if r.status_code in ignorecodes:
-                return
-            r.raise_for_status()
+        # ignorecodes contains a list of HTTP error codes to ignore.
+        if r.status_code in ignorecodes:
+            return
+        r.raise_for_status()
 
     def bind_port(self, context):
         LOG.debug(_("Attempting to bind port %(port)s on "
@@ -354,4 +371,4 @@ class OpenDaylightMechanismDriver(api.MechanismDriver):
         """
         network_type = segment[api.NETWORK_TYPE]
         return network_type in [constants.TYPE_LOCAL, constants.TYPE_GRE,
-                                constants.TYPE_VXLAN]
+                                constants.TYPE_VXLAN, constants.TYPE_VLAN]
