@@ -3,12 +3,10 @@ Description: Better config default
  parse with maintainer scripts. This patch fixes that.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: no
-Last-Update: 2014-04-02
+Last-Update: 2014-06-30
 
-Index: neutron/etc/l3_agent.ini
-===================================================================
---- neutron.orig/etc/l3_agent.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/l3_agent.ini	2014-04-09 23:45:39.000000000 +0800
+--- a/etc/l3_agent.ini
++++ b/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -22,10 +20,8 @@ Index: neutron/etc/l3_agent.ini
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-Index: neutron/etc/neutron.conf
-===================================================================
---- neutron.orig/etc/neutron.conf	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/neutron.conf	2014-04-09 23:45:39.000000000 +0800
+--- a/etc/neutron.conf
++++ b/etc/neutron.conf
 @@ -50,8 +50,7 @@
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -46,7 +42,7 @@ Index: neutron/etc/neutron.conf
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -131,16 +130,16 @@
+@@ -132,16 +131,16 @@
  # SSL certification authority file (valid only if SSL enabled)
  # kombu_ssl_ca_certs =
  # IP address of the RabbitMQ installation
@@ -66,7 +62,7 @@ Index: neutron/etc/neutron.conf
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -382,7 +381,7 @@
+@@ -389,7 +388,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -75,7 +71,7 @@ Index: neutron/etc/neutron.conf
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -402,11 +401,9 @@
+@@ -408,11 +407,9 @@
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -86,12 +82,10 @@ Index: neutron/etc/neutron.conf
 -# connection = sqlite://
 +connection = sqlite:///var/lib/neutron/neutrondb
  
- # The SQLAlchemy connection string used to connect to the slave database
- # slave_connection =
-Index: neutron/etc/lbaas_agent.ini
-===================================================================
---- neutron.orig/etc/lbaas_agent.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/lbaas_agent.ini	2014-04-09 23:45:39.000000000 +0800
+ # Database engine for which script will be generated when using offline
+ # migration
+--- a/etc/lbaas_agent.ini
++++ b/etc/lbaas_agent.ini
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -105,10 +99,8 @@ Index: neutron/etc/lbaas_agent.ini
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-===================================================================
---- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-04-09 23:45:39.000000000 +0800
+--- a/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ b/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -144,7 +136,7 @@ Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -130,40 +130,10 @@
+@@ -140,40 +140,10 @@
  
  [securitygroup]
  # Firewall driver for realizing neutron security group function.
