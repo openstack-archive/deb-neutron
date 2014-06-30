@@ -782,17 +782,6 @@ class SecurityGroupAgentRpcTestCaseForNoneDriver(base.BaseTestCase):
                          'NoopFirewallDriver')
 
 
-class SecurityGroupAgentRpcTestCaseForNoneDriver(base.BaseTestCase):
-    def test_init_firewall_with_none_driver(self):
-        cfg.CONF.set_override(
-            'enable_security_group', False,
-            group='SECURITYGROUP')
-        agent = sg_rpc.SecurityGroupAgentRpcMixin()
-        agent.init_firewall()
-        self.assertEqual(agent.firewall.__class__.__name__,
-                         'NoopFirewallDriver')
-
-
 class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
     def setUp(self, defer_refresh_firewall=False):
         super(SecurityGroupAgentRpcTestCase, self).setUp()

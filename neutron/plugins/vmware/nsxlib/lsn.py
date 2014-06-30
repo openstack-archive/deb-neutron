@@ -212,10 +212,6 @@ def _get_opts(name, value):
     return {"name": name, "value": str(value)}
 
 
-def _get_opts(name, value):
-    return {"name": name, "value": str(value)}
-
-
 def lsn_port_dhcp_configure(
         cluster, lsn_id, lsn_port_id, is_enabled=True, dhcp_options=None):
     dhcp_options = dhcp_options or {}

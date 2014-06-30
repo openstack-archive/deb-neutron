@@ -628,31 +628,6 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
         self.assertFalse(connection.forced_down)
         self.assertEqual(2, self.admin_state.call_count)
 
-    def test_update_connection_admin_up(self):
-        """Connection updated to admin up state - record."""
-        # Make existing service, and connection that was admin down
-        conn_data = {u'id': '1', u'status': constants.DOWN,
-                     u'admin_state_up': False,
-                     u'cisco': {u'site_conn_id': u'Tunnel0'}}
-        service_data = {u'id': u'123',
-                        u'status': constants.DOWN,
-                        u'external_ip': u'1.1.1.1',
-                        u'admin_state_up': True,
-                        u'ipsec_conns': [conn_data]}
-        self.driver.update_service(self.context, service_data)
-        self.driver.mark_existing_connections_as_dirty()
-        # Now simulate that the notification shows the connection admin up
-        conn_data[u'admin_state_up'] = True
-        conn_data[u'status'] = constants.DOWN
-
-        connection = self.driver.update_connection(self.context,
-                                                   u'123', conn_data)
-        self.assertFalse(connection.is_dirty)
-        self.assertFalse(connection.forced_down)
-        self.assertEqual(u'Tunnel0', connection.tunnel)
-        self.assertEqual(constants.DOWN, connection.last_status)
-        self.assertEqual(1, self.conn_create.call_count)
-
     def test_update_for_vpn_service_create(self):
         """Creation of new IPSec connection on new VPN service - create.
 
@@ -764,9 +739,6 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
         of a service that is in the admin down state. Structures will be
         created, but forced down.
         """
-        conn_data = {u'id': u'1', u'status': constants.ACTIVE,
-                     u'admin_state_up': True,
-                     u'cisco': {u'site_conn_id': u'Tunnel0'}}
         service_data = {u'id': u'123',
                         u'status': constants.DOWN,
                         u'external_ip': u'1.1.1.1',
