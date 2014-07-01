@@ -2,6 +2,7 @@ neutron (2014.2~b1-1) experimental; urgency=medium
 
   [ Thomas Goirand ]
   * Disabled ml2 config patch.
+  * Fixed (build-)depends for this release.
 
   [ gustavo panizzo ]
   * New upstream release.
