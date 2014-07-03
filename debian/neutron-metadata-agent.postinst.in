@@ -16,6 +16,7 @@ manage_metadata_region () {
 if [ "${1}" = "configure" ] ; then
 	. /usr/share/debconf/confmodule
 	pkgos_var_user_group neutron
+	chmod 755 /var/lib/neutron
 
 	if [ ! -e ${CONF_FILE} ] ; then
 		install -D -m 0640 -o neutron -g neutron /usr/share/neutron-metadata-agent/metadata_agent.ini ${CONF_FILE}
