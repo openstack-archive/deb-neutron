@@ -1,6 +1,8 @@
-neutron (2014.1.1-2) UNRELEASED; urgency=medium
+neutron (2014.1.1-2) unstable; urgency=medium
 
   * Disabled ml2 config patch.
+  * Fixed unix rights of /var/lib/neutron in the metadata-agent postinst
+    (Closes: #751524).
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 10 Jun 2014 20:53:20 +0800
 
