@@ -39,6 +39,14 @@ class NeutronBase(models.ModelBase):
                                                self.__class__.__name__,
                                                id(self), ', '.join(items))
 
+    def to_dict(self, exclude=None):
+        exclude = exclude or []
+        model_dict = {}
+        for column in self.__table__.columns:
+            if column.name not in exclude:
+                model_dict[column.name] = getattr(self, column.name)
+        return model_dict
+
 
 class NeutronBaseV2(NeutronBase):
 

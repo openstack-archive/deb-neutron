@@ -82,7 +82,7 @@ class MemberAddressTypeSubnetTypeMismatch(qexception.NeutronException):
 
 
 class DriverError(qexception.NeutronException):
-    message = _("An error happened in the driver: %(message)s")
+    message = _("An error happened in the driver")
 
 
 class LBConfigurationUnsupported(qexception.NeutronException):
