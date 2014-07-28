@@ -125,6 +125,12 @@ restart|force-reload)
 status)
 	status_of_proc -p $PIDFILE $DAEMON neutron-server && exit 0 || exit $?
 ;;
+systemd-start)
+    do_start
+;;
+systemd-stop)
+    do_stop
+;;
 *)
 	log_action_msg "Usage: /etc/init.d/neutron-server {start|stop|restart|force-reload|status}"
 	exit 1

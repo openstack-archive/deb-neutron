@@ -6,6 +6,7 @@ neutron (2014.2~b1-1) experimental; urgency=medium
 
   [ gustavo panizzo ]
   * New upstream release.
+  * Support to run neutron under systemd.
 
  -- gustavo panizzo <gfa@zumbi.com.ar>  Mon, 30 Jun 2014 18:14:04 -0300
 
