@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenStack Networking service - VPN Agent
+Documentation=http://docs.openstack.org/
+After=network.service mysql.service postgresql.service rabbitmq-server.service keystone.service openvswitch-switch.service
+
+[Service]
+User=neutron
+Group=neutron
+ExecStart=/etc/init.d/neutron-vpn-agent systemd-start
+ExecStop=/etc/init.d/neutron-vpn-agent systemd-stop
+PIDFile=/var/run/neutron/neutron-vpn-agent.pid
+Restart=on-failure
+Type=forking
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenStack Networking service - L3 Agent
+Documentation=http://docs.openstack.org/
+After=network.service mysql.service postgresql.service rabbitmq-server.service keystone.service openvswitch-switch.service
+
+[Service]
+User=neutron
+Group=neutron
+ExecStart=/etc/init.d/neutron-l3-agent systemd-start
+ExecStop=/etc/init.d/neutron-l3-agent systemd-stop
+PIDFile=/var/run/neutron/neutron-l3-agent.pid
+Restart=on-failure
+Type=forking
+
+[Install]
+WantedBy=multi-user.target
+

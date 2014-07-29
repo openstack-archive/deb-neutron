@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenStack Networking service - OpenVSwithc Plugin Agent
+Documentation=http://docs.openstack.org/
+After=network.service mysql.service postgresql.service rabbitmq-server.service keystone.service openvswitch-switch.service
+
+[Service]
+User=neutron
+Group=neutron
+ExecStart=/etc/init.d/neutron-openvswitch-agent systemd-start
+ExecStop=/etc/init.d/neutron-openvswitch-agent systemd-stop
+PIDFile=/var/run/neutron/neutron-openvswitch-agent.pid
+Restart=on-failure
+Type=forking
+
+[Install]
+WantedBy=multi-user.target
+
