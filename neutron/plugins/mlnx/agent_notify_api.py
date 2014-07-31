@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 Mellanox Technologies, Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,14 +15,14 @@
 from oslo.config import cfg
 
 from neutron.agent import securitygroups_rpc as sg_rpc
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 
 
-class AgentNotifierApi(rpc_compat.RpcProxy,
+class AgentNotifierApi(n_rpc.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     """Agent side of the Embedded Switch RPC API.
 

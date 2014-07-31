@@ -399,7 +399,7 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
 
     def setUp(self):
         super(TestCiscoCsrIPsecDeviceDriverSyncStatuses, self).setUp()
-        for klass in ['neutron.openstack.common.rpc.create_connection',
+        for klass in ['neutron.common.rpc.create_connection',
                       'neutron.context.get_admin_context_without_session',
                       'neutron.openstack.common.'
                       'loopingcall.FixedIntervalLoopingCall']:
@@ -1502,8 +1502,8 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
                             u'ipsec_site_connections': {
                                 u'1': {u'status': constants.ACTIVE,
                                        u'updated_pending_status': True},
-                            u'2': {u'status': constants.DOWN,
-                                   u'updated_pending_status': True}}
+                                u'2': {u'status': constants.DOWN,
+                                       u'updated_pending_status': True}}
                             },
                            {u'id': u'456',
                             u'updated_pending_status': True,

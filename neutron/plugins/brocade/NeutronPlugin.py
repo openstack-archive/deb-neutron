@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 Brocade Communications System, Inc.
 # All rights reserved.
 #
@@ -31,8 +29,7 @@ from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.common import constants as q_const
-from neutron.common import rpc as q_rpc
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
@@ -51,7 +48,6 @@ from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import context
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.plugins.brocade.db import models as brocade_db
 from neutron.plugins.brocade import vlanbm as vbm
 from neutron.plugins.common import constants as svc_constants
@@ -81,25 +77,18 @@ cfg.CONF.register_opts(SWITCH_OPTS, "SWITCH")
 cfg.CONF.register_opts(PHYSICAL_INTERFACE_OPTS, "PHYSICAL_INTERFACE")
 
 
-class BridgeRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
+class BridgeRpcCallbacks(n_rpc.RpcCallback,
+                         dhcp_rpc_base.DhcpRpcCallbackMixin,
                          l3_rpc_base.L3RpcCallbackMixin,
                          sg_db_rpc.SecurityGroupServerRpcCallbackMixin):
     """Agent callback."""
 
-    RPC_API_VERSION = '1.1'
+    RPC_API_VERSION = '1.2'
     # Device names start with "tap"
     # history
     #   1.1 Support Security Group RPC
+    #   1.2 Support get_devices_details_list
     TAP_PREFIX_LEN = 3
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this manager.
-
-        If a manager would like to set an rpc API version, or support more than
-        one class as the target of rpc messages, override this method.
-        """
-        return q_rpc.PluginRpcDispatcher([self,
-                                          agents_db.AgentExtRpcCallback()])
 
     @classmethod
     def get_port_from_device(cls, device):
@@ -148,6 +137,16 @@ class BridgeRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
             LOG.debug(_("%s can not be found in database"), device)
         return entry
 
+    def get_devices_details_list(self, rpc_context, **kwargs):
+        return [
+            self.get_device_details(
+                rpc_context,
+                device=device,
+                **kwargs
+            )
+            for device in kwargs.pop('devices', [])
+        ]
+
     def update_device_down(self, rpc_context, **kwargs):
         """Device no longer exists on agent."""
 
@@ -166,7 +165,7 @@ class BridgeRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return entry
 
 
-class AgentNotifierApi(rpc_compat.RpcProxy,
+class AgentNotifierApi(n_rpc.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     """Agent side of the linux bridge rpc API.
 
@@ -263,19 +262,19 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.rpc_context = context.RequestContext('neutron', 'neutron',
                                                   is_admin=False)
-        self.conn = rpc.create_connection(new=True)
-        self.callbacks = BridgeRpcCallbacks()
-        self.dispatcher = self.callbacks.create_rpc_dispatcher()
+        self.conn = n_rpc.create_connection(new=True)
+        self.endpoints = [BridgeRpcCallbacks(),
+                          agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
-            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
-        # Consume from all consumers in a thread
-        self.conn.consume_in_thread()
+            self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
         self.notifier = AgentNotifierApi(topics.AGENT)
         self.agent_notifiers[q_const.AGENT_TYPE_DHCP] = (
             dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         )
         self.agent_notifiers[q_const.AGENT_TYPE_L3] = (
-            l3_rpc_agent_api.L3AgentNotify
+            l3_rpc_agent_api.L3AgentNotifyAPI()
         )
 
     def create_network(self, context, network):

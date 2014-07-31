@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 Big Switch Networks, Inc.
 # All Rights Reserved.
 #
@@ -41,7 +39,7 @@ class TestFirewallCallbacks(test_db_firewall.FirewallPluginDbTestCase):
     def setUp(self):
         super(TestFirewallCallbacks,
               self).setUp(fw_plugin=FW_PLUGIN_KLASS)
-        self.callbacks = self.plugin.callbacks
+        self.callbacks = self.plugin.endpoints[0]
 
     def test_set_firewall_status(self):
         ctx = context.get_admin_context()
@@ -87,7 +85,7 @@ class TestFirewallCallbacks(test_db_firewall.FirewallPluginDbTestCase):
             fwp_id = fwp['firewall_policy']['id']
             with self.firewall(firewall_policy_id=fwp_id,
                                admin_state_up=test_db_firewall.ADMIN_STATE_UP,
-                               no_delete=True) as fw:
+                               do_delete=False) as fw:
                 fw_id = fw['firewall']['id']
                 with ctx.session.begin(subtransactions=True):
                     fw_db = self.plugin._get_firewall(ctx, fw_id)
@@ -210,7 +208,7 @@ class TestFirewallPluginBase(test_db_firewall.TestFirewallDBPlugin):
 
     def setUp(self):
         super(TestFirewallPluginBase, self).setUp(fw_plugin=FW_PLUGIN_KLASS)
-        self.callbacks = self.plugin.callbacks
+        self.callbacks = self.plugin.endpoints[0]
 
     def test_create_second_firewall_not_permitted(self):
         with self.firewall():
@@ -342,14 +340,14 @@ class TestFirewallPluginBase(test_db_firewall.TestFirewallDBPlugin):
                 for k, v in attrs.iteritems():
                     self.assertEqual(fw_db[k], v)
             # cleanup the pending firewall
-            self.plugin.callbacks.firewall_deleted(ctx, fw_id)
+            self.plugin.endpoints[0].firewall_deleted(ctx, fw_id)
 
     def test_delete_firewall_after_agent_delete(self):
         ctx = context.get_admin_context()
         with self.firewall_policy() as fwp:
             fwp_id = fwp['firewall_policy']['id']
             with self.firewall(firewall_policy_id=fwp_id,
-                               no_delete=True) as fw:
+                               do_delete=False) as fw:
                 fw_id = fw['firewall']['id']
                 req = self.new_delete_request('firewalls', fw_id)
                 res = req.get_response(self.ext_api)

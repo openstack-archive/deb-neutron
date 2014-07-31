@@ -33,13 +33,14 @@ from neutron.agent.linux import utils
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import constants as n_const
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils as n_utils
 from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.common import constants as p_const
+from neutron.plugins.ofagent.agent import ports
 from neutron.plugins.ofagent.common import config  # noqa
 from neutron.plugins.openvswitch.common import constants
 
@@ -159,7 +160,8 @@ class OFANeutronAgentRyuApp(app_manager.RyuApp):
         agent.daemon_loop()
 
 
-class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+class OFANeutronAgent(n_rpc.RpcCallback,
+                      sg_rpc.SecurityGroupAgentRpcCallbackMixin):
     """A agent for OpenFlow Agent ML2 mechanism driver.
 
     OFANeutronAgent is a OpenFlow Agent agent for a ML2 plugin.
@@ -199,6 +201,7 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
                minimization, the number of seconds to wait before respawning
                the ovsdb monitor.
         """
+        super(OFANeutronAgent, self).__init__()
         self.ryuapp = ryuapp
         self.veth_mtu = veth_mtu
         self.root_helper = root_helper
@@ -284,13 +287,13 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         # RPC network init
         self.context = context.get_admin_context_without_session()
         # Handle updates from service
-        self.dispatcher = self.create_rpc_dispatcher()
+        self.endpoints = [self]
         # Define the listening consumers for the agent
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.NETWORK, topics.DELETE],
                      [constants.TUNNEL, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE]]
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
         report_interval = cfg.CONF.AGENT.report_interval
@@ -298,6 +301,23 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
             heartbeat = loopingcall.FixedIntervalLoopingCall(
                 self._report_state)
             heartbeat.start(interval=report_interval)
+
+    def _get_ports(self, br):
+        """Generate ports.Port instances for the given bridge."""
+        datapath = br.datapath
+        ofpp = datapath.ofproto_parser
+        msg = ofpp.OFPPortDescStatsRequest(datapath=datapath)
+        descs = ryu_api.send_msg(app=self.ryuapp, msg=msg,
+                                 reply_cls=ofpp.OFPPortDescStatsReply,
+                                 reply_multi=True)
+        for d in descs:
+            for p in d.body:
+                yield ports.Port.from_ofp_port(p)
+
+    def _get_ofport_names(self, br):
+        """Return a set of OpenFlow port names for the given bridge."""
+        return set(p.normalized_port_name() for p in
+                   self._get_ports(br) if p.is_neutron_port())
 
     def get_net_uuid(self, vif_id):
         for network_id, vlan_mapping in self.local_vlan_map.iteritems():
@@ -320,7 +340,7 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         # Even if full port details might be provided to this call,
         # they are not used since there is no guarantee the notifications
         # are processed in the same order as the relevant API requests
-        self.updated_ports.add(port['id'])
+        self.updated_ports.add(ports.get_normalized_port_name(port['id']))
         LOG.debug(_("port_update received port %s"), port['id'])
 
     def tunnel_update(self, context, **kwargs):
@@ -341,14 +361,6 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         if not tun_name:
             return
         self.setup_tunnel_port(tun_name, tunnel_ip, tunnel_type)
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this manager.
-
-        If a manager would like to set an rpc API version, or support more than
-        one class as the target of rpc messages, override this method.
-        """
-        return dispatcher.RpcDispatcher([self])
 
     def _provision_local_vlan_outbound_for_tunnel(self, lvid,
                                                   segmentation_id, ofports):
@@ -606,7 +618,7 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
             self.provision_local_vlan(net_uuid, network_type,
                                       physical_network, segmentation_id)
         lvm = self.local_vlan_map[net_uuid]
-        lvm.vif_ports[port.vif_id] = port
+        lvm.vif_ports[port.port_name] = port
         # Do not bind a port if it's already bound
         cur_tag = self.int_br.db_get_val("Port", port.port_name, "tag")
         if cur_tag != str(lvm.vlan):
@@ -860,8 +872,8 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     def _phys_br_patch_physical_bridge_with_integration_bridge(
             self, br, physical_network, bridge, ip_wrapper):
-        int_veth_name = constants.VETH_INTEGRATION_PREFIX + bridge
-        phys_veth_name = constants.VETH_PHYSICAL_PREFIX + bridge
+        int_veth_name = constants.PEER_INTEGRATION_PREFIX + bridge
+        phys_veth_name = constants.PEER_PHYSICAL_PREFIX + bridge
         self._phys_br_prepare_create_veth(br, int_veth_name, phys_veth_name)
         int_veth, phys_veth = self._phys_br_create_veth(br, int_veth_name,
                                                         phys_veth_name,
@@ -917,7 +929,7 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
                 br, physical_network, bridge, ip_wrapper)
 
     def scan_ports(self, registered_ports, updated_ports=None):
-        cur_ports = self.int_br.get_vif_port_set()
+        cur_ports = self._get_ofport_names(self.int_br)
         self.int_br_device_count = len(cur_ports)
         port_info = {'current': cur_ports}
         if updated_ports is None:
@@ -947,25 +959,32 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         The returned value is a set of port ids of the ports concerned by a
         vlan tag loss.
         """
+        # TODO(yamamoto): stop using ovsdb
+        # an idea is to use metadata instead of tagged vlans.
+        # cf. blueprint ofagent-merge-bridges
         port_tags = self.int_br.get_port_tag_dict()
         changed_ports = set()
         for lvm in self.local_vlan_map.values():
             for port in registered_ports:
                 if (
                     port in lvm.vif_ports
-                    and lvm.vif_ports[port].port_name in port_tags
-                    and port_tags[lvm.vif_ports[port].port_name] != lvm.vlan
+                    and port in port_tags
+                    and port_tags[port] != lvm.vlan
                 ):
                     LOG.info(
                         _("Port '%(port_name)s' has lost "
                             "its vlan tag '%(vlan_tag)d'!"),
-                        {'port_name': lvm.vif_ports[port].port_name,
+                        {'port_name': port,
                          'vlan_tag': lvm.vlan}
                     )
                     changed_ports.add(port)
         return changed_ports
 
     def update_ancillary_ports(self, registered_ports):
+        # TODO(yamamoto): stop using ovsdb
+        # - do the same as scan_ports
+        # - or, find a way to update status of ancillary ports differently
+        #   eg. let interface drivers mark ports up
         ports = set()
         for bridge in self.ancillary_brs:
             ports |= bridge.get_vif_port_set()
@@ -987,7 +1006,7 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
             # error condition of which operators should be aware
             if not vif_port.ofport:
                 LOG.warn(_("VIF port: %s has no ofport configured, and might "
-                           "not be able to transmit"), vif_port.vif_id)
+                           "not be able to transmit"), vif_port.port_name)
             if admin_state_up:
                 self.port_bound(vif_port, network_id, network_type,
                                 physical_network, segmentation_id)
@@ -1057,16 +1076,18 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     def treat_devices_added_or_updated(self, devices):
         resync = False
+        all_ports = dict((p.normalized_port_name(), p) for p in
+                         self._get_ports(self.int_br) if p.is_neutron_port())
         for device in devices:
             LOG.debug(_("Processing port %s"), device)
-            port = self.int_br.get_vif_port_by_id(device)
-            if not port:
+            if device not in all_ports:
                 # The port has disappeared and should not be processed
                 # There is no need to put the port DOWN in the plugin as
                 # it never went up in the first place
                 LOG.info(_("Port %s was not found on the integration bridge "
                            "and will therefore not be processed"), device)
                 continue
+            port = all_ports[device]
             try:
                 details = self.plugin_rpc.get_device_details(self.context,
                                                              device,
@@ -1375,6 +1396,9 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
             self.iter_num = self.iter_num + 1
 
     def daemon_loop(self):
+        # TODO(yamamoto): make polling logic stop using ovsdb monitor
+        # - make it a dumb periodic polling
+        # - or, monitor port status async messages
         with polling.get_polling_manager(
                 self.minimize_polling,
                 self.root_helper,

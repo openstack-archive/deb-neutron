@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013, Nachi Ueno, NTT I3, Inc.
 # All Rights Reserved.
 #
@@ -47,7 +45,7 @@ class TestIPsecDeviceDriver(base.BaseTestCase):
             'os.makedirs',
             'os.path.isdir',
             'neutron.agent.linux.utils.replace_file',
-            'neutron.openstack.common.rpc.create_connection',
+            'neutron.common.rpc.create_connection',
             'neutron.services.vpn.device_drivers.ipsec.'
                 'OpenSwanProcess._gen_config_content',
             'shutil.rmtree',

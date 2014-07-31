@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013, Nachi Ueno, NTT MCL, Inc.
 # All Rights Reserved.
 #
@@ -78,7 +76,7 @@ class ExtraRouteDBTestCaseBase(object):
         routes = [{'destination': '135.207.0.0/16', 'nexthop': '10.0.1.3'}]
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes)
@@ -95,7 +93,7 @@ class ExtraRouteDBTestCaseBase(object):
                    'nexthop': '10.0.1.5'}]
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._routes_update_prepare(r['router']['id'],
                                                 None, p['port']['id'], routes)
                     body = self._update('routers', r['router']['id'],
@@ -109,7 +107,7 @@ class ExtraRouteDBTestCaseBase(object):
                    'nexthop': '10.0.1.3'}]
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes)
@@ -133,7 +131,7 @@ class ExtraRouteDBTestCaseBase(object):
                    'nexthop': '10.0.1.5'}]
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes)
@@ -152,8 +150,8 @@ class ExtraRouteDBTestCaseBase(object):
                 self.router(),
                 self.subnet(cidr='10.0.0.0/24')) as (r1, r2, s):
             with contextlib.nested(
-                    self.port(subnet=s, no_delete=True),
-                    self.port(subnet=s, no_delete=True)) as (p1, p2):
+                    self.port(subnet=s, do_delete=False),
+                    self.port(subnet=s, do_delete=False)) as (p1, p2):
                 body = self._routes_update_prepare(r1['router']['id'],
                                                    None, p1['port']['id'],
                                                    routes1)
@@ -182,7 +180,7 @@ class ExtraRouteDBTestCaseBase(object):
                         'nexthop': '10.0.1.5'}]
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes_orig)
@@ -200,7 +198,7 @@ class ExtraRouteDBTestCaseBase(object):
     def _test_malformed_route(self, routes):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -232,7 +230,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_nexthop_is_port_ip(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -254,7 +252,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_router_update_with_too_many_routes(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -283,7 +281,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_router_update_with_dup_address(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -308,7 +306,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_router_update_with_invalid_ip_address(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -347,7 +345,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_router_update_with_invalid_nexthop_ip(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -370,7 +368,7 @@ class ExtraRouteDBTestCaseBase(object):
     def test_router_update_with_nexthop_is_outside_port_subnet(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, no_delete=True) as p:
+                with self.port(subnet=s, do_delete=False) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,

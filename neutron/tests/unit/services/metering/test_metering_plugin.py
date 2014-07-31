@@ -83,7 +83,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
         self.uuid_patch = mock.patch(uuid, return_value=self.uuid)
         self.mock_uuid = self.uuid_patch.start()
 
-        fanout = ('neutron.common.rpc_compat.RpcProxy.fanout_cast')
+        fanout = ('neutron.common.rpc.RpcProxy.fanout_cast')
         self.fanout_patch = mock.patch(fanout)
         self.mock_fanout = self.fanout_patch.start()
 
@@ -246,7 +246,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
     def test_delete_metering_label_does_not_clear_router_tenant_id(self):
         tenant_id = '654f6b9d-0f36-4ae5-bd1b-01616794ca60'
         with self.metering_label(tenant_id=tenant_id,
-                                 no_delete=True) as metering_label:
+                                 do_delete=False) as metering_label:
             with self.router(tenant_id=tenant_id, set_context=True) as r:
                 router = self._show('routers', r['router']['id'])
                 self.assertEqual(tenant_id, router['router']['tenant_id'])
@@ -290,7 +290,7 @@ class TestMeteringPluginL3AgentScheduler(
         self.uuid_patch = mock.patch(uuid, return_value=self.uuid)
         self.mock_uuid = self.uuid_patch.start()
 
-        cast = 'neutron.common.rpc_compat.RpcProxy.cast'
+        cast = 'neutron.common.rpc.RpcProxy.cast'
         self.cast_patch = mock.patch(cast)
         self.mock_cast = self.cast_patch.start()
 

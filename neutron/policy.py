@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -26,8 +24,8 @@ from oslo.config import cfg
 from neutron.api.v2 import attributes
 from neutron.common import exceptions
 import neutron.common.utils as utils
-from neutron import manager
 from neutron.openstack.common import excutils
+from neutron.openstack.common.gettextutils import _LE, _LI, _LW
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import policy
@@ -93,8 +91,8 @@ def _set_rules(data):
     for pol in policies.keys():
         if any([pol.startswith(depr_pol) for depr_pol in
                 DEPRECATED_POLICY_MAP.keys()]):
-            LOG.warn(_("Found deprecated policy rule:%s. Please consider "
-                       "upgrading your policy configuration file"), pol)
+            LOG.warn(_LW("Found deprecated policy rule:%s. Please consider "
+                         "upgrading your policy configuration file"), pol)
             pol_name, action = pol.rsplit(':', 1)
             try:
                 new_actions = DEPRECATED_ACTION_MAP[action]
@@ -105,17 +103,18 @@ def _set_rules(data):
                                                         new_policies)]:
                     if actual_policy not in policies:
                         # New policy, same rule
-                        LOG.info(_("Inserting policy:%(new_policy)s in place "
-                                   "of deprecated policy:%(old_policy)s"),
+                        LOG.info(_LI("Inserting policy:%(new_policy)s in "
+                                     "place of deprecated "
+                                     "policy:%(old_policy)s"),
                                  {'new_policy': actual_policy,
                                   'old_policy': pol})
                         policies[actual_policy] = policies[pol]
                 # Remove old-style policy
                 del policies[pol]
             except KeyError:
-                LOG.error(_("Backward compatibility unavailable for "
-                            "deprecated policy %s. The policy will "
-                            "not be enforced"), pol)
+                LOG.error(_LE("Backward compatibility unavailable for "
+                              "deprecated policy %s. The policy will "
+                              "not be enforced"), pol)
     policy.set_rules(policies)
 
 
@@ -135,7 +134,7 @@ def _build_subattr_match_rule(attr_name, attr, action, target):
     validate = attr['validate']
     key = filter(lambda k: k.startswith('type:dict'), validate.keys())
     if not key:
-        LOG.warn(_("Unable to find data type descriptor for attribute %s"),
+        LOG.warn(_LW("Unable to find data type descriptor for attribute %s"),
                  attr_name)
         return
     data = validate[key[0]]
@@ -263,6 +262,9 @@ class OwnerCheck(policy.Check):
             # resource is handled by the core plugin. It might be worth
             # having a way to map resources to plugins so to make this
             # check more general
+            # FIXME(ihrachys): if import is put in global, circular
+            # import failure occurs
+            from neutron import manager
             f = getattr(manager.NeutronManager.get_instance().plugin,
                         'get_%s' % parent_res)
             # f *must* exist, if not found it is better to let neutron
@@ -275,7 +277,8 @@ class OwnerCheck(policy.Check):
                 target[self.target_field] = data[parent_field]
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    LOG.exception(_('Policy check error while calling %s!'), f)
+                    LOG.exception(_LE('Policy check error while calling %s!'),
+                                  f)
         match = self.match % target
         if self.kind in creds:
             return match == unicode(creds[self.kind])

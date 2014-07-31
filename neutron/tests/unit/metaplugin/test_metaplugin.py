@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012, Nachi Ueno, NTT MCL, Inc.
 # All Rights Reserved.
 #
@@ -400,5 +398,5 @@ class MetaNeutronPluginV2TestRpcFlavor(base.BaseTestCase):
         self.assertEqual(topics.PLUGIN, 'q-plugin')
         ret = self.plugin.rpc_workers_supported()
         self.assertTrue(ret)
-        ret = self.plugin.start_rpc_listener()
+        ret = self.plugin.start_rpc_listeners()
         self.assertEqual('OK', ret)

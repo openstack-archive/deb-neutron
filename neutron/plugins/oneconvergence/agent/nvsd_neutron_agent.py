@@ -17,6 +17,7 @@
 """NVSD agent code for security group events."""
 
 import socket
+import sys
 import time
 
 import eventlet
@@ -25,23 +26,23 @@ eventlet.monkey_patch()
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
-from neutron.common import config as logging_config
-from neutron.common import rpc_compat
+from neutron.common import config as common_config
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import log as logging
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.oneconvergence.lib import config
 
 LOG = logging.getLogger(__name__)
 
 
-class NVSDAgentRpcCallback(object):
+class NVSDAgentRpcCallback(n_rpc.RpcCallback):
 
     RPC_API_VERSION = '1.0'
 
     def __init__(self, context, agent, sg_agent):
+        super(NVSDAgentRpcCallback, self).__init__()
         self.context = context
         self.agent = agent
         self.sg_agent = sg_agent
@@ -58,7 +59,7 @@ class NVSDAgentRpcCallback(object):
             self.sg_agent.refresh_firewall()
 
 
-class SecurityGroupServerRpcApi(rpc_compat.RpcProxy,
+class SecurityGroupServerRpcApi(n_rpc.RpcProxy,
                                 sg_rpc.SecurityGroupServerRpcApiMixin):
     def __init__(self, topic):
         super(SecurityGroupServerRpcApi, self).__init__(
@@ -66,11 +67,13 @@ class SecurityGroupServerRpcApi(rpc_compat.RpcProxy,
 
 
 class SecurityGroupAgentRpcCallback(
+    n_rpc.RpcCallback,
     sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     RPC_API_VERSION = sg_rpc.SG_RPC_VERSION
 
     def __init__(self, context, sg_agent):
+        super(SecurityGroupAgentRpcCallback, self).__init__()
         self.context = context
         self.sg_agent = sg_agent
 
@@ -85,14 +88,14 @@ class SecurityGroupAgentRpc(sg_rpc.SecurityGroupAgentRpcMixin):
         self.init_firewall()
 
 
-class NVSDNeutronAgent(object):
+class NVSDNeutronAgent(n_rpc.RpcCallback):
     # history
     #   1.0 Initial version
     #   1.1 Support Security Group RPC
     RPC_API_VERSION = '1.1'
 
     def __init__(self, integ_br, root_helper, polling_interval):
-
+        super(NVSDNeutronAgent, self).__init__()
         self.int_br = ovs_lib.OVSBridge(integ_br, root_helper)
         self.polling_interval = polling_interval
         self.root_helper = root_helper
@@ -116,12 +119,11 @@ class NVSDNeutronAgent(object):
                                                 self, self.sg_agent)
         self.callback_sg = SecurityGroupAgentRpcCallback(self.context,
                                                          self.sg_agent)
-        self.dispatcher = dispatcher.RpcDispatcher([self.callback_oc,
-                                                    self.callback_sg])
+        self.endpoints = [self.callback_oc, self.callback_sg]
         # Define the listening consumer for the agent
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE]]
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
 
@@ -161,8 +163,8 @@ class NVSDNeutronAgent(object):
 
 
 def main():
-    config.CONF(project='neutron')
-    logging_config.setup_logging(config.CONF)
+    common_config.init(sys.argv[1:])
+    common_config.setup_logging(config.CONF)
 
     integ_br = config.AGENT.integration_bridge
     root_helper = config.AGENT.root_helper

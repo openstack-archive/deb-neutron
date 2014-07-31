@@ -33,12 +33,17 @@ DEVICE_OWNER_ROUTER_INTF = "network:router_interface"
 DEVICE_OWNER_ROUTER_GW = "network:router_gateway"
 DEVICE_OWNER_FLOATINGIP = "network:floatingip"
 DEVICE_OWNER_DHCP = "network:dhcp"
+DEVICE_OWNER_DVR_INTERFACE = "network:router_interface_distributed"
+DEVICE_OWNER_AGENT_GW = "network:floatingip_agent_gateway"
+DEVICE_OWNER_ROUTER_SNAT = "network:router_centralized_snat"
 
 DEVICE_ID_RESERVED_DHCP_PORT = "reserved_dhcp_port"
 
 FLOATINGIP_KEY = '_floatingips'
 INTERFACE_KEY = '_interfaces'
 METERING_LABEL_KEY = '_metering_labels'
+FLOATINGIP_AGENT_INTF_KEY = '_floatingip_agent_interfaces'
+SNAT_ROUTER_INTF_KEY = '_snat_router_interfaces'
 
 IPv4 = 'IPv4'
 IPv6 = 'IPv6'
@@ -82,6 +87,7 @@ AGENT_TYPE_MLNX = 'Mellanox plugin agent'
 AGENT_TYPE_METERING = 'Metering agent'
 AGENT_TYPE_METADATA = 'Metadata agent'
 AGENT_TYPE_SDNVE = 'IBM SDN-VE agent'
+AGENT_TYPE_NIC_SWITCH = 'NIC Switch agent'
 L2_AGENT_TOPIC = 'N/A'
 
 PAGINATION_INFINITE = 'infinite'
@@ -93,6 +99,7 @@ PORT_BINDING_EXT_ALIAS = 'binding'
 L3_AGENT_SCHEDULER_EXT_ALIAS = 'l3_agent_scheduler'
 DHCP_AGENT_SCHEDULER_EXT_ALIAS = 'dhcp_agent_scheduler'
 LBAAS_AGENT_SCHEDULER_EXT_ALIAS = 'lbaas_agent_scheduler'
+L3_DISTRIBUTED_EXT_ALIAS = 'dvr'
 
 # Protocol names and numbers for Security Groups/Firewalls
 PROTO_NAME_TCP = 'tcp'
@@ -119,3 +126,6 @@ IPV6_SLAAC = 'slaac'
 IPV6_MODES = [DHCPV6_STATEFUL, DHCPV6_STATELESS, IPV6_SLAAC]
 
 IPV6_LLA_PREFIX = 'fe80::/64'
+
+# Linux interface max length
+DEVICE_NAME_MAX_LEN = 15

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -28,9 +26,10 @@ from neutron.agent.common import config
 from neutron.agent import dhcp_agent
 from neutron.agent.linux import dhcp
 from neutron.agent.linux import interface
+from neutron.common import config as common_config
 from neutron.common import constants as const
 from neutron.common import exceptions
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.tests import base
 
 
@@ -157,7 +156,7 @@ class TestDhcpAgent(base.BaseTestCase):
                         config.register_root_helper(cfg.CONF)
                         cfg.CONF.register_opts(dhcp.OPTS)
                         cfg.CONF.register_opts(interface.OPTS)
-                        cfg.CONF(project='neutron')
+                        common_config.init(sys.argv[1:])
                         agent_mgr = dhcp_agent.DhcpAgentWithStateReport(
                             'testhost')
                         eventlet.greenthread.sleep(1)
@@ -227,7 +226,7 @@ class TestDhcpAgent(base.BaseTestCase):
 
     def test_call_driver_remote_error_net_not_found(self):
         self._test_call_driver_failure(
-            exc=rpc_compat.RemoteError(exc_type='NetworkNotFound'),
+            exc=n_rpc.RemoteError(exc_type='NetworkNotFound'),
             trace_level='warning')
 
     def test_call_driver_network_not_found(self):

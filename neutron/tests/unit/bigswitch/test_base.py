@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 # Copyright 2013 Big Switch Networks, Inc.
 # All Rights Reserved.
 #
@@ -25,9 +24,14 @@ from neutron.db import api as db
 from neutron.plugins.bigswitch import config
 from neutron.tests.unit.bigswitch import fake_server
 
+# REVISIT(kevinbenton): This needs to be imported here to create the
+# portbindings table since it's not imported until function call time
+# in the porttracker_db module, which will cause unit test failures when
+# the unit tests are being run by testtools
+from neutron.db import portbindings_db  # noqa
+
 RESTPROXY_PKG_PATH = 'neutron.plugins.bigswitch.plugin'
 NOTIFIER = 'neutron.plugins.bigswitch.plugin.AgentNotifierApi'
-CALLBACKS = 'neutron.plugins.bigswitch.plugin.RestProxyCallbacks'
 CERTFETCH = 'neutron.plugins.bigswitch.servermanager.ServerPool._fetch_cert'
 SERVER_MANAGER = 'neutron.plugins.bigswitch.servermanager'
 HTTPCON = 'neutron.plugins.bigswitch.servermanager.httplib.HTTPConnection'
@@ -54,11 +58,11 @@ class BigSwitchTestBase(object):
 
     def setup_patches(self):
         self.plugin_notifier_p = mock.patch(NOTIFIER)
-        self.callbacks_p = mock.patch(CALLBACKS)
-        self.spawn_p = mock.patch(SPAWN)
-        self.watch_p = mock.patch(CWATCH)
+        # prevent any greenthreads from spawning
+        self.spawn_p = mock.patch(SPAWN, new=lambda *args, **kwargs: None)
+        # prevent the consistency watchdog from starting
+        self.watch_p = mock.patch(CWATCH, new=lambda *args, **kwargs: None)
         self.addCleanup(db.clear_db)
-        self.callbacks_p.start()
         self.plugin_notifier_p.start()
         self.spawn_p.start()
         self.watch_p.start()

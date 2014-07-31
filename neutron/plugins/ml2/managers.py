@@ -73,6 +73,15 @@ class TypeManager(stevedore.named.NamedExtensionManager):
             LOG.info(_("Initializing driver for type '%s'"), network_type)
             driver.obj.initialize()
 
+    def is_partial_segment(self, segment):
+        network_type = segment[api.NETWORK_TYPE]
+        driver = self.drivers.get(network_type)
+        if driver:
+            return driver.obj.is_partial_segment(segment)
+        else:
+            msg = _("network_type value '%s' not supported") % network_type
+            raise exc.InvalidInput(error_message=msg)
+
     def validate_provider_segment(self, segment):
         network_type = segment[api.NETWORK_TYPE]
         driver = self.drivers.get(network_type)
@@ -85,7 +94,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
     def reserve_provider_segment(self, session, segment):
         network_type = segment.get(api.NETWORK_TYPE)
         driver = self.drivers.get(network_type)
-        driver.obj.reserve_provider_segment(session, segment)
+        return driver.obj.reserve_provider_segment(session, segment)
 
     def allocate_tenant_segment(self, session):
         for network_type in self.tenant_network_types:
@@ -439,13 +448,12 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
 
         :param context: PortContext instance describing the port
 
-        Called inside transaction context on session, prior to
-        create_port_precommit or update_port_precommit, to
-        attempt to establish a port binding.
+        Called outside any transaction to attempt to establish a port
+        binding.
         """
         binding = context._binding
-        LOG.debug(_("Attempting to bind port %(port)s on host %(host)s "
-                    "for vnic_type %(vnic_type)s with profile %(profile)s"),
+        LOG.debug("Attempting to bind port %(port)s on host %(host)s "
+                  "for vnic_type %(vnic_type)s with profile %(profile)s",
                   {'port': context._port['id'],
                    'host': binding.host,
                    'vnic_type': binding.vnic_type,
@@ -455,12 +463,12 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
                 driver.obj.bind_port(context)
                 if binding.segment:
                     binding.driver = driver.name
-                    LOG.debug(_("Bound port: %(port)s, host: %(host)s, "
-                                "vnic_type: %(vnic_type)s, "
-                                "profile: %(profile)s"
-                                "driver: %(driver)s, vif_type: %(vif_type)s, "
-                                "vif_details: %(vif_details)s, "
-                                "segment: %(segment)s"),
+                    LOG.debug("Bound port: %(port)s, host: %(host)s, "
+                              "vnic_type: %(vnic_type)s, "
+                              "profile: %(profile)s, "
+                              "driver: %(driver)s, vif_type: %(vif_type)s, "
+                              "vif_details: %(vif_details)s, "
+                              "segment: %(segment)s",
                               {'port': context._port['id'],
                                'host': binding.host,
                                'vnic_type': binding.vnic_type,

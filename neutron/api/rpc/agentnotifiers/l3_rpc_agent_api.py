@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from neutron.common import constants
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
 from neutron import manager
@@ -25,7 +25,7 @@ from neutron.plugins.common import constants as service_constants
 LOG = logging.getLogger(__name__)
 
 
-class L3AgentNotifyAPI(rpc_compat.RpcProxy):
+class L3AgentNotifyAPI(n_rpc.RpcProxy):
     """API for plugin to notify L3 agent."""
     BASE_RPC_API_VERSION = '1.0'
 
@@ -119,5 +119,3 @@ class L3AgentNotifyAPI(rpc_compat.RpcProxy):
     def router_added_to_agent(self, context, router_ids, host):
         self._notification_host(context, 'router_added_to_agent',
                                 router_ids, host)
-
-L3AgentNotify = L3AgentNotifyAPI()

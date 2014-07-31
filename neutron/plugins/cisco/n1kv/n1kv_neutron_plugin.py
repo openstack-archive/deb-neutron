@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 Cisco Systems, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -28,7 +26,7 @@ from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
-from neutron.common import rpc as q_rpc
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
 from neutron.db import agents_db
@@ -44,7 +42,6 @@ from neutron.extensions import portbindings
 from neutron.extensions import providernet
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.openstack.common import uuidutils as uuidutils
 from neutron.plugins.cisco.common import cisco_constants as c_const
 from neutron.plugins.cisco.common import cisco_credentials_v2 as c_cred
@@ -60,22 +57,14 @@ from neutron.plugins.common import constants as svc_constants
 LOG = logging.getLogger(__name__)
 
 
-class N1kvRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
+class N1kvRpcCallbacks(n_rpc.RpcCallback,
+                       dhcp_rpc_base.DhcpRpcCallbackMixin,
                        l3_rpc_base.L3RpcCallbackMixin):
 
     """Class to handle agent RPC calls."""
 
     # Set RPC API version to 1.1 by default.
     RPC_API_VERSION = '1.1'
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this rpc manager.
-
-        If a manager would like to set an rpc API version, or support more than
-        one class as the target of rpc messages, override this method.
-        """
-        return q_rpc.PluginRpcDispatcher([self,
-                                          agents_db.AgentExtRpcCallback()])
 
 
 class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
@@ -135,14 +124,14 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         # RPC support
         self.service_topics = {svc_constants.CORE: topics.PLUGIN,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
-        self.conn = rpc.create_connection(new=True)
-        self.dispatcher = N1kvRpcCallbacks().create_rpc_dispatcher()
+        self.conn = n_rpc.create_connection(new=True)
+        self.endpoints = [N1kvRpcCallbacks(), agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
-            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
+            self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
         self.dhcp_agent_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        self.l3_agent_notifier = l3_rpc_agent_api.L3AgentNotify
-        # Consume from all consumers in a thread
-        self.conn.consume_in_thread()
+        self.l3_agent_notifier = l3_rpc_agent_api.L3AgentNotifyAPI()
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
 
     def _setup_vsm(self):
         """
@@ -161,7 +150,7 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """Start a green thread to pull policy profiles from VSM."""
         while True:
             self._populate_policy_profiles()
-            eventlet.sleep(int(c_conf.CISCO_N1K.poll_duration))
+            eventlet.sleep(c_conf.CISCO_N1K.poll_duration)
 
     def _populate_policy_profiles(self):
         """
@@ -191,6 +180,7 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 # Add profiles in database if new profiles were created in VSM
                 for pid in vsm_profiles_set - plugin_profiles_set:
                     self._add_policy_profile(vsm_profiles[pid], pid)
+
                 # Delete profiles from database if profiles were deleted in VSM
                 for pid in plugin_profiles_set - vsm_profiles_set:
                     self._delete_policy_profile(pid)
@@ -1238,8 +1228,13 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 n1kv_db_v2.delete_vm_network(context.session,
                                              port[n1kv.PROFILE_ID],
                                              port['network_id'])
-            self.disassociate_floatingips(context, id)
+            router_ids = self.disassociate_floatingips(
+                context, id, do_notify=False)
             super(N1kvNeutronPluginV2, self).delete_port(context, id)
+
+        # now that we've left db transaction, we are safe to notify
+        self.notify_routers_updated(context, router_ids)
+
         self._send_delete_port_request(context, port, vm_network)
 
     def get_port(self, context, id, fields=None):

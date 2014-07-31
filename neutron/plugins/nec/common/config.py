@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2012 NEC Corporation.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -18,7 +16,6 @@
 from oslo.config import cfg
 
 from neutron.agent.common import config
-from neutron.openstack.common import rpc  # noqa
 from neutron.plugins.nec.common import constants as nconst
 
 

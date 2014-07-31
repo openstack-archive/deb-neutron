@@ -20,9 +20,9 @@ Unit Tests for ml2 rpc
 import mock
 
 from neutron.agent import rpc as agent_rpc
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.openstack.common import context
-from neutron.openstack.common import rpc
 from neutron.plugins.ml2.drivers import type_tunnel
 from neutron.plugins.ml2 import rpc as plugin_rpc
 from neutron.tests import base
@@ -33,21 +33,26 @@ class RpcApiTestCase(base.BaseTestCase):
     def _test_rpc_api(self, rpcapi, topic, method, rpc_method, **kwargs):
         ctxt = context.RequestContext('fake_user', 'fake_project')
         expected_retval = 'foo' if method == 'call' else None
+        expected_version = kwargs.pop('version', None)
         expected_msg = rpcapi.make_msg(method, **kwargs)
-        expected_msg['version'] = rpcapi.BASE_RPC_API_VERSION
         if rpc_method == 'cast' and method == 'run_instance':
             kwargs['call'] = False
 
+        rpc = n_rpc.RpcProxy
         with mock.patch.object(rpc, rpc_method) as rpc_method_mock:
             rpc_method_mock.return_value = expected_retval
             retval = getattr(rpcapi, method)(ctxt, **kwargs)
 
         self.assertEqual(retval, expected_retval)
-
-        expected_args = [ctxt, topic, expected_msg]
-        for arg, expected_arg in zip(rpc_method_mock.call_args[0],
-                                     expected_args):
-            self.assertEqual(arg, expected_arg)
+        if expected_version:
+            expected = [
+                mock.call(ctxt, expected_msg, topic=topic,
+                          version=expected_version)]
+        else:
+            expected = [
+                mock.call(ctxt, expected_msg, topic=topic)
+            ]
+        rpc_method_mock.assert_has_calls(expected)
 
     def test_delete_network(self):
         rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
@@ -84,7 +89,16 @@ class RpcApiTestCase(base.BaseTestCase):
         self._test_rpc_api(rpcapi, topics.PLUGIN,
                            'get_device_details', rpc_method='call',
                            device='fake_device',
-                           agent_id='fake_agent_id')
+                           agent_id='fake_agent_id',
+                           host='fake_host')
+
+    def test_devices_details_list(self):
+        rpcapi = agent_rpc.PluginApi(topics.PLUGIN)
+        self._test_rpc_api(rpcapi, topics.PLUGIN,
+                           'get_devices_details_list', rpc_method='call',
+                           devices=['fake_device1', 'fake_device2'],
+                           agent_id='fake_agent_id', host='fake_host',
+                           version='1.3')
 
     def test_update_device_down(self):
         rpcapi = agent_rpc.PluginApi(topics.PLUGIN)

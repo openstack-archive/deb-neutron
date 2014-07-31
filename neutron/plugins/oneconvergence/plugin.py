@@ -23,8 +23,7 @@ from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.common import constants as q_const
 from neutron.common import exceptions as nexception
-from neutron.common import rpc as q_rpc
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
@@ -42,7 +41,6 @@ from neutron.extensions import portbindings
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.plugins.common import constants as svc_constants
 import neutron.plugins.oneconvergence.lib.config  # noqa
 import neutron.plugins.oneconvergence.lib.exception as nvsdexception
@@ -53,16 +51,12 @@ LOG = logging.getLogger(__name__)
 IPv6 = 6
 
 
-class NVSDPluginRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
+class NVSDPluginRpcCallbacks(n_rpc.RpcCallback,
+                             dhcp_rpc_base.DhcpRpcCallbackMixin,
                              l3_rpc_base.L3RpcCallbackMixin,
                              sg_db_rpc.SecurityGroupServerRpcCallbackMixin):
 
     RPC_API_VERSION = '1.1'
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this manager."""
-        return q_rpc.PluginRpcDispatcher([self,
-                                          agents_db.AgentExtRpcCallback()])
 
     @staticmethod
     def get_port_from_device(device):
@@ -72,7 +66,7 @@ class NVSDPluginRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
         return port
 
 
-class NVSDPluginV2AgentNotifierApi(rpc_compat.RpcProxy,
+class NVSDPluginV2AgentNotifierApi(n_rpc.RpcProxy,
                                    sg_rpc.SecurityGroupAgentRpcApiMixin):
 
     BASE_RPC_API_VERSION = '1.0'
@@ -159,21 +153,21 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         # RPC support
         self.service_topics = {svc_constants.CORE: topics.PLUGIN,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
-        self.conn = rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection(new=True)
         self.notifier = NVSDPluginV2AgentNotifierApi(topics.AGENT)
         self.agent_notifiers[q_const.AGENT_TYPE_DHCP] = (
             dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         )
         self.agent_notifiers[q_const.AGENT_TYPE_L3] = (
-            l3_rpc_agent_api.L3AgentNotify
+            l3_rpc_agent_api.L3AgentNotifyAPI()
         )
-        self.callbacks = NVSDPluginRpcCallbacks()
-        self.dispatcher = self.callbacks.create_rpc_dispatcher()
+        self.endpoints = [NVSDPluginRpcCallbacks(),
+                          agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
-            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
+            self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
 
-        # Consume from all consumers in a thread
-        self.conn.consume_in_thread()
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
 
     def create_network(self, context, network):
 
@@ -357,7 +351,8 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
             self._delete_port_security_group_bindings(context, port_id)
 
-            self.disassociate_floatingips(context, port_id)
+            router_ids = self.disassociate_floatingips(
+                context, port_id, do_notify=False)
 
             super(OneConvergencePluginV2, self).delete_port(context, port_id)
 
@@ -366,6 +361,8 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
             self.nvsdlib.delete_port(port_id, neutron_port)
 
+        # now that we've left db transaction, we are safe to notify
+        self.notify_routers_updated(context, router_ids)
         self.notify_security_groups_member_updated(context, neutron_port)
 
     def create_floatingip(self, context, floatingip):

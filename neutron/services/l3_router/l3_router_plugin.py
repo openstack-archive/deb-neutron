@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2013 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -21,35 +19,31 @@ from oslo.config import cfg
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.common import constants as q_const
-from neutron.common import rpc as q_rpc
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.db import api as qdbapi
-from neutron.db import db_base_plugin_v2
+from neutron.db import common_db_mixin
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
+from neutron.db import l3_dvr_db
 from neutron.db import l3_gwmode_db
 from neutron.db import l3_rpc_base
 from neutron.db import model_base
 from neutron.openstack.common import importutils
-from neutron.openstack.common import rpc
 from neutron.plugins.common import constants
 
 
-class L3RouterPluginRpcCallbacks(l3_rpc_base.L3RpcCallbackMixin):
+class L3RouterPluginRpcCallbacks(n_rpc.RpcCallback,
+                                 l3_rpc_base.L3RpcCallbackMixin):
 
-    RPC_API_VERSION = '1.1'
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this manager.
-
-        If a manager would like to set an rpc API version, or support more than
-        one class as the target of rpc messages, override this method.
-        """
-        return q_rpc.PluginRpcDispatcher([self])
+    RPC_API_VERSION = '1.2'
+    # history
+    #   1.2 Added methods for DVR support
 
 
-class L3RouterPlugin(db_base_plugin_v2.CommonDbMixin,
+class L3RouterPlugin(common_db_mixin.CommonDbMixin,
                      extraroute_db.ExtraRoute_db_mixin,
+                     l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                      l3_gwmode_db.L3_NAT_db_mixin,
                      l3_agentschedulers_db.L3AgentSchedulerDbMixin):
 
@@ -59,9 +53,10 @@ class L3RouterPlugin(db_base_plugin_v2.CommonDbMixin,
     router and floatingip resources and manages associated
     request/response.
     All DB related work is implemented in classes
-    l3_db.L3_NAT_db_mixin and extraroute_db.ExtraRoute_db_mixin.
+    l3_db.L3_NAT_db_mixin, l3_dvr_db.L3_NAT_with_dvr_db_mixin, and
+    extraroute_db.ExtraRoute_db_mixin.
     """
-    supported_extension_aliases = ["router", "ext-gw-mode",
+    supported_extension_aliases = ["dvr", "router", "ext-gw-mode",
                                    "extraroute", "l3_agent_scheduler"]
 
     def __init__(self):
@@ -73,14 +68,13 @@ class L3RouterPlugin(db_base_plugin_v2.CommonDbMixin,
     def setup_rpc(self):
         # RPC support
         self.topic = topics.L3PLUGIN
-        self.conn = rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection(new=True)
         self.agent_notifiers.update(
-            {q_const.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotify})
-        self.callbacks = L3RouterPluginRpcCallbacks()
-        self.dispatcher = self.callbacks.create_rpc_dispatcher()
-        self.conn.create_consumer(self.topic, self.dispatcher,
+            {q_const.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotifyAPI()})
+        self.endpoints = [L3RouterPluginRpcCallbacks()]
+        self.conn.create_consumer(self.topic, self.endpoints,
                                   fanout=False)
-        self.conn.consume_in_thread()
+        self.conn.consume_in_threads()
 
     def get_plugin_type(self):
         return constants.L3_ROUTER_NAT

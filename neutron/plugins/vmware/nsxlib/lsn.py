@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 VMware, Inc.
 # All Rights Reserved
 #
@@ -15,9 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import json
-
 from neutron.common import exceptions as exception
+from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log
 from neutron.plugins.vmware.api_client import exception as api_exc
 from neutron.plugins.vmware.common import exceptions as nsx_exc

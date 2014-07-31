@@ -64,16 +64,13 @@ class TunnelTypeDriver(api.TypeDriver):
         LOG.info(_("%(type)s ID ranges: %(range)s"),
                  {'type': tunnel_type, 'range': current_range})
 
+    def is_partial_segment(self, segment):
+        return segment.get(api.SEGMENTATION_ID) is None
+
     def validate_provider_segment(self, segment):
         physical_network = segment.get(api.PHYSICAL_NETWORK)
         if physical_network:
             msg = _("provider:physical_network specified for %s "
-                    "network") % segment.get(api.NETWORK_TYPE)
-            raise exc.InvalidInput(error_message=msg)
-
-        segmentation_id = segment.get(api.SEGMENTATION_ID)
-        if not segmentation_id:
-            msg = _("segmentation_id required for %s provider "
                     "network") % segment.get(api.NETWORK_TYPE)
             raise exc.InvalidInput(error_message=msg)
 
@@ -87,9 +84,9 @@ class TunnelTypeDriver(api.TypeDriver):
 
 class TunnelRpcCallbackMixin(object):
 
-    def __init__(self, notifier, type_manager):
-        self.notifier = notifier
-        self.type_manager = type_manager
+    def setup_tunnel_callback_mixin(self, notifier, type_manager):
+        self._notifier = notifier
+        self._type_manager = type_manager
 
     def tunnel_sync(self, rpc_context, **kwargs):
         """Update new tunnel.
@@ -102,14 +99,14 @@ class TunnelRpcCallbackMixin(object):
         if not tunnel_type:
             msg = _("Network_type value needed by the ML2 plugin")
             raise exc.InvalidInput(error_message=msg)
-        driver = self.type_manager.drivers.get(tunnel_type)
+        driver = self._type_manager.drivers.get(tunnel_type)
         if driver:
             tunnel = driver.obj.add_endpoint(tunnel_ip)
             tunnels = driver.obj.get_endpoints()
             entry = {'tunnels': tunnels}
             # Notify all other listening agents
-            self.notifier.tunnel_update(rpc_context, tunnel.ip_address,
-                                        tunnel_type)
+            self._notifier.tunnel_update(rpc_context, tunnel.ip_address,
+                                         tunnel_type)
             # Return the list of tunnels IP's to the agent
             return entry
         else:

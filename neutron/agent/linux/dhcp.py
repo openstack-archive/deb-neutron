@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack Foundation
 # All Rights Reserved.
 #
@@ -304,7 +302,7 @@ class Dnsmasq(DhcpLocalProcess):
 
     NEUTRON_NETWORK_ID_KEY = 'NEUTRON_NETWORK_ID'
     NEUTRON_RELAY_SOCKET_PATH_KEY = 'NEUTRON_RELAY_SOCKET_PATH'
-    MINIMUM_VERSION = 2.59
+    MINIMUM_VERSION = 2.63
 
     @classmethod
     def check_version(cls):
@@ -320,9 +318,10 @@ class Dnsmasq(DhcpLocalProcess):
                               'Please ensure that its version is %s '
                               'or above!'), cls.MINIMUM_VERSION)
         except (OSError, RuntimeError, IndexError, ValueError):
-            LOG.warning(_('Unable to determine dnsmasq version. '
-                          'Please ensure that its version is %s '
-                          'or above!'), cls.MINIMUM_VERSION)
+            LOG.error(_('Unable to determine dnsmasq version. '
+                        'Please ensure that its version is %s '
+                        'or above!'), cls.MINIMUM_VERSION)
+            raise SystemExit(1)
         return float(ver)
 
     @classmethod
@@ -360,15 +359,22 @@ class Dnsmasq(DhcpLocalProcess):
 
         possible_leases = 0
         for i, subnet in enumerate(self.network.subnets):
+            mode = None
             # if a subnet is specified to have dhcp disabled
             if not subnet.enable_dhcp:
                 continue
             if subnet.ip_version == 4:
                 mode = 'static'
             else:
-                # TODO(mark): how do we indicate other options
-                # ra-only, slaac, ra-nameservers, and ra-stateless.
-                mode = 'static'
+                # Note(scollins) If the IPv6 attributes are not set, set it as
+                # static to preserve previous behavior
+                if (not getattr(subnet, 'ipv6_ra_mode', None) and
+                        not getattr(subnet, 'ipv6_address_mode', None)):
+                    mode = 'static'
+                elif getattr(subnet, 'ipv6_ra_mode', None) is None:
+                    # RA mode is not set - do not launch dnsmasq
+                    continue
+
             if self.version >= self.MINIMUM_VERSION:
                 set_tag = 'set:'
             else:
@@ -381,9 +387,15 @@ class Dnsmasq(DhcpLocalProcess):
             else:
                 lease = '%ss' % self.conf.dhcp_lease_duration
 
-            cmd.append('--dhcp-range=%s%s,%s,%s,%s' %
-                       (set_tag, self._TAG_PREFIX % i,
-                        cidr.network, mode, lease))
+            # mode is optional and is not set - skip it
+            if mode:
+                cmd.append('--dhcp-range=%s%s,%s,%s,%s' %
+                           (set_tag, self._TAG_PREFIX % i,
+                            cidr.network, mode, lease))
+            else:
+                cmd.append('--dhcp-range=%s%s,%s,%s' %
+                           (set_tag, self._TAG_PREFIX % i,
+                            cidr.network, lease))
 
             possible_leases += cidr.size
 
@@ -442,14 +454,26 @@ class Dnsmasq(DhcpLocalProcess):
             port,  # a DictModel instance representing the port.
             alloc,  # a DictModel instance of the allocated ip and subnet.
             host_name,  # Host name.
-            name,  # Host name and domain name in the format 'hostname.domain'.
+            name,  # Canonical hostname in the format 'hostname[.domain]'.
         )
         """
+        v6_nets = dict((subnet.id, subnet) for subnet in
+                       self.network.subnets if subnet.ip_version == 6)
         for port in self.network.ports:
             for alloc in port.fixed_ips:
+                # Note(scollins) Only create entries that are
+                # associated with the subnet being managed by this
+                # dhcp agent
+                if alloc.subnet_id in v6_nets:
+                    ra_mode = v6_nets[alloc.subnet_id].ipv6_ra_mode
+                    addr_mode = v6_nets[alloc.subnet_id].ipv6_address_mode
+                    if (ra_mode is None and addr_mode == constants.IPV6_SLAAC):
+                        continue
                 hostname = 'host-%s' % alloc.ip_address.replace(
                     '.', '-').replace(':', '-')
-                fqdn = '%s.%s' % (hostname, self.conf.dhcp_domain)
+                fqdn = hostname
+                if self.conf.dhcp_domain:
+                    fqdn = '%s.%s' % (fqdn, self.conf.dhcp_domain)
                 yield (port, alloc, hostname, fqdn)
 
     def _output_hosts_file(self):

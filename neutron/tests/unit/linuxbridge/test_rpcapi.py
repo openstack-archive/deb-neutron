@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012, Red Hat, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -33,9 +31,11 @@ class rpcApiTestCase(base.BaseTestCase):
                      expected_msg=None, **kwargs):
         ctxt = context.RequestContext('fake_user', 'fake_project')
         expected_retval = 'foo' if method == 'call' else None
+        expected_kwargs = {'topic': topic}
+        if 'version' in kwargs:
+            expected_kwargs['version'] = kwargs.pop('version')
         if not expected_msg:
             expected_msg = rpcapi.make_msg(method, **kwargs)
-        expected_msg['version'] = rpcapi.BASE_RPC_API_VERSION
         if rpc_method == 'cast' and method == 'run_instance':
             kwargs['call'] = False
 
@@ -49,15 +49,18 @@ class rpcApiTestCase(base.BaseTestCase):
                 return expected_retval
 
         self.useFixture(fixtures.MonkeyPatch(
-            'neutron.openstack.common.rpc.' + rpc_method, _fake_rpc_method))
+            'neutron.common.rpc.RpcProxy.' + rpc_method,
+            _fake_rpc_method))
 
         retval = getattr(rpcapi, method)(ctxt, **kwargs)
 
         self.assertEqual(expected_retval, retval)
-        expected_args = [ctxt, topic, expected_msg]
+        expected_args = [ctxt, expected_msg]
 
-        for arg, expected_arg in zip(self.fake_args, expected_args):
+        # skip the first argument which is 'self'
+        for arg, expected_arg in zip(self.fake_args[1:], expected_args):
             self.assertEqual(expected_arg, arg)
+        self.assertEqual(expected_kwargs, self.fake_kwargs)
 
     def test_delete_network(self):
         rpcapi = plb.AgentNotifierApi(topics.AGENT)
@@ -110,7 +113,16 @@ class rpcApiTestCase(base.BaseTestCase):
         self._test_lb_api(rpcapi, topics.PLUGIN,
                           'get_device_details', rpc_method='call',
                           device='fake_device',
-                          agent_id='fake_agent_id')
+                          agent_id='fake_agent_id',
+                          host='fake_host')
+
+    def test_devices_details_list(self):
+        rpcapi = agent_rpc.PluginApi(topics.PLUGIN)
+        self._test_lb_api(rpcapi, topics.PLUGIN,
+                          'get_devices_details_list', rpc_method='call',
+                          devices=['fake_device1', 'fake_device2'],
+                          agent_id='fake_agent_id', host='fake_host',
+                          version='1.3')
 
     def test_update_device_down(self):
         rpcapi = agent_rpc.PluginApi(topics.PLUGIN)

@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 # Copyright 2014 Big Switch Networks, Inc.
 # All Rights Reserved.
 #
@@ -33,17 +32,19 @@ The following functionality is handled by this module:
 """
 import base64
 import httplib
-import json
 import os
 import socket
 import ssl
+import weakref
 
 import eventlet
+import eventlet.corolocal
 from oslo.config import cfg
 
 from neutron.common import exceptions
 from neutron.common import utils
 from neutron.openstack.common import excutils
+from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log as logging
 from neutron.plugins.bigswitch.db import consistency_db as cdb
 
@@ -121,7 +122,7 @@ class ServerProxy(object):
         return self.capabilities
 
     def rest_call(self, action, resource, data='', headers={}, timeout=False,
-                  reconnect=False):
+                  reconnect=False, hash_handler=None):
         uri = self.base_uri + resource
         body = json.dumps(data)
         if not headers:
@@ -131,7 +132,12 @@ class ServerProxy(object):
         headers['NeutronProxy-Agent'] = self.name
         headers['Instance-ID'] = self.neutron_id
         headers['Orchestration-Service-ID'] = ORCHESTRATION_SERVICE_ID
-        headers[HASH_MATCH_HEADER] = self.mypool.consistency_hash or ''
+        if hash_handler:
+            # this will be excluded on calls that don't need hashes
+            # (e.g. topology sync, capability checks)
+            headers[HASH_MATCH_HEADER] = hash_handler.read_for_update()
+        else:
+            hash_handler = cdb.HashHandler()
         if 'keep-alive' in self.capabilities:
             headers['Connection'] = 'keep-alive'
         else:
@@ -178,9 +184,7 @@ class ServerProxy(object):
         try:
             self.currentconn.request(action, uri, body, headers)
             response = self.currentconn.getresponse()
-            newhash = response.getheader(HASH_MATCH_HEADER)
-            if newhash:
-                self._put_consistency_hash(newhash)
+            hash_handler.put_hash(response.getheader(HASH_MATCH_HEADER))
             respstr = response.read()
             respdata = respstr
             if response.status in self.success_codes:
@@ -216,10 +220,6 @@ class ServerProxy(object):
                                                     'data': ret[3]})
         return ret
 
-    def _put_consistency_hash(self, newhash):
-        self.mypool.consistency_hash = newhash
-        cdb.put_consistency_hash(newhash)
-
 
 class ServerPool(object):
 
@@ -235,6 +235,7 @@ class ServerPool(object):
         self.neutron_id = cfg.CONF.RESTPROXY.neutron_id
         self.base_uri = base_uri
         self.name = name
+        self.contexts = {}
         self.timeout = cfg.CONF.RESTPROXY.server_timeout
         self.always_reconnect = not cfg.CONF.RESTPROXY.cache_connections
         default_port = 8000
@@ -245,10 +246,6 @@ class ServerPool(object):
         # Needs to be set by module that uses the servermanager.
         self.get_topo_function = None
         self.get_topo_function_args = {}
-
-        # Hash to send to backend with request as expected previous
-        # state to verify consistency.
-        self.consistency_hash = cdb.get_consistency_hash()
 
         if not servers:
             raise cfg.Error(_('Servers not defined. Aborting server manager.'))
@@ -267,6 +264,23 @@ class ServerPool(object):
         eventlet.spawn(self._consistency_watchdog,
                        cfg.CONF.RESTPROXY.consistency_interval)
         LOG.debug(_("ServerPool: initialization done"))
+
+    def set_context(self, context):
+        # this context needs to be local to the greenthread
+        # so concurrent requests don't use the wrong context.
+        # Use a weakref so the context is garbage collected
+        # after the plugin is done with it.
+        ref = weakref.ref(context)
+        self.contexts[eventlet.corolocal.get_ident()] = ref
+
+    def get_context_ref(self):
+        # Try to get the context cached for this thread. If one
+        # doesn't exist or if it's been garbage collected, this will
+        # just return None.
+        try:
+            return self.contexts[eventlet.corolocal.get_ident()]()
+        except KeyError:
+            return None
 
     def get_capabilities(self):
         # lookup on first try
@@ -394,17 +408,21 @@ class ServerPool(object):
     @utils.synchronized('bsn-rest-call')
     def rest_call(self, action, resource, data, headers, ignore_codes,
                   timeout=False):
+        hash_handler = cdb.HashHandler(context=self.get_context_ref())
         good_first = sorted(self.servers, key=lambda x: x.failed)
         first_response = None
         for active_server in good_first:
             ret = active_server.rest_call(action, resource, data, headers,
                                           timeout,
-                                          reconnect=self.always_reconnect)
+                                          reconnect=self.always_reconnect,
+                                          hash_handler=hash_handler)
             # If inconsistent, do a full synchronization
             if ret[0] == httplib.CONFLICT:
                 if not self.get_topo_function:
                     raise cfg.Error(_('Server requires synchronization, '
                                       'but no topology function was defined.'))
+                # The hash was incorrect so it needs to be removed
+                hash_handler.put_hash('')
                 data = self.get_topo_function(**self.get_topo_function_args)
                 active_server.rest_call('PUT', TOPOLOGY_PATH, data,
                                         timeout=None)
@@ -550,13 +568,21 @@ class ServerPool(object):
             LOG.warning(_("Backend server(s) do not support automated "
                           "consitency checks."))
             return
+        if not polling_interval:
+            LOG.warning(_("Consistency watchdog disabled by polling interval "
+                          "setting of %s."), polling_interval)
+            return
         while True:
             # If consistency is supported, all we have to do is make any
             # rest call and the consistency header will be added. If it
             # doesn't match, the backend will return a synchronization error
-            # that will be handled by the rest_call.
+            # that will be handled by the rest_action.
             eventlet.sleep(polling_interval)
-            self.rest_call('GET', HEALTH_PATH)
+            try:
+                self.rest_action('GET', HEALTH_PATH)
+            except Exception:
+                LOG.exception(_("Encountered an error checking controller "
+                                "health."))
 
 
 class HTTPSConnectionWithValidation(httplib.HTTPSConnection):

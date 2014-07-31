@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 New Dream Network, LLC (DreamHost)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -27,7 +25,7 @@ from neutron.tests import base
 class TestLbaasService(base.BaseTestCase):
     def test_start(self):
         with mock.patch.object(
-            agent.rpc_service.Service, 'start'
+            agent.n_rpc.Service, 'start'
         ) as mock_start:
 
             mgr = mock.Mock()

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -479,6 +477,11 @@ def convert_to_boolean(data):
             return True
     msg = _("'%s' cannot be converted to boolean") % data
     raise n_exc.InvalidInput(error_message=msg)
+
+
+def convert_to_boolean_if_not_none(data):
+    if data is not None:
+        return convert_to_boolean(data)
 
 
 def convert_to_int(data):

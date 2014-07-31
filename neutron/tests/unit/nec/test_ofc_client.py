@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 NEC Corporation.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,12 +14,11 @@
 #
 # @author: Akihiro Motoki
 
-import json
-
 import mock
 from oslo.config import cfg
 import requests
 
+from neutron.openstack.common import jsonutils as json
 from neutron.plugins.nec.common import config
 from neutron.plugins.nec.common import exceptions as nexc
 from neutron.plugins.nec.common import ofc_client

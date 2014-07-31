@@ -15,6 +15,7 @@
 
 from sqlalchemy.orm import exc
 
+from neutron.common import constants as n_const
 from neutron.db import api as db_api
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sg_db
@@ -56,18 +57,66 @@ def get_network_segments(session, network_id):
                 for record in records]
 
 
-def ensure_port_binding(session, port_id):
+def add_port_binding(session, port_id):
+    with session.begin(subtransactions=True):
+        record = models.PortBinding(
+            port_id=port_id,
+            vif_type=portbindings.VIF_TYPE_UNBOUND)
+        session.add(record)
+        return record
+
+
+def get_locked_port_and_binding(session, port_id):
+    """Get port and port binding records for update within transaction."""
+
+    try:
+        # REVISIT(rkukura): We need the Port and PortBinding records
+        # to both be added to the session and locked for update. A
+        # single joined query should work, but the combination of left
+        # outer joins and postgresql doesn't seem to work.
+        port = (session.query(models_v2.Port).
+                enable_eagerloads(False).
+                filter_by(id=port_id).
+                with_lockmode('update').
+                one())
+        binding = (session.query(models.PortBinding).
+                   enable_eagerloads(False).
+                   filter_by(port_id=port_id).
+                   with_lockmode('update').
+                   one())
+        return port, binding
+    except exc.NoResultFound:
+        return None, None
+
+
+def ensure_dvr_port_binding(session, port_id, host, router_id=None):
+    # FIXME(armando-migliaccio): take care of LP #1335226
+    # DVR ports are slightly different from the others in
+    # that binding happens at a later stage via L3 agent
+    # therefore we need to keep this logic of creation on
+    # missing binding.
     with session.begin(subtransactions=True):
         try:
-            record = (session.query(models.PortBinding).
-                      filter_by(port_id=port_id).
-                      one())
+            record = (session.query(models.DVRPortBinding).
+                      filter_by(port_id=port_id, host=host).one())
         except exc.NoResultFound:
-            record = models.PortBinding(
+            record = models.DVRPortBinding(
                 port_id=port_id,
-                vif_type=portbindings.VIF_TYPE_UNBOUND)
+                host=host,
+                router_id=router_id,
+                vif_type=portbindings.VIF_TYPE_UNBOUND,
+                vnic_type=portbindings.VNIC_NORMAL,
+                cap_port_filter=False,
+                status=n_const.PORT_STATUS_DOWN)
             session.add(record)
         return record
+
+
+def delete_dvr_port_binding(session, port_id, host):
+    with session.begin(subtransactions=True):
+        (session.query(models.DVRPortBinding).
+         filter_by(port_id=port_id, host=host).
+         delete(synchronize_session=False))
 
 
 def get_port(session, port_id):
@@ -133,4 +182,42 @@ def get_port_binding_host(port_id):
             LOG.debug(_("No binding found for port %(port_id)s"),
                       {'port_id': port_id})
             return
+        except exc.MultipleResultsFound:
+            LOG.error(_("Multiple ports have port_id starting with %s"),
+                      port_id)
+            return
     return query.host
+
+
+def generate_dvr_port_status(session, port_id):
+    # an OR'ed value of status assigned to parent port from the
+    # dvrportbinding bucket
+    query = session.query(models.DVRPortBinding)
+    final_status = n_const.PORT_STATUS_BUILD
+    for bind in query.filter(models.DVRPortBinding.port_id == port_id):
+        if bind.status == n_const.PORT_STATUS_ACTIVE:
+            return bind.status
+        elif bind.status == n_const.PORT_STATUS_DOWN:
+            final_status = bind.status
+    return final_status
+
+
+def get_dvr_port_binding_by_host(session, port_id, host):
+    with session.begin(subtransactions=True):
+        binding = (session.query(models.DVRPortBinding).
+                   filter(models.DVRPortBinding.port_id.startswith(port_id),
+                          models.DVRPortBinding.host == host).first())
+    if not binding:
+        LOG.debug("No binding for DVR port %(port_id)s with host "
+                  "%(host)s", {'port_id': port_id, 'host': host})
+    return binding
+
+
+def get_dvr_port_bindings(session, port_id):
+    with session.begin(subtransactions=True):
+        bindings = (session.query(models.DVRPortBinding).
+                    filter(models.DVRPortBinding.port_id.startswith(port_id)).
+                    all())
+    if not bindings:
+        LOG.debug("No bindings for DVR port %s", port_id)
+    return bindings

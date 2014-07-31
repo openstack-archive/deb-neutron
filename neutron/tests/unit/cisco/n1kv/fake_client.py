@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2014 Cisco Systems, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -28,7 +26,11 @@ _resource_metadata = {'port': ['id', 'macAddress', 'ipAddress', 'subnetId'],
                                     'networkSegment', 'portProfile',
                                     'portProfileId', 'tenantId',
                                     'portId', 'macAddress',
-                                    'ipAddress', 'subnetId']}
+                                    'ipAddress', 'subnetId'],
+                      'subnet': ['addressRangeStart', 'addressRangeEnd',
+                                 'ipAddressSubnet', 'description', 'gateway',
+                                 'dhcp', 'dnsServersList', 'networkAddress',
+                                 'netSegmentName', 'id', 'tenantId']}
 
 
 class TestClient(n1kv_client.Client):
@@ -76,6 +78,10 @@ def _validate_resource(action, body=None):
     elif 'port' in action:
         port_set = set(_resource_metadata['port'])
         if body_set - port_set:
+            raise c_exc.VSMError(reason='Invalid Request')
+    elif 'subnet' in action:
+        subnet_set = set(_resource_metadata['subnet'])
+        if body_set - subnet_set:
             raise c_exc.VSMError(reason='Invalid Request')
     else:
         return

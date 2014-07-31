@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2014 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -19,12 +17,14 @@ import sys
 
 from neutron.cmd.sanity import checks
 from neutron.common import config
+from neutron.openstack.common.gettextutils import _LE
 from neutron.openstack.common import log as logging
 from oslo.config import cfg
 
 
 LOG = logging.getLogger(__name__)
 cfg.CONF.import_group('AGENT', 'neutron.plugins.openvswitch.common.config')
+cfg.CONF.import_group('OVS', 'neutron.plugins.openvswitch.common.config')
 
 
 class BoolOptCallback(cfg.BoolOpt):
@@ -52,12 +52,23 @@ def check_ovs_patch():
     return result
 
 
+def check_nova_notify():
+    result = checks.nova_notify_supported()
+    if not result:
+        LOG.error(_LE('Nova notifications are enabled, but novaclient is not '
+                      'installed. Either disable nova notifications or '
+                      'install python-novaclient.'))
+    return result
+
+
 # Define CLI opts to test specific features, with a calback for the test
 OPTS = [
     BoolOptCallback('ovs_vxlan', check_ovs_vxlan, default=False,
                     help=_('Check for vxlan support')),
     BoolOptCallback('ovs_patch', check_ovs_patch, default=False,
                     help=_('Check for patch port support')),
+    BoolOptCallback('nova_notify', check_nova_notify, default=False,
+                    help=_('Check for nova notification support')),
 ]
 
 
@@ -71,6 +82,11 @@ def enable_tests_from_config():
         cfg.CONF.set_override('ovs_vxlan', True)
     if cfg.CONF.AGENT.tunnel_types:
         cfg.CONF.set_override('ovs_patch', True)
+    if not cfg.CONF.OVS.use_veth_interconnection:
+        cfg.CONF.set_override('ovs_patch', True)
+    if (cfg.CONF.notify_nova_on_port_status_changes or
+            cfg.CONF.notify_nova_on_port_data_changes):
+        cfg.CONF.set_override('nova_notify', True)
 
 
 def all_tests_passed():
@@ -85,7 +101,7 @@ def main():
     cfg.CONF.register_cli_opts(OPTS)
     cfg.CONF.set_override('use_stderr', True)
     config.setup_logging(cfg.CONF)
-    config.parse(sys.argv[1:], default_config_files=[])
+    config.init(sys.argv[1:], default_config_files=[])
 
     if cfg.CONF.config_file:
         enable_tests_from_config()

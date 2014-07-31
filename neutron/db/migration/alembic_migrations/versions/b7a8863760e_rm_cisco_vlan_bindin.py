@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -53,7 +51,7 @@ def downgrade(active_plugins=None, options=None):
 
     op.create_table(
         'cisco_vlan_bindings',
-        sa.Column('vlan_id', sa.Integer(display_width=11), nullable=False),
+        sa.Column('vlan_id', sa.Integer(), nullable=False),
         sa.Column('vlan_name', sa.String(length=255), nullable=True),
         sa.Column('network_id', sa.String(length=255), nullable=False),
         sa.PrimaryKeyConstraint('vlan_id')

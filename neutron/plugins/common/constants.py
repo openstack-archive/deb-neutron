@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -80,6 +78,3 @@ TYPE_LOCAL = 'local'
 TYPE_VXLAN = 'vxlan'
 TYPE_VLAN = 'vlan'
 TYPE_NONE = 'none'
-
-# The maximum length of an interface name (in Linux)
-MAX_DEV_NAME_LEN = 16

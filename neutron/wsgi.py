@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2011 OpenStack Foundation.
 # All Rights Reserved.
 #
@@ -45,6 +43,7 @@ from neutron.openstack.common import gettextutils
 from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import service as common_service
+from neutron.openstack.common import systemd
 
 socket_opts = [
     cfg.IntOpt('backlog',
@@ -210,6 +209,7 @@ class Server(object):
             # For the case where only one process is required.
             self._server = self.pool.spawn(self._run, application,
                                            self._socket)
+            systemd.notify_once()
         else:
             # Minimize the cost of checking for child exit by extending the
             # wait interval past the default of 0.01s.

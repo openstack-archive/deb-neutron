@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 #    (c) Copyright 2013 Hewlett-Packard Development Company, L.P.
 #    All Rights Reserved.
 #
@@ -108,7 +106,7 @@ class VPNTestMixin(object):
                   lifetime_value=3600,
                   ike_version='v1',
                   pfs='group5',
-                  no_delete=False,
+                  do_delete=True,
                   **kwargs):
         if not fmt:
             fmt = self.fmt
@@ -126,7 +124,7 @@ class VPNTestMixin(object):
             raise webob.exc.HTTPClientError(code=res.status_int)
         ikepolicy = self.deserialize(fmt or self.fmt, res)
         yield ikepolicy
-        if not no_delete:
+        if do_delete:
             self._delete('ikepolicies', ikepolicy['ikepolicy']['id'])
 
     def _create_ipsecpolicy(self, fmt,
@@ -170,7 +168,7 @@ class VPNTestMixin(object):
                     lifetime_units='seconds',
                     lifetime_value=3600,
                     pfs='group5',
-                    no_delete=False, **kwargs):
+                    do_delete=True, **kwargs):
         if not fmt:
             fmt = self.fmt
         res = self._create_ipsecpolicy(fmt,
@@ -187,7 +185,7 @@ class VPNTestMixin(object):
             raise webob.exc.HTTPClientError(code=res.status_int)
         ipsecpolicy = self.deserialize(fmt or self.fmt, res)
         yield ipsecpolicy
-        if not no_delete:
+        if do_delete:
             self._delete('ipsecpolicies', ipsecpolicy['ipsecpolicy']['id'])
 
     def _create_vpnservice(self, fmt, name,
@@ -219,7 +217,7 @@ class VPNTestMixin(object):
                    subnet=None,
                    router=None,
                    admin_state_up=True,
-                   no_delete=False,
+                   do_delete=True,
                    plug_subnet=True,
                    external_subnet_cidr='192.168.100.0/24',
                    external_router=True,
@@ -258,7 +256,7 @@ class VPNTestMixin(object):
             if res.status_int < 400:
                 yield vpnservice
 
-            if not no_delete and vpnservice.get('vpnservice'):
+            if do_delete and vpnservice.get('vpnservice'):
                 self._delete('vpnservices',
                              vpnservice['vpnservice']['id'])
             if plug_subnet:
@@ -342,7 +340,7 @@ class VPNTestMixin(object):
                               vpnservice=None,
                               ikepolicy=None,
                               ipsecpolicy=None,
-                              admin_state_up=True, no_delete=False,
+                              admin_state_up=True, do_delete=True,
                               **kwargs):
         if not fmt:
             fmt = self.fmt
@@ -381,7 +379,7 @@ class VPNTestMixin(object):
             )
             yield ipsec_site_connection
 
-            if not no_delete:
+            if do_delete:
                 self._delete(
                     'ipsec-site-connections',
                     ipsec_site_connection[
@@ -477,7 +475,7 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_delete_ikepolicy(self):
         """Test case to delete an ikepolicy."""
-        with self.ikepolicy(no_delete=True) as ikepolicy:
+        with self.ikepolicy(do_delete=False) as ikepolicy:
             req = self.new_delete_request('ikepolicies',
                                           ikepolicy['ikepolicy']['id'])
             res = req.get_response(self.ext_api)
@@ -669,7 +667,7 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_delete_ipsecpolicy(self):
         """Test case to delete an ipsecpolicy."""
-        with self.ipsecpolicy(no_delete=True) as ipsecpolicy:
+        with self.ipsecpolicy(do_delete=False) as ipsecpolicy:
             req = self.new_delete_request('ipsecpolicies',
                                           ipsecpolicy['ipsecpolicy']['id'])
             res = req.get_response(self.ext_api)
@@ -871,63 +869,6 @@ class TestVpnaas(VPNPluginDbTestCase):
                                           if k in expected),
                                      expected)
 
-    def test_create_vpnservice_with_invalid_router(self):
-        """Test case to create a vpnservice with other tenant's router"""
-        with self.network(
-            set_context=True,
-            tenant_id='tenant_a') as network:
-            with self.subnet(network=network,
-                             cidr='10.2.0.0/24') as subnet:
-                with self.router(
-                    set_context=True, tenant_id='tenant_a') as router:
-                    router_id = router['router']['id']
-                    subnet_id = subnet['subnet']['id']
-                    self._create_vpnservice(
-                        self.fmt, 'fake',
-                        True, router_id, subnet_id,
-                        expected_res_status=webob.exc.HTTPNotFound.code,
-                        set_context=True, tenant_id='tenant_b')
-
-    def test_create_vpnservice_with_router_no_external_gateway(self):
-        """Test case to create a vpnservice with inner router"""
-        error_code = 0
-        with self.subnet(cidr='10.2.0.0/24') as subnet:
-            with self.router() as router:
-                router_id = router['router']['id']
-                try:
-                    with self.vpnservice(subnet=subnet,
-                                         router=router,
-                                         external_router=False):
-                        pass
-                except webob.exc.HTTPClientError as e:
-                    error_code, error_detail = (
-                        e.status_code, e.detail['NeutronError']['message'])
-        self.assertEqual(400, error_code)
-        msg = str(vpnaas.RouterIsNotExternal(router_id=router_id))
-        self.assertEqual(msg, error_detail)
-
-    def test_create_vpnservice_with_nonconnected_subnet(self):
-        """Test case to create a vpnservice with nonconnected subnet."""
-        with self.network() as network:
-            with self.subnet(network=network,
-                             cidr='10.2.0.0/24') as subnet:
-                with self.router() as router:
-                    router_id = router['router']['id']
-                    subnet_id = subnet['subnet']['id']
-                    self._create_vpnservice(
-                        self.fmt, 'fake',
-                        True, router_id, subnet_id,
-                        expected_res_status=webob.exc.HTTPBadRequest.code)
-
-    def test_delete_router_in_use_by_vpnservice(self):
-        """Test delete router in use by vpn service."""
-        with self.subnet(cidr='10.2.0.0/24') as subnet:
-            with self.router() as router:
-                with self.vpnservice(subnet=subnet,
-                                     router=router):
-                    self._delete('routers', router['router']['id'],
-                                 expected_code=webob.exc.HTTPConflict.code)
-
     def test_update_vpnservice(self):
         """Test case to update a vpnservice."""
         name = 'new_vpnservice1'
@@ -982,7 +923,7 @@ class TestVpnaas(VPNPluginDbTestCase):
     def test_delete_vpnservice(self):
         """Test case to delete a vpnservice."""
         with self.vpnservice(name='vpnserver',
-                             no_delete=True) as vpnservice:
+                             do_delete=False) as vpnservice:
             req = self.new_delete_request('vpnservices',
                                           vpnservice['vpnservice']['id'])
             res = req.get_response(self.ext_api)
@@ -1123,16 +1064,6 @@ class TestVpnaas(VPNPluginDbTestCase):
         self._create_ipsec_site_connection(
             fmt=self.fmt,
             name=name, initiator='unsupported', expected_status_int=400)
-        self._create_ipsec_site_connection(
-            fmt=self.fmt,
-            name=name,
-            dpd_interval=30,
-            dpd_timeout=20, expected_status_int=400)
-        self._create_ipsec_site_connection(
-            fmt=self.fmt,
-            name=name,
-            dpd_interval=100,
-            dpd_timeout=100, expected_status_int=400)
 
     def _test_create_ipsec_site_connection(self, key_overrides=None,
                                            setup_overrides=None,
@@ -1209,26 +1140,10 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to create an ipsec_site_connection."""
         self._test_create_ipsec_site_connection(key_overrides=extras)
 
-    def test_create_ipsec_site_connection_invalid_mtu(self):
-        """Test creating an ipsec_site_connection with invalid MTU."""
-        self._test_create_ipsec_site_connection(key_overrides={'mtu': 67},
-                                                expected_status_int=400)
-        ipv6_overrides = {
-            'peer_address': 'fe80::c0a8:10a',
-            'peer_id': 'fe80::c0a8:10a',
-            'peer_cidrs': ['fe80::c0a8:200/120', 'fe80::c0a8:300/120'],
-            'mtu': 1279}
-        ipv6_setup_params = {'subnet_cidr': 'fe80::a01:0/120',
-                             'subnet_version': 6}
-        self._test_create_ipsec_site_connection(
-            key_overrides=ipv6_overrides,
-            setup_overrides=ipv6_setup_params,
-            expected_status_int=400)
-
     def test_delete_ipsec_site_connection(self):
         """Test case to delete a ipsec_site_connection."""
         with self.ipsec_site_connection(
-                no_delete=True) as ipsec_site_connection:
+                do_delete=False) as ipsec_site_connection:
             req = self.new_delete_request(
                 'ipsec-site-connections',
                 ipsec_site_connection['ipsec_site_connection']['id']
@@ -1251,42 +1166,6 @@ class TestVpnaas(VPNPluginDbTestCase):
             'subnet_version': 6}
         self._test_update_ipsec_site_connection(update={'mtu': 2000},
                                                 overrides=ipv6_settings)
-
-    def test_update_ipsec_site_connection_with_invalid_dpd(self):
-        """Test updates to ipsec_site_connection with invalid DPD settings."""
-        dpd1 = {'action': 'hold',
-                'interval': 100,
-                'timeout': 100}
-        self._test_update_ipsec_site_connection(
-            update={'dpd': dpd1},
-            expected_status_int=400)
-        dpd2 = {'action': 'hold',
-                'interval': 100,
-                'timeout': 60}
-        self._test_update_ipsec_site_connection(
-            update={'dpd': dpd2},
-            expected_status_int=400)
-        dpd3 = {'action': 'hold',
-                'interval': -50,
-                'timeout': -100}
-        self._test_update_ipsec_site_connection(
-            update={'dpd': dpd3},
-            expected_status_int=400)
-
-    def test_update_ipsec_site_connection_with_invalid_mtu(self):
-        """Test updates to ipsec_site_connection with invalid MTU settings."""
-        self._test_update_ipsec_site_connection(
-            update={'mtu': 67}, expected_status_int=400)
-        ipv6_settings = {
-            'peer_address': 'fe80::c0a8:10a',
-            'peer_id': 'fe80::c0a8:10a',
-            'peer_cidrs': ['fe80::c0a8:200/120', 'fe80::c0a8:300/120'],
-            'subnet_cidr': 'fe80::a02:0/120',
-            'subnet_version': 6}
-        self._test_update_ipsec_site_connection(
-            update={'mtu': 1279},
-            overrides=ipv6_settings,
-            expected_status_int=400)
 
     def test_update_ipsec_site_connection_with_invalid_state(self):
         """Test updating an ipsec_site_connection in invalid state."""

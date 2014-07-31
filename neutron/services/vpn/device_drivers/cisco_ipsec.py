@@ -20,16 +20,15 @@ import requests
 
 import netaddr
 from oslo.config import cfg
+from oslo import messaging
 import six
 
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
-from neutron.common import rpc_compat
 from neutron import context as ctx
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common import rpc
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.services.vpn.common import topics
@@ -151,7 +150,7 @@ def find_available_csrs_from_config(config_files):
     return csrs_found
 
 
-class CiscoCsrIPsecVpnDriverApi(rpc_compat.RpcProxy):
+class CiscoCsrIPsecVpnDriverApi(n_rpc.RpcProxy):
     """RPC API for agent to plugin messaging."""
 
     def get_vpn_services_on_host(self, context, host):
@@ -185,22 +184,23 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
 
     # history
     #   1.0 Initial version
-
     RPC_API_VERSION = '1.0'
+
+    # TODO(ihrachys): we can't use RpcCallback here due to inheritance
+    # issues
+    target = messaging.Target(version=RPC_API_VERSION)
 
     def __init__(self, agent, host):
         self.host = host
-        self.conn = rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection(new=True)
         context = ctx.get_admin_context_without_session()
         node_topic = '%s.%s' % (topics.CISCO_IPSEC_AGENT_TOPIC, self.host)
 
         self.service_state = {}
 
-        self.conn.create_consumer(
-            node_topic,
-            self.create_rpc_dispatcher(),
-            fanout=False)
-        self.conn.consume_in_thread()
+        self.endpoints = [self]
+        self.conn.create_consumer(node_topic, self.endpoints, fanout=False)
+        self.conn.consume_in_threads()
         self.agent_rpc = (
             CiscoCsrIPsecVpnDriverApi(topics.CISCO_IPSEC_DRIVER_TOPIC, '1.0'))
         self.periodic_report = loopingcall.FixedIntervalLoopingCall(
@@ -216,15 +216,8 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
         else:
             raise SystemExit(_('No Cisco CSR configurations found in: %s') %
                              cfg.CONF.config_file)
-        self.csrs = dict([(k, csr_client.CsrRestClient(v['rest_mgmt'],
-                                                       v['tunnel_ip'],
-                                                       v['username'],
-                                                       v['password'],
-                                                       v['timeout']))
+        self.csrs = dict([(k, csr_client.CsrRestClient(v))
                           for k, v in csrs_found.items()])
-
-    def create_rpc_dispatcher(self):
-        return n_rpc.PluginRpcDispatcher([self])
 
     def vpnservice_updated(self, context, **kwargs):
         """Handle VPNaaS service driver change notifications."""

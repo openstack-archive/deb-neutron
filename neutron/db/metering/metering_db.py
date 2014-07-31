@@ -17,11 +17,12 @@
 import netaddr
 import sqlalchemy as sa
 from sqlalchemy import orm
+from sqlalchemy import sql
 
 from neutron.api.rpc.agentnotifiers import metering_rpc_agent_api
 from neutron.common import constants
 from neutron.db import api as dbapi
-from neutron.db import db_base_plugin_v2 as base_db
+from neutron.db import common_db_mixin as base_db
 from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -41,7 +42,7 @@ class MeteringLabelRule(model_base.BASEV2, models_v2.HasId):
                                   sa.ForeignKey("meteringlabels.id",
                                                 ondelete="CASCADE"),
                                   nullable=False)
-    excluded = sa.Column(sa.Boolean, default=False)
+    excluded = sa.Column(sa.Boolean, default=False, server_default=sql.false())
 
 
 class MeteringLabel(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):

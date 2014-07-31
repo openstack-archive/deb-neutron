@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 Radware LTD.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -19,6 +17,14 @@
 import abc
 
 import six
+
+#
+# DEPRECATION WARNING.  THIS ABSTRACT DRIVER IS FOR THE LBAAS V1 OBJECT
+# MODEL AND SHOULD NO LONGER BE USED TO CREATE DRIVERS.
+#
+# PLEASE REFER TO driver_base.py and driver_mixins.py for the newest
+# lbaas driver base classes.
+#
 
 
 @six.add_metaclass(abc.ABCMeta)

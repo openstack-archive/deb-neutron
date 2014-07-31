@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013, Nachi Ueno, NTT I3, Inc.
 # All Rights Reserved.
 #
@@ -23,17 +21,16 @@ import shutil
 import jinja2
 import netaddr
 from oslo.config import cfg
+from oslo import messaging
 import six
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
-from neutron.common import rpc as q_rpc
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron import context
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common import rpc
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.services.vpn.common import topics
@@ -444,7 +441,7 @@ class OpenSwanProcess(BaseSwanProcess):
         self.connection_status = {}
 
 
-class IPsecVpnDriverApi(rpc_compat.RpcProxy):
+class IPsecVpnDriverApi(n_rpc.RpcProxy):
     """IPSecVpnDriver RPC api."""
     IPSEC_PLUGIN_VERSION = '1.0'
 
@@ -488,12 +485,16 @@ class IPsecDriver(device_drivers.DeviceDriver):
 
     RPC_API_VERSION = '1.0'
 
+    # TODO(ihrachys): we can't use RpcCallback here due to inheritance
+    # issues
+    target = messaging.Target(version=RPC_API_VERSION)
+
     def __init__(self, agent, host):
         self.agent = agent
         self.conf = self.agent.conf
         self.root_helper = self.agent.root_helper
         self.host = host
-        self.conn = rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection(new=True)
         self.context = context.get_admin_context_without_session()
         self.topic = topics.IPSEC_AGENT_TOPIC
         node_topic = '%s.%s' % (self.topic, self.host)
@@ -501,19 +502,14 @@ class IPsecDriver(device_drivers.DeviceDriver):
         self.processes = {}
         self.process_status_cache = {}
 
-        self.conn.create_consumer(
-            node_topic,
-            self.create_rpc_dispatcher(),
-            fanout=False)
-        self.conn.consume_in_thread()
+        self.endpoints = [self]
+        self.conn.create_consumer(node_topic, self.endpoints, fanout=False)
+        self.conn.consume_in_threads()
         self.agent_rpc = IPsecVpnDriverApi(topics.IPSEC_DRIVER_TOPIC, '1.0')
         self.process_status_cache_check = loopingcall.FixedIntervalLoopingCall(
             self.report_status, self.context)
         self.process_status_cache_check.start(
             interval=self.conf.ipsec.ipsec_status_check_interval)
-
-    def create_rpc_dispatcher(self):
-        return q_rpc.PluginRpcDispatcher([self])
 
     def _update_nat(self, vpnservice, func):
         """Setting up nat rule in iptables.

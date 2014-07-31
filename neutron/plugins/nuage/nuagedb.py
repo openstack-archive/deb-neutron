@@ -14,7 +14,7 @@
 #
 # @author: Ronak Shah, Nuage Networks, Alcatel-Lucent USA Inc.
 
-from neutron.db import db_base_plugin_v2
+from neutron.db import common_db_mixin
 from neutron.plugins.nuage import nuage_models
 
 
@@ -56,6 +56,10 @@ def add_subnetl2dom_mapping(session, neutron_subnet_id,
 def update_subnetl2dom_mapping(subnet_l2dom,
                                new_dict):
     subnet_l2dom.update(new_dict)
+
+
+def delete_subnetl2dom_mapping(session, subnet_l2dom):
+    session.delete(subnet_l2dom)
 
 
 def add_port_vport_mapping(session, port_id, nuage_vport_id,
@@ -126,7 +130,7 @@ def get_net_partition_by_id(session, id):
 
 def get_net_partitions(session, filters=None, fields=None):
     query = session.query(nuage_models.NetPartition)
-    common_db = db_base_plugin_v2.CommonDbMixin()
+    common_db = common_db_mixin.CommonDbMixin()
     query = common_db._apply_filters_to_query(query,
                                               nuage_models.NetPartition,
                                               filters)
@@ -152,3 +156,47 @@ def add_static_route(session, router_id, nuage_rtr_id,
                                                 nexthop=nexthop)
     session.add(staticrt)
     return staticrt
+
+
+def add_fip_mapping(session, neutron_fip_id, router_id, nuage_fip_id):
+    fip = nuage_models.FloatingIPMapping(fip_id=neutron_fip_id,
+                                         router_id=router_id,
+                                         nuage_fip_id=nuage_fip_id)
+    session.add(fip)
+    return fip
+
+
+def delete_fip_mapping(session, fip_mapping):
+    session.delete(fip_mapping)
+
+
+def add_fip_pool_mapping(session, fip_pool_id, net_id, router_id=None):
+    fip_pool_mapping = nuage_models.FloatingIPPoolMapping(
+        fip_pool_id=fip_pool_id,
+        net_id=net_id,
+        router_id=router_id)
+    session.add(fip_pool_mapping)
+    return fip_pool_mapping
+
+
+def delete_fip_pool_mapping(session, fip_pool_mapping):
+    session.delete(fip_pool_mapping)
+
+
+def get_fip_pool_by_id(session, id):
+    query = session.query(nuage_models.FloatingIPPoolMapping)
+    return query.filter_by(fip_pool_id=id).first()
+
+
+def get_fip_pool_from_netid(session, net_id):
+    query = session.query(nuage_models.FloatingIPPoolMapping)
+    return query.filter_by(net_id=net_id).first()
+
+
+def get_fip_mapping_by_id(session, id):
+    qry = session.query(nuage_models.FloatingIPMapping)
+    return qry.filter_by(fip_id=id).first()
+
+
+def update_fip_pool_mapping(fip_pool_mapping, new_dict):
+    fip_pool_mapping.update(new_dict)

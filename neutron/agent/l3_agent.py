@@ -13,11 +13,15 @@
 #    under the License.
 #
 
+import sys
+
+import datetime
 import eventlet
 eventlet.monkey_patch()
 
 import netaddr
 from oslo.config import cfg
+import Queue
 
 from neutron.agent.common import config
 from neutron.agent.linux import external_process
@@ -25,21 +29,23 @@ from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ovs_lib  # noqa
+from neutron.agent.linux import ra
 from neutron.agent import rpc as agent_rpc
+from neutron.common import config as common_config
 from neutron.common import constants as l3_constants
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils as common_utils
 from neutron import context
 from neutron import manager
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
-from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import periodic_task
 from neutron.openstack.common import processutils
 from neutron.openstack.common import service
+from neutron.openstack.common import timeutils
 from neutron import service as neutron_service
 from neutron.services.firewall.agents.l3reference import firewall_l3_agent
 
@@ -49,9 +55,13 @@ INTERNAL_DEV_PREFIX = 'qr-'
 EXTERNAL_DEV_PREFIX = 'qg-'
 RPC_LOOP_INTERVAL = 1
 FLOATING_IP_CIDR_SUFFIX = '/32'
+# Lower value is higher priority
+PRIORITY_RPC = 0
+PRIORITY_SYNC_ROUTERS_TASK = 1
+DELETE_ROUTER = 1
 
 
-class L3PluginApi(rpc_compat.RpcProxy):
+class L3PluginApi(n_rpc.RpcProxy):
     """Agent side of the l3 agent RPC API.
 
     API version history:
@@ -77,9 +87,9 @@ class L3PluginApi(rpc_compat.RpcProxy):
     def get_external_network_id(self, context):
         """Make a remote process call to retrieve the external network id.
 
-        @raise rpc_compat.RemoteError: with TooManyExternalNetworks
-                                       as exc_type if there are
-                                       more than one external network
+        @raise n_rpc.RemoteError: with TooManyExternalNetworks as
+                                  exc_type if there are more than one
+                                  external network
         """
         return self.call(context,
                          self.make_msg('get_external_network_id',
@@ -141,6 +151,144 @@ class RouterInfo(object):
             snat_callback(self, self._router.get('gw_port'),
                           *args, action=self._snat_action)
         self._snat_action = None
+
+
+class RouterUpdate(object):
+    """Encapsulates a router update
+
+    An instance of this object carries the information necessary to prioritize
+    and process a request to update a router.
+    """
+    def __init__(self, router_id, priority,
+                 action=None, router=None, timestamp=None):
+        self.priority = priority
+        self.timestamp = timestamp
+        if not timestamp:
+            self.timestamp = timeutils.utcnow()
+        self.id = router_id
+        self.action = action
+        self.router = router
+
+    def __lt__(self, other):
+        """Implements priority among updates
+
+        Lower numerical priority always gets precedence.  When comparing two
+        updates of the same priority then the one with the earlier timestamp
+        gets procedence.  In the unlikely event that the timestamps are also
+        equal it falls back to a simple comparison of ids meaning the
+        precedence is essentially random.
+        """
+        if self.priority != other.priority:
+            return self.priority < other.priority
+        if self.timestamp != other.timestamp:
+            return self.timestamp < other.timestamp
+        return self.id < other.id
+
+
+class ExclusiveRouterProcessor(object):
+    """Manager for access to a router for processing
+
+    This class controls access to a router in a non-blocking way.  The first
+    instance to be created for a given router_id is granted exclusive access to
+    the router.
+
+    Other instances may be created for the same router_id while the first
+    instance has exclusive access.  If that happens then it doesn't block and
+    wait for access.  Instead, it signals to the master instance that an update
+    came in with the timestamp.
+
+    This way, a thread will not block to wait for access to a router.  Instead
+    it effectively signals to the thread that is working on the router that
+    something has changed since it started working on it.  That thread will
+    simply finish its current iteration and then repeat.
+
+    This class keeps track of the last time that a router data was fetched and
+    processed.  The timestamp that it keeps must be before when the data used
+    to process the router last was fetched from the database.  But, as close as
+    possible.  The timestamp should not be recorded, however, until the router
+    has been processed using the fetch data.
+    """
+    _masters = {}
+    _router_timestamps = {}
+
+    def __init__(self, router_id):
+        self._router_id = router_id
+
+        if router_id not in self._masters:
+            self._masters[router_id] = self
+            self._queue = []
+
+        self._master = self._masters[router_id]
+
+    def _i_am_master(self):
+        return self == self._master
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if self._i_am_master():
+            del self._masters[self._router_id]
+
+    def _get_router_data_timestamp(self):
+        return self._router_timestamps.get(self._router_id,
+                                           datetime.datetime.min)
+
+    def fetched_and_processed(self, timestamp):
+        """Records the data timestamp after it is used to update the router"""
+        new_timestamp = max(timestamp, self._get_router_data_timestamp())
+        self._router_timestamps[self._router_id] = new_timestamp
+
+    def queue_update(self, update):
+        """Queues an update from a worker
+
+        This is the queue used to keep new updates that come in while a router
+        is being processed.  These updates have already bubbled to the front of
+        the RouterProcessingQueue.
+        """
+        self._master._queue.append(update)
+
+    def updates(self):
+        """Processes the router until updates stop coming
+
+        Only the master instance will process the router.  However, updates may
+        come in from other workers while it is in progress.  This method loops
+        until they stop coming.
+        """
+        if self._i_am_master():
+            while self._queue:
+                # Remove the update from the queue even if it is old.
+                update = self._queue.pop(0)
+                # Process the update only if it is fresh.
+                if self._get_router_data_timestamp() < update.timestamp:
+                    yield update
+
+
+class RouterProcessingQueue(object):
+    """Manager of the queue of routers to process."""
+    def __init__(self):
+        self._queue = Queue.PriorityQueue()
+
+    def add(self, update):
+        self._queue.put(update)
+
+    def each_update_to_next_router(self):
+        """Grabs the next router from the queue and processes
+
+        This method uses a for loop to process the router repeatedly until
+        updates stop bubbling to the front of the queue.
+        """
+        next_update = self._queue.get()
+
+        with ExclusiveRouterProcessor(next_update.id) as rp:
+            # Queue the update whether this worker is the master or not.
+            rp.queue_update(next_update)
+
+            # Here, if the current worker is not the master, the call to
+            # rp.updates() will not yield and so this will essentially be a
+            # noop.
+            for update in rp.updates():
+                yield (rp, update)
 
 
 class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
@@ -218,9 +366,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
 
         self._clean_stale_namespaces = self.conf.use_namespaces
 
-        self.rpc_loop = loopingcall.FixedIntervalLoopingCall(
-            self._rpc_loop)
-        self.rpc_loop.start(interval=RPC_LOOP_INTERVAL)
+        self._queue = RouterProcessingQueue()
         super(L3NATAgent, self).__init__(conf=self.conf)
 
         self.target_ex_net_id = None
@@ -241,10 +387,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             LOG.error(msg)
             raise SystemExit(1)
 
-    def _cleanup_namespaces(self, routers):
-        """Destroy stale router namespaces on host when L3 agent restarts
-
-        This routine is called when self._clean_stale_namespaces is True.
+    def _list_namespaces(self):
+        """Get a set of all router namespaces on host
 
         The argument routers is the list of routers that are recorded in
         the database as being hosted on this node.
@@ -253,15 +397,24 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             root_ip = ip_lib.IPWrapper(self.root_helper)
 
             host_namespaces = root_ip.get_namespaces(self.root_helper)
-            router_namespaces = set(ns for ns in host_namespaces
-                                    if ns.startswith(NS_PREFIX))
-            ns_to_ignore = set(NS_PREFIX + r['id'] for r in routers)
-            ns_to_destroy = router_namespaces - ns_to_ignore
+            return set(ns for ns in host_namespaces
+                       if ns.startswith(NS_PREFIX))
         except RuntimeError:
             LOG.exception(_('RuntimeError in obtaining router list '
                             'for namespace cleanup.'))
-        else:
-            self._destroy_stale_router_namespaces(ns_to_destroy)
+            return set()
+
+    def _cleanup_namespaces(self, router_namespaces, router_ids):
+        """Destroy stale router namespaces on host when L3 agent restarts
+
+            This routine is called when self._clean_stale_namespaces is True.
+
+        The argument router_namespaces is the list of all routers namespaces
+        The argument router_ids is the list of ids for known routers.
+        """
+        ns_to_ignore = set(NS_PREFIX + id for id in router_ids)
+        ns_to_destroy = router_namespaces - ns_to_ignore
+        self._destroy_stale_router_namespaces(ns_to_destroy)
 
     def _destroy_stale_router_namespaces(self, router_namespaces):
         """Destroys the stale router namespaces
@@ -275,6 +428,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             if self.conf.enable_metadata_proxy:
                 self._destroy_metadata_proxy(ns[len(NS_PREFIX):], ns)
 
+            ra.disable_ipv6_ra(ns[len(NS_PREFIX):], ns, self.root_helper)
             try:
                 self._destroy_router_namespace(ns)
             except RuntimeError:
@@ -325,7 +479,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             self.target_ex_net_id = self.plugin_rpc.get_external_network_id(
                 self.context)
             return self.target_ex_net_id
-        except rpc_compat.RemoteError as e:
+        except n_rpc.RemoteError as e:
             with excutils.save_and_reraise_exception() as ctx:
                 if e.exc_type == 'TooManyExternalNetworks':
                     ctx.reraise = False
@@ -427,15 +581,31 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
                      p['id'] not in existing_port_ids]
         old_ports = [p for p in ri.internal_ports if
                      p['id'] not in current_port_ids]
+
+        new_ipv6_port = False
+        old_ipv6_port = False
         for p in new_ports:
             self._set_subnet_info(p)
             self.internal_network_added(ri, p['network_id'], p['id'],
                                         p['ip_cidr'], p['mac_address'])
             ri.internal_ports.append(p)
+            if (not new_ipv6_port and
+                    netaddr.IPNetwork(p['subnet']['cidr']).version == 6):
+                new_ipv6_port = True
 
         for p in old_ports:
             self.internal_network_removed(ri, p['id'], p['ip_cidr'])
             ri.internal_ports.remove(p)
+            if (not old_ipv6_port and
+                    netaddr.IPNetwork(p['subnet']['cidr']).version == 6):
+                old_ipv6_port = True
+
+        if new_ipv6_port or old_ipv6_port:
+            ra.enable_ipv6_ra(ri.router_id,
+                              ri.ns_name,
+                              internal_ports,
+                              self.get_internal_device_name,
+                              self.root_helper)
 
         existing_devices = self._get_existing_devices(ri)
         current_internal_devs = set([n for n in existing_devices
@@ -732,7 +902,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
     def router_deleted(self, context, router_id):
         """Deal with router deletion RPC message."""
         LOG.debug(_('Got router deleted notification for %s'), router_id)
-        self.removed_routers.add(router_id)
+        update = RouterUpdate(router_id, PRIORITY_RPC, action=DELETE_ROUTER)
+        self._queue.add(update)
 
     def routers_updated(self, context, routers):
         """Deal with routers modification and creation RPC message."""
@@ -741,11 +912,15 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             # This is needed for backward compatibility
             if isinstance(routers[0], dict):
                 routers = [router['id'] for router in routers]
-            self.updated_routers.update(routers)
+            for id in routers:
+                update = RouterUpdate(id, PRIORITY_RPC)
+                self._queue.add(update)
 
     def router_removed_from_agent(self, context, payload):
         LOG.debug(_('Got router removed from agent :%r'), payload)
-        self.removed_routers.add(payload['router_id'])
+        router_id = payload['router_id']
+        update = RouterUpdate(router_id, PRIORITY_RPC, action=DELETE_ROUTER)
+        self._queue.add(update)
 
     def router_added_to_agent(self, context, payload):
         LOG.debug(_('Got router added to agent :%r'), payload)
@@ -797,36 +972,37 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             pool.spawn_n(self._router_removed, router_id)
         pool.waitall()
 
-    @lockutils.synchronized('l3-agent', 'neutron-')
-    def _rpc_loop(self):
-        # _rpc_loop and _sync_routers_task will not be
-        # executed in the same time because of lock.
-        # so we can clear the value of updated_routers
-        # and removed_routers, but they can be updated by
-        # updated_routers and removed_routers rpc call
-        try:
-            LOG.debug(_("Starting RPC loop for %d updated routers"),
-                      len(self.updated_routers))
-            if self.updated_routers:
-                # We're capturing and clearing the list, and will
-                # process the "captured" updates in this loop,
-                # and any updates that happen due to a context switch
-                # will be picked up on the next pass.
-                updated_routers = set(self.updated_routers)
-                self.updated_routers.clear()
-                router_ids = list(updated_routers)
-                routers = self.plugin_rpc.get_routers(
-                    self.context, router_ids)
-                # routers with admin_state_up=false will not be in the fetched
-                fetched = set([r['id'] for r in routers])
-                self.removed_routers.update(updated_routers - fetched)
+    def _process_router_update(self):
+        for rp, update in self._queue.each_update_to_next_router():
+            LOG.debug("Starting router update for %s", update.id)
+            router = update.router
+            if update.action != DELETE_ROUTER and not router:
+                try:
+                    update.timestamp = timeutils.utcnow()
+                    routers = self.plugin_rpc.get_routers(self.context,
+                                                          [update.id])
+                except Exception:
+                    msg = _("Failed to fetch router information for '%s'")
+                    LOG.exception(msg, update.id)
+                    self.fullsync = True
+                    continue
 
-                self._process_routers(routers)
-            self._process_router_delete()
-            LOG.debug(_("RPC loop successfully completed"))
-        except Exception:
-            LOG.exception(_("Failed synchronizing routers"))
-            self.fullsync = True
+                if routers:
+                    router = routers[0]
+
+            if not router:
+                self._router_removed(update.id)
+                continue
+
+            self._process_routers([router])
+            LOG.debug("Finished a router update for %s", update.id)
+            rp.fetched_and_processed(update.timestamp)
+
+    def _process_routers_loop(self):
+        LOG.debug("Starting _process_routers_loop")
+        pool = eventlet.GreenPool(size=8)
+        while True:
+            pool.spawn_n(self._process_router_update)
 
     def _process_router_delete(self):
         current_removed_routers = list(self.removed_routers)
@@ -839,7 +1015,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
             return [self.conf.router_id]
 
     @periodic_task.periodic_task
-    @lockutils.synchronized('l3-agent', 'neutron-')
+    def periodic_sync_routers_task(self, context):
+        self._sync_routers_task(context)
+
     def _sync_routers_task(self, context):
         if self.services_sync:
             super(L3NATAgent, self).process_services_sync(context)
@@ -847,31 +1025,58 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback, manager.Manager):
                   self.fullsync)
         if not self.fullsync:
             return
+
+        # Capture a picture of namespaces *before* fetching the full list from
+        # the database.  This is important to correctly identify stale ones.
+        namespaces = set()
+        if self._clean_stale_namespaces:
+            namespaces = self._list_namespaces()
+        prev_router_ids = set(self.router_info)
+
         try:
             router_ids = self._router_ids()
             self.updated_routers.clear()
             self.removed_routers.clear()
+            timestamp = timeutils.utcnow()
             routers = self.plugin_rpc.get_routers(
                 context, router_ids)
 
             LOG.debug(_('Processing :%r'), routers)
-            self._process_routers(routers, all_routers=True)
+            for r in routers:
+                update = RouterUpdate(r['id'],
+                                      PRIORITY_SYNC_ROUTERS_TASK,
+                                      router=r,
+                                      timestamp=timestamp)
+                self._queue.add(update)
             self.fullsync = False
             LOG.debug(_("_sync_routers_task successfully completed"))
-        except rpc_compat.RPCException:
+        except n_rpc.RPCException:
             LOG.exception(_("Failed synchronizing routers due to RPC error"))
             self.fullsync = True
-            return
         except Exception:
             LOG.exception(_("Failed synchronizing routers"))
             self.fullsync = True
+        else:
+            # Resync is not necessary for the cleanup of stale namespaces
+            curr_router_ids = set([r['id'] for r in routers])
 
-        # Resync is not necessary for the cleanup of stale
-        # namespaces.
-        if self._clean_stale_namespaces:
-            self._cleanup_namespaces(routers)
+            # Two kinds of stale routers:  Routers for which info is cached in
+            # self.router_info and the others.  First, handle the former.
+            for router_id in prev_router_ids - curr_router_ids:
+                update = RouterUpdate(router_id,
+                                      PRIORITY_SYNC_ROUTERS_TASK,
+                                      timestamp=timestamp,
+                                      action=DELETE_ROUTER)
+                self._queue.add(update)
+
+            # Next, one effort to clean out namespaces for which we don't have
+            # a record.  (i.e. _clean_stale_namespaces=False after one pass)
+            if self._clean_stale_namespaces:
+                ids_to_keep = curr_router_ids | prev_router_ids
+                self._cleanup_namespaces(namespaces, ids_to_keep)
 
     def after_start(self):
+        eventlet.spawn_n(self._process_routers_loop)
         LOG.info(_("L3 agent started"))
 
     def _update_routing_table(self, ri, operation, route):
@@ -977,7 +1182,7 @@ def main(manager='neutron.agent.l3_agent.L3NATAgentWithStateReport'):
     config.register_root_helper(conf)
     conf.register_opts(interface.OPTS)
     conf.register_opts(external_process.OPTS)
-    conf(project='neutron')
+    common_config.init(sys.argv[1:])
     config.setup_logging(conf)
     server = neutron_service.Service.create(
         binary='neutron-l3-agent',

@@ -18,6 +18,7 @@
 
 
 import socket
+import sys
 import time
 
 import eventlet
@@ -28,14 +29,14 @@ from oslo.config import cfg
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
-from neutron.common import config as logging_config
+from neutron.common import config as common_config
 from neutron.common import constants as n_const
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils as n_utils
 from neutron import context
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.ibm.common import config  # noqa
 from neutron.plugins.ibm.common import constants
 
@@ -51,7 +52,7 @@ class SdnvePluginApi(agent_rpc.PluginApi):
                          topic=self.topic)
 
 
-class SdnveNeutronAgent():
+class SdnveNeutronAgent(n_rpc.RpcCallback):
 
     RPC_API_VERSION = '1.1'
 
@@ -70,6 +71,7 @@ class SdnveNeutronAgent():
         :param controller_ip: Ip address of SDN-VE controller.
         '''
 
+        super(SdnveNeutronAgent, self).__init__()
         self.root_helper = root_helper
         self.int_bridge_name = integ_br
         self.controller_ip = controller_ip
@@ -121,10 +123,10 @@ class SdnveNeutronAgent():
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
 
         self.context = context.get_admin_context_without_session()
-        self.dispatcher = self.create_rpc_dispatcher()
+        self.endpoints = [self]
         consumers = [[constants.INFO, topics.UPDATE]]
 
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
         if self.polling_interval:
@@ -151,9 +153,6 @@ class SdnveNeutronAgent():
                                              self.int_bridge_name,
                                              "connection-mode",
                                              "out-of-band")
-
-    def create_rpc_dispatcher(self):
-        return dispatcher.RpcDispatcher([self])
 
     def setup_integration_br(self, bridge_name, reset_br, out_of_band,
                              controller_ip=None):
@@ -255,8 +254,8 @@ def create_agent_config_map(config):
 
 def main():
     cfg.CONF.register_opts(ip_lib.OPTS)
-    cfg.CONF(project='neutron')
-    logging_config.setup_logging(cfg.CONF)
+    common_config.init(sys.argv[1:])
+    common_config.setup_logging(cfg.CONF)
 
     try:
         agent_config = create_agent_config_map(cfg.CONF)

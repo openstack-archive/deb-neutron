@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2012, Nachi Ueno, NTT MCL, Inc.
 # All Rights Reserved.
 #
@@ -22,6 +20,7 @@ from oslo.config import cfg
 
 from neutron.agent.common import config
 from neutron.agent.linux import interface
+from neutron.common import config as common_config
 from neutron.debug import commands
 from neutron.debug import debug_agent
 from neutron.tests import base
@@ -37,7 +36,7 @@ class TestDebugCommands(base.BaseTestCase):
         super(TestDebugCommands, self).setUp()
         cfg.CONF.register_opts(interface.OPTS)
         cfg.CONF.register_opts(debug_agent.NeutronDebugAgent.OPTS)
-        cfg.CONF(args=[], project='neutron')
+        common_config.init([])
         config.register_interface_driver_opts_helper(cfg.CONF)
         config.register_use_namespaces_opts_helper(cfg.CONF)
         config.register_root_helper(cfg.CONF)

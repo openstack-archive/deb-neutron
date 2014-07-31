@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 New Dream Network, LLC (DreamHost)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -165,7 +163,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
             mock.patch('socket.socket'),
             mock.patch('os.path.exists'),
         ) as (gsp, ip_wrap, socket, path_exists):
-            gsp.side_effect = lambda x, y: '/pool/' + y
+            gsp.side_effect = lambda x, y, z: '/pool/' + y
 
             ip_wrap.return_value.netns.exists.return_value = True
             path_exists.return_value = True
@@ -212,20 +210,21 @@ class TestHaproxyNSDriver(base.BaseTestCase):
                 mock.patch('socket.socket'),
                 mock.patch('os.path.exists'),
         ) as (gsp, socket, path_exists):
-            gsp.side_effect = lambda x, y: '/pool/' + y
+            gsp.side_effect = lambda x, y, z: '/pool/' + y
             path_exists.return_value = True
             socket.return_value = socket
             socket.recv.return_value = raw_stats
 
             exp_stats = {'connection_errors': '0',
-                         'active_connections': '1',
+                         'active_connections': '3',
                          'current_sessions': '3',
                          'bytes_in': '7764',
-                         'max_connections': '2',
+                         'max_connections': '4',
                          'max_sessions': '4',
                          'bytes_out': '2365',
                          'response_errors': '0',
                          'total_sessions': '10',
+                         'total_connections': '10',
                          'members': {
                              '32a6c2a3-420a-44c3-955d-86bd2fc6871e': {
                                  'status': 'ACTIVE',

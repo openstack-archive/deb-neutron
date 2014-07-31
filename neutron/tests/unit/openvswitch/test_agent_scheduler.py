@@ -35,6 +35,7 @@ from neutron import manager
 from neutron.openstack.common import timeutils
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
+from neutron.tests import fake_notifier
 from neutron.tests.unit import test_agent_ext_plugin
 from neutron.tests.unit import test_db_plugin as test_plugin
 from neutron.tests.unit import test_extensions
@@ -170,6 +171,10 @@ class AgentSchedulerTestMixIn(object):
         res = req.get_response(self.ext_api)
         self.assertEqual(res.status_int, expected_code)
 
+    def _assert_notify(self, notifications, expected_event_type):
+        event_types = [event['event_type'] for event in notifications]
+        self.assertIn(expected_event_type, event_types)
+
     def _register_one_agent_state(self, agent_state):
         callback = agents_db.AgentExtRpcCallback()
         callback.report_state(self.adminContext,
@@ -200,7 +205,7 @@ class OvsAgentSchedulerTestCaseBase(test_l3_plugin.L3NatTestCaseMixin,
     l3_plugin = None
 
     def setUp(self):
-        # Save the global RESOURCE_ATTRIBUTE_MAP
+        # Save the global RESOURCE_ATTRIBUTE_MAP before loading plugin
         self.saved_attr_map = {}
         for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
             self.saved_attr_map[resource] = attrs.copy()
@@ -223,6 +228,9 @@ class OvsAgentSchedulerTestCaseBase(test_l3_plugin.L3NatTestCaseMixin,
         self.l3agentscheduler_dbMinxin = (
             manager.NeutronManager.get_service_plugins().get(
                 service_constants.L3_ROUTER_NAT))
+        self.notify_p = mock.patch(
+            'neutron.extensions.l3agentscheduler.notify')
+        self.patched_notify = self.notify_p.start()
 
     def restore_attribute_map(self):
         # Restore the original RESOURCE_ATTRIBUTE_MAP
@@ -507,7 +515,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                              cidr='10.0.1.0/24',
                              do_delete=False) as subnet1:
                 pass
-            with self.port(subnet=subnet1, no_delete=True) as port2:
+            with self.port(subnet=subnet1, do_delete=False) as port2:
                 pass
         dhcp_agents = self._list_dhcp_agents_hosting_network(
             port2['port']['network_id'])
@@ -575,6 +583,12 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                     hosta_id)['networks'])
         self.assertEqual(1, num_before_remove)
         self.assertEqual(0, num_after_remove)
+
+    def test_list_active_networks_on_not_registered_yet_dhcp_agent(self):
+        plugin = manager.NeutronManager.get_plugin()
+        nets = plugin.list_active_networks_on_active_dhcp_agent(
+            self.adminContext, host=DHCP_HOSTA)
+        self.assertEqual([], nets)
 
     def test_reserved_port_after_network_remove_from_dhcp_agent(self):
         dhcp_hosta = {
@@ -1014,17 +1028,16 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                   'ovs_neutron_plugin.OVSNeutronPluginV2')
 
     def setUp(self):
-        self.dhcp_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        self.dhcp_notifier_cls_p = mock.patch(
-            'neutron.api.rpc.agentnotifiers.dhcp_rpc_agent_api.'
-            'DhcpAgentNotifyAPI')
-        self.dhcp_notifier_cls = self.dhcp_notifier_cls_p.start()
-        self.dhcp_notifier_cls.return_value = self.dhcp_notifier
-        # Save the global RESOURCE_ATTRIBUTE_MAP
+        # Save the global RESOURCE_ATTRIBUTE_MAP before loading plugin
         self.saved_attr_map = {}
         for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
             self.saved_attr_map[resource] = attrs.copy()
         super(OvsDhcpAgentNotifierTestCase, self).setUp(self.plugin_str)
+        # the notifier is used to get access to make_msg() method only
+        self.dhcp_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        self.dhcp_notifier_cast = mock.patch(
+            'neutron.api.rpc.agentnotifiers.dhcp_rpc_agent_api.'
+            'DhcpAgentNotifyAPI.cast').start()
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
         self.adminContext = context.get_admin_context()
@@ -1034,7 +1047,6 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         # the global attribute map
         attributes.RESOURCE_ATTRIBUTE_MAP.update(
             agent.RESOURCE_ATTRIBUTE_MAP)
-        self.addCleanup(self.dhcp_notifier_cls_p.stop)
         self.addCleanup(self.restore_attribute_map)
 
     def restore_attribute_map(self):
@@ -1042,20 +1054,19 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
 
     def test_network_add_to_dhcp_agent_notification(self):
-        with mock.patch.object(self.dhcp_notifier, 'cast') as mock_dhcp:
-            with self.network() as net1:
-                network_id = net1['network']['id']
-                self._register_agent_states()
-                hosta_id = self._get_agent_id(constants.AGENT_TYPE_DHCP,
-                                              DHCP_HOSTA)
-                self._add_network_to_dhcp_agent(hosta_id,
-                                                network_id)
-            mock_dhcp.assert_called_with(
-                mock.ANY,
-                self.dhcp_notifier.make_msg(
-                    'network_create_end',
-                    payload={'network': {'id': network_id}}),
-                topic='dhcp_agent.' + DHCP_HOSTA)
+        with self.network() as net1:
+            network_id = net1['network']['id']
+            self._register_agent_states()
+            hosta_id = self._get_agent_id(constants.AGENT_TYPE_DHCP,
+                                          DHCP_HOSTA)
+            self._add_network_to_dhcp_agent(hosta_id,
+                                            network_id)
+        self.dhcp_notifier_cast.assert_called_with(
+            mock.ANY,
+            self.dhcp_notifier.make_msg(
+                'network_create_end',
+                payload={'network': {'id': network_id}}),
+            topic='dhcp_agent.' + DHCP_HOSTA)
 
     def test_network_remove_from_dhcp_agent_notification(self):
         with self.network(do_delete=False) as net1:
@@ -1065,27 +1076,27 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                                           DHCP_HOSTA)
             self._add_network_to_dhcp_agent(hosta_id,
                                             network_id)
-        with mock.patch.object(self.dhcp_notifier, 'cast') as mock_dhcp:
-            self._remove_network_from_dhcp_agent(hosta_id,
-                                                 network_id)
-            mock_dhcp.assert_called_with(
-                mock.ANY,
-                self.dhcp_notifier.make_msg(
-                    'network_delete_end',
-                    payload={'network_id': network_id}),
-                topic='dhcp_agent.' + DHCP_HOSTA)
+
+        self._remove_network_from_dhcp_agent(hosta_id,
+                                             network_id)
+        self.dhcp_notifier_cast.assert_called_with(
+            mock.ANY,
+            self.dhcp_notifier.make_msg(
+                'network_delete_end',
+                payload={'network_id': network_id}),
+            topic='dhcp_agent.' + DHCP_HOSTA)
 
     def test_agent_updated_dhcp_agent_notification(self):
-        with mock.patch.object(self.dhcp_notifier, 'cast') as mock_dhcp:
-            self._register_agent_states()
-            hosta_id = self._get_agent_id(constants.AGENT_TYPE_DHCP,
-                                          DHCP_HOSTA)
-            self._disable_agent(hosta_id, admin_state_up=False)
-            mock_dhcp.assert_called_with(
-                mock.ANY, self.dhcp_notifier.make_msg(
-                    'agent_updated',
-                    payload={'admin_state_up': False}),
-                topic='dhcp_agent.' + DHCP_HOSTA)
+        self._register_agent_states()
+        hosta_id = self._get_agent_id(constants.AGENT_TYPE_DHCP,
+                                      DHCP_HOSTA)
+        self._disable_agent(hosta_id, admin_state_up=False)
+
+        self.dhcp_notifier_cast.assert_called_with(
+            mock.ANY, self.dhcp_notifier.make_msg(
+                'agent_updated',
+                payload={'admin_state_up': False}),
+            topic='dhcp_agent.' + DHCP_HOSTA)
 
     def _network_port_create(
         self, hosts, gateway=attributes.ATTR_NOT_SPECIFIED, owner=None):
@@ -1097,22 +1108,21 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                  'configurations': {'dhcp_driver': 'dhcp_driver',
                                     'use_namespaces': True, },
                  'agent_type': constants.AGENT_TYPE_DHCP})
-        with mock.patch.object(self.dhcp_notifier, 'cast') as mock_dhcp:
-            with self.network(do_delete=False) as net1:
-                with self.subnet(network=net1,
-                                 gateway_ip=gateway,
-                                 do_delete=False) as subnet1:
-                    if owner:
-                        with self.port(subnet=subnet1,
-                                       no_delete=True,
-                                       device_owner=owner) as port:
-                            return [mock_dhcp, net1, subnet1, port]
-                    else:
-                        with self.port(subnet=subnet1,
-                                       no_delete=True) as port:
-                            return [mock_dhcp, net1, subnet1, port]
+        with self.network(do_delete=False) as net1:
+            with self.subnet(network=net1,
+                             gateway_ip=gateway,
+                             do_delete=False) as subnet1:
+                if owner:
+                    with self.port(subnet=subnet1,
+                                   do_delete=False,
+                                   device_owner=owner) as port:
+                        return [net1, subnet1, port]
+                else:
+                    with self.port(subnet=subnet1,
+                                   do_delete=False) as port:
+                        return [net1, subnet1, port]
 
-    def _notification_mocks(self, hosts, mock_dhcp, net, subnet, port):
+    def _notification_mocks(self, hosts, net, subnet, port):
         host_calls = {}
         for host in hosts:
             expected_calls = [
@@ -1133,21 +1143,20 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
 
     def test_network_port_create_notification(self):
         hosts = [DHCP_HOSTA]
-        [mock_dhcp, net, subnet, port] = self._network_port_create(hosts)
-        expected_calls = self._notification_mocks(hosts, mock_dhcp,
-                                                  net, subnet, port)
-        self.assertEqual(expected_calls[DHCP_HOSTA], mock_dhcp.call_args_list)
+        net, subnet, port = self._network_port_create(hosts)
+        expected_calls = self._notification_mocks(hosts, net, subnet, port)
+        self.assertEqual(
+            expected_calls[DHCP_HOSTA], self.dhcp_notifier_cast.call_args_list)
 
     def test_network_ha_port_create_notification(self):
         cfg.CONF.set_override('dhcp_agents_per_network', 2)
         hosts = [DHCP_HOSTA, DHCP_HOSTC]
-        [mock_dhcp, net, subnet, port] = self._network_port_create(hosts)
-        expected_calls = self._notification_mocks(hosts, mock_dhcp,
-                                                  net, subnet, port)
+        net, subnet, port = self._network_port_create(hosts)
+        expected_calls = self._notification_mocks(hosts, net, subnet, port)
         for expected in expected_calls[DHCP_HOSTA]:
-            self.assertIn(expected, mock_dhcp.call_args_list)
+            self.assertIn(expected, self.dhcp_notifier_cast.call_args_list)
         for expected in expected_calls[DHCP_HOSTC]:
-            self.assertIn(expected, mock_dhcp.call_args_list)
+            self.assertIn(expected, self.dhcp_notifier_cast.call_args_list)
 
 
 class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
@@ -1184,8 +1193,8 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         # the global attribute map
         attributes.RESOURCE_ATTRIBUTE_MAP.update(
             agent.RESOURCE_ATTRIBUTE_MAP)
-        self.addCleanup(self.dhcp_notifier_cls_p.stop)
         self.addCleanup(self.restore_attribute_map)
+        fake_notifier.reset()
 
     def restore_attribute_map(self):
         # Restore the original RESOURCE_ATTRIBUTE_MAP
@@ -1208,6 +1217,9 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                     'router_added_to_agent',
                     payload=routers),
                 topic='l3_agent.hosta')
+            notifications = fake_notifier.NOTIFICATIONS
+            expected_event_type = 'l3_agent.router.add'
+            self._assert_notify(notifications, expected_event_type)
 
     def test_router_remove_from_l3_agent_notification(self):
         plugin = manager.NeutronManager.get_plugin()
@@ -1226,6 +1238,9 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                     'router_removed_from_agent',
                     payload={'router_id': router1['router']['id']}),
                 topic='l3_agent.hosta')
+            notifications = fake_notifier.NOTIFICATIONS
+            expected_event_type = 'l3_agent.router.remove'
+            self._assert_notify(notifications, expected_event_type)
 
     def test_agent_updated_l3_agent_notification(self):
         plugin = manager.NeutronManager.get_plugin()

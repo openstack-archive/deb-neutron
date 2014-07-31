@@ -13,11 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import json
-
 from neutron.common import constants
 from neutron.common import exceptions
 from neutron.openstack.common import excutils
+from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log
 from neutron.plugins.vmware.common import utils
 from neutron.plugins.vmware import nsxlib
@@ -123,13 +122,11 @@ def update_security_group_rules(cluster, spid, rules):
 
 
 def update_security_profile(cluster, spid, name):
-    return nsxlib.do_request(HTTP_PUT,
-                             nsxlib._build_uri_path(SECPROF_RESOURCE,
-                                                    resource_id=spid),
-                             json.dumps({
-                             "display_name": utils.check_and_truncate(name)
-                             }),
-                             cluster=cluster)
+    return nsxlib.do_request(
+        HTTP_PUT,
+        nsxlib._build_uri_path(SECPROF_RESOURCE, resource_id=spid),
+        json.dumps({"display_name": utils.check_and_truncate(name)}),
+        cluster=cluster)
 
 
 def delete_security_profile(cluster, spid):

@@ -35,13 +35,13 @@ from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
-from neutron.common import config as logging_config
+from neutron.common import config as common_config
 from neutron.common import exceptions as n_exc
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as q_context
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import log
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.ryu.common import config  # noqa
 
 
@@ -180,7 +180,8 @@ class RyuSecurityGroupAgent(sg_rpc.SecurityGroupAgentRpcMixin):
         self.init_firewall()
 
 
-class OVSNeutronOFPRyuAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+class OVSNeutronOFPRyuAgent(n_rpc.RpcCallback,
+                            sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     RPC_API_VERSION = '1.1'
 
@@ -199,15 +200,12 @@ class OVSNeutronOFPRyuAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         self.topic = topics.AGENT
         self.plugin_rpc = RyuPluginApi(topics.PLUGIN)
         self.context = q_context.get_admin_context_without_session()
-        self.dispatcher = self._create_rpc_dispatcher()
+        self.endpoints = [self]
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE]]
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
-
-    def _create_rpc_dispatcher(self):
-        return dispatcher.RpcDispatcher([self])
 
     def _setup_integration_br(self, root_helper, integ_br,
                               tunnel_ip, ovsdb_port, ovsdb_ip):
@@ -284,9 +282,9 @@ class OVSNeutronOFPRyuAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
 
 def main():
-    cfg.CONF(project='neutron')
+    common_config.init(sys.argv[1:])
 
-    logging_config.setup_logging(cfg.CONF)
+    common_config.setup_logging(cfg.CONF)
 
     integ_br = cfg.CONF.OVS.integration_bridge
     polling_interval = cfg.CONF.AGENT.polling_interval

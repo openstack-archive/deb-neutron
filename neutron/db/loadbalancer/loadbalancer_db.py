@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 OpenStack Foundation.  All rights reserved
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -15,6 +13,7 @@
 #    under the License.
 #
 
+from oslo.db import exception
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
@@ -22,13 +21,12 @@ from sqlalchemy.orm import validates
 
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as n_exc
-from neutron.db import db_base_plugin_v2 as base_db
+from neutron.db import common_db_mixin as base_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.db import servicetype_db as st_db
 from neutron.extensions import loadbalancer
 from neutron import manager
-from neutron.openstack.common.db import exception
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
@@ -462,8 +460,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
                 pool.update({"vip_id": None})
 
             context.session.delete(vip)
-            if vip.port:  # this is a Neutron port
-                self._core_plugin.delete_port(context, vip.port.id)
+        if vip.port:  # this is a Neutron port
+            self._core_plugin.delete_port(context, vip.port.id)
 
     def get_vip(self, context, id, fields=None):
         vip = self._get_resource(context, Vip, id)

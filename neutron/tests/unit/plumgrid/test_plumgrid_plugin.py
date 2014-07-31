@@ -1,4 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
 # Copyright 2013 PLUMgrid, Inc. All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -97,6 +96,7 @@ class TestPlumgridPluginSubnetsV2(test_plugin.TestSubnetsV2,
 class TestPlumgridPluginPortBinding(PLUMgridPluginV2TestCase,
                                     test_bindings.PortBindingsTestCase):
     VIF_TYPE = portbindings.VIF_TYPE_IOVISOR
+    HAS_PORT_FILTER = True
 
     def setUp(self):
         super(TestPlumgridPluginPortBinding, self).setUp()
@@ -123,6 +123,19 @@ class TestPlumgridAllocationPool(PLUMgridPluginV2TestCase):
                   'ip_version': 4}
         allocation_pool = [{"start": '10.0.0.2',
                             "end": '10.0.0.253'}]
+        context = None
+        plugin = manager.NeutronManager.get_plugin()
+        pool = plugin._allocate_pools_for_subnet(context, subnet)
+        self.assertEqual(allocation_pool, pool)
+
+    def test_conflict_dhcp_gw_ip(self):
+        cidr = '10.0.0.0/24'
+        gateway_ip = '10.0.0.1'
+        subnet = {'gateway_ip': gateway_ip,
+                  'cidr': cidr,
+                  'ip_version': 4}
+        allocation_pool = [{"start": '10.0.0.3',
+                            "end": '10.0.0.254'}]
         context = None
         plugin = manager.NeutronManager.get_plugin()
         pool = plugin._allocate_pools_for_subnet(context, subnet)

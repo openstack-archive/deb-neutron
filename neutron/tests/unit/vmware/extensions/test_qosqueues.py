@@ -59,7 +59,7 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
 
     @contextlib.contextmanager
     def qos_queue(self, name='foo', min='0', max='10',
-                  qos_marking=None, dscp='0', default=None, no_delete=False):
+                  qos_marking=None, dscp='0', default=None, do_delete=True):
 
         body = {'qos_queue': {'tenant_id': 'tenant',
                               'name': name,
@@ -79,7 +79,7 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
 
         yield qos_queue
 
-        if not no_delete:
+        if do_delete:
             self._delete('qos-queues',
                          qos_queue['qos_queue']['id'])
 
@@ -128,11 +128,11 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
             self.assertEqual(net1['network'][ext_qos.QUEUE],
                              q1['qos_queue']['id'])
             device_id = "00fff4d0-e4a8-4a3a-8906-4c4cdafb59f1"
-            with self.port(device_id=device_id, do_delete=False) as p:
+            with self.port(device_id=device_id) as p:
                 self.assertEqual(len(p['port'][ext_qos.QUEUE]), 36)
 
     def test_create_shared_queue_networks(self):
-        with self.qos_queue(default=True, no_delete=True) as q1:
+        with self.qos_queue(default=True, do_delete=False) as q1:
             res = self._create_network('json', 'net1', True,
                                        arg_list=(ext_qos.QUEUE,),
                                        queue_id=q1['qos_queue']['id'])
@@ -159,7 +159,7 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
             self._delete('ports', port2['port']['id'])
 
     def test_remove_queue_in_use_fail(self):
-        with self.qos_queue(no_delete=True) as q1:
+        with self.qos_queue(do_delete=False) as q1:
             res = self._create_network('json', 'net1', True,
                                        arg_list=(ext_qos.QUEUE,),
                                        queue_id=q1['qos_queue']['id'])
@@ -186,7 +186,7 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
                                  new_q['qos_queue']['id'])
 
     def test_update_port_adding_device_id(self):
-        with self.qos_queue(no_delete=True) as q1:
+        with self.qos_queue(do_delete=False) as q1:
             res = self._create_network('json', 'net1', True,
                                        arg_list=(ext_qos.QUEUE,),
                                        queue_id=q1['qos_queue']['id'])
@@ -223,6 +223,13 @@ class TestQoSQueue(test_nsx_plugin.NsxPluginV2TestCase):
 
     def test_dscp_value_out_of_range(self):
         body = {'qos_queue': {'tenant_id': 'admin', 'dscp': '64',
+                              'name': 'foo', 'min': 20, 'max': 20}}
+        res = self._create_qos_queue('json', body)
+        self.assertEqual(res.status_int, 400)
+
+    def test_dscp_value_with_qos_marking_trusted_returns_400(self):
+        body = {'qos_queue': {'tenant_id': 'admin', 'dscp': '1',
+                              'qos_marking': 'trusted',
                               'name': 'foo', 'min': 20, 'max': 20}}
         res = self._create_qos_queue('json', body)
         self.assertEqual(res.status_int, 400)

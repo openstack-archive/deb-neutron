@@ -30,12 +30,12 @@ from neutron.agent.linux import utils
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as q_context
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.bigswitch import config as pl_config
 
 LOG = log.getLogger(__name__)
@@ -84,7 +84,8 @@ class SecurityGroupAgent(sg_rpc.SecurityGroupAgentRpcMixin):
         self.init_firewall()
 
 
-class RestProxyAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+class RestProxyAgent(n_rpc.RpcCallback,
+                     sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     RPC_API_VERSION = '1.1'
 
@@ -104,10 +105,10 @@ class RestProxyAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         self.topic = topics.AGENT
         self.plugin_rpc = PluginApi(topics.PLUGIN)
         self.context = q_context.get_admin_context_without_session()
-        self.dispatcher = dispatcher.RpcDispatcher([self])
+        self.endpoints = [self]
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE]]
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
 
@@ -164,7 +165,7 @@ class RestProxyAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
 
 def main():
-    cfg.CONF(project='neutron')
+    config.init(sys.argv[1:])
     config.setup_logging(cfg.CONF)
     pl_config.register_config()
 

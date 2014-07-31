@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 Big Switch Networks, Inc.  All rights reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -17,8 +15,7 @@
 # @author: Kevin Benton, <kevin.benton@bigswitch.com>
 #
 
-import json
-
+from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log as logging
 from neutron.plugins.bigswitch import servermanager
 

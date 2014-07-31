@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012, Big Switch Networks, Inc.
 # All Rights Reserved.
 #
@@ -24,11 +22,12 @@ Used for NeutronRestProxy tests
 """
 from __future__ import print_function
 
-import json
 import re
 
 from six import moves
 from wsgiref import simple_server
+
+from neutron.openstack.common import jsonutils as json
 
 
 class TestNetworkCtrl(object):

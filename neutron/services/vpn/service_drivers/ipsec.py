@@ -1,5 +1,3 @@
-# vim: tabstop=10 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013, Nachi Ueno, NTT I3, Inc.
 # All Rights Reserved.
 #
@@ -18,7 +16,6 @@ import netaddr
 
 from neutron.common import rpc as n_rpc
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.services.vpn.common import topics
 from neutron.services.vpn import service_drivers
 
@@ -29,7 +26,7 @@ IPSEC = 'ipsec'
 BASE_IPSEC_VERSION = '1.0'
 
 
-class IPsecVpnDriverCallBack(object):
+class IPsecVpnDriverCallBack(n_rpc.RpcCallback):
     """Callback for IPSecVpnDriver rpc."""
 
     # history
@@ -38,10 +35,8 @@ class IPsecVpnDriverCallBack(object):
     RPC_API_VERSION = BASE_IPSEC_VERSION
 
     def __init__(self, driver):
+        super(IPsecVpnDriverCallBack, self).__init__()
         self.driver = driver
-
-    def create_rpc_dispatcher(self):
-        return n_rpc.PluginRpcDispatcher([self])
 
     def get_vpn_services_on_host(self, context, host=None):
         """Returns the vpnservices on the host."""
@@ -57,7 +52,8 @@ class IPsecVpnDriverCallBack(object):
         plugin.update_status_by_agent(context, status)
 
 
-class IPsecVpnAgentApi(service_drivers.BaseIPsecVpnAgentApi):
+class IPsecVpnAgentApi(service_drivers.BaseIPsecVpnAgentApi,
+                       n_rpc.RpcCallback):
     """Agent RPC API for IPsecVPNAgent."""
 
     RPC_API_VERSION = BASE_IPSEC_VERSION
@@ -72,13 +68,11 @@ class IPsecVPNDriver(service_drivers.VpnDriver):
 
     def __init__(self, service_plugin):
         super(IPsecVPNDriver, self).__init__(service_plugin)
-        self.callbacks = IPsecVpnDriverCallBack(self)
-        self.conn = rpc.create_connection(new=True)
+        self.endpoints = [IPsecVpnDriverCallBack(self)]
+        self.conn = n_rpc.create_connection(new=True)
         self.conn.create_consumer(
-            topics.IPSEC_DRIVER_TOPIC,
-            self.callbacks.create_rpc_dispatcher(),
-            fanout=False)
-        self.conn.consume_in_thread()
+            topics.IPSEC_DRIVER_TOPIC, self.endpoints, fanout=False)
+        self.conn.consume_in_threads()
         self.agent_rpc = IPsecVpnAgentApi(
             topics.IPSEC_AGENT_TOPIC, BASE_IPSEC_VERSION)
 

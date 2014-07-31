@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2012 New Dream Network, LLC (DreamHost)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -20,6 +18,7 @@ import hashlib
 import hmac
 import os
 import socket
+import sys
 
 import eventlet
 eventlet.monkey_patch()
@@ -307,11 +306,11 @@ class UnixDomainMetadataProxy(object):
                    default='$state_path/metadata_proxy',
                    help=_('Location for Metadata Proxy UNIX domain socket')),
         cfg.IntOpt('metadata_workers',
-                   default=0,
+                   default=utils.cpu_count() // 2,
                    help=_('Number of separate worker processes for metadata '
                           'server')),
         cfg.IntOpt('metadata_backlog',
-                   default=128,
+                   default=4096,
                    help=_('Number of backlog requests to configure the '
                           'metadata server socket with'))
     ]
@@ -384,7 +383,7 @@ def main():
     cache.register_oslo_configs(cfg.CONF)
     cfg.CONF.set_default(name='cache_url', default='memory://?default_ttl=5')
     agent_conf.register_agent_state_opts_helper(cfg.CONF)
-    cfg.CONF(project='neutron')
+    config.init(sys.argv[1:])
     config.setup_logging(cfg.CONF)
     utils.log_opt_values(LOG)
     proxy = UnixDomainMetadataProxy(cfg.CONF)

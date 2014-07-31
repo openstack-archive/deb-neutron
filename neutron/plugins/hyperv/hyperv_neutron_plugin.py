@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 Cloudbase Solutions SRL
 # All Rights Reserved.
 #
@@ -20,6 +18,7 @@ from oslo.config import cfg
 
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as n_exc
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import db_base_plugin_v2
@@ -30,7 +29,6 @@ from neutron.db import quota_db  # noqa
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.plugins.common import constants as svc_constants
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.hyperv import agent_notifier_api
@@ -187,15 +185,15 @@ class HyperVNeutronPlugin(agents_db.AgentDbMixin,
         # RPC support
         self.service_topics = {svc_constants.CORE: topics.PLUGIN,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
-        self.conn = rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection(new=True)
         self.notifier = agent_notifier_api.AgentNotifierApi(
             topics.AGENT)
-        self.callbacks = rpc_callbacks.HyperVRpcCallbacks(self.notifier)
-        self.dispatcher = self.callbacks.create_rpc_dispatcher()
+        self.endpoints = [rpc_callbacks.HyperVRpcCallbacks(self.notifier),
+                          agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
-            self.conn.create_consumer(svc_topic, self.dispatcher, fanout=False)
-        # Consume from all consumers in a thread
-        self.conn.consume_in_thread()
+            self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
 
     def _parse_network_vlan_ranges(self):
         self._network_vlan_ranges = plugin_utils.parse_network_vlan_ranges(

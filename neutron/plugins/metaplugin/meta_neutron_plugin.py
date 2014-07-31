@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012, Nachi Ueno, NTT MCL, Inc.
 # All Rights Reserved.
 #
@@ -203,8 +201,8 @@ class MetaPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         flavor = self._get_flavor_by_network_id(context, network['id'])
         network[ext_flavor.FLAVOR_NETWORK] = flavor
 
-    def start_rpc_listener(self):
-        return self.plugins[self.rpc_flavor].start_rpc_listener()
+    def start_rpc_listeners(self):
+        return self.plugins[self.rpc_flavor].start_rpc_listeners()
 
     def rpc_workers_supported(self):
         #NOTE: If a plugin which supports multiple RPC workers is desired

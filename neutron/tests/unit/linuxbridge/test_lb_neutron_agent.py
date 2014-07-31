@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 OpenStack Foundation.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -19,13 +17,11 @@ import os
 
 import mock
 from oslo.config import cfg
-import testtools
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import constants
 from neutron.common import exceptions
-from neutron.common import rpc_compat
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.linuxbridge.agent import linuxbridge_neutron_agent
 from neutron.plugins.linuxbridge.common import constants as lconst
@@ -111,6 +107,9 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                                     'get_interface_mac')
         self.get_mac = self.get_mac_p.start()
         self.get_mac.return_value = '00:00:00:00:00:01'
+        self.agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
+                                                                          0,
+                                                                          None)
 
     def test_treat_devices_removed_with_existed_device(self):
         agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
@@ -168,52 +167,180 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                 self.assertTrue(fn_udd.called)
                 self.assertTrue(fn_rdf.called)
 
-    def test_update_devices_failed(self):
-        agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                     0,
-                                                                     None)
-        raise_exception = [0]
+    def _test_scan_devices(self, previous, updated,
+                           fake_current, expected, sync):
+        self.agent.br_mgr = mock.Mock()
+        self.agent.br_mgr.get_tap_devices.return_value = fake_current
 
-        def info_mock(msg):
-            if raise_exception[0] < 2:
-                raise_exception[0] += 1
-            else:
-                raise RuntimeError()
-        with mock.patch.object(agent.br_mgr,
-                               "update_devices") as update_devices:
-            update_devices.side_effect = RuntimeError
-            with mock.patch.object(linuxbridge_neutron_agent.LOG,
-                                   'info') as log:
-                log.side_effect = info_mock
-                with testtools.ExpectedException(RuntimeError):
-                    agent.daemon_loop()
-                self.assertEqual(3, log.call_count)
+        self.agent.updated_devices = updated
+        results = self.agent.scan_devices(previous, sync)
+        self.assertEqual(expected, results)
 
-    def test_process_network_devices_failed(self):
-        device_info = {'current': [1, 2, 3]}
-        agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                     0,
-                                                                     None)
-        raise_exception = [0]
+    def test_scan_devices_no_changes(self):
+        previous = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
+        fake_current = set([1, 2])
+        updated = set()
+        expected = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
 
-        def info_mock(msg):
-            if raise_exception[0] < 2:
-                raise_exception[0] += 1
-            else:
-                raise RuntimeError()
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=False)
 
-        with mock.patch.object(agent.br_mgr,
-                               "update_devices") as update_devices:
-            update_devices.side_effect = device_info
-            with contextlib.nested(
-                mock.patch.object(linuxbridge_neutron_agent.LOG, 'info'),
-                mock.patch.object(agent, 'process_network_devices')
-            ) as (log, process_network_devices):
-                log.side_effect = info_mock
-                process_network_devices.side_effect = RuntimeError
-                with testtools.ExpectedException(RuntimeError):
-                    agent.daemon_loop()
-                self.assertEqual(3, log.call_count)
+    def test_scan_devices_added_removed(self):
+        previous = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
+        fake_current = set([2, 3])
+        updated = set()
+        expected = {'current': set([2, 3]),
+                    'updated': set(),
+                    'added': set([3]),
+                    'removed': set([1])}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=False)
+
+    def test_scan_devices_removed_retried_on_sync(self):
+        previous = {'current': set([2, 3]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set([1])}
+        fake_current = set([2, 3])
+        updated = set()
+        expected = {'current': set([2, 3]),
+                    'updated': set(),
+                    'added': set([2, 3]),
+                    'removed': set([1])}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=True)
+
+    def test_scan_devices_vanished_removed_on_sync(self):
+        previous = {'current': set([2, 3]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set([1])}
+        # Device 2 disappeared.
+        fake_current = set([3])
+        updated = set()
+        # Device 1 should be retried.
+        expected = {'current': set([3]),
+                    'updated': set(),
+                    'added': set([3]),
+                    'removed': set([1, 2])}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=True)
+
+    def test_scan_devices_updated(self):
+        previous = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
+        fake_current = set([1, 2])
+        updated = set([1])
+        expected = {'current': set([1, 2]),
+                    'updated': set([1]),
+                    'added': set(),
+                    'removed': set()}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=False)
+
+    def test_scan_devices_updated_non_existing(self):
+        previous = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
+        fake_current = set([1, 2])
+        updated = set([3])
+        expected = {'current': set([1, 2]),
+                    'updated': set(),
+                    'added': set(),
+                    'removed': set()}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=False)
+
+    def test_scan_devices_updated_on_sync(self):
+        previous = {'current': set([1, 2]),
+                    'updated': set([1]),
+                    'added': set(),
+                    'removed': set()}
+        fake_current = set([1, 2])
+        updated = set([2])
+        expected = {'current': set([1, 2]),
+                    'updated': set([1, 2]),
+                    'added': set([1, 2]),
+                    'removed': set()}
+
+        self._test_scan_devices(previous, updated, fake_current, expected,
+                                sync=True)
+
+    def test_process_network_devices(self):
+        agent = self.agent
+        device_info = {'current': set(),
+                       'added': set(['tap3', 'tap4']),
+                       'updated': set(['tap2', 'tap3']),
+                       'removed': set(['tap1'])}
+        agent.prepare_devices_filter = mock.Mock()
+        agent.refresh_firewall = mock.Mock()
+        agent.treat_devices_added_updated = mock.Mock(return_value=False)
+        agent.treat_devices_removed = mock.Mock(return_value=False)
+
+        agent.process_network_devices(device_info)
+
+        agent.prepare_devices_filter.assert_called_with(set(['tap3', 'tap4']))
+        self.assertTrue(agent.refresh_firewall.called)
+        agent.treat_devices_added_updated.assert_called_with(set(['tap2',
+                                                                  'tap3',
+                                                                  'tap4']))
+        agent.treat_devices_removed.assert_called_with(set(['tap1']))
+
+    def test_treat_devices_added_updated_admin_state_up_true(self):
+        agent = self.agent
+        mock_details = {'device': 'dev123',
+                        'port_id': 'port123',
+                        'network_id': 'net123',
+                        'admin_state_up': True,
+                        'network_type': 'vlan',
+                        'segmentation_id': 100,
+                        'physical_network': 'physnet1'}
+        agent.plugin_rpc = mock.Mock()
+        agent.plugin_rpc.get_devices_details_list.return_value = [mock_details]
+        agent.br_mgr = mock.Mock()
+        agent.br_mgr.add_interface.return_value = True
+        resync_needed = agent.treat_devices_added_updated(set(['tap1']))
+
+        self.assertFalse(resync_needed)
+        agent.br_mgr.add_interface.assert_called_with('net123', 'vlan',
+                                                      'physnet1', 100,
+                                                      'port123')
+        self.assertTrue(agent.plugin_rpc.update_device_up.called)
+
+    def test_treat_devices_added_updated_admin_state_up_false(self):
+        agent = self.agent
+        mock_details = {'device': 'dev123',
+                        'port_id': 'port123',
+                        'network_id': 'net123',
+                        'admin_state_up': False,
+                        'network_type': 'vlan',
+                        'segmentation_id': 100,
+                        'physical_network': 'physnet1'}
+        agent.plugin_rpc = mock.Mock()
+        agent.plugin_rpc.get_devices_details_list.return_value = [mock_details]
+        agent.remove_port_binding = mock.Mock()
+        resync_needed = agent.treat_devices_added_updated(set(['tap1']))
+
+        self.assertFalse(resync_needed)
+        agent.remove_port_binding.assert_called_with('net123', 'port123')
+        self.assertFalse(agent.plugin_rpc.update_device_up.called)
 
 
 class TestLinuxBridgeManager(base.BaseTestCase):
@@ -704,18 +831,6 @@ class TestLinuxBridgeManager(base.BaseTestCase):
             self.lbm.delete_vlan("eth1.1")
             self.assertTrue(exec_fn.called)
 
-    def test_update_devices(self):
-        with mock.patch.object(self.lbm, "get_tap_devices") as gt_fn:
-            gt_fn.return_value = set(["dev1"])
-            self.assertIsNone(self.lbm.update_devices(set(["dev1"])))
-
-            gt_fn.return_value = set(["dev1", "dev2"])
-            self.assertEqual(self.lbm.update_devices(set(["dev2", "dev3"])),
-                             {"current": set(["dev1", "dev2"]),
-                              "added": set(["dev1"]),
-                              "removed": set(["dev3"])
-                              })
-
     def _check_vxlan_support(self, expected, vxlan_module_supported,
                              vxlan_ucast_supported, vxlan_mcast_supported):
         with contextlib.nested(
@@ -856,145 +971,6 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
             self.lb_rpc.network_delete("anycontext", network_id="123")
             get_br_fn.assert_called_with("123")
             del_fn.assert_called_with("br0")
-
-    def test_port_update(self):
-        with contextlib.nested(
-            mock.patch.object(self.lb_rpc.agent.br_mgr,
-                              "get_tap_device_name"),
-            mock.patch.object(self.lb_rpc.agent.br_mgr,
-                              "get_tap_devices"),
-            mock.patch.object(self.lb_rpc.agent.br_mgr,
-                              "get_bridge_name"),
-            mock.patch.object(self.lb_rpc.agent.br_mgr,
-                              "remove_interface"),
-            mock.patch.object(self.lb_rpc.agent.br_mgr, "add_interface"),
-            mock.patch.object(self.lb_rpc.agent,
-                              "plugin_rpc", create=True),
-            mock.patch.object(self.lb_rpc.sg_agent,
-                              "refresh_firewall", create=True)
-        ) as (get_tap_fn, get_tap_devs_fn, getbr_fn, remif_fn,
-              addif_fn, rpc_obj, reffw_fn):
-            get_tap_fn.return_value = "tap123"
-            get_tap_devs_fn.return_value = set(["tap123", "tap124"])
-            port = {"admin_state_up": True,
-                    "id": "1234-5678",
-                    "network_id": "123-123"}
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    vlan_id="1", physical_network="physnet1")
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_VLAN,
-                                        "physnet1", "1", port["id"])
-
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    network_type=p_const.TYPE_VLAN,
-                                    segmentation_id="2",
-                                    physical_network="physnet1")
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_VLAN,
-                                        "physnet1", "2", port["id"])
-
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    vlan_id=lconst.FLAT_VLAN_ID,
-                                    physical_network="physnet1")
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_FLAT,
-                                        "physnet1", None, port["id"])
-
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    network_type=p_const.TYPE_FLAT,
-                                    segmentation_id=None,
-                                    physical_network="physnet1")
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_FLAT,
-                                        "physnet1", None, port["id"])
-
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    vlan_id=lconst.LOCAL_VLAN_ID,
-                                    physical_network=None)
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_LOCAL,
-                                        None, None, port["id"])
-
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    network_type=p_const.TYPE_LOCAL,
-                                    segmentation_id=None,
-                                    physical_network=None)
-            self.assertFalse(reffw_fn.called)
-            addif_fn.assert_called_with(port["network_id"], p_const.TYPE_LOCAL,
-                                        None, None, port["id"])
-
-            addif_fn.return_value = True
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    network_type=p_const.TYPE_LOCAL,
-                                    segmentation_id=None,
-                                    physical_network=None)
-            rpc_obj.update_device_up.assert_called_with(
-                self.lb_rpc.context,
-                "tap123",
-                self.lb_rpc.agent.agent_id,
-                cfg.CONF.host
-            )
-
-            addif_fn.return_value = False
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    network_type=p_const.TYPE_LOCAL,
-                                    segmentation_id=None,
-                                    physical_network=None)
-            rpc_obj.update_device_down.assert_called_with(
-                self.lb_rpc.context,
-                "tap123",
-                self.lb_rpc.agent.agent_id,
-                cfg.CONF.host
-            )
-
-            port["admin_state_up"] = False
-            port["security_groups"] = True
-            getbr_fn.return_value = "br0"
-            self.lb_rpc.port_update("unused_context", port=port,
-                                    vlan_id="1", physical_network="physnet1")
-            self.assertTrue(reffw_fn.called)
-            remif_fn.assert_called_with("br0", "tap123")
-            rpc_obj.update_device_down.assert_called_with(
-                self.lb_rpc.context,
-                "tap123",
-                self.lb_rpc.agent.agent_id,
-                cfg.CONF.host
-            )
-
-    def test_port_update_plugin_rpc_failed(self):
-        with contextlib.nested(
-                mock.patch.object(self.lb_rpc.agent.br_mgr,
-                                  "get_tap_device_name"),
-                mock.patch.object(self.lb_rpc.agent.br_mgr,
-                                  "get_tap_devices"),
-                mock.patch.object(self.lb_rpc.agent.br_mgr,
-                                  "get_bridge_name"),
-                mock.patch.object(self.lb_rpc.agent.br_mgr,
-                                  "remove_interface"),
-                mock.patch.object(self.lb_rpc.agent.br_mgr, "add_interface"),
-                mock.patch.object(self.lb_rpc.sg_agent,
-                                  "refresh_firewall", create=True),
-                mock.patch.object(self.lb_rpc.agent,
-                                  "plugin_rpc", create=True),
-                mock.patch.object(linuxbridge_neutron_agent.LOG, 'error'),
-        ) as (get_tap_fn, get_tap_devs_fn, _, _, _, _, plugin_rpc, log):
-            get_tap_fn.return_value = "tap123"
-            get_tap_devs_fn.return_value = set(["tap123", "tap124"])
-            port = {"admin_state_up": True,
-                    "id": "1234-5678",
-                    "network_id": "123-123"}
-            timeout_class = rpc_compat.MessagingTimeout
-            plugin_rpc.update_device_up.side_effect = timeout_class
-            self.lb_rpc.port_update(mock.Mock(), port=port)
-            self.assertTrue(plugin_rpc.update_device_up.called)
-            self.assertEqual(log.call_count, 1)
-
-            log.reset_mock()
-            port["admin_state_up"] = False
-            plugin_rpc.update_device_down.side_effect = timeout_class
-            self.lb_rpc.port_update(mock.Mock(), port=port)
-            self.assertTrue(plugin_rpc.update_device_down.called)
-            self.assertEqual(log.call_count, 1)
 
     def test_fdb_add(self):
         fdb_entries = {'net_id':

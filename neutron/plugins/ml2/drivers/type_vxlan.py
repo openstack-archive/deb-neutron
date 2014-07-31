@@ -17,6 +17,7 @@
 from oslo.config import cfg
 import sqlalchemy as sa
 from sqlalchemy.orm import exc as sa_exc
+from sqlalchemy import sql
 
 from neutron.common import exceptions as exc
 from neutron.db import api as db_api
@@ -24,6 +25,7 @@ from neutron.db import model_base
 from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api as api
+from neutron.plugins.ml2.drivers import helpers
 from neutron.plugins.ml2.drivers import type_tunnel
 
 LOG = log.getLogger(__name__)
@@ -51,7 +53,8 @@ class VxlanAllocation(model_base.BASEV2):
 
     vxlan_vni = sa.Column(sa.Integer, nullable=False, primary_key=True,
                           autoincrement=False)
-    allocated = sa.Column(sa.Boolean, nullable=False, default=False)
+    allocated = sa.Column(sa.Boolean, nullable=False, default=False,
+                          server_default=sql.false())
 
 
 class VxlanEndpoints(model_base.BASEV2):
@@ -66,7 +69,10 @@ class VxlanEndpoints(model_base.BASEV2):
         return "<VxlanTunnelEndpoint(%s)>" % self.ip_address
 
 
-class VxlanTypeDriver(type_tunnel.TunnelTypeDriver):
+class VxlanTypeDriver(helpers.TypeDriverHelper, type_tunnel.TunnelTypeDriver):
+
+    def __init__(self):
+        super(VxlanTypeDriver, self).__init__(VxlanAllocation)
 
     def get_type(self):
         return p_const.TYPE_VXLAN
@@ -81,59 +87,49 @@ class VxlanTypeDriver(type_tunnel.TunnelTypeDriver):
         self._sync_vxlan_allocations()
 
     def reserve_provider_segment(self, session, segment):
-        segmentation_id = segment.get(api.SEGMENTATION_ID)
-        with session.begin(subtransactions=True):
-            try:
-                alloc = (session.query(VxlanAllocation).
-                         filter_by(vxlan_vni=segmentation_id).
-                         with_lockmode('update').
-                         one())
-                if alloc.allocated:
-                    raise exc.TunnelIdInUse(tunnel_id=segmentation_id)
-                LOG.debug(_("Reserving specific vxlan tunnel %s from pool"),
-                          segmentation_id)
-                alloc.allocated = True
-            except sa_exc.NoResultFound:
-                LOG.debug(_("Reserving specific vxlan tunnel %s outside pool"),
-                          segmentation_id)
-                alloc = VxlanAllocation(vxlan_vni=segmentation_id)
-                alloc.allocated = True
-                session.add(alloc)
+        if self.is_partial_segment(segment):
+            alloc = self.allocate_partially_specified_segment(session)
+            if not alloc:
+                raise exc.NoNetworkAvailable
+        else:
+            segmentation_id = segment.get(api.SEGMENTATION_ID)
+            alloc = self.allocate_fully_specified_segment(
+                session, vxlan_vni=segmentation_id)
+            if not alloc:
+                raise exc.TunnelIdInUse(tunnel_id=segmentation_id)
+        return {api.NETWORK_TYPE: p_const.TYPE_VXLAN,
+                api.PHYSICAL_NETWORK: None,
+                api.SEGMENTATION_ID: alloc.vxlan_vni}
 
     def allocate_tenant_segment(self, session):
-        with session.begin(subtransactions=True):
-            alloc = (session.query(VxlanAllocation).
-                     filter_by(allocated=False).
-                     with_lockmode('update').
-                     first())
-            if alloc:
-                LOG.debug(_("Allocating vxlan tunnel vni %(vxlan_vni)s"),
-                          {'vxlan_vni': alloc.vxlan_vni})
-                alloc.allocated = True
-                return {api.NETWORK_TYPE: p_const.TYPE_VXLAN,
-                        api.PHYSICAL_NETWORK: None,
-                        api.SEGMENTATION_ID: alloc.vxlan_vni}
+        alloc = self.allocate_partially_specified_segment(session)
+        if not alloc:
+            return
+        return {api.NETWORK_TYPE: p_const.TYPE_VXLAN,
+                api.PHYSICAL_NETWORK: None,
+                api.SEGMENTATION_ID: alloc.vxlan_vni}
 
     def release_segment(self, session, segment):
         vxlan_vni = segment[api.SEGMENTATION_ID]
+
+        inside = any(lo <= vxlan_vni <= hi for lo, hi in self.vxlan_vni_ranges)
+
         with session.begin(subtransactions=True):
-            try:
-                alloc = (session.query(VxlanAllocation).
-                         filter_by(vxlan_vni=vxlan_vni).
-                         with_lockmode('update').
-                         one())
-                alloc.allocated = False
-                for low, high in self.vxlan_vni_ranges:
-                    if low <= vxlan_vni <= high:
-                        LOG.debug(_("Releasing vxlan tunnel %s to pool"),
-                                  vxlan_vni)
-                        break
-                else:
-                    session.delete(alloc)
-                    LOG.debug(_("Releasing vxlan tunnel %s outside pool"),
+            query = (session.query(VxlanAllocation).
+                     filter_by(vxlan_vni=vxlan_vni))
+            if inside:
+                count = query.update({"allocated": False})
+                if count:
+                    LOG.debug("Releasing vxlan tunnel %s to pool",
                               vxlan_vni)
-            except sa_exc.NoResultFound:
-                LOG.warning(_("vxlan_vni %s not found"), vxlan_vni)
+            else:
+                count = query.delete()
+                if count:
+                    LOG.debug("Releasing vxlan tunnel %s outside pool",
+                              vxlan_vni)
+
+        if not count:
+            LOG.warning(_("vxlan_vni %s not found"), vxlan_vni)
 
     def _sync_vxlan_allocations(self):
         """
@@ -153,23 +149,33 @@ class VxlanTypeDriver(type_tunnel.TunnelTypeDriver):
         session = db_api.get_session()
         with session.begin(subtransactions=True):
             # remove from table unallocated tunnels not currently allocatable
-            allocs = session.query(VxlanAllocation).with_lockmode("update")
-            for alloc in allocs:
-                try:
-                    # see if tunnel is allocatable
-                    vxlan_vnis.remove(alloc.vxlan_vni)
-                except KeyError:
-                    # it's not allocatable, so check if its allocated
-                    if not alloc.allocated:
-                        # it's not, so remove it from table
-                        LOG.debug(_("Removing tunnel %s from pool"),
-                                  alloc.vxlan_vni)
-                        session.delete(alloc)
-
-            # add missing allocatable tunnels to table
-            for vxlan_vni in sorted(vxlan_vnis):
-                alloc = VxlanAllocation(vxlan_vni=vxlan_vni)
-                session.add(alloc)
+            # fetch results as list via all() because we'll be iterating
+            # through them twice
+            allocs = (session.query(VxlanAllocation).
+                      with_lockmode("update").all())
+            # collect all vnis present in db
+            existing_vnis = set(alloc.vxlan_vni for alloc in allocs)
+            # collect those vnis that needs to be deleted from db
+            vnis_to_remove = [alloc.vxlan_vni for alloc in allocs
+                              if (alloc.vxlan_vni not in vxlan_vnis and
+                                  not alloc.allocated)]
+            # Immediately delete vnis in chunks. This leaves no work for
+            # flush at the end of transaction
+            bulk_size = 100
+            chunked_vnis = (vnis_to_remove[i:i + bulk_size] for i in
+                            range(0, len(vnis_to_remove), bulk_size))
+            for vni_list in chunked_vnis:
+                session.query(VxlanAllocation).filter(
+                    VxlanAllocation.vxlan_vni.in_(vni_list)).delete(
+                        synchronize_session=False)
+            # collect vnis that need to be added
+            vnis = list(vxlan_vnis - existing_vnis)
+            chunked_vnis = (vnis[i:i + bulk_size] for i in
+                            range(0, len(vnis), bulk_size))
+            for vni_list in chunked_vnis:
+                bulk = [{'vxlan_vni': vni, 'allocated': False}
+                        for vni in vni_list]
+                session.execute(VxlanAllocation.__table__.insert(), bulk)
 
     def get_vxlan_allocation(self, session, vxlan_vni):
         with session.begin(subtransactions=True):

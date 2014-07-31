@@ -74,6 +74,15 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             )
             sslgetmock.assert_has_calls([mock.call(('example.org', 443))])
 
+    def test_consistency_watchdog_stops_with_0_polling_interval(self):
+        pl = manager.NeutronManager.get_plugin()
+        pl.servers.capabilities = ['consistency']
+        self.watch_p.stop()
+        with mock.patch('eventlet.sleep') as smock:
+            # should return immediately a polling interval of 0
+            pl.servers._consistency_watchdog(0)
+            self.assertFalse(smock.called)
+
     def test_consistency_watchdog(self):
         pl = manager.NeutronManager.get_plugin()
         pl.servers.capabilities = []
@@ -83,16 +92,22 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             mock.patch(
                 SERVERMANAGER + '.ServerPool.rest_call',
                 side_effect=servermanager.RemoteRestError(
-                    reason='Failure to break loop'
+                    reason='Failure to trigger except clause.'
                 )
+            ),
+            mock.patch(
+                SERVERMANAGER + '.LOG.exception',
+                side_effect=KeyError('Failure to break loop')
             )
-        ) as (smock, rmock):
+        ) as (smock, rmock, lmock):
             # should return immediately without consistency capability
             pl.servers._consistency_watchdog()
             self.assertFalse(smock.called)
             pl.servers.capabilities = ['consistency']
-            self.assertRaises(servermanager.RemoteRestError,
+            self.assertRaises(KeyError,
                               pl.servers._consistency_watchdog)
+            rmock.assert_called_with('GET', '/health', '', {}, [], False)
+            self.assertEqual(1, len(lmock.mock_calls))
 
     def test_consistency_hash_header(self):
         # mock HTTP class instead of rest_call so we can see headers
@@ -346,7 +361,8 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             # making a call should trigger a conflict sync
             pl.servers.rest_call('GET', '/', '', None, [])
             srestmock.assert_has_calls([
-                mock.call('GET', '/', '', None, False, reconnect=True),
+                mock.call('GET', '/', '', None, False, reconnect=True,
+                          hash_handler=mock.ANY),
                 mock.call('PUT', '/topology',
                           {'routers': [], 'networks': []},
                           timeout=None)

@@ -17,6 +17,7 @@ from oslo.config import cfg
 from six import moves
 import sqlalchemy as sa
 from sqlalchemy.orm import exc as sa_exc
+from sqlalchemy import sql
 
 from neutron.common import exceptions as exc
 from neutron.db import api as db_api
@@ -24,6 +25,7 @@ from neutron.db import model_base
 from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api as api
+from neutron.plugins.ml2.drivers import helpers
 from neutron.plugins.ml2.drivers import type_tunnel
 
 LOG = log.getLogger(__name__)
@@ -45,7 +47,8 @@ class GreAllocation(model_base.BASEV2):
 
     gre_id = sa.Column(sa.Integer, nullable=False, primary_key=True,
                        autoincrement=False)
-    allocated = sa.Column(sa.Boolean, nullable=False, default=False)
+    allocated = sa.Column(sa.Boolean, nullable=False, default=False,
+                          server_default=sql.false())
 
 
 class GreEndpoints(model_base.BASEV2):
@@ -58,7 +61,10 @@ class GreEndpoints(model_base.BASEV2):
         return "<GreTunnelEndpoint(%s)>" % self.ip_address
 
 
-class GreTypeDriver(type_tunnel.TunnelTypeDriver):
+class GreTypeDriver(helpers.TypeDriverHelper, type_tunnel.TunnelTypeDriver):
+
+    def __init__(self):
+        super(GreTypeDriver, self).__init__(GreAllocation)
 
     def get_type(self):
         return p_const.TYPE_GRE
@@ -73,59 +79,46 @@ class GreTypeDriver(type_tunnel.TunnelTypeDriver):
         self._sync_gre_allocations()
 
     def reserve_provider_segment(self, session, segment):
-        segmentation_id = segment.get(api.SEGMENTATION_ID)
-        with session.begin(subtransactions=True):
-            try:
-                alloc = (session.query(GreAllocation).
-                         filter_by(gre_id=segmentation_id).
-                         with_lockmode('update').
-                         one())
-                if alloc.allocated:
-                    raise exc.TunnelIdInUse(tunnel_id=segmentation_id)
-                LOG.debug(_("Reserving specific gre tunnel %s from pool"),
-                          segmentation_id)
-                alloc.allocated = True
-            except sa_exc.NoResultFound:
-                LOG.debug(_("Reserving specific gre tunnel %s outside pool"),
-                          segmentation_id)
-                alloc = GreAllocation(gre_id=segmentation_id)
-                alloc.allocated = True
-                session.add(alloc)
+        if self.is_partial_segment(segment):
+            alloc = self.allocate_partially_specified_segment(session)
+            if not alloc:
+                raise exc.NoNetworkAvailable
+        else:
+            segmentation_id = segment.get(api.SEGMENTATION_ID)
+            alloc = self.allocate_fully_specified_segment(
+                session, gre_id=segmentation_id)
+            if not alloc:
+                raise exc.TunnelIdInUse(tunnel_id=segmentation_id)
+        return {api.NETWORK_TYPE: p_const.TYPE_GRE,
+                api.PHYSICAL_NETWORK: None,
+                api.SEGMENTATION_ID: alloc.gre_id}
 
     def allocate_tenant_segment(self, session):
-        with session.begin(subtransactions=True):
-            alloc = (session.query(GreAllocation).
-                     filter_by(allocated=False).
-                     with_lockmode('update').
-                     first())
-            if alloc:
-                LOG.debug(_("Allocating gre tunnel id  %(gre_id)s"),
-                          {'gre_id': alloc.gre_id})
-                alloc.allocated = True
-                return {api.NETWORK_TYPE: p_const.TYPE_GRE,
-                        api.PHYSICAL_NETWORK: None,
-                        api.SEGMENTATION_ID: alloc.gre_id}
+        alloc = self.allocate_partially_specified_segment(session)
+        if not alloc:
+            return
+        return {api.NETWORK_TYPE: p_const.TYPE_GRE,
+                api.PHYSICAL_NETWORK: None,
+                api.SEGMENTATION_ID: alloc.gre_id}
 
     def release_segment(self, session, segment):
         gre_id = segment[api.SEGMENTATION_ID]
+
+        inside = any(lo <= gre_id <= hi for lo, hi in self.gre_id_ranges)
+
         with session.begin(subtransactions=True):
-            try:
-                alloc = (session.query(GreAllocation).
-                         filter_by(gre_id=gre_id).
-                         with_lockmode('update').
-                         one())
-                alloc.allocated = False
-                for lo, hi in self.gre_id_ranges:
-                    if lo <= gre_id <= hi:
-                        LOG.debug(_("Releasing gre tunnel %s to pool"),
-                                  gre_id)
-                        break
-                else:
-                    session.delete(alloc)
-                    LOG.debug(_("Releasing gre tunnel %s outside pool"),
-                              gre_id)
-            except sa_exc.NoResultFound:
-                LOG.warning(_("gre_id %s not found"), gre_id)
+            query = session.query(GreAllocation).filter_by(gre_id=gre_id)
+            if inside:
+                count = query.update({"allocated": False})
+                if count:
+                    LOG.debug("Releasing gre tunnel %s to pool", gre_id)
+            else:
+                count = query.delete()
+                if count:
+                    LOG.debug("Releasing gre tunnel %s outside pool", gre_id)
+
+        if not count:
+            LOG.warning(_("gre_id %s not found"), gre_id)
 
     def _sync_gre_allocations(self):
         """Synchronize gre_allocations table with configured tunnel ranges."""

@@ -25,22 +25,35 @@ TUNNEL = 'tunnel'
 # Values for network_type
 VXLAN_UDP_PORT = 4789
 
-# Name prefixes for veth device pair linking the integration bridge
-# with the physical bridge for a physical network
-VETH_INTEGRATION_PREFIX = 'int-'
-VETH_PHYSICAL_PREFIX = 'phy-'
+# Name prefixes for veth device or patch port pair linking the integration
+# bridge with the physical bridge for a physical network
+PEER_INTEGRATION_PREFIX = 'int-'
+PEER_PHYSICAL_PREFIX = 'phy-'
+
+# Nonexistent peer used to create patch ports without associating them, it
+# allows to define flows before association
+NONEXISTENT_PEER = 'nonexistent-peer'
 
 # The different types of tunnels
 TUNNEL_NETWORK_TYPES = [p_const.TYPE_GRE, p_const.TYPE_VXLAN]
 
+# Various tables for DVR use of integration bridge flows
+LOCAL_SWITCHING = 0
+DVR_TO_SRC_MAC = 1
+
 # Various tables for tunneling flows
-PATCH_LV_TO_TUN = 1
-GRE_TUN_TO_LV = 2
-VXLAN_TUN_TO_LV = 3
+DVR_PROCESS = 1
+PATCH_LV_TO_TUN = 2
+GRE_TUN_TO_LV = 3
+VXLAN_TUN_TO_LV = 4
+DVR_NOT_LEARN = 9
 LEARN_FROM_TUN = 10
 UCAST_TO_TUN = 20
 ARP_RESPONDER = 21
 FLOOD_TO_TUN = 22
+
+# Tables for integration bridge
+# Table 0 is used for forwarding.
 CANARY_TABLE = 23
 
 # Map tunnel types to tables number
@@ -52,3 +65,6 @@ DEFAULT_OVSDBMON_RESPAWN = 30
 
 # Special return value for an invalid OVS ofport
 INVALID_OFPORT = '-1'
+
+# Represent invalid OF Port
+OFPORT_INVALID = -1

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013, Nachi Ueno, NTT I3, Inc.
 # All Rights Reserved.
 #
@@ -98,7 +96,7 @@ class VPNAgent(l3_agent.L3NATAgentWithStateReport):
         if not router_info:
             return
         router_info.iptables_manager.ipv4['nat'].remove_rule(
-            chain, rule)
+            chain, rule, top=top)
 
     def iptables_apply(self, router_id):
         """Apply IPtables.

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -43,6 +41,7 @@ migration_for_plugins = [
     'neutron.plugins.oneconvergence.plugin.OneConvergencePluginV2',
     'neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin',
     'neutron.plugins.ml2.plugin.Ml2Plugin',
+    'neutron.plugins.bigswitch.plugin.NeutronRestProxyV2',
 ]
 
 from alembic import op

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (c) 2012 OpenStack Foundation.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -87,6 +85,14 @@ class CreateAgentConfigMap(base.BaseTestCase):
         self.assertEqual(cfgmap['tunnel_types'],
                          [p_const.TYPE_GRE, p_const.TYPE_VXLAN])
 
+    def test_create_agent_config_map_enable_distributed_routing(self):
+        self.addCleanup(cfg.CONF.reset)
+        # Verify setting only enable_tunneling will default tunnel_type to GRE
+        cfg.CONF.set_override('enable_distributed_routing', True,
+                              group='AGENT')
+        cfgmap = ovs_neutron_agent.create_agent_config_map(cfg.CONF)
+        self.assertEqual(cfgmap['enable_distributed_routing'], True)
+
 
 class TestOvsNeutronAgent(base.BaseTestCase):
 
@@ -119,12 +125,16 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                        'OVSNeutronAgent.setup_ancillary_bridges',
                        return_value=[]),
             mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                       'create'),
+            mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
                        'set_secure_mode'),
             mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
                        'get_local_port_mac',
                        return_value='00:00:00:00:00:01'),
             mock.patch('neutron.agent.linux.utils.get_interface_mac',
                        return_value='00:00:00:00:00:01'),
+            mock.patch('neutron.agent.linux.ovs_lib.'
+                       'get_bridges'),
             mock.patch('neutron.openstack.common.loopingcall.'
                        'FixedIntervalLoopingCall',
                        new=MockFixedIntervalLoopingCall),
@@ -140,6 +150,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         port = mock.Mock()
         port.ofport = ofport
         net_uuid = 'my-net-uuid'
+        fixed_ips = [{'subnet_id': 'my-subnet-uuid',
+                      'ip_address': '1.1.1.1'}]
         if old_local_vlan is not None:
             self.agent.local_vlan_map[net_uuid] = (
                 ovs_neutron_agent.LocalVLANMapping(
@@ -151,7 +163,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                        'db_get_val', return_value=str(old_local_vlan)),
             mock.patch.object(self.agent.int_br, 'delete_flows')
         ) as (set_ovs_db_func, get_ovs_db_func, delete_flows_func):
-            self.agent.port_bound(port, net_uuid, 'local', None, None, False)
+            self.agent.port_bound(port, net_uuid, 'local', None, None,
+                                  fixed_ips, "compute:None", False)
         get_ovs_db_func.assert_called_once_with("Port", mock.ANY, "tag")
         if new_local_vlan != old_local_vlan:
             set_ovs_db_func.assert_called_once_with(
@@ -164,6 +177,34 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             self.assertFalse(set_ovs_db_func.called)
             self.assertFalse(delete_flows_func.called)
 
+    def _setup_for_dvr_test(self, ofport=10):
+        self._port = mock.Mock()
+        self._port.ofport = ofport
+        self._port.vif_id = "1234-5678-90"
+        self.agent.enable_distributed_routing = True
+        self.agent.enable_tunneling = True
+        self.agent.patch_tun_ofport = 1
+        self.agent.patch_int_ofport = 2
+        self.agent.dvr_agent.local_ports = {}
+        self.agent.local_vlan_map = {}
+        self.agent.dvr_agent.enable_distributed_routing = True
+        self.agent.dvr_agent.enable_tunneling = True
+        self.agent.dvr_agent.patch_tun_ofport = 1
+        self.agent.dvr_agent.patch_int_ofport = 2
+        self.agent.dvr_agent.tun_br = mock.Mock()
+        self.agent.dvr_agent.local_dvr_map = {}
+        self.agent.dvr_agent.registered_dvr_macs = set()
+        self.agent.dvr_agent.dvr_mac_address = 'aa:22:33:44:55:66'
+        self._net_uuid = 'my-net-uuid'
+        self._fixed_ips = [{'subnet_id': 'my-subnet-uuid',
+                            'ip_address': '1.1.1.1'}]
+        self._compute_port = mock.Mock()
+        self._compute_port.ofport = 20
+        self._compute_port.vif_id = "1234-5678-91"
+        self._old_local_vlan = None
+        self._compute_fixed_ips = [{'subnet_id': 'my-subnet-uuid',
+                                    'ip_address': '1.1.1.3'}]
+
     def test_port_bound_deletes_flows_for_valid_ofport(self):
         self._mock_port_bound(ofport=1, new_local_vlan=1)
 
@@ -172,6 +213,287 @@ class TestOvsNeutronAgent(base.BaseTestCase):
 
     def test_port_bound_does_not_rewire_if_already_bound(self):
         self._mock_port_bound(ofport=-1, new_local_vlan=1, old_local_vlan=1)
+
+    def test_port_bound_for_dvr_interface(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc, 'get_subnet_for_dvr',
+                    return_value={'gateway_ip': '1.1.1.1',
+                                  'cidr': '1.1.1.0/24',
+                                  'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_DVR_INTERFACE,
+                    False)
+                self.assertTrue(add_flow_tun_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+    def test_port_bound_for_dvr_with_compute_ports(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_subnet_for_dvr',
+                                  return_value={
+                                      'gateway_ip': '1.1.1.1',
+                                      'cidr': '1.1.1.0/24',
+                                      'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_DVR_INTERFACE,
+                    False)
+                self.agent.port_bound(self._compute_port, self._net_uuid,
+                                      'vxlan', None, None,
+                                      self._compute_fixed_ips,
+                                      "compute:None", False)
+                self.assertTrue(add_flow_tun_fn.called)
+                self.assertTrue(add_flow_int_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+    def test_port_bound_for_dvr_with_csnat_ports(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc, 'get_subnet_for_dvr',
+                    return_value={'gateway_ip': '1.1.1.1',
+                                  'cidr': '1.1.1.0/24',
+                                  'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_ROUTER_SNAT,
+                    False)
+                self.assertTrue(add_flow_int_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+    def test_treat_devices_removed_for_dvr_interface(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc, 'get_subnet_for_dvr',
+                    return_value={'gateway_ip': '1.1.1.1',
+                                  'cidr': '1.1.1.0/24',
+                                  'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_DVR_INTERFACE,
+                    False)
+                self.assertTrue(add_flow_tun_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+        with contextlib.nested(
+            mock.patch.object(self.agent, 'reclaim_local_vlan'),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_down',
+                              return_value=None),
+            mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+            mock.patch.object(self.agent.dvr_agent.tun_br,
+                              'delete_flows')) as (reclaim_vlan_fn,
+                                                   update_dev_down_fn,
+                                                   delete_flows_int_fn,
+                                                   delete_flows_tun_fn):
+                self.agent.treat_devices_removed([self._port.vif_id])
+                self.assertTrue(delete_flows_int_fn.called)
+                self.assertTrue(delete_flows_tun_fn.called)
+
+    def test_treat_devices_removed_for_dvr_with_compute_ports(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc, 'get_subnet_for_dvr',
+                    return_value={'gateway_ip': '1.1.1.1',
+                                  'cidr': '1.1.1.0/24',
+                                  'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_DVR_INTERFACE,
+                    False)
+                self.agent.port_bound(self._compute_port,
+                                      self._net_uuid, 'vxlan',
+                                      None, None,
+                                      self._compute_fixed_ips,
+                                      "compute:None", False)
+                self.assertTrue(add_flow_tun_fn.called)
+                self.assertTrue(add_flow_int_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+        with contextlib.nested(
+            mock.patch.object(self.agent, 'reclaim_local_vlan'),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_down',
+                              return_value=None),
+            mock.patch.object(self.agent.dvr_agent.int_br,
+                              'delete_flows')) as (reclaim_vlan_fn,
+                                                   update_dev_down_fn,
+                                                   delete_flows_int_fn):
+                self.agent.treat_devices_removed([self._compute_port.vif_id])
+                self.assertTrue(delete_flows_int_fn.called)
+
+    def test_treat_devices_removed_for_dvr_csnat_port(self, ofport=10):
+        self._setup_for_dvr_test()
+        with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                        'set_db_attribute',
+                        return_value=True):
+            with contextlib.nested(
+                mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
+                           'db_get_val',
+                           return_value=str(self._old_local_vlan)),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc, 'get_subnet_for_dvr',
+                    return_value={'gateway_ip': '1.1.1.1',
+                                  'cidr': '1.1.1.0/24',
+                                  'gateway_mac': 'aa:bb:cc:11:22:33'}),
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                  'get_compute_ports_on_host_by_subnet',
+                                  return_value=[]),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'get_vif_port_by_id',
+                                  return_value=self._port),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+            ) as (get_ovs_db_func, get_subnet_fn, get_cphost_fn,
+                  get_vif_fn, add_flow_int_fn, delete_flows_int_fn,
+                  add_flow_tun_fn, delete_flows_tun_fn):
+                self.agent.port_bound(
+                    self._port, self._net_uuid, 'vxlan',
+                    None, None, self._fixed_ips,
+                    n_const.DEVICE_OWNER_ROUTER_SNAT,
+                    False)
+                self.assertTrue(add_flow_int_fn.called)
+                self.assertTrue(delete_flows_int_fn.called)
+
+        with contextlib.nested(
+            mock.patch.object(self.agent, 'reclaim_local_vlan'),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_down',
+                              return_value=None),
+            mock.patch.object(self.agent.dvr_agent.int_br,
+                              'delete_flows')) as (reclaim_vlan_fn,
+                                                   update_dev_down_fn,
+                                                   delete_flows_int_fn):
+                self.agent.treat_devices_removed([self._port.vif_id])
+                self.assertTrue(delete_flows_int_fn.called)
+
+    def test_setup_dvr_flows_on_int_br(self):
+        self._setup_for_dvr_test()
+        with contextlib.nested(
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc,
+                    'get_dvr_mac_address_by_host',
+                    return_value={'host': 'cn1',
+                                  'mac_address': 'aa:bb:cc:dd:ee:ff'}),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'remove_all_flows'),
+                mock.patch.object(
+                    self.agent.dvr_agent.plugin_rpc,
+                    'get_dvr_mac_address_list',
+                    return_value=[{'host': 'cn1',
+                                   'mac_address': 'aa:bb:cc:dd:ee:ff'},
+                                  {'host': 'cn2',
+                                   'mac_address': '11:22:33:44:55:66'}])) as \
+            (get_subnet_fn, get_cphost_fn, get_vif_fn,
+             add_flow_fn, delete_flows_fn):
+            self.agent.dvr_agent.setup_dvr_flows_on_integ_tun_br()
 
     def _test_port_dead(self, cur_tag=None):
         port = mock.Mock()
@@ -281,14 +603,16 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                 vif_port_set, registered_ports, port_tags_dict=port_tags_dict)
         self.assertEqual(expected, actual)
 
-    def test_treat_devices_added_returns_true_for_missing_device(self):
+    def test_treat_devices_added_returns_raises_for_missing_device(self):
         with contextlib.nested(
-            mock.patch.object(self.agent.plugin_rpc, 'get_device_details',
+            mock.patch.object(self.agent.plugin_rpc,
+                              'get_devices_details_list',
                               side_effect=Exception()),
             mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
                               return_value=mock.Mock())):
-            self.assertTrue(self.agent.treat_devices_added_or_updated([{}],
-                                                                      False))
+            self.assertRaises(
+                ovs_neutron_agent.DeviceListRetrievalError,
+                self.agent.treat_devices_added_or_updated, [{}], False)
 
     def _mock_treat_devices_added_updated(self, details, port, func_name):
         """Mock treat devices added or updated.
@@ -299,16 +623,18 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         :returns: whether the named function was called
         """
         with contextlib.nested(
-            mock.patch.object(self.agent.plugin_rpc, 'get_device_details',
-                              return_value=details),
+            mock.patch.object(self.agent.plugin_rpc,
+                              'get_devices_details_list',
+                              return_value=[details]),
             mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
                               return_value=port),
             mock.patch.object(self.agent.plugin_rpc, 'update_device_up'),
             mock.patch.object(self.agent.plugin_rpc, 'update_device_down'),
             mock.patch.object(self.agent, func_name)
         ) as (get_dev_fn, get_vif_func, upd_dev_up, upd_dev_down, func):
-            self.assertFalse(self.agent.treat_devices_added_or_updated([{}],
-                                                                       False))
+            skip_devs = self.agent.treat_devices_added_or_updated([{}], False)
+            # The function should not raise
+            self.assertFalse(skip_devs)
         return func.called
 
     def test_treat_devices_added_updated_ignores_invalid_ofport(self):
@@ -331,11 +657,33 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         ) as (get_dev_fn, get_vif_func):
             self.assertFalse(get_dev_fn.called)
 
-    def test_treat_devices_added__updated_updates_known_port(self):
+    def test_treat_devices_added_updated_updates_known_port(self):
         details = mock.MagicMock()
         details.__contains__.side_effect = lambda x: True
         self.assertTrue(self._mock_treat_devices_added_updated(
             details, mock.Mock(), 'treat_vif_port'))
+
+    def test_treat_devices_added_updated_skips_if_port_not_found(self):
+        dev_mock = mock.MagicMock()
+        dev_mock.__getitem__.return_value = 'the_skipped_one'
+        with contextlib.nested(
+            mock.patch.object(self.agent.plugin_rpc,
+                              'get_devices_details_list',
+                              return_value=[dev_mock]),
+            mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
+                              return_value=None),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_up'),
+            mock.patch.object(self.agent.plugin_rpc, 'update_device_down'),
+            mock.patch.object(self.agent, 'treat_vif_port')
+        ) as (get_dev_fn, get_vif_func, upd_dev_up,
+              upd_dev_down, treat_vif_port):
+            skip_devs = self.agent.treat_devices_added_or_updated([{}], False)
+            # The function should return False for resync and no device
+            # processed
+            self.assertEqual(['the_skipped_one'], skip_devs)
+            self.assertFalse(treat_vif_port.called)
+            self.assertFalse(upd_dev_down.called)
+            self.assertFalse(upd_dev_up.called)
 
     def test_treat_devices_added_updated_put_port_down(self):
         fake_details_dict = {'admin_state_up': False,
@@ -344,10 +692,16 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                              'network_id': 'yyy',
                              'physical_network': 'foo',
                              'segmentation_id': 'bar',
-                             'network_type': 'baz'}
+                             'network_type': 'baz',
+                             'fixed_ips': [{'subnet_id': 'my-subnet-uuid',
+                                            'ip_address': '1.1.1.1'}],
+                             'device_owner': 'compute:None'
+                             }
+
         with contextlib.nested(
-            mock.patch.object(self.agent.plugin_rpc, 'get_device_details',
-                              return_value=fake_details_dict),
+            mock.patch.object(self.agent.plugin_rpc,
+                              'get_devices_details_list',
+                              return_value=[fake_details_dict]),
             mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
                               return_value=mock.MagicMock()),
             mock.patch.object(self.agent.plugin_rpc, 'update_device_up'),
@@ -355,8 +709,9 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(self.agent, 'treat_vif_port')
         ) as (get_dev_fn, get_vif_func, upd_dev_up,
               upd_dev_down, treat_vif_port):
-            self.assertFalse(self.agent.treat_devices_added_or_updated([{}],
-                                                                       False))
+            skip_devs = self.agent.treat_devices_added_or_updated([{}], False)
+            # The function should return False for resync
+            self.assertFalse(skip_devs)
             self.assertTrue(treat_vif_port.called)
             self.assertTrue(upd_dev_down.called)
 
@@ -383,7 +738,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         with contextlib.nested(
             mock.patch.object(self.agent.sg_agent, "setup_port_filters"),
             mock.patch.object(self.agent, "treat_devices_added_or_updated",
-                              return_value=False),
+                              return_value=[]),
             mock.patch.object(self.agent, "treat_devices_removed",
                               return_value=False)
         ) as (setup_port_filters, device_added_updated, device_removed):
@@ -453,6 +808,59 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(utils, "execute"),
             mock.patch.object(ovs_lib.OVSBridge, "remove_all_flows"),
             mock.patch.object(ovs_lib.OVSBridge, "add_flow"),
+            mock.patch.object(ovs_lib.OVSBridge, "add_patch_port"),
+            mock.patch.object(ovs_lib.OVSBridge, "delete_port"),
+            mock.patch.object(ovs_lib.OVSBridge, "set_db_attribute"),
+            mock.patch.object(self.agent.int_br, "add_flow"),
+            mock.patch.object(self.agent.int_br, "add_patch_port"),
+            mock.patch.object(self.agent.int_br, "delete_port"),
+            mock.patch.object(self.agent.int_br, "set_db_attribute"),
+        ) as (devex_fn, sysexit_fn, utilsexec_fn, remflows_fn, ovs_add_flow_fn,
+              ovs_addpatch_port_fn, ovs_delport_fn, ovs_set_attr_fn,
+              br_add_flow_fn, br_addpatch_port_fn, br_delport_fn,
+              br_set_attr_fn):
+            devex_fn.return_value = True
+            parent = mock.MagicMock()
+            parent.attach_mock(ovs_addpatch_port_fn, 'phy_add_patch_port')
+            parent.attach_mock(ovs_add_flow_fn, 'phy_add_flow')
+            parent.attach_mock(ovs_set_attr_fn, 'phy_set_attr')
+            parent.attach_mock(br_addpatch_port_fn, 'int_add_patch_port')
+            parent.attach_mock(br_add_flow_fn, 'int_add_flow')
+            parent.attach_mock(br_set_attr_fn, 'int_set_attr')
+
+            ovs_addpatch_port_fn.return_value = "phy_ofport"
+            br_addpatch_port_fn.return_value = "int_ofport"
+            self.agent.setup_physical_bridges({"physnet1": "br-eth"})
+            expected_calls = [
+                mock.call.phy_add_flow(priority=1, actions='normal'),
+                mock.call.int_add_patch_port('int-br-eth',
+                                             constants.NONEXISTENT_PEER),
+                mock.call.phy_add_patch_port('phy-br-eth',
+                                             constants.NONEXISTENT_PEER),
+                mock.call.int_add_flow(priority=2, in_port='int_ofport',
+                                       actions='drop'),
+                mock.call.phy_add_flow(priority=2, in_port='phy_ofport',
+                                       actions='drop'),
+                mock.call.int_set_attr('Interface', 'int-br-eth',
+                                       'options:peer', 'phy-br-eth'),
+                mock.call.phy_set_attr('Interface', 'phy-br-eth',
+                                       'options:peer', 'int-br-eth'),
+
+            ]
+            parent.assert_has_calls(expected_calls)
+            self.assertEqual(self.agent.int_ofports["physnet1"],
+                             "int_ofport")
+            self.assertEqual(self.agent.phys_ofports["physnet1"],
+                             "phy_ofport")
+
+    def test_setup_physical_bridges_using_veth_interconnection(self):
+        self.agent.use_veth_interconnection = True
+        with contextlib.nested(
+            mock.patch.object(ip_lib, "device_exists"),
+            mock.patch.object(sys, "exit"),
+            mock.patch.object(utils, "execute"),
+            mock.patch.object(ovs_lib.OVSBridge, "remove_all_flows"),
+            mock.patch.object(ovs_lib.OVSBridge, "add_flow"),
             mock.patch.object(ovs_lib.OVSBridge, "add_port"),
             mock.patch.object(ovs_lib.OVSBridge, "delete_port"),
             mock.patch.object(self.agent.int_br, "add_port"),
@@ -460,10 +868,11 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(ip_lib.IPWrapper, "add_veth"),
             mock.patch.object(ip_lib.IpLinkCommand, "delete"),
             mock.patch.object(ip_lib.IpLinkCommand, "set_up"),
-            mock.patch.object(ip_lib.IpLinkCommand, "set_mtu")
+            mock.patch.object(ip_lib.IpLinkCommand, "set_mtu"),
+            mock.patch.object(ovs_lib, "get_bridges")
         ) as (devex_fn, sysexit_fn, utilsexec_fn, remflows_fn, ovs_addfl_fn,
-              ovs_addport_fn, ovs_delport_fn, br_addport_fn,
-              br_delport_fn, addveth_fn, linkdel_fn, linkset_fn, linkmtu_fn):
+              ovs_addport_fn, ovs_delport_fn, br_addport_fn, br_delport_fn,
+              addveth_fn, linkdel_fn, linkset_fn, linkmtu_fn, get_br_fn):
             devex_fn.return_value = True
             parent = mock.MagicMock()
             parent.attach_mock(utilsexec_fn, 'utils_execute')
@@ -473,6 +882,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                        ip_lib.IPDevice("phy-br-eth1"))
             ovs_addport_fn.return_value = "int_ofport"
             br_addport_fn.return_value = "phys_veth"
+            get_br_fn.return_value = ["br-eth"]
             self.agent.setup_physical_bridges({"physnet1": "br-eth"})
             expected_calls = [mock.call.link_delete(),
                               mock.call.utils_execute(['/sbin/udevadm',
@@ -486,15 +896,46 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             self.assertEqual(self.agent.phys_ofports["physnet1"],
                              "int_ofport")
 
-    def test_get_veth_name(self):
+    def test_get_peer_name(self):
             bridge1 = "A_REALLY_LONG_BRIDGE_NAME1"
             bridge2 = "A_REALLY_LONG_BRIDGE_NAME2"
-            self.assertEqual(len(self.agent.get_veth_name('int-', bridge1)),
-                             ip_lib.VETH_MAX_NAME_LENGTH)
-            self.assertEqual(len(self.agent.get_veth_name('int-', bridge2)),
-                             ip_lib.VETH_MAX_NAME_LENGTH)
-            self.assertNotEqual(self.agent.get_veth_name('int-', bridge1),
-                                self.agent.get_veth_name('int-', bridge2))
+            self.agent.use_veth_interconnection = True
+            self.assertEqual(len(self.agent.get_peer_name('int-', bridge1)),
+                             n_const.DEVICE_NAME_MAX_LEN)
+            self.assertEqual(len(self.agent.get_peer_name('int-', bridge2)),
+                             n_const.DEVICE_NAME_MAX_LEN)
+            self.assertNotEqual(self.agent.get_peer_name('int-', bridge1),
+                                self.agent.get_peer_name('int-', bridge2))
+
+    def test_setup_tunnel_br(self):
+        self.tun_br = mock.Mock()
+        with contextlib.nested(
+            mock.patch.object(self.agent.int_br, "add_patch_port",
+                              return_value=1),
+            mock.patch.object(self.agent.tun_br, "add_patch_port",
+                              return_value=2),
+            mock.patch.object(self.agent.tun_br, "remove_all_flows"),
+            mock.patch.object(self.agent.tun_br, "add_flow"),
+            mock.patch.object(ovs_lib, "OVSBridge"),
+            mock.patch.object(self.agent.tun_br, "reset_bridge"),
+            mock.patch.object(sys, "exit")
+        ) as (intbr_patch_fn, tunbr_patch_fn, remove_all_fn,
+              add_flow_fn, ovs_br_fn, reset_br_fn, exit_fn):
+            self.agent.setup_tunnel_br(None)
+            self.assertTrue(intbr_patch_fn.called)
+
+    def test_setup_tunnel_port(self):
+        self.agent.tun_br = mock.Mock()
+        self.agent.l2_pop = False
+        self.agent.udp_vxlan_port = 8472
+        self.agent.tun_br_ofports['vxlan'] = {}
+        with contextlib.nested(
+            mock.patch.object(self.agent.tun_br, "add_tunnel_port",
+                              return_value='6'),
+            mock.patch.object(self.agent.tun_br, "add_flow")
+        ) as (add_tun_port_fn, add_flow_fn):
+            self.agent.setup_tunnel_port('portname', '1.2.3.4', 'vxlan')
+            self.assertTrue(add_tun_port_fn.called)
 
     def test_port_unbound(self):
         with mock.patch.object(self.agent, "reclaim_local_vlan") as reclvl_fn:
@@ -624,19 +1065,19 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(self.agent.tun_br, 'delete_flows'),
         ) as (mod_flow_fn, del_flow_fn):
             self.agent.fdb_remove(None, fdb_entry)
-            del_flow_fn.assert_has_calls([
-                mock.call(table=constants.ARP_RESPONDER,
-                          proto='arp',
-                          dl_vlan='vlan2',
-                          nw_dst=FAKE_IP1),
-                mock.call(table=constants.UCAST_TO_TUN,
-                          dl_vlan='vlan2',
-                          dl_dst=FAKE_MAC)
-            ])
             mod_flow_fn.assert_called_with(table=constants.FLOOD_TO_TUN,
                                            dl_vlan='vlan2',
                                            actions='strip_vlan,'
                                            'set_tunnel:seg2,output:1')
+            expected = [mock.call(table=constants.ARP_RESPONDER,
+                                  proto='arp',
+                                  dl_vlan='vlan2',
+                                  nw_dst=FAKE_IP1),
+                        mock.call(table=constants.UCAST_TO_TUN,
+                                  dl_vlan='vlan2',
+                                  dl_dst=FAKE_MAC),
+                        mock.call(in_port='2')]
+            del_flow_fn.assert_has_calls(expected)
 
     def test_fdb_add_port(self):
         self._prepare_l2_pop_ofports()
@@ -721,6 +1162,35 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         ) as (del_port_fn, del_flow_fn):
             self.agent.reclaim_local_vlan('net2')
             del_port_fn.assert_called_once_with('gre-02020202')
+
+    def test_dvr_mac_address_update(self):
+        self._setup_for_dvr_test()
+        with contextlib.nested(
+            mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+            mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
+            mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows'),
+            #mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows')
+        ) as (add_flow_fn, add_flow_tn_fn, del_flows_fn):
+            self.agent.dvr_agent.\
+                dvr_mac_address_update(
+                    dvr_macs=[{'host': 'cn2',
+                               'mac_address': 'aa:bb:cc:dd:ee:ff'}])
+            add_flow_tn_fn.assert_called_with(table=constants.DVR_NOT_LEARN,
+                                              priority=1,
+                                              dl_src='aa:bb:cc:dd:ee:ff',
+                                              actions="output:%s"
+                                              % self.agent.patch_int_ofport
+                                              )
+            self.assertFalse(del_flows_fn.called)
+        with contextlib.nested(
+            mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+            mock.patch.object(self.agent.dvr_agent.tun_br, 'delete_flows'),
+            mock.patch.object(self.agent.dvr_agent.int_br, 'delete_flows')
+        ) as (add_flow_fn, del_flows_tn_fn, del_flows_fn):
+            self.agent.dvr_agent.dvr_mac_address_update(dvr_macs=[])
+            del_flows_tn_fn.assert_called_with(table=constants.DVR_NOT_LEARN,
+                                               dl_src='aa:bb:cc:dd:ee:ff')
+            self.assertFalse(add_flow_fn.called)
 
     def test_daemon_loop_uses_polling_manager(self):
         with mock.patch(

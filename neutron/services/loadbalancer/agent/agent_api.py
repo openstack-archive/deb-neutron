@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2013 New Dream Network, LLC (DreamHost)
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -16,10 +14,10 @@
 #
 # @author: Mark McClain, DreamHost
 
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 
 
-class LbaasAgentApi(rpc_compat.RpcProxy):
+class LbaasAgentApi(n_rpc.RpcProxy):
     """Agent side of the Agent to Plugin RPC API."""
 
     API_VERSION = '2.0'

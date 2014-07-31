@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright (C) 2012 Midokura Japan K.K.
 # Copyright (C) 2013 Midokura PTE LTD
 # All Rights Reserved.
@@ -46,7 +44,6 @@ from neutron.extensions import portbindings
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import rpc
 from neutron.plugins.midonet.common import config  # noqa
 from neutron.plugins.midonet.common import net_util
 from neutron.plugins.midonet import midonet_lib
@@ -177,19 +174,9 @@ def _check_resource_exists(func, id, name, raise_exc=False):
             raise MidonetPluginException(msg=exc)
 
 
-class MidoRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin):
+class MidoRpcCallbacks(n_rpc.RpcCallback,
+                       dhcp_rpc_base.DhcpRpcCallbackMixin):
     RPC_API_VERSION = '1.1'
-
-    def create_rpc_dispatcher(self):
-        """Get the rpc dispatcher for this manager.
-
-        This a basic implementation that will call the plugin like get_ports
-        and handle basic events
-        If a manager would like to set an rpc API version, or support more than
-        one class as the target of rpc messages, override this method.
-        """
-        return n_rpc.PluginRpcDispatcher([self,
-                                          agents_db.AgentExtRpcCallback()])
 
 
 class MidonetPluginException(n_exc.NeutronException):
@@ -204,7 +191,8 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                       securitygroups_db.SecurityGroupDbMixin):
 
     supported_extension_aliases = ['external-net', 'router', 'security-group',
-                                   'agent', 'dhcp_agent_scheduler', 'binding']
+                                   'agent', 'dhcp_agent_scheduler', 'binding',
+                                   'quotas']
     __native_bulk_support = False
 
     def __init__(self):
@@ -382,13 +370,13 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     def setup_rpc(self):
         # RPC support
         self.topic = topics.PLUGIN
-        self.conn = rpc.create_connection(new=True)
-        self.callbacks = MidoRpcCallbacks()
-        self.dispatcher = self.callbacks.create_rpc_dispatcher()
-        self.conn.create_consumer(self.topic, self.dispatcher,
+        self.conn = n_rpc.create_connection(new=True)
+        self.endpoints = [MidoRpcCallbacks(),
+                          agents_db.AgentExtRpcCallback()]
+        self.conn.create_consumer(self.topic, self.endpoints,
                                   fanout=False)
-        # Consume from all consumers in a thread
-        self.conn.consume_in_thread()
+        # Consume from all consumers in threads
+        self.conn.consume_in_threads()
 
     def create_subnet(self, context, subnet):
         """Create Neutron subnet.
@@ -694,7 +682,7 @@ class MidonetPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                         self.client.add_dhcp_route_option(
                             bridge, cidr, ip, METADATA_DEFAULT_IP)
                 else:
-                # IPs have changed.  Re-map the DHCP entries
+                    # IPs have changed.  Re-map the DHCP entries
                     for cidr, ip, mac in self._dhcp_mappings(
                             context, old_ips, mac):
                         self.client.remove_dhcp_host(

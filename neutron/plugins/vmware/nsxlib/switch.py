@@ -14,12 +14,11 @@
 #    under the License.
 #
 
-import json
-
 from oslo.config import cfg
 
 from neutron.common import constants
 from neutron.common import exceptions as exception
+from neutron.openstack.common import jsonutils as json
 from neutron.openstack.common import log
 from neutron.plugins.vmware.api_client import exception as api_exc
 from neutron.plugins.vmware.common import exceptions as nsx_exc
@@ -135,10 +134,15 @@ def create_lswitch(cluster, neutron_net_id, tenant_id, display_name,
 def update_lswitch(cluster, lswitch_id, display_name,
                    tenant_id=None, **kwargs):
     uri = nsxlib._build_uri_path(LSWITCH_RESOURCE, resource_id=lswitch_id)
-    lswitch_obj = {"display_name": utils.check_and_truncate(display_name),
-                   "tags": utils.get_tags(os_tid=tenant_id)}
-    if "tags" in kwargs:
-        lswitch_obj["tags"].extend(kwargs["tags"])
+    lswitch_obj = {"display_name": utils.check_and_truncate(display_name)}
+    # NOTE: tag update will not 'merge' existing tags with new ones.
+    tags = []
+    if tenant_id:
+        tags = utils.get_tags(os_tid=tenant_id)
+    # The 'tags' kwarg might existing and be None
+    tags.extend(kwargs.get('tags') or [])
+    if tags:
+        lswitch_obj['tags'] = tags
     try:
         return nsxlib.do_request(HTTP_PUT, uri, json.dumps(lswitch_obj),
                                  cluster=cluster)

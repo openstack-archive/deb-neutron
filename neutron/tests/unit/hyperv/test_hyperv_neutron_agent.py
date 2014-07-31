@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 Cloudbase Solutions SRL
 # Copyright 2013 Pedro Navarro Perez
 # All Rights Reserved.
@@ -147,7 +145,7 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
         self.assertNotIn(self._FAKE_PORT_ID, self.agent._port_metric_retries)
 
     def test_treat_devices_added_returns_true_for_missing_device(self):
-        attrs = {'get_device_details.side_effect': Exception()}
+        attrs = {'get_devices_details_list.side_effect': Exception()}
         self.agent.plugin_rpc.configure_mock(**attrs)
         self.assertTrue(self.agent._treat_devices_added([{}]))
 
@@ -158,7 +156,7 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
         :param func_name: the function that should be called
         :returns: whether the named function was called
         """
-        attrs = {'get_device_details.return_value': details}
+        attrs = {'get_devices_details_list.return_value': [details]}
         self.agent.plugin_rpc.configure_mock(**attrs)
         with mock.patch.object(self.agent, func_name) as func:
             self.assertFalse(self.agent._treat_devices_added([{}]))
@@ -212,13 +210,10 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
     def test_main(self):
         with mock.patch.object(hyperv_neutron_agent,
                                'HyperVNeutronAgent') as plugin:
-            with mock.patch.object(hyperv_neutron_agent.cfg, 'CONF') as cfg:
-                with mock.patch.object(
-                    hyperv_neutron_agent,
-                    'logging_config') as logging_config:
+            with mock.patch.object(hyperv_neutron_agent,
+                                   'common_config') as common_config:
+                hyperv_neutron_agent.main()
 
-                    hyperv_neutron_agent.main()
-
-                    self.assertTrue(cfg.called)
-                    self.assertTrue(logging_config.setup_logging.called)
-                    plugin.assert_has_calls([mock.call().daemon_loop()])
+                self.assertTrue(common_config.init.called)
+                self.assertTrue(common_config.setup_logging.called)
+                plugin.assert_has_calls([mock.call().daemon_loop()])

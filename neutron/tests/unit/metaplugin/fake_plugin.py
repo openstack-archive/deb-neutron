@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-#
 # Copyright 2012, Nachi Ueno, NTT MCL, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -74,6 +72,6 @@ class Fake2(Fake1):
     def fake_func2(self):
         return 'fake2'
 
-    def start_rpc_listener(self):
+    def start_rpc_listeners(self):
         # return value is only used to confirm this method was called.
         return 'OK'

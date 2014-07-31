@@ -21,6 +21,7 @@
 # @author: Akihiro MOTOKI
 
 import socket
+import sys
 import time
 
 import eventlet
@@ -29,15 +30,14 @@ eventlet.monkey_patch()
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
-from neutron.common import config as logging_config
+from neutron.common import config as common_config
 from neutron.common import constants as q_const
-from neutron.common import rpc_compat
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as q_context
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import dispatcher
 from neutron.plugins.nec.common import config
 
 
@@ -62,11 +62,12 @@ class NECPluginApi(agent_rpc.PluginApi):
                                 port_removed=port_removed))
 
 
-class NECAgentRpcCallback(object):
+class NECAgentRpcCallback(n_rpc.RpcCallback):
 
     RPC_API_VERSION = '1.0'
 
     def __init__(self, context, agent, sg_agent):
+        super(NECAgentRpcCallback, self).__init__()
         self.context = context
         self.agent = agent
         self.sg_agent = sg_agent
@@ -83,7 +84,7 @@ class NECAgentRpcCallback(object):
             self.sg_agent.refresh_firewall()
 
 
-class SecurityGroupServerRpcApi(rpc_compat.RpcProxy,
+class SecurityGroupServerRpcApi(n_rpc.RpcProxy,
                                 sg_rpc.SecurityGroupServerRpcApiMixin):
 
     def __init__(self, topic):
@@ -92,11 +93,13 @@ class SecurityGroupServerRpcApi(rpc_compat.RpcProxy,
 
 
 class SecurityGroupAgentRpcCallback(
+    n_rpc.RpcCallback,
     sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     RPC_API_VERSION = sg_rpc.SG_RPC_VERSION
 
     def __init__(self, context, sg_agent):
+        super(SecurityGroupAgentRpcCallback, self).__init__()
         self.context = context
         self.sg_agent = sg_agent
 
@@ -153,12 +156,11 @@ class NECNeutronAgent(object):
                                                 self, self.sg_agent)
         self.callback_sg = SecurityGroupAgentRpcCallback(self.context,
                                                          self.sg_agent)
-        self.dispatcher = dispatcher.RpcDispatcher([self.callback_nec,
-                                                    self.callback_sg])
+        self.endpoints = [self.callback_nec, self.callback_sg]
         # Define the listening consumer for the agent
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.SECURITY_GROUP, topics.UPDATE]]
-        self.connection = agent_rpc.create_consumers(self.dispatcher,
+        self.connection = agent_rpc.create_consumers(self.endpoints,
                                                      self.topic,
                                                      consumers)
 
@@ -231,9 +233,9 @@ class NECNeutronAgent(object):
 
 
 def main():
-    config.CONF(project='neutron')
+    common_config.init(sys.argv[1:])
 
-    logging_config.setup_logging(config.CONF)
+    common_config.setup_logging(config.CONF)
 
     # Determine which agent type to use.
     integ_br = config.OVS.integration_bridge

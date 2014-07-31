@@ -7,9 +7,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Neutron\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-06-09 06:08+0000\n"
-"PO-Revision-Date: 2014-05-29 07:49+0000\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"POT-Creation-Date: 2014-07-21 06:06+0000\n"
+"PO-Revision-Date: 2014-06-30 19:27+0000\n"
+"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: German (http://www.transifex.com/projects/p/neutron/language/"
 "de/)\n"
 "Language: de\n"
@@ -19,39 +19,19 @@ msgstr ""
 "Generated-By: Babel 1.3\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: neutron/openstack/common/service.py:363
+#: neutron/policy.py:94
+#, python-format
+msgid ""
+"Found deprecated policy rule:%s. Please consider upgrading your policy "
+"configuration file"
+msgstr ""
+
+#: neutron/policy.py:137
+#, python-format
+msgid "Unable to find data type descriptor for attribute %s"
+msgstr ""
+
+#: neutron/openstack/common/service.py:364
 #, python-format
 msgid "pid %d not in child list"
 msgstr "PID %d nicht in Liste untergeordneter Elemente"
-
-#: neutron/openstack/common/db/sqlalchemy/session.py:506
-#, python-format
-msgid "Database server has gone away: %s"
-msgstr "Datenbankserver ist nicht mehr vorhanden: %s"
-
-#: neutron/openstack/common/db/sqlalchemy/session.py:559
-msgid "Unable to detect effective SQL mode"
-msgstr "Unfähig geltenden SQL Modus zu erkennen."
-
-#: neutron/openstack/common/db/sqlalchemy/session.py:567
-#, python-format
-msgid ""
-"MySQL SQL mode is '%s', consider enabling TRADITIONAL or STRICT_ALL_TABLES"
-msgstr ""
-"MySQL SQL Modus ist '%s', erwägen Sie TRADITIONAL oder STRICT_ALL_TABLES zu "
-"aktivieren"
-
-#: neutron/openstack/common/db/sqlalchemy/session.py:673
-#, python-format
-msgid "SQL connection failed. %s attempts left."
-msgstr "SQL-Verbindung fehlgeschlagen. Noch %s weitere Versuche übrig."
-
-#: neutron/openstack/common/db/sqlalchemy/utils.py:97
-msgid "Id not in sort_keys; is sort_keys unique?"
-msgstr "ID ist nicht in 'sort_keys' enthalten; ist 'sort_keys' eindeutig?"
-
-#: neutron/openstack/common/rpc/matchmaker_ring.py:75
-#: neutron/openstack/common/rpc/matchmaker_ring.py:93
-#, python-format
-msgid "No key defining hosts for topic '%s', see ringfile"
-msgstr "Keine schlüsseldefinierenden Hosts für Topic '%s', siehe Ringdatei"

@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2013 Cisco Systems, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -25,7 +23,7 @@ from testtools import matchers
 from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron.db import api as db
-from neutron.db import db_base_plugin_v2
+from neutron.db import common_db_mixin
 from neutron.plugins.cisco.common import cisco_constants
 from neutron.plugins.cisco.common import cisco_exceptions as c_exc
 from neutron.plugins.cisco.db import n1kv_db_v2
@@ -771,7 +769,7 @@ class PolicyProfileTests(base.BaseTestCase):
 
 class ProfileBindingTests(base.BaseTestCase,
                           n1kv_db_v2.NetworkProfile_db_mixin,
-                          db_base_plugin_v2.CommonDbMixin):
+                          common_db_mixin.CommonDbMixin):
 
     def setUp(self):
         super(ProfileBindingTests, self).setUp()
@@ -825,6 +823,11 @@ class ProfileBindingTests(base.BaseTestCase,
         self.assertEqual(binding.profile_id, test_profile_id)
         self.assertEqual(binding.profile_type, test_profile_type)
 
+    def test_get_profile_binding_not_found(self):
+        self.assertRaises(
+            c_exc.ProfileTenantBindingNotFound,
+            n1kv_db_v2.get_profile_binding, self.session, "123", "456")
+
     def test_delete_profile_binding(self):
         test_tenant_id = "d434dd90-76ec-11e2-bcfd-0800200c9a66"
         test_profile_id = "dd7b9741-76ec-11e2-bcfd-0800200c9a66"
@@ -855,9 +858,11 @@ class ProfileBindingTests(base.BaseTestCase,
         binding = n1kv_db_v2.get_profile_binding(self.session,
                                                  ctx.tenant_id,
                                                  test_profile_id)
-        self.assertIsNone(n1kv_db_v2.get_profile_binding(
+        self.assertRaises(
+            c_exc.ProfileTenantBindingNotFound,
+            n1kv_db_v2.get_profile_binding,
             self.session,
             cisco_constants.TENANT_ID_NOT_SET,
-            test_profile_id))
+            test_profile_id)
         self.assertNotEqual(binding.tenant_id,
                             cisco_constants.TENANT_ID_NOT_SET)

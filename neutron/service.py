@@ -13,15 +13,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import eventlet
 import inspect
 import logging as std_logging
 import os
 import random
 
 from oslo.config import cfg
+from oslo.messaging import server as rpc_server
 
 from neutron.common import config
+from neutron.common import rpc as n_rpc
 from neutron import context
 from neutron.db import api as session
 from neutron import manager
@@ -29,7 +30,6 @@ from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
-from neutron.openstack.common.rpc import service
 from neutron.openstack.common import service as common_service
 from neutron import wsgi
 
@@ -112,36 +112,38 @@ class RpcWorker(object):
     """Wraps a worker to be handled by ProcessLauncher"""
     def __init__(self, plugin):
         self._plugin = plugin
-        self._server = None
+        self._servers = []
 
     def start(self):
         # We may have just forked from parent process.  A quick disposal of the
         # existing sql connections avoids producing errors later when they are
         # discovered to be broken.
         session.get_engine().pool.dispose()
-        self._server = self._plugin.start_rpc_listener()
+        self._servers = self._plugin.start_rpc_listeners()
 
     def wait(self):
-        if isinstance(self._server, eventlet.greenthread.GreenThread):
-            self._server.wait()
+        for server in self._servers:
+            if isinstance(server, rpc_server.MessageHandlingServer):
+                server.wait()
 
     def stop(self):
-        if isinstance(self._server, eventlet.greenthread.GreenThread):
-            self._server.kill()
-            self._server = None
+        for server in self._servers:
+            if isinstance(server, rpc_server.MessageHandlingServer):
+                server.kill()
+            self._servers = []
 
 
 def serve_rpc():
     plugin = manager.NeutronManager.get_plugin()
 
-    # If 0 < rpc_workers then start_rpc_listener would be called in a
+    # If 0 < rpc_workers then start_rpc_listeners would be called in a
     # subprocess and we cannot simply catch the NotImplementedError.  It is
     # simpler to check this up front by testing whether the plugin supports
     # multiple RPC workers.
     if not plugin.rpc_workers_supported():
-        LOG.debug(_("Active plugin doesn't implement start_rpc_listener"))
+        LOG.debug(_("Active plugin doesn't implement start_rpc_listeners"))
         if 0 < cfg.CONF.rpc_workers:
-            msg = _("'rpc_workers = %d' ignored because start_rpc_listener "
+            msg = _("'rpc_workers = %d' ignored because start_rpc_listeners "
                     "is not implemented.")
             LOG.error(msg, cfg.CONF.rpc_workers)
         raise NotImplementedError
@@ -178,7 +180,7 @@ def _run_wsgi(app_name):
     return server
 
 
-class Service(service.Service):
+class Service(n_rpc.Service):
     """Service object for binaries running on hosts.
 
     A service takes a manager and enables rpc by listening to queues based

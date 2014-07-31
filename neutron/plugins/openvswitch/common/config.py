@@ -1,5 +1,3 @@
-# vim: tabstop=4 shiftwidth=4 softtabstop=4
-
 # Copyright 2012 Red Hat, Inc.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -56,6 +54,9 @@ ovs_opts = [
     cfg.StrOpt('tunnel_type', default='',
                help=_("The type of tunnels to use when utilizing tunnels, "
                       "either 'gre' or 'vxlan'")),
+    cfg.BoolOpt('use_veth_interconnection', default=False,
+                help=_("Use veths instead of patch ports to interconnect the "
+                       "integration bridge to physical bridges")),
 ]
 
 agent_opts = [
@@ -85,6 +86,8 @@ agent_opts = [
     cfg.BoolOpt('dont_fragment', default=True,
                 help=_("Set or un-set the don't fragment (DF) bit on "
                        "outgoing IP packet carrying GRE/VXLAN tunnel")),
+    cfg.BoolOpt('enable_distributed_routing', default=False,
+                help=_("Make the l2 agent run in DVR mode ")),
 ]
 
 
