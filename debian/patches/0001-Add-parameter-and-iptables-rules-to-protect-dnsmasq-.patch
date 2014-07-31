@@ -17,8 +17,10 @@ Last-Update: 2014-06-30
  neutron/tests/unit/test_linux_dhcp.py |  259 ++++++++++++++++++++++++++++++++-
  3 files changed, 421 insertions(+), 2 deletions(-)
 
---- a/etc/dhcp_agent.ini
-+++ b/etc/dhcp_agent.ini
+Index: neutron/etc/dhcp_agent.ini
+===================================================================
+--- neutron.orig/etc/dhcp_agent.ini	2014-07-18 10:32:38.000000000 +0800
++++ neutron/etc/dhcp_agent.ini	2014-07-31 22:31:22.000000000 +0800
 @@ -86,3 +86,8 @@
  # Timeout for ovs-vsctl commands.
  # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
@@ -28,9 +30,11 @@ Last-Update: 2014-06-30
 +# Useful when a subnet is routed to another one or in the case of an
 +# external network.
 +# isolate_dns_requests = False
---- a/neutron/agent/linux/dhcp.py
-+++ b/neutron/agent/linux/dhcp.py
-@@ -28,6 +28,7 @@
+Index: neutron/neutron/agent/linux/dhcp.py
+===================================================================
+--- neutron.orig/neutron/agent/linux/dhcp.py	2014-07-31 22:28:57.000000000 +0800
++++ neutron/neutron/agent/linux/dhcp.py	2014-07-31 22:31:22.000000000 +0800
+@@ -26,6 +26,7 @@
  import six
  
  from neutron.agent.linux import ip_lib
@@ -38,7 +42,7 @@ Last-Update: 2014-06-30
  from neutron.agent.linux import utils
  from neutron.common import constants
  from neutron.common import exceptions
-@@ -59,6 +60,9 @@
+@@ -57,6 +58,9 @@
          'dnsmasq_lease_max',
          default=(2 ** 24),
          help=_('Limit number of leases to prevent a denial-of-service.')),
@@ -48,7 +52,7 @@ Last-Update: 2014-06-30
  ]
  
  IPV4 = 4
-@@ -75,6 +79,7 @@
+@@ -73,6 +77,7 @@
  METADATA_PORT = 80
  WIN2k3_STATIC_DNS = 249
  NS_PREFIX = 'qdhcp-'
@@ -56,7 +60,7 @@ Last-Update: 2014-06-30
  
  
  class DictModel(dict):
-@@ -706,7 +711,67 @@
+@@ -730,7 +735,67 @@
              sock.close()
  
  
@@ -124,7 +128,7 @@ Last-Update: 2014-06-30
  
      def __init__(self, conf, root_helper, plugin):
          self.conf = conf
-@@ -855,6 +920,87 @@
+@@ -879,6 +944,87 @@
  
          return dhcp_port
  
@@ -212,7 +216,7 @@ Last-Update: 2014-06-30
      def setup(self, network):
          """Create and initialize a device for network's DHCP on this host."""
          port = self.setup_dhcp_port(network)
-@@ -893,6 +1039,9 @@
+@@ -917,6 +1063,9 @@
          if self.conf.use_namespaces:
              self._set_default_route(network, interface_name)
  
@@ -222,7 +226,7 @@ Last-Update: 2014-06-30
          return interface_name
  
      def update(self, network, device_name):
-@@ -900,9 +1049,17 @@
+@@ -924,9 +1073,17 @@
          if self.conf.use_namespaces:
              self._set_default_route(network, device_name)
  

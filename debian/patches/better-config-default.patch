@@ -1,12 +1,36 @@
-Description: Better config default
- The default of Neutron make it so that it's not usable by default, and hard to
- parse with maintainer scripts. This patch fixes that.
-Author: Thomas Goirand <zigo@debian.org>
-Forwarded: no
-Last-Update: 2014-06-30
+Description: <short summary of the patch>
+ TODO: Put a short summary on the line above and replace this paragraph
+ with a longer explanation of this change. Complete the meta-information
+ with other relevant fields (see below for details). To make it easier, the
+ information below has been extracted from the changelog. Adjust it or drop
+ it.
+ .
+ neutron (2014.2~b2-1) experimental; urgency=medium
+ .
+   [ Thomas Goirand ]
+   * Disabled ml2 config patch.
+   * Fixed (build-)depends for this release.
+ .
+   [ gustavo panizzo ]
+   * New upstream release.
+   * Support to run neutron under systemd.
+Author: gustavo panizzo <gfa@zumbi.com.ar>
 
---- a/etc/l3_agent.ini
-+++ b/etc/l3_agent.ini
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: http://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: <YYYY-MM-DD>
+
+--- neutron-2014.2~b2.orig/etc/l3_agent.ini
++++ neutron-2014.2~b2/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -20,19 +44,19 @@ Last-Update: 2014-06-30
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- a/etc/neutron.conf
-+++ b/etc/neutron.conf
-@@ -50,8 +50,7 @@
+--- neutron-2014.2~b2.orig/etc/neutron.conf
++++ neutron-2014.2~b2/etc/neutron.conf
+@@ -60,8 +60,8 @@ lock_path = $state_path/lock
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
  #
 -# core_plugin =
--# Example: core_plugin = ml2
+ # Example: core_plugin = ml2
 +core_plugin = neutron.plugins.ml2.plugin.Ml2Plugin
  
  # (ListOpt) List of service plugin entrypoints to be loaded from the
  # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of
-@@ -59,8 +58,8 @@
+@@ -69,8 +69,8 @@ lock_path = $state_path/lock
  # with previous versions, the class name of a plugin can be specified instead
  # of its entrypoint name.
  #
@@ -42,27 +66,29 @@ Last-Update: 2014-06-30
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -132,16 +131,16 @@
- # SSL certification authority file (valid only if SSL enabled)
- # kombu_ssl_ca_certs =
- # IP address of the RabbitMQ installation
--# rabbit_host = localhost
-+rabbit_host = localhost
- # Password of the RabbitMQ server
--# rabbit_password = guest
-+rabbit_password = guest
- # Port where RabbitMQ server is running/listening
- # rabbit_port = 5672
- # RabbitMQ single or HA cluster (host:port pairs i.e: host1:5672, host2:5672)
- # rabbit_hosts is defaulted to '$rabbit_host:$rabbit_port'
- # rabbit_hosts = localhost:5672
- # User ID used for RabbitMQ connections
--# rabbit_userid = guest
-+rabbit_userid = guest
- # Location of a virtual RabbitMQ installation.
- # rabbit_virtual_host = /
- # Maximum retries with trying to connect to RabbitMQ
-@@ -389,7 +388,7 @@
+@@ -315,7 +315,7 @@ lock_path = $state_path/lock
+ 
+ # The RabbitMQ broker address where a single node is used.
+ # (string value)
+-#rabbit_host=localhost
++rabbit_host=localhost
+ 
+ # The RabbitMQ broker port where a single node is used.
+ # (integer value)
+@@ -328,10 +328,10 @@ lock_path = $state_path/lock
+ #rabbit_use_ssl=false
+ 
+ # The RabbitMQ userid. (string value)
+-#rabbit_userid=guest
++rabbit_userid=guest
+ 
+ # The RabbitMQ password. (string value)
+-#rabbit_password=guest
++rabbit_password=guest
+ 
+ # the RabbitMQ login method (string value)
+ #rabbit_login_method=AMQPLAIN
+@@ -507,7 +507,7 @@ lock_path = $state_path/lock
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -71,21 +97,24 @@ Last-Update: 2014-06-30
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -408,11 +407,9 @@
- 
+@@ -527,14 +527,13 @@ admin_password = %SERVICE_PASSWORD%
  [database]
  # This line MUST be changed to actually run the plugin.
--# Example:
+ # Example:
 -# connection = mysql://root:pass@127.0.0.1:3306/neutron
  # Replace 127.0.0.1 above with the IP address of the database used by the
  # main neutron server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
+ # NOTE: In deployment the [database] section and its connection attribute may
+ # be set in the corresponding core plugin '.ini' file. However, it is suggested
+ # to put the [database] section and its connection attribute in this
+ # configuration file.
 +connection = sqlite:///var/lib/neutron/neutrondb
  
  # Database engine for which script will be generated when using offline
  # migration
---- a/etc/lbaas_agent.ini
-+++ b/etc/lbaas_agent.ini
+--- neutron-2014.2~b2.orig/etc/lbaas_agent.ini
++++ neutron-2014.2~b2/etc/lbaas_agent.ini
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -99,8 +128,8 @@ Last-Update: 2014-06-30
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- a/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ b/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+--- neutron-2014.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2014.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
@@ -136,7 +165,7 @@ Last-Update: 2014-06-30
  
  # (ListOpt) Comma-separated list of <physical_network>:<bridge> tuples
  # mapping physical network names to the agent's node-specific OVS
-@@ -140,40 +140,10 @@
+@@ -151,40 +151,10 @@
  
  [securitygroup]
  # Firewall driver for realizing neutron security group function.
