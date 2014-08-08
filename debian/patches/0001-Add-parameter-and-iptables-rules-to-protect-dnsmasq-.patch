@@ -16,10 +16,10 @@ Closes-bug: #1260731
  neutron/tests/unit/test_linux_dhcp.py |  259 ++++++++++++++++++++++++++++++++-
  3 files changed, 421 insertions(+), 2 deletions(-)
 
-diff --git a/etc/dhcp_agent.ini b/etc/dhcp_agent.ini
-index 9836d35..df11b35 100644
---- a/etc/dhcp_agent.ini
-+++ b/etc/dhcp_agent.ini
+Index: neutron/etc/dhcp_agent.ini
+===================================================================
+--- neutron.orig/etc/dhcp_agent.ini	2014-07-31 22:42:58.000000000 +0800
++++ neutron/etc/dhcp_agent.ini	2014-08-09 01:10:37.000000000 +0800
 @@ -86,3 +86,8 @@
  # Timeout for ovs-vsctl commands.
  # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
@@ -29,11 +29,11 @@ index 9836d35..df11b35 100644
 +# Useful when a subnet is routed to another one or in the case of an
 +# external network.
 +# isolate_dns_requests = False
-diff --git a/neutron/agent/linux/dhcp.py b/neutron/agent/linux/dhcp.py
-index e650c00..267e020 100644
---- a/neutron/agent/linux/dhcp.py
-+++ b/neutron/agent/linux/dhcp.py
-@@ -29,6 +29,7 @@ from oslo.config import cfg
+Index: neutron/neutron/agent/linux/dhcp.py
+===================================================================
+--- neutron.orig/neutron/agent/linux/dhcp.py	2014-08-09 00:23:16.000000000 +0800
++++ neutron/neutron/agent/linux/dhcp.py	2014-08-09 01:10:37.000000000 +0800
+@@ -29,6 +29,7 @@
  import six
  
  from neutron.agent.linux import ip_lib
@@ -41,7 +41,7 @@ index e650c00..267e020 100644
  from neutron.agent.linux import utils
  from neutron.common import constants
  from neutron.common import exceptions
-@@ -59,6 +60,9 @@ OPTS = [
+@@ -59,6 +60,9 @@
          'dnsmasq_lease_max',
          default=(2 ** 24),
          help=_('Limit number of leases to prevent a denial-of-service.')),
@@ -51,7 +51,7 @@ index e650c00..267e020 100644
  ]
  
  IPV4 = 4
-@@ -75,6 +79,7 @@ METADATA_DEFAULT_CIDR = '%s/%d' % (METADATA_DEFAULT_IP,
+@@ -75,6 +79,7 @@
  METADATA_PORT = 80
  WIN2k3_STATIC_DNS = 249
  NS_PREFIX = 'qdhcp-'
@@ -59,7 +59,7 @@ index e650c00..267e020 100644
  
  
  class DictModel(object):
-@@ -670,7 +675,67 @@ class Dnsmasq(DhcpLocalProcess):
+@@ -669,7 +674,67 @@
              sock.close()
  
  
@@ -127,7 +127,7 @@ index e650c00..267e020 100644
  
      def __init__(self, conf, root_helper, plugin):
          self.conf = conf
-@@ -811,10 +876,93 @@ class DeviceManager(object):
+@@ -805,10 +870,93 @@
  
          return dhcp_port
  
@@ -221,19 +221,19 @@ index e650c00..267e020 100644
  
          if ip_lib.device_exists(interface_name,
                                  self.root_helper,
-@@ -853,6 +1001,9 @@ class DeviceManager(object):
+@@ -847,6 +995,9 @@
          if self.conf.use_namespaces:
-             self._set_default_route(network, port)
+             self._set_default_route(network, interface_name)
  
 +        if self.conf.isolate_dns_requests:
 +            self._apply_dns_isolation(network, interface_name)
 +
          return interface_name
  
-     def update(self, network):
-@@ -864,9 +1015,17 @@ class DeviceManager(object):
-                 raise exceptions.NetworkNotFound(net_id=network.id)
-             self._set_default_route(network, port)
+     def update(self, network, device_name):
+@@ -854,9 +1005,17 @@
+         if self.conf.use_namespaces:
+             self._set_default_route(network, device_name)
  
 +        if self.conf.isolate_dns_requests:
 +            self._apply_dns_isolation(network)
@@ -249,290 +249,3 @@ index e650c00..267e020 100644
                                        self.get_device_id(network))
 +
 +        DeviceManager.interface_name_cache.remove(network)
-diff --git a/neutron/tests/unit/test_linux_dhcp.py b/neutron/tests/unit/test_linux_dhcp.py
-index 7764bce..f18677f 100644
---- a/neutron/tests/unit/test_linux_dhcp.py
-+++ b/neutron/tests/unit/test_linux_dhcp.py
-@@ -15,6 +15,7 @@
- #    License for the specific language governing permissions and limitations
- #    under the License.
- 
-+import contextlib
- import os
- 
- import mock
-@@ -396,8 +397,8 @@ class TestBase(base.BaseTestCase):
-         self.conf.register_opts(base_config.core_opts)
-         self.conf.register_opts(dhcp.OPTS)
-         config.register_interface_driver_opts_helper(self.conf)
--        instance = mock.patch("neutron.agent.linux.dhcp.DeviceManager")
--        self.mock_mgr = instance.start()
-+        self.device_mock = mock.patch("neutron.agent.linux.dhcp.DeviceManager")
-+        self.mock_mgr = self.device_mock.start()
-         self.conf.register_opt(cfg.BoolOpt('enable_isolated_metadata',
-                                            default=True))
-         self.conf(args=args)
-@@ -531,6 +532,260 @@ class TestDhcpLocalProcess(TestBase):
-             self.assertEqual(lp.called, ['spawn'])
-             self.assertTrue(mocks['interface_name'].__set__.called)
- 
-+    def _test_namespace_iptables_manager_cache(self):
-+        network1 = FakeV4Network()
-+        network2 = FakeV4Network()
-+        network2.id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-+        network2.namespace = 'abc'
-+        network3 = FakeV4Network()
-+        network3.id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
-+        network3.namespace = 'ghi'
-+
-+        im_cache = dhcp.NamespaceIptablesManagerCache()
-+        im1 = im_cache.get_or_create(network1, 'sudo')
-+        self.assertIsNotNone(im1)
-+
-+        im = im_cache.get_or_create(network1, 'sudo')
-+        self.assertEqual(im, im1)
-+
-+        im2 = im_cache.get_or_create(network2, 'sudo')
-+        self.assertIsNotNone(im2)
-+        self.assertNotEqual(im1, im2)
-+
-+        im = im_cache.get(network1)
-+        self.assertEqual(im, im1)
-+
-+        im = im_cache.get(network2)
-+        self.assertEqual(im, im2)
-+
-+        im = im_cache.get(network3)
-+        self.assertIsNone(im)
-+
-+        im_cache.remove(network1)
-+        im = im_cache.get(network1)
-+        self.assertIsNone(im)
-+
-+        iptables_inst = mock.Mock()
-+        with contextlib.nested(mock.patch('neutron.agent.linux.'
-+                                          'iptables_manager.IptablesManager',
-+                                          return_value=iptables_inst),
-+                               mock.patch.object(dhcp.LOG, 'error')
-+                               ) as (ipm, log):
-+            im_cache = dhcp.NamespaceIptablesManagerCache()
-+            up_to_date = im_cache.is_up_to_date(network1)
-+            self.assertFalse(up_to_date)
-+
-+            im = im_cache.get_or_create(network1, 'sudo')
-+            im_cache.apply(network1)
-+
-+            up_to_date = im_cache.is_up_to_date(network1)
-+            self.assertTrue(up_to_date)
-+
-+            network1.subnets.append(FakeV4SubnetNoRouter())
-+            up_to_date = im_cache.is_up_to_date(network1)
-+            self.assertFalse(up_to_date)
-+
-+            im_cache.apply(network3)
-+            log.assert_called_only_once()
-+
-+    def test_interface_name_cache(self):
-+        int_cache = dhcp.InterfaceNameCache()
-+
-+        network = FakeV4Network()
-+        int_cache.set(network, 'tap123')
-+        name = int_cache.get(network)
-+        self.assertEqual('tap123', name)
-+
-+        name = int_cache.get(FakeV4SubnetNoRouter())
-+        self.assertEqual(name, None)
-+
-+        int_cache.remove(network)
-+        name = int_cache.get(network)
-+        self.assertEqual(name, None)
-+
-+    def test_apply_dns_isolation_non_existing_port(self):
-+        self.device_mock.stop()
-+        self.conf.set_override('interface_driver',
-+                               'neutron.agent.linux.interface.'
-+                               'OVSInterfaceDriver')
-+
-+        iptables_inst = mock.Mock()
-+        v4filter_inst = mock.Mock()
-+        v6filter_inst = mock.Mock()
-+        v4filter_inst.chains = []
-+        v6filter_inst.chains = []
-+        iptables_inst.ipv4 = {'filter': v4filter_inst}
-+        iptables_inst.ipv6 = {'filter': v6filter_inst}
-+
-+        plugin_inst = mock.Mock()
-+
-+        dhcp.DeviceManager.interface_name_cache = dhcp.InterfaceNameCache()
-+        dhcp.DeviceManager.iptables_manager_cache = (
-+            dhcp.NamespaceIptablesManagerCache())
-+
-+        with contextlib.nested(mock.patch('neutron.agent.linux.interface.'
-+                                          'OVSInterfaceDriver'),
-+                               mock.patch('neutron.agent.linux.'
-+                                          'iptables_manager.IptablesManager',
-+                                          return_value=iptables_inst),
-+                               mock.patch.object(dhcp.LOG, 'error')
-+                               ) as (ovs_driver, ipm, log):
-+            network = FakeV4Network()
-+
-+            plugin_inst.get_dhcp_port.return_value = None
-+
-+            device_mng = dhcp.DeviceManager(self.conf,
-+                                            'sudo', plugin_inst)
-+            device_mng.driver.get_device_name.return_value = 'tap123'
-+            device_mng.get_interface_name(network, network.ports[0])
-+
-+            log.assert_called_once()
-+
-+            self.assertFalse(v4filter_inst.called)
-+            self.assertFalse(v6filter_inst.called)
-+            self.assertFalse(iptables_inst.apply.called)
-+
-+    def test_apply_dns_isolation(self):
-+        self.device_mock.stop()
-+        self.conf.set_override('interface_driver',
-+                               'neutron.agent.linux.interface.'
-+                               'OVSInterfaceDriver')
-+
-+        iptables_inst = mock.Mock()
-+        v4filter_inst = mock.Mock()
-+        v6filter_inst = mock.Mock()
-+        v4filter_inst.chains = []
-+        v6filter_inst.chains = []
-+        iptables_inst.ipv4 = {'filter': v4filter_inst}
-+        iptables_inst.ipv6 = {'filter': v6filter_inst}
-+
-+        plugin_inst = mock.Mock()
-+
-+        dhcp.DeviceManager.interface_name_cache = dhcp.InterfaceNameCache()
-+        dhcp.DeviceManager.iptables_manager_cache = (
-+            dhcp.NamespaceIptablesManagerCache())
-+
-+        with contextlib.nested(mock.patch('neutron.agent.linux.interface.'
-+                                          'OVSInterfaceDriver'),
-+                               mock.patch('neutron.agent.linux.'
-+                                          'iptables_manager.IptablesManager',
-+                                          return_value=iptables_inst)
-+                               ) as (ovs_driver, ipm):
-+            network = FakeV4Network()
-+
-+            device_mng = dhcp.DeviceManager(self.conf,
-+                                            'sudo', plugin_inst)
-+            device_mng.interface_name_cache.set(network, 'tap123')
-+
-+            device_mng._apply_dns_isolation(network)
-+
-+            callsv4 = [mock.call.add_chain('dns-aaaaaaa'),
-+                       mock.call.empty_chain('dns-aaaaaaa'),
-+                       mock.call.add_rule('dns-aaaaaaa', '-j DROP'),
-+                       mock.call.add_rule('INPUT', '-p udp -m udp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-aaaaaaa'),
-+                       mock.call.add_rule('INPUT', '-p tcp -m tcp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-aaaaaaa'),
-+                       mock.call.add_rule('dns-aaaaaaa',
-+                                          '-s 192.168.0.0/24 '
-+                                          '-j RETURN', top=True)]
-+            v4filter_inst.assert_has_calls(callsv4)
-+
-+            callsv6 = [mock.call.add_chain('dns-aaaaaaa'),
-+                       mock.call.empty_chain('dns-aaaaaaa'),
-+                       mock.call.add_rule('dns-aaaaaaa', '-j DROP'),
-+                       mock.call.add_rule('INPUT', '-p udp -m udp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-aaaaaaa'),
-+                       mock.call.add_rule('INPUT', '-p tcp -m tcp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-aaaaaaa')]
-+            v6filter_inst.assert_has_calls(callsv6)
-+
-+            iptables_inst.apply.assert_called_once()
-+
-+            v4filter_inst.reset_mock()
-+            v6filter_inst.reset_mock()
-+
-+            network = FakeV6Network()
-+
-+            device_mng.interface_name_cache.set(network, 'tap123')
-+            device_mng._apply_dns_isolation(network)
-+
-+            callsv4 = [mock.call.add_chain('dns-bbbbbbb'),
-+                       mock.call.empty_chain('dns-bbbbbbb'),
-+                       mock.call.add_rule('dns-bbbbbbb', '-j DROP'),
-+                       mock.call.add_rule('INPUT', '-p udp -m udp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-bbbbbbb'),
-+                       mock.call.add_rule('INPUT', '-p tcp -m tcp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-bbbbbbb')]
-+            v4filter_inst.assert_has_calls(callsv4)
-+
-+            callsv6 = [mock.call.add_chain('dns-bbbbbbb'),
-+                       mock.call.empty_chain('dns-bbbbbbb'),
-+                       mock.call.add_rule('dns-bbbbbbb', '-j DROP'),
-+                       mock.call.add_rule('INPUT', '-p udp -m udp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-bbbbbbb'),
-+                       mock.call.add_rule('INPUT', '-p tcp -m tcp '
-+                                          '--dport 53 -i tap123 '
-+                                          '-j $dns-bbbbbbb'),
-+                       mock.call.add_rule('dns-bbbbbbb',
-+                                          '-s fdca:3ba5:a17a:4ba3::/64'
-+                                          ' -j RETURN', top=True)]
-+            v6filter_inst.assert_has_calls(callsv6)
-+
-+            iptables_inst.apply.assert_called_once()
-+
-+    def test_remove_dns_isolation(self):
-+        self.device_mock.stop()
-+        self.conf.set_override('interface_driver',
-+                               'neutron.agent.linux.interface.'
-+                               'OVSInterfaceDriver')
-+
-+        iptables_inst = mock.Mock()
-+        v4filter_inst = mock.Mock()
-+        v6filter_inst = mock.Mock()
-+        v4filter_inst.chains = []
-+        v6filter_inst.chains = []
-+        iptables_inst.ipv4 = {'filter': v4filter_inst}
-+        iptables_inst.ipv6 = {'filter': v6filter_inst}
-+
-+        plugin_inst = mock.Mock()
-+
-+        dhcp.DeviceManager.interface_name_cache = dhcp.InterfaceNameCache()
-+        dhcp.DeviceManager.iptables_manager_cache = (
-+            dhcp.NamespaceIptablesManagerCache())
-+
-+        with contextlib.nested(mock.patch('neutron.agent.linux.interface.'
-+                                          'OVSInterfaceDriver'),
-+                               mock.patch('neutron.agent.linux.'
-+                                          'iptables_manager.IptablesManager',
-+                                          return_value=iptables_inst)
-+                               ) as (ovs_driver, ipm):
-+            network = FakeV4Network()
-+
-+            device_mng = dhcp.DeviceManager(self.conf,
-+                                            'sudo', plugin_inst)
-+            device_mng.interface_name_cache.set(network, 'tap123')
-+
-+            # First, apply the dns isolation
-+            device_mng._apply_dns_isolation(network)
-+
-+            # Get a new instance of the DeviceManager, in order to check
-+            # that the iptables manager and the interface name caches work.
-+            device_mng = dhcp.DeviceManager(self.conf,
-+                                            'sudo', plugin_inst)
-+            device_mng._remove_dns_isolation(network)
-+
-+            v4filter_inst.remove_chain.assert_called_once_with('dns-aaaaaaa')
-+
-+            iptables_inst.apply.assert_called_once()
-+
-     def test_disable_not_active(self):
-         attrs_to_mock = dict([(a, mock.DEFAULT) for a in
-                               ['active', 'interface_name', 'pid']])
--- 
-1.7.9.5
-
