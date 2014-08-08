@@ -242,7 +242,8 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             # Plugin DB - Port Create and Return port
             port_db = super(NeutronPluginPLUMgridV2,
                             self).get_port(context, port_id)
-            self.disassociate_floatingips(context, port_id)
+            router_ids = self.disassociate_floatingips(
+                context, port_id, do_notify=False)
             super(NeutronPluginPLUMgridV2, self).delete_port(context, port_id)
 
             if port_db["device_owner"] == constants.DEVICE_OWNER_ROUTER_GW:
@@ -256,6 +257,9 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
 
             except Exception as err_message:
                 raise plum_excep.PLUMgridException(err_msg=err_message)
+
+        # now that we've left db transaction, we are safe to notify
+        self.notify_routers_updated(context, router_ids)
 
     def get_port(self, context, id, fields=None):
         with context.session.begin(subtransactions=True):
@@ -528,7 +532,7 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
             except Exception as err_message:
                 raise plum_excep.PLUMgridException(err_msg=err_message)
 
-    def disassociate_floatingips(self, context, port_id):
+    def disassociate_floatingips(self, context, port_id, do_notify=True):
         LOG.debug(_("Neutron PLUMgrid Director: disassociate_floatingips() "
                     "called"))
 
@@ -546,8 +550,8 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
         except Exception as err_message:
             raise plum_excep.PLUMgridException(err_msg=err_message)
 
-        super(NeutronPluginPLUMgridV2,
-              self).disassociate_floatingips(context, port_id)
+        return super(NeutronPluginPLUMgridV2, self).disassociate_floatingips(
+            context, port_id, do_notify=do_notify)
 
     """
     Internal PLUMgrid Fuctions
@@ -583,12 +587,17 @@ class NeutronPluginPLUMgridV2(db_base_plugin_v2.NeutronDbPluginV2,
         pools = []
         # Auto allocate the pool around gateway_ip
         net = netaddr.IPNetwork(subnet['cidr'])
-        first_ip = net.first + 2
+        boundary = int(netaddr.IPAddress(subnet['gateway_ip'] or net.last))
+        potential_dhcp_ip = int(net.first + 1)
+        if boundary == potential_dhcp_ip:
+            first_ip = net.first + 3
+            boundary = net.first + 2
+        else:
+            first_ip = net.first + 2
         last_ip = net.last - 1
-        gw_ip = int(netaddr.IPAddress(subnet['gateway_ip'] or net.last))
         # Use the gw_ip to find a point for splitting allocation pools
         # for this subnet
-        split_ip = min(max(gw_ip, net.first), net.last)
+        split_ip = min(max(boundary, net.first), net.last)
         if split_ip > first_ip:
             pools.append({'start': str(netaddr.IPAddress(first_ip)),
                           'end': str(netaddr.IPAddress(split_ip - 1))})

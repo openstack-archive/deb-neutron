@@ -104,7 +104,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
     def __init__(self):
         super(NECPluginV2, self).__init__()
-        self.ofc = ofc_manager.OFCManager(self)
+        self.ofc = ofc_manager.OFCManager(self.safe_reference)
         self.base_binding_dict = self._get_base_binding_dict()
         portbindings_base.register_port_dict_function()
 
@@ -120,7 +120,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             config.CONF.router_scheduler_driver
         )
 
-        nec_router.load_driver(self, self.ofc)
+        nec_router.load_driver(self.safe_reference, self.ofc)
         self.port_handlers = {
             'create': {
                 const.DEVICE_OWNER_ROUTER_GW: self.create_router_port,
@@ -148,7 +148,7 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
 
         # NOTE: callback_sg is referred to from the sg unit test.
         self.callback_sg = SecurityGroupServerRpcCallback()
-        callbacks = [NECPluginV2RPCCallbacks(self),
+        callbacks = [NECPluginV2RPCCallbacks(self.safe_reference),
                      DhcpRpcCallback(),
                      L3RpcCallback(),
                      self.callback_sg,
@@ -652,9 +652,13 @@ class NECPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         if l3_port_check:
             self.prevent_l3_port_deletion(context, id)
         with context.session.begin(subtransactions=True):
-            self.disassociate_floatingips(context, id)
+            router_ids = self.disassociate_floatingips(
+                context, id, do_notify=False)
             self._delete_port_security_group_bindings(context, id)
             super(NECPluginV2, self).delete_port(context, id)
+
+        # now that we've left db transaction, we are safe to notify
+        self.notify_routers_updated(context, router_ids)
         self.notify_security_groups_member_updated(context, port)
 
 
