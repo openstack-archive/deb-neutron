@@ -1,6 +1,7 @@
 neutron (2014.1.2-1) unstable; urgency=medium
 
   * New upstream point release.
+  * New minimal version for python-six is 1.6.0.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 09 Aug 2014 00:22:47 +0800
 
