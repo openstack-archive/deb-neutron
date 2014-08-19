@@ -268,8 +268,8 @@ Package: neutron-dhcp-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
-         dnsmasq-base,
-         dnsmasq-utils,
+         dnsmasq-base (>= 2.63),
+         dnsmasq-utils (>= 2.63),
          neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
