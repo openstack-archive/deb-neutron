@@ -51,8 +51,7 @@ def upgrade(active_plugins=None, options=None):
         sa.Column('interface_name', sa.String(length=64), nullable=True),
         sa.ForeignKeyConstraint(['network_gateway_id'], ['networkgateways.id'],
                                 ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id', 'network_gateway_id', 'interface_name'),
-        mysql_engine='InnoDB')
+        sa.PrimaryKeyConstraint('id', 'network_gateway_id', 'interface_name'))
     # Copy data from networkgatewaydevices into networkgatewaydevicereference
     op.execute("INSERT INTO networkgatewaydevicereferences SELECT "
                "id, network_gateway_id, interface_name FROM "
@@ -68,8 +67,7 @@ def upgrade(active_plugins=None, options=None):
         sa.Column('connector_type', sa.String(length=10), nullable=True),
         sa.Column('connector_ip', sa.String(length=64), nullable=True),
         sa.Column('status', sa.String(length=16), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-        mysql_engine='InnoDB')
+        sa.PrimaryKeyConstraint('id'))
     # Create a networkgatewaydevice for each existing reference.
     # For existing references nsx_id == neutron_id
     # Do not fill conenctor info as they would be unknown
@@ -81,23 +79,4 @@ def upgrade(active_plugins=None, options=None):
 
 
 def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
-    op.drop_table('networkgatewaydevices')
-    # Re-create previous version of networkgatewaydevices table
-    op.create_table(
-        'networkgatewaydevices',
-        sa.Column('id', sa.String(length=36), nullable=False),
-        sa.Column('network_gateway_id', sa.String(length=36), nullable=True),
-        sa.Column('interface_name', sa.String(length=64), nullable=True),
-        sa.ForeignKeyConstraint(['network_gateway_id'], ['networkgateways.id'],
-                                ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        mysql_engine='InnoDB')
-    # Copy from networkgatewaydevicereferences to networkgatewaydevices
-    op.execute("INSERT INTO networkgatewaydevices SELECT "
-               "id, network_gateway_id, interface_name FROM "
-               "networkgatewaydevicereferences")
-    # Dropt networkgatewaydevicereferences
-    op.drop_table('networkgatewaydevicereferences')
+    pass

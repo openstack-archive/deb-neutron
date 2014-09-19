@@ -19,7 +19,6 @@ import jsonrpclib
 from oslo.config import cfg
 
 from neutron.common import constants as n_const
-from neutron.extensions import portbindings
 from neutron.openstack.common import log as logging
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api
@@ -30,6 +29,7 @@ from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
 LOG = logging.getLogger(__name__)
 
 EOS_UNREACHABLE_MSG = _('Unable to reach EOS')
+DEFAULT_VLAN = 1
 
 
 class AristaRPCWrapper(object):
@@ -224,6 +224,8 @@ class AristaRPCWrapper(object):
             except KeyError:
                 append_cmd('network id %s' % network['network_id'])
             # Enter segment mode without exiting out of network mode
+            if not network['segmentation_id']:
+                network['segmentation_id'] = DEFAULT_VLAN
             append_cmd('segment 1 type vlan id %d' %
                        network['segmentation_id'])
         cmds.extend(self._get_exit_mode_cmds(['segment', 'network', 'tenant']))
@@ -555,13 +557,13 @@ class SyncService(object):
             try:
                 self._rpc.delete_this_region()
                 msg = _('No Tenants configured in Neutron DB. But %d '
-                        'tenants disovered in EOS during synchronization.'
-                        'Enitre EOS region is cleared') % len(eos_tenants)
+                        'tenants discovered in EOS during synchronization.'
+                        'Entire EOS region is cleared') % len(eos_tenants)
                 LOG.info(msg)
                 # Re-register with EOS so that the timestamp is updated.
                 self._rpc.register_with_eos()
                 # Region has been completely cleaned. So there is nothing to
-                # syncronize
+                # synchronize
                 self._force_sync = False
             except arista_exc.AristaRpcError:
                 LOG.warning(EOS_UNREACHABLE_MSG)
@@ -656,7 +658,7 @@ class SyncService(object):
 class AristaDriver(driver_api.MechanismDriver):
     """Ml2 Mechanism driver for Arista networking hardware.
 
-    Remebers all networks and VMs that are provisioned on Arista Hardware.
+    Remembers all networks and VMs that are provisioned on Arista Hardware.
     Does not send network provisioning request if the network has already been
     provisioned before for the given port.
     """
@@ -801,7 +803,7 @@ class AristaDriver(driver_api.MechanismDriver):
         port = context.current
         device_id = port['device_id']
         device_owner = port['device_owner']
-        host = port[portbindings.HOST_ID]
+        host = context.host
 
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
@@ -822,7 +824,7 @@ class AristaDriver(driver_api.MechanismDriver):
         port = context.current
         device_id = port['device_id']
         device_owner = port['device_owner']
-        host = port[portbindings.HOST_ID]
+        host = context.host
 
         # device_id and device_owner are set on VM boot
         is_vm_boot = device_id and device_owner
@@ -885,7 +887,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
         device_id = port['device_id']
         device_owner = port['device_owner']
-        host = port[portbindings.HOST_ID]
+        host = context.host
         is_vm_boot = device_id and device_owner
 
         if host and is_vm_boot:
@@ -926,7 +928,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """Delete information about a VM and host from the DB."""
         port = context.current
 
-        host_id = port[portbindings.HOST_ID]
+        host_id = context.host
         device_id = port['device_id']
         tenant_id = port['tenant_id']
         network_id = port['network_id']
@@ -947,7 +949,7 @@ class AristaDriver(driver_api.MechanismDriver):
         """
         port = context.current
         device_id = port['device_id']
-        host = port[portbindings.HOST_ID]
+        host = context.host
         port_id = port['id']
         network_id = port['network_id']
         tenant_id = port['tenant_id']

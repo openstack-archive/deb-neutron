@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron.common import constants
+from neutron.extensions import portbindings
 from neutron.openstack.common import jsonutils
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
@@ -94,6 +96,14 @@ class PortContext(MechanismDriverContext, api.PortContext):
         return self._original_port
 
     @property
+    def status(self):
+        return self._port['status']
+
+    @property
+    def original_status(self):
+        return self._original_port['status']
+
+    @property
     def network(self):
         return self._network_context
 
@@ -111,6 +121,14 @@ class PortContext(MechanismDriverContext, api.PortContext):
             for segment in self._network_context.network_segments:
                 if segment[api.ID] == self._original_bound_segment_id:
                     return segment
+
+    @property
+    def host(self):
+        return self._port.get(portbindings.HOST_ID)
+
+    @property
+    def original_host(self):
+        return self._original_port.get(portbindings.HOST_ID)
 
     @property
     def bound_driver(self):
@@ -132,3 +150,36 @@ class PortContext(MechanismDriverContext, api.PortContext):
         self._binding.vif_type = vif_type
         self._binding.vif_details = jsonutils.dumps(vif_details)
         self._new_port_status = status
+
+    def allocate_dynamic_segment(self, segment):
+        network_id = self._network_context.current['id']
+
+        return self._plugin.type_manager.allocate_dynamic_segment(
+                self._plugin_context.session, network_id, segment)
+
+    def release_dynamic_segment(self, segment_id):
+        return self._plugin.type_manager.release_dynamic_segment(
+                self._plugin_context.session, segment_id)
+
+
+class DvrPortContext(PortContext):
+
+    def __init__(self, plugin, plugin_context, port, network, binding,
+                 original_port=None):
+        super(DvrPortContext, self).__init__(
+            plugin, plugin_context, port, network, binding,
+            original_port=original_port)
+
+    @property
+    def host(self):
+        if self._port['device_owner'] == constants.DEVICE_OWNER_DVR_INTERFACE:
+            return self._binding.host
+
+        return super(DvrPortContext, self).host
+
+    @property
+    def status(self):
+        if self._port['device_owner'] == constants.DEVICE_OWNER_DVR_INTERFACE:
+            return self._binding.status
+
+        return super(DvrPortContext, self).status

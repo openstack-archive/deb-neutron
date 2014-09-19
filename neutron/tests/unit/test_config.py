@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
 import mock
 from oslo.config import cfg
 
@@ -23,6 +21,10 @@ from neutron.tests import base
 
 
 class ConfigurationTest(base.BaseTestCase):
+
+    def setup_config(self):
+        # don't use default config
+        pass
 
     def test_defaults(self):
         self.assertEqual('0.0.0.0', cfg.CONF.bind_host)
@@ -38,10 +40,6 @@ class ConfigurationTest(base.BaseTestCase):
         self.assertTrue(cfg.CONF.allow_bulk)
         self.assertEqual(5, cfg.CONF.max_dns_nameservers)
         self.assertEqual(20, cfg.CONF.max_subnet_host_routes)
-        relative_dir = os.path.join(os.path.dirname(__file__),
-                                    '..', '..', '..')
-        absolute_dir = os.path.abspath(relative_dir)
-        self.assertEqual(absolute_dir, cfg.CONF.state_path)
         self.assertEqual(86400, cfg.CONF.dhcp_lease_duration)
         self.assertFalse(cfg.CONF.allow_overlapping_ips)
         self.assertEqual('neutron', cfg.CONF.control_exchange)

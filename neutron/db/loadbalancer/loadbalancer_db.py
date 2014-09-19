@@ -232,7 +232,10 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
     ########################################################
     # VIP DB access
     def _make_vip_dict(self, vip, fields=None):
-        fixed_ip = (vip.port.fixed_ips or [{}])[0]
+        fixed_ip = {}
+        # it's possible that vip doesn't have created port yet
+        if vip.port:
+            fixed_ip = (vip.port.fixed_ips or [{}])[0]
 
         res = {'id': vip['id'],
                'tenant_id': vip['tenant_id'],
@@ -318,25 +321,27 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
             sess_qry.filter_by(vip_id=vip_id).delete()
 
     def _create_port_for_vip(self, context, vip_db, subnet_id, ip_address):
-            # resolve subnet and create port
-            subnet = self._core_plugin.get_subnet(context, subnet_id)
-            fixed_ip = {'subnet_id': subnet['id']}
-            if ip_address and ip_address != attributes.ATTR_NOT_SPECIFIED:
-                fixed_ip['ip_address'] = ip_address
+        # resolve subnet and create port
+        subnet = self._core_plugin.get_subnet(context, subnet_id)
+        fixed_ip = {'subnet_id': subnet['id']}
+        if ip_address and ip_address != attributes.ATTR_NOT_SPECIFIED:
+            fixed_ip['ip_address'] = ip_address
 
-            port_data = {
-                'tenant_id': vip_db.tenant_id,
-                'name': 'vip-' + vip_db.id,
-                'network_id': subnet['network_id'],
-                'mac_address': attributes.ATTR_NOT_SPECIFIED,
-                'admin_state_up': False,
-                'device_id': '',
-                'device_owner': '',
-                'fixed_ips': [fixed_ip]
-            }
+        port_data = {
+            'tenant_id': vip_db.tenant_id,
+            'name': 'vip-' + vip_db.id,
+            'network_id': subnet['network_id'],
+            'mac_address': attributes.ATTR_NOT_SPECIFIED,
+            'admin_state_up': False,
+            'device_id': '',
+            'device_owner': '',
+            'fixed_ips': [fixed_ip]
+        }
 
-            port = self._core_plugin.create_port(context, {'port': port_data})
-            vip_db.port_id = port['id']
+        port = self._core_plugin.create_port(context, {'port': port_data})
+        vip_db.port_id = port['id']
+        # explicitly sync session with db
+        context.session.flush()
 
     def create_vip(self, context, vip):
         v = vip['vip']
@@ -356,9 +361,6 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
                 if pool['status'] == constants.PENDING_DELETE:
                     raise loadbalancer.StateInvalid(state=pool['status'],
                                                     id=pool['id'])
-            else:
-                pool = None
-
             vip_db = Vip(id=uuidutils.generate_uuid(),
                          tenant_id=tenant_id,
                          name=v['name'],
@@ -385,16 +387,26 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
             except exception.DBDuplicateEntry:
                 raise loadbalancer.VipExists(pool_id=v['pool_id'])
 
+        try:
             # create a port to reserve address for IPAM
+            # do it outside the transaction to avoid rpc calls
             self._create_port_for_vip(
-                context,
-                vip_db,
-                v['subnet_id'],
-                v.get('address')
-            )
+                context, vip_db, v['subnet_id'], v.get('address'))
+        except Exception:
+            # catch any kind of exceptions
+            with excutils.save_and_reraise_exception():
+                context.session.delete(vip_db)
+                context.session.flush()
 
-            if pool:
-                pool['vip_id'] = vip_db['id']
+        if v['pool_id']:
+            # fetching pool again
+            pool = self._get_resource(context, Pool, v['pool_id'])
+            # (NOTE): we rely on the fact that pool didn't change between
+            # above block and here
+            vip_db['pool_id'] = v['pool_id']
+            pool['vip_id'] = vip_db['id']
+            # explicitly flush changes as we're outside any transaction
+            context.session.flush()
 
         return self._make_vip_dict(vip_db)
 

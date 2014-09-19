@@ -18,34 +18,24 @@
 from oslo.config import cfg
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
+from neutron.api.rpc.handlers import l3_rpc
 from neutron.common import constants as q_const
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
-from neutron.db import api as qdbapi
 from neutron.db import common_db_mixin
 from neutron.db import extraroute_db
-from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_dvr_db
+from neutron.db import l3_dvrscheduler_db
 from neutron.db import l3_gwmode_db
-from neutron.db import l3_rpc_base
-from neutron.db import model_base
 from neutron.openstack.common import importutils
 from neutron.plugins.common import constants
-
-
-class L3RouterPluginRpcCallbacks(n_rpc.RpcCallback,
-                                 l3_rpc_base.L3RpcCallbackMixin):
-
-    RPC_API_VERSION = '1.2'
-    # history
-    #   1.2 Added methods for DVR support
 
 
 class L3RouterPlugin(common_db_mixin.CommonDbMixin,
                      extraroute_db.ExtraRoute_db_mixin,
                      l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                      l3_gwmode_db.L3_NAT_db_mixin,
-                     l3_agentschedulers_db.L3AgentSchedulerDbMixin):
+                     l3_dvrscheduler_db.L3_DVRsch_db_mixin):
 
     """Implementation of the Neutron L3 Router Service Plugin.
 
@@ -60,10 +50,10 @@ class L3RouterPlugin(common_db_mixin.CommonDbMixin,
                                    "extraroute", "l3_agent_scheduler"]
 
     def __init__(self):
-        qdbapi.register_models(base=model_base.BASEV2)
         self.setup_rpc()
         self.router_scheduler = importutils.import_object(
             cfg.CONF.router_scheduler_driver)
+        self.start_periodic_agent_status_check()
 
     def setup_rpc(self):
         # RPC support
@@ -71,7 +61,7 @@ class L3RouterPlugin(common_db_mixin.CommonDbMixin,
         self.conn = n_rpc.create_connection(new=True)
         self.agent_notifiers.update(
             {q_const.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotifyAPI()})
-        self.endpoints = [L3RouterPluginRpcCallbacks()]
+        self.endpoints = [l3_rpc.L3RpcCallback()]
         self.conn.create_consumer(self.topic, self.endpoints,
                                   fanout=False)
         self.conn.consume_in_threads()
@@ -89,11 +79,11 @@ class L3RouterPlugin(common_db_mixin.CommonDbMixin,
         """Create floating IP.
 
         :param context: Neutron request context
-        :param floatingip: data fo the floating IP being created
+        :param floatingip: data for the floating IP being created
         :returns: A floating IP object on success
 
-        AS the l3 router plugin aysnchrounously creates floating IPs
-        leveraging tehe l3 agent, the initial status fro the floating
+        As the l3 router plugin asynchronously creates floating IPs
+        leveraging the l3 agent, the initial status for the floating
         IP object will be DOWN.
         """
         return super(L3RouterPlugin, self).create_floatingip(

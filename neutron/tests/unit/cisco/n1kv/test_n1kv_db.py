@@ -24,12 +24,12 @@ from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron.db import api as db
 from neutron.db import common_db_mixin
-from neutron.plugins.cisco.common import cisco_constants
+from neutron.plugins.cisco.common import cisco_constants as c_const
 from neutron.plugins.cisco.common import cisco_exceptions as c_exc
 from neutron.plugins.cisco.db import n1kv_db_v2
 from neutron.plugins.cisco.db import n1kv_models_v2
-from neutron.tests import base
 from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit import testlib_api
 
 
 PHYS_NET = 'physnet1'
@@ -46,28 +46,29 @@ TEST_NETWORK_ID = 'abcdefghijklmnopqrstuvwxyz'
 TEST_NETWORK_ID2 = 'abcdefghijklmnopqrstuvwxy2'
 TEST_NETWORK_ID3 = 'abcdefghijklmnopqrstuvwxy3'
 TEST_NETWORK_PROFILE = {'name': 'test_profile',
-                        'segment_type': 'vlan',
+                        'segment_type': c_const.NETWORK_TYPE_VLAN,
                         'physical_network': 'physnet1',
                         'segment_range': '10-19'}
 TEST_NETWORK_PROFILE_2 = {'name': 'test_profile_2',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'physnet1',
                           'segment_range': SEGMENT_RANGE}
 TEST_NETWORK_PROFILE_VXLAN = {'name': 'test_profile',
-                              'segment_type': 'overlay',
-                              'sub_type': 'native_vxlan',
+                              'segment_type': c_const.NETWORK_TYPE_OVERLAY,
+                              'sub_type': c_const.NETWORK_SUBTYPE_NATIVE_VXLAN,
                               'segment_range': '5000-5009',
                               'multicast_ip_range': '239.0.0.70-239.0.0.80'}
 TEST_POLICY_PROFILE = {'id': '4a417990-76fb-11e2-bcfd-0800200c9a66',
                        'name': 'test_policy_profile'}
 TEST_NETWORK_PROFILE_MULTI_SEGMENT = {'name': 'test_profile',
-                                      'segment_type': 'multi-segment'}
+                                      'segment_type':
+                                      c_const.NETWORK_TYPE_MULTI_SEGMENT}
 TEST_NETWORK_PROFILE_VLAN_TRUNK = {'name': 'test_profile',
-                                   'segment_type': 'trunk',
-                                   'sub_type': 'vlan'}
+                                   'segment_type': c_const.NETWORK_TYPE_TRUNK,
+                                   'sub_type': c_const.NETWORK_TYPE_VLAN}
 TEST_NETWORK_PROFILE_VXLAN_TRUNK = {'name': 'test_profile',
-                                    'segment_type': 'trunk',
-                                    'sub_type': 'overlay'}
+                                    'segment_type': c_const.NETWORK_TYPE_TRUNK,
+                                    'sub_type': c_const.NETWORK_TYPE_OVERLAY}
 
 
 def _create_test_network_profile_if_not_there(session,
@@ -90,15 +91,13 @@ def _create_test_policy_profile_if_not_there(session,
     return _profile
 
 
-class VlanAllocationsTest(base.BaseTestCase):
+class VlanAllocationsTest(testlib_api.SqlTestCase):
 
     def setUp(self):
         super(VlanAllocationsTest, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
         self.net_p = _create_test_network_profile_if_not_there(self.session)
         n1kv_db_v2.sync_vlan_allocations(self.session, self.net_p)
-        self.addCleanup(db.clear_db)
 
     def test_sync_vlan_allocations_outside_segment_range(self):
         self.assertRaises(c_exc.VlanIDNotFound,
@@ -204,17 +203,15 @@ class VlanAllocationsTest(base.BaseTestCase):
                           vlan_id)
 
 
-class VxlanAllocationsTest(base.BaseTestCase,
+class VxlanAllocationsTest(testlib_api.SqlTestCase,
                            n1kv_db_v2.NetworkProfile_db_mixin):
 
     def setUp(self):
         super(VxlanAllocationsTest, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
         self.net_p = _create_test_network_profile_if_not_there(
             self.session, TEST_NETWORK_PROFILE_VXLAN)
         n1kv_db_v2.sync_vxlan_allocations(self.session, self.net_p)
-        self.addCleanup(db.clear_db)
 
     def test_sync_vxlan_allocations_outside_segment_range(self):
         self.assertRaises(c_exc.VxlanIDNotFound,
@@ -295,9 +292,7 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
 
     def setUp(self):
         super(NetworkBindingsTest, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
 
     def test_add_network_binding(self):
         with self.network() as network:
@@ -310,13 +305,13 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
 
             p = _create_test_network_profile_if_not_there(self.session)
             n1kv_db_v2.add_network_binding(
-                self.session, TEST_NETWORK_ID, 'vlan',
+                self.session, TEST_NETWORK_ID, c_const.NETWORK_TYPE_VLAN,
                 PHYS_NET, 1234, '0.0.0.0', p.id, None)
             binding = n1kv_db_v2.get_network_binding(
                 self.session, TEST_NETWORK_ID)
             self.assertIsNotNone(binding)
             self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-            self.assertEqual(binding.network_type, 'vlan')
+            self.assertEqual(binding.network_type, c_const.NETWORK_TYPE_VLAN)
             self.assertEqual(binding.physical_network, PHYS_NET)
             self.assertEqual(binding.segmentation_id, 1234)
 
@@ -333,13 +328,15 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 self.session,
                 TEST_NETWORK_PROFILE_MULTI_SEGMENT)
             n1kv_db_v2.add_network_binding(
-                self.session, TEST_NETWORK_ID, 'multi-segment',
+                self.session, TEST_NETWORK_ID,
+                c_const.NETWORK_TYPE_MULTI_SEGMENT,
                 None, 0, '0.0.0.0', p.id, None)
             binding = n1kv_db_v2.get_network_binding(
                 self.session, TEST_NETWORK_ID)
             self.assertIsNotNone(binding)
             self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-            self.assertEqual(binding.network_type, 'multi-segment')
+            self.assertEqual(binding.network_type,
+                             c_const.NETWORK_TYPE_MULTI_SEGMENT)
             self.assertIsNone(binding.physical_network)
             self.assertEqual(binding.segmentation_id, 0)
 
@@ -356,14 +353,16 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 self.session,
                 TEST_NETWORK_PROFILE_MULTI_SEGMENT)
             n1kv_db_v2.add_network_binding(
-                self.session, TEST_NETWORK_ID, 'multi-segment',
+                self.session, TEST_NETWORK_ID,
+                c_const.NETWORK_TYPE_MULTI_SEGMENT,
                 None, 0, '0.0.0.0', p.id,
                 [(TEST_NETWORK_ID2, TEST_NETWORK_ID3)])
             binding = n1kv_db_v2.get_network_binding(
                 self.session, TEST_NETWORK_ID)
             self.assertIsNotNone(binding)
             self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-            self.assertEqual(binding.network_type, 'multi-segment')
+            self.assertEqual(binding.network_type,
+                             c_const.NETWORK_TYPE_MULTI_SEGMENT)
             self.assertIsNone(binding.physical_network)
             self.assertEqual(binding.segmentation_id, 0)
             ms_binding = (n1kv_db_v2.get_multi_segment_network_binding(
@@ -401,13 +400,13 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 self.session,
                 TEST_NETWORK_PROFILE_VLAN_TRUNK)
             n1kv_db_v2.add_network_binding(
-                self.session, TEST_NETWORK_ID, 'trunk',
+                self.session, TEST_NETWORK_ID, c_const.NETWORK_TYPE_TRUNK,
                 None, 0, '0.0.0.0', p.id, None)
             binding = n1kv_db_v2.get_network_binding(
                 self.session, TEST_NETWORK_ID)
             self.assertIsNotNone(binding)
             self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-            self.assertEqual(binding.network_type, 'trunk')
+            self.assertEqual(binding.network_type, c_const.NETWORK_TYPE_TRUNK)
             self.assertIsNone(binding.physical_network)
             self.assertEqual(binding.segmentation_id, 0)
 
@@ -424,13 +423,13 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 self.session,
                 TEST_NETWORK_PROFILE_VXLAN_TRUNK)
             n1kv_db_v2.add_network_binding(
-                self.session, TEST_NETWORK_ID, 'trunk',
+                self.session, TEST_NETWORK_ID, c_const.NETWORK_TYPE_TRUNK,
                 None, 0, '0.0.0.0', p.id, None)
             binding = n1kv_db_v2.get_network_binding(
                 self.session, TEST_NETWORK_ID)
             self.assertIsNotNone(binding)
             self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-            self.assertEqual(binding.network_type, 'trunk')
+            self.assertEqual(binding.network_type, c_const.NETWORK_TYPE_TRUNK)
             self.assertIsNone(binding.physical_network)
             self.assertEqual(binding.segmentation_id, 0)
 
@@ -450,19 +449,20 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                                   TEST_NETWORK_ID2)
                 p_v = _create_test_network_profile_if_not_there(self.session)
                 n1kv_db_v2.add_network_binding(
-                    self.session, TEST_NETWORK_ID2, 'vlan',
+                    self.session, TEST_NETWORK_ID2, c_const.NETWORK_TYPE_VLAN,
                     PHYS_NET, 1234, '0.0.0.0', p_v.id, None)
                 p = _create_test_network_profile_if_not_there(
                     self.session,
                     TEST_NETWORK_PROFILE_VLAN_TRUNK)
                 n1kv_db_v2.add_network_binding(
-                    self.session, TEST_NETWORK_ID, 'trunk',
+                    self.session, TEST_NETWORK_ID, c_const.NETWORK_TYPE_TRUNK,
                     None, 0, '0.0.0.0', p.id, [(TEST_NETWORK_ID2, 0)])
                 binding = n1kv_db_v2.get_network_binding(
                     self.session, TEST_NETWORK_ID)
                 self.assertIsNotNone(binding)
                 self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-                self.assertEqual(binding.network_type, 'trunk')
+                self.assertEqual(binding.network_type,
+                                 c_const.NETWORK_TYPE_TRUNK)
                 self.assertEqual(binding.physical_network, PHYS_NET)
                 self.assertEqual(binding.segmentation_id, 0)
                 t_binding = (n1kv_db_v2.get_trunk_network_binding(
@@ -502,20 +502,22 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 p_v = _create_test_network_profile_if_not_there(
                     self.session, TEST_NETWORK_PROFILE_VXLAN_TRUNK)
                 n1kv_db_v2.add_network_binding(
-                    self.session, TEST_NETWORK_ID2, 'overlay',
+                    self.session, TEST_NETWORK_ID2,
+                    c_const.NETWORK_TYPE_OVERLAY,
                     None, 5100, '224.10.10.10', p_v.id, None)
                 p = _create_test_network_profile_if_not_there(
                     self.session,
                     TEST_NETWORK_PROFILE_VXLAN_TRUNK)
                 n1kv_db_v2.add_network_binding(
-                    self.session, TEST_NETWORK_ID, 'trunk',
+                    self.session, TEST_NETWORK_ID, c_const.NETWORK_TYPE_TRUNK,
                     None, 0, '0.0.0.0', p.id,
                     [(TEST_NETWORK_ID2, 5)])
                 binding = n1kv_db_v2.get_network_binding(
                     self.session, TEST_NETWORK_ID)
                 self.assertIsNotNone(binding)
                 self.assertEqual(binding.network_id, TEST_NETWORK_ID)
-                self.assertEqual(binding.network_type, 'trunk')
+                self.assertEqual(binding.network_type,
+                                 c_const.NETWORK_TYPE_TRUNK)
                 self.assertIsNone(binding.physical_network)
                 self.assertEqual(binding.segmentation_id, 0)
                 t_binding = (n1kv_db_v2.get_trunk_network_binding(
@@ -539,14 +541,12 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
                 self.assertEqual(t_members, [])
 
 
-class NetworkProfileTests(base.BaseTestCase,
+class NetworkProfileTests(testlib_api.SqlTestCase,
                           n1kv_db_v2.NetworkProfile_db_mixin):
 
     def setUp(self):
         super(NetworkProfileTests, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
 
     def test_create_network_profile(self):
         _db_profile = n1kv_db_v2.create_network_profile(self.session,
@@ -689,31 +689,31 @@ class NetworkProfileTests(base.BaseTestCase,
 
     def test_get_network_profiles(self):
         test_profiles = [{'name': 'test_profile1',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '200-210'},
                          {'name': 'test_profile2',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '211-220'},
                          {'name': 'test_profile3',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '221-230'},
                          {'name': 'test_profile4',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '231-240'},
                          {'name': 'test_profile5',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '241-250'},
                          {'name': 'test_profile6',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '251-260'},
                          {'name': 'test_profile7',
-                          'segment_type': 'vlan',
+                          'segment_type': c_const.NETWORK_TYPE_VLAN,
                           'physical_network': 'phys1',
                           'segment_range': '261-270'}]
         [n1kv_db_v2.create_network_profile(self.session, p)
@@ -723,13 +723,11 @@ class NetworkProfileTests(base.BaseTestCase,
         self.assertEqual(len(test_profiles), len(list(profiles)))
 
 
-class PolicyProfileTests(base.BaseTestCase):
+class PolicyProfileTests(testlib_api.SqlTestCase):
 
     def setUp(self):
         super(PolicyProfileTests, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
 
     def test_create_policy_profile(self):
         _db_profile = n1kv_db_v2.create_policy_profile(TEST_POLICY_PROFILE)
@@ -767,15 +765,13 @@ class PolicyProfileTests(base.BaseTestCase):
         self.assertEqual(profile.name, got_profile.name)
 
 
-class ProfileBindingTests(base.BaseTestCase,
+class ProfileBindingTests(testlib_api.SqlTestCase,
                           n1kv_db_v2.NetworkProfile_db_mixin,
                           common_db_mixin.CommonDbMixin):
 
     def setUp(self):
         super(ProfileBindingTests, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
 
     def _create_test_binding_if_not_there(self, tenant_id, profile_id,
                                           profile_type):
@@ -808,6 +804,27 @@ class ProfileBindingTests(base.BaseTestCase,
             self.fail("Bindings must be unique")
         except s_exc.NoResultFound:
             self.fail("Could not create Profile Binding")
+
+    def test_update_profile_binding(self):
+        test_tenant_id = "d434dd90-76ec-11e2-bcfd-0800200c9a66"
+        test_profile_id = "dd7b9741-76ec-11e2-bcfd-0800200c9a66"
+        test_profile_type = "network"
+        n1kv_db_v2.create_profile_binding(self.session,
+                                          test_tenant_id,
+                                          test_profile_id,
+                                          test_profile_type)
+        new_tenants = ['d434dd90-76ec-11e2-bcfd-0800200c9a67',
+                       'd434dd90-76ec-11e2-bcfd-0800200c9a68',
+                       'd434dd90-76ec-11e2-bcfd-0800200c9a69']
+        n1kv_db_v2.update_profile_binding(self.session,
+                                          test_profile_id,
+                                          new_tenants,
+                                          test_profile_type)
+
+        result = self.session.query(n1kv_models_v2.ProfileBinding).filter_by(
+            profile_type=test_profile_type,
+            profile_id=test_profile_id).all()
+        self.assertEqual(3, len(result))
 
     def test_get_profile_binding(self):
         test_tenant_id = "d434dd90-76ec-11e2-bcfd-0800200c9a66"
@@ -850,7 +867,7 @@ class ProfileBindingTests(base.BaseTestCase,
         test_profile_id = "AAAAAAAA-76ec-11e2-bcfd-0800200c9a66"
         test_profile_type = "policy"
         n1kv_db_v2.create_profile_binding(self.session,
-                                          cisco_constants.TENANT_ID_NOT_SET,
+                                          c_const.TENANT_ID_NOT_SET,
                                           test_profile_id,
                                           test_profile_type)
         network_profile = {"network_profile": TEST_NETWORK_PROFILE}
@@ -862,7 +879,7 @@ class ProfileBindingTests(base.BaseTestCase,
             c_exc.ProfileTenantBindingNotFound,
             n1kv_db_v2.get_profile_binding,
             self.session,
-            cisco_constants.TENANT_ID_NOT_SET,
+            c_const.TENANT_ID_NOT_SET,
             test_profile_id)
         self.assertNotEqual(binding.tenant_id,
-                            cisco_constants.TENANT_ID_NOT_SET)
+                            c_const.TENANT_ID_NOT_SET)

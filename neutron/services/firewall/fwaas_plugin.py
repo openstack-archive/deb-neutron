@@ -21,7 +21,6 @@ from neutron.common import exceptions as n_exception
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as neutron_context
-from neutron.db import api as qdbapi
 from neutron.db.firewall import firewall_db
 from neutron.extensions import firewall as fw_ext
 from neutron.openstack.common import log as logging
@@ -52,9 +51,7 @@ class FirewallCallbacks(n_rpc.RpcCallback):
                             "not changing to %(status)s"),
                           {'fw_id': firewall_id, 'status': status})
                 return False
-            #TODO(xuhanp): Remove INACTIVE status and use DOWN to
-            # be consistent with other network resources
-            if status in (const.ACTIVE, const.INACTIVE, const.DOWN):
+            if status in (const.ACTIVE, const.DOWN):
                 fw_db.status = status
                 return True
             else:
@@ -114,24 +111,21 @@ class FirewallAgentApi(n_rpc.RpcProxy):
         return self.fanout_cast(
             context,
             self.make_msg('create_firewall', firewall=firewall,
-                          host=self.host),
-            topic=self.topic
+                          host=self.host)
         )
 
     def update_firewall(self, context, firewall):
         return self.fanout_cast(
             context,
             self.make_msg('update_firewall', firewall=firewall,
-                          host=self.host),
-            topic=self.topic
+                          host=self.host)
         )
 
     def delete_firewall(self, context, firewall):
         return self.fanout_cast(
             context,
             self.make_msg('delete_firewall', firewall=firewall,
-                          host=self.host),
-            topic=self.topic
+                          host=self.host)
         )
 
 
@@ -158,7 +152,6 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
 
     def __init__(self):
         """Do the initialization for the firewall service plugin here."""
-        qdbapi.register_models()
 
         self.endpoints = [FirewallCallbacks(self)]
 
@@ -231,7 +224,6 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
                                             filters={'tenant_id': [tenant_id]})
         if fw_count:
             raise FirewallCountExceeded(tenant_id=tenant_id)
-        firewall['firewall']['status'] = const.PENDING_CREATE
         fw = super(FirewallPlugin, self).create_firewall(context, firewall)
         fw_with_rules = (
             self._make_firewall_dict_with_rules(context, fw['id']))
@@ -250,7 +242,7 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
 
     def delete_db_firewall_object(self, context, id):
         firewall = self.get_firewall(context, id)
-        if firewall['status'] in [const.PENDING_DELETE]:
+        if firewall['status'] == const.PENDING_DELETE:
             super(FirewallPlugin, self).delete_firewall(context, id)
 
     def delete_firewall(self, context, id):

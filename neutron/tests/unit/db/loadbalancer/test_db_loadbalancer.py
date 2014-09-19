@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import contextlib
-import logging
 
 import mock
 from oslo.config import cfg
@@ -23,12 +22,13 @@ import webob.exc
 
 from neutron.api import extensions
 from neutron.common import config
+from neutron.common import exceptions as n_exc
 from neutron import context
-import neutron.db.l3_db  # noqa
 from neutron.db.loadbalancer import loadbalancer_db as ldb
 from neutron.db import servicetype_db as sdb
 import neutron.extensions
 from neutron.extensions import loadbalancer
+from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services.loadbalancer import (
     plugin as loadbalancer_plugin
@@ -37,8 +37,6 @@ from neutron.services.loadbalancer.drivers import abstract_driver
 from neutron.services import provider_configuration as pconf
 from neutron.tests.unit import test_db_plugin
 
-
-LOG = logging.getLogger(__name__)
 
 DB_CORE_PLUGIN_KLASS = 'neutron.db.db_base_plugin_v2.NeutronDbPluginV2'
 DB_LB_PLUGIN_KLASS = (
@@ -368,6 +366,26 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                     expected
                 )
             return vip
+
+    def test_create_vip_create_port_fails(self):
+        with self.subnet() as subnet:
+            with self.pool() as pool:
+                lb_plugin = (manager.NeutronManager.
+                             get_instance().
+                             get_service_plugins()[constants.LOADBALANCER])
+                with mock.patch.object(
+                    lb_plugin, '_create_port_for_vip') as cp:
+                    #some exception that can show up in port creation
+                    cp.side_effect = n_exc.IpAddressGenerationFailure(
+                        net_id=subnet['subnet']['network_id'])
+                    self._create_vip(self.fmt, "vip",
+                                     pool['pool']['id'], "HTTP", "80", True,
+                                     subnet_id=subnet['subnet']['id'],
+                                     expected_res_status=409)
+                req = self.new_list_request('vips')
+                res = self.deserialize(self.fmt,
+                                       req.get_response(self.ext_api))
+                self.assertFalse(res['vips'])
 
     def test_create_vip_twice_for_same_pool(self):
         """Test loadbalancer db plugin via extension and directly."""

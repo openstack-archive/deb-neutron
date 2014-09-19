@@ -176,6 +176,7 @@ class DhcpAgent(manager.Manager):
             self.schedule_resync(e)
             LOG.exception(_('Unable to sync network state.'))
 
+    @utils.exception_logger()
     def _periodic_resync_helper(self):
         """Resync the dhcp state at the configured interval."""
         while True:
@@ -210,6 +211,7 @@ class DhcpAgent(manager.Manager):
         if network:
             self.configure_dhcp_for_network(network)
 
+    @utils.exception_logger()
     def safe_configure_dhcp_for_network(self, network):
         try:
             self.configure_dhcp_for_network(network)
@@ -221,12 +223,15 @@ class DhcpAgent(manager.Manager):
         if not network.admin_state_up:
             return
 
+        enable_metadata = self.dhcp_driver_cls.should_enable_metadata(
+                self.conf, network)
+
         for subnet in network.subnets:
-            if subnet.enable_dhcp:
+            if subnet.enable_dhcp and subnet.ip_version == 4:
                 if self.call_driver('enable', network):
-                    if (self.conf.use_namespaces and
-                        self.conf.enable_isolated_metadata):
+                    if self.conf.use_namespaces and enable_metadata:
                         self.enable_isolated_metadata_proxy(network)
+                        enable_metadata = False  # Don't trigger twice
                     self.cache.put(network)
                 break
 
@@ -236,6 +241,10 @@ class DhcpAgent(manager.Manager):
         if network:
             if (self.conf.use_namespaces and
                 self.conf.enable_isolated_metadata):
+                # NOTE(jschwarz): In the case where a network is deleted, all
+                # the subnets and ports are deleted before this function is
+                # called, so checking if 'should_enable_metadata' is True
+                # for any subnet is false logic here.
                 self.disable_isolated_metadata_proxy(network)
             if self.call_driver('disable', network):
                 self.cache.remove(network)
@@ -400,8 +409,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
         """Make a remote process call to retrieve all network info."""
         networks = self.call(self.context,
                              self.make_msg('get_active_networks_info',
-                                           host=self.host),
-                             topic=self.topic)
+                                           host=self.host))
         return [dhcp.NetModel(self.use_namespaces, n) for n in networks]
 
     def get_network_info(self, network_id):
@@ -409,8 +417,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
         network = self.call(self.context,
                             self.make_msg('get_network_info',
                                           network_id=network_id,
-                                          host=self.host),
-                            topic=self.topic)
+                                          host=self.host))
         if network:
             return dhcp.NetModel(self.use_namespaces, network)
 
@@ -420,8 +427,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
                          self.make_msg('get_dhcp_port',
                                        network_id=network_id,
                                        device_id=device_id,
-                                       host=self.host),
-                         topic=self.topic)
+                                       host=self.host))
         if port:
             return dhcp.DictModel(port)
 
@@ -430,8 +436,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
         port = self.call(self.context,
                          self.make_msg('create_dhcp_port',
                                        port=port,
-                                       host=self.host),
-                         topic=self.topic)
+                                       host=self.host))
         if port:
             return dhcp.DictModel(port)
 
@@ -441,8 +446,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
                          self.make_msg('update_dhcp_port',
                                        port_id=port_id,
                                        port=port,
-                                       host=self.host),
-                         topic=self.topic)
+                                       host=self.host))
         if port:
             return dhcp.DictModel(port)
 
@@ -452,8 +456,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
                          self.make_msg('release_dhcp_port',
                                        network_id=network_id,
                                        device_id=device_id,
-                                       host=self.host),
-                         topic=self.topic)
+                                       host=self.host))
 
     def release_port_fixed_ip(self, network_id, device_id, subnet_id):
         """Make a remote process call to release a fixed_ip on the port."""
@@ -462,8 +465,7 @@ class DhcpPluginApi(n_rpc.RpcProxy):
                                        network_id=network_id,
                                        subnet_id=subnet_id,
                                        device_id=device_id,
-                                       host=self.host),
-                         topic=self.topic)
+                                       host=self.host))
 
 
 class NetworkCache(object):

@@ -34,6 +34,8 @@ METHODS = {}
 
 
 def heal():
+    # This is needed else the heal script will start spewing
+    # a lot of pointless warning messages from alembic.
     LOG.setLevel(logging.INFO)
     if context.is_offline_mode():
         return
@@ -67,12 +69,12 @@ def heal():
         'compare_server_default': _compare_server_default,
     }
     mc = alembic.migration.MigrationContext.configure(op.get_bind(), opts=opts)
-
+    set_storage_engine(op.get_bind(), "InnoDB")
     diff1 = autogen.compare_metadata(mc, models_metadata)
     # Alembic does not contain checks for foreign keys. Because of that it
     # checks separately.
-    diff2 = check_foreign_keys(models_metadata)
-    diff = diff1 + diff2
+    added_fks, dropped_fks = check_foreign_keys(models_metadata)
+    diff = dropped_fks + diff1 + added_fks
     # For each difference run command
     for el in diff:
         execute_alembic_command(el)
@@ -101,12 +103,12 @@ def parse_modify_command(command):
     #              autoincrement=None, existing_type=None,
     #              existing_server_default=False, existing_nullable=None,
     #              existing_autoincrement=None, schema=None, **kw)
+    bind = op.get_bind()
     for modified, schema, table, column, existing, old, new in command:
         if modified.endswith('type'):
             modified = 'type_'
         elif modified.endswith('nullable'):
             modified = 'nullable'
-            bind = op.get_bind()
             insp = sqlalchemy.engine.reflection.Inspector.from_engine(bind)
             if column in insp.get_primary_keys(table) and new:
                 return
@@ -120,8 +122,7 @@ def parse_modify_command(command):
             if isinstance(default.arg, basestring):
                 existing['existing_server_default'] = default.arg
             else:
-                existing['existing_server_default'] = default.arg.compile(
-                    dialect=bind.engine.name)
+                existing['existing_server_default'] = default.arg.text
         kwargs.update(existing)
         op.alter_column(table, column, **kwargs)
 
@@ -203,7 +204,8 @@ def add_key(fk):
 def check_foreign_keys(metadata):
     # This methods checks foreign keys that tables contain in models with
     # foreign keys that are in db.
-    diff = []
+    added_fks = []
+    dropped_fks = []
     bind = op.get_bind()
     insp = sqlalchemy.engine.reflection.Inspector.from_engine(bind)
     # Get all tables from db
@@ -222,15 +224,15 @@ def check_foreign_keys(metadata):
                          model_tables[table].foreign_keys)
         fk_models_set = set(fk_models.keys())
         for key in (fk_db_set - fk_models_set):
-            diff.append(('drop_key', fk_db[key], table))
+            dropped_fks.append(('drop_key', fk_db[key], table))
             LOG.info(_("Detected removed foreign key %(fk)r on "
                        "table %(table)r"), {'fk': fk_db[key], 'table': table})
         for key in (fk_models_set - fk_db_set):
-            diff.append(('add_key', fk_models[key]))
+            added_fks.append(('add_key', fk_models[key]))
             LOG.info(_("Detected added foreign key for column %(fk)r on table "
                        "%(table)r"), {'fk': fk_models[key].column.name,
                                       'table': table})
-    return diff
+    return (added_fks, dropped_fks)
 
 
 def check_if_table_exists(table):
@@ -318,3 +320,11 @@ def _compare_server_default(ctxt, ins_col, meta_col, insp_def, meta_def,
         )
 
     return None  # tells alembic to use the default comparison method
+
+
+def set_storage_engine(bind, engine):
+    insp = sqlalchemy.engine.reflection.Inspector.from_engine(bind)
+    if bind.dialect.name == 'mysql':
+        for table in insp.get_table_names():
+            if insp.get_table_options(table)['mysql_engine'] != engine:
+                op.execute("ALTER TABLE %s ENGINE=%s" % (table, engine))

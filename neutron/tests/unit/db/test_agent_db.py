@@ -16,24 +16,24 @@
 import mock
 from oslo.db import exception as exc
 
+from neutron.common import constants
 from neutron import context
 from neutron.db import agents_db
-from neutron.db import api as db
 from neutron.db import db_base_plugin_v2 as base_plugin
-from neutron.tests import base
+from neutron.openstack.common import timeutils
+from neutron.tests.unit import testlib_api
 
 
 class FakePlugin(base_plugin.NeutronDbPluginV2, agents_db.AgentDbMixin):
     """A fake plugin class containing all DB methods."""
 
 
-class TestAgentsDbMixin(base.BaseTestCase):
+class TestAgentsDbMixin(testlib_api.SqlTestCase):
     def setUp(self):
         super(TestAgentsDbMixin, self).setUp()
 
         self.context = context.get_admin_context()
         self.plugin = FakePlugin()
-        self.addCleanup(db.clear_db)
 
         self.agent_status = {
             'agent_type': 'Open vSwitch agent',
@@ -41,6 +41,35 @@ class TestAgentsDbMixin(base.BaseTestCase):
             'host': 'overcloud-notcompute',
             'topic': 'N/A'
         }
+
+    def _add_agent(self, agent_id, agent_type, agent_host):
+        with self.context.session.begin(subtransactions=True):
+            now = timeutils.utcnow()
+            agent = agents_db.Agent(id=agent_id,
+                                    agent_type=agent_type,
+                                    binary='foo_binary',
+                                    topic='foo_topic',
+                                    host=agent_host,
+                                    created_at=now,
+                                    started_at=now,
+                                    admin_state_up=True,
+                                    heartbeat_timestamp=now,
+                                    configurations='')
+            self.context.session.add(agent)
+            return agent
+
+    def test_get_enabled_agent_on_host_found(self):
+        agent = self._add_agent('foo_id', constants.AGENT_TYPE_L3, 'foo_host')
+        expected = self.plugin.get_enabled_agent_on_host(
+            self.context, constants.AGENT_TYPE_L3, 'foo_host')
+        self.assertEqual(expected, agent)
+
+    def test_get_enabled_agent_on_host_not_found(self):
+        with mock.patch.object(agents_db.LOG, 'debug') as mock_log:
+            agent = self.plugin.get_enabled_agent_on_host(
+                self.context, constants.AGENT_TYPE_L3, 'foo_agent')
+        self.assertIsNone(agent)
+        self.assertTrue(mock_log.called)
 
     def _assert_ref_fields_are_equal(self, reference, result):
         """Compare (key, value) pairs of a reference dict with the result

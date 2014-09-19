@@ -20,6 +20,9 @@ from oslo.config import cfg
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
+from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import l3_rpc
+from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
@@ -30,13 +33,11 @@ from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import allowedaddresspairs_db as addr_pair_db
 from neutron.db import db_base_plugin_v2
-from neutron.db import dhcp_rpc_base
 from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
-from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
@@ -44,6 +45,7 @@ from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
+from neutron.extensions import securitygroup as ext_sg
 from neutron import manager
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
@@ -57,10 +59,7 @@ from neutron.plugins.openvswitch import ovs_db_v2
 LOG = logging.getLogger(__name__)
 
 
-class OVSRpcCallbacks(n_rpc.RpcCallback,
-                      dhcp_rpc_base.DhcpRpcCallbackMixin,
-                      l3_rpc_base.L3RpcCallbackMixin,
-                      sg_db_rpc.SecurityGroupServerRpcCallbackMixin):
+class OVSRpcCallbacks(n_rpc.RpcCallback):
 
     # history
     #   1.0 Initial version
@@ -73,13 +72,6 @@ class OVSRpcCallbacks(n_rpc.RpcCallback,
         super(OVSRpcCallbacks, self).__init__()
         self.notifier = notifier
         self.tunnel_type = tunnel_type
-
-    @classmethod
-    def get_port_from_device(cls, device):
-        port = ovs_db_v2.get_port_from_device(device)
-        if port:
-            port['device'] = device
-        return port
 
     def get_device_details(self, rpc_context, **kwargs):
         """Agent requests device details."""
@@ -184,6 +176,16 @@ class OVSRpcCallbacks(n_rpc.RpcCallback,
         return entry
 
 
+class SecurityGroupServerRpcMixin(sg_db_rpc.SecurityGroupServerRpcMixin):
+
+    @classmethod
+    def get_port_from_device(cls, device):
+        port = ovs_db_v2.get_port_from_device(device)
+        if port:
+            port['device'] = device
+        return port
+
+
 class AgentNotifierApi(n_rpc.RpcProxy,
                        sg_rpc.SecurityGroupAgentRpcApiMixin):
     '''Agent side of the openvswitch rpc API.
@@ -237,7 +239,7 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                          external_net_db.External_net_db_mixin,
                          extraroute_db.ExtraRoute_db_mixin,
                          l3_gwmode_db.L3_NAT_db_mixin,
-                         sg_db_rpc.SecurityGroupServerRpcMixin,
+                         SecurityGroupServerRpcMixin,
                          l3_agentschedulers_db.L3AgentSchedulerDbMixin,
                          agentschedulers_db.DhcpAgentSchedulerDbMixin,
                          portbindings_db.PortBindingMixin,
@@ -345,6 +347,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             l3_rpc_agent_api.L3AgentNotifyAPI()
         )
         self.endpoints = [OVSRpcCallbacks(self.notifier, self.tunnel_type),
+                          securitygroups_rpc.SecurityGroupServerRpcCallback(),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
                           agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
@@ -603,8 +608,9 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             need_port_update_notify |= self._update_extra_dhcp_opts_on_port(
                 context, id, port, updated_port)
 
-        need_port_update_notify |= self.is_security_group_member_updated(
+        secgrp_member_updated = self.is_security_group_member_updated(
             context, original_port, updated_port)
+        need_port_update_notify |= secgrp_member_updated
         if original_port['admin_state_up'] != updated_port['admin_state_up']:
             need_port_update_notify = True
 
@@ -615,6 +621,14 @@ class OVSNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                       binding.network_type,
                                       binding.segmentation_id,
                                       binding.physical_network)
+
+        if secgrp_member_updated:
+            old_set = set(original_port.get(ext_sg.SECURITYGROUPS))
+            new_set = set(updated_port.get(ext_sg.SECURITYGROUPS))
+            self.notifier.security_groups_member_updated(
+                context,
+                old_set ^ new_set)
+
         return updated_port
 
     def delete_port(self, context, id, l3_port_check=True):

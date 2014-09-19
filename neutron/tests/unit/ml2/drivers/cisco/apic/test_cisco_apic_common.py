@@ -15,20 +15,18 @@
 #
 # @author: Henry Gessau, Cisco Systems
 
-import mock
+import contextlib
 import requests
 
+import mock
 from oslo.config import cfg
 
-from neutron.common import config as neutron_config
-from neutron.plugins.ml2 import config as ml2_config
-from neutron.plugins.ml2.drivers.cisco.apic import apic_client as apic
 from neutron.tests import base
 
 
 OK = requests.codes.ok
 
-APIC_HOST = 'fake.controller.local'
+APIC_HOSTS = ['fake.controller.local']
 APIC_PORT = 7580
 APIC_USR = 'notadmin'
 APIC_PWD = 'topsecret'
@@ -46,9 +44,8 @@ APIC_SUBJECT = 'testSubject'
 APIC_FILTER = 'carbonFilter'
 APIC_ENTRY = 'forcedEntry'
 
-APIC_VMMP = 'OpenStack'
+APIC_SYSTEM_ID = 'sysid'
 APIC_DOMAIN = 'cumuloNimbus'
-APIC_PDOM = 'rainStorm'
 
 APIC_NODE_PROF = 'red'
 APIC_LEAF = 'green'
@@ -68,6 +65,31 @@ APIC_VLANID_FROM = 2900
 APIC_VLANID_TO = 2999
 APIC_VLAN_FROM = 'vlan-%d' % APIC_VLANID_FROM
 APIC_VLAN_TO = 'vlan-%d' % APIC_VLANID_TO
+
+APIC_ROUTER = 'router_id'
+
+APIC_EXT_SWITCH = '203'
+APIC_EXT_MODULE = '1'
+APIC_EXT_PORT = '34'
+APIC_EXT_ENCAP = 'vlan-100'
+APIC_EXT_CIDR_EXPOSED = '10.10.40.2/16'
+APIC_EXT_GATEWAY_IP = '10.10.40.1'
+
+APIC_KEY = 'key'
+
+KEYSTONE_TOKEN = '123Token123'
+
+APIC_UPLINK_PORTS = ['uplink_port']
+
+SERVICE_HOST = 'host1'
+SERVICE_HOST_IFACE = 'eth0'
+SERVICE_HOST_MAC = 'aa:ee:ii:oo:uu:yy'
+
+SERVICE_PEER_CHASSIS_NAME = 'leaf4'
+SERVICE_PEER_CHASSIS = 'topology/pod-1/node-' + APIC_EXT_SWITCH
+SERVICE_PEER_PORT_LOCAL = 'Eth%s/%s' % (APIC_EXT_MODULE, APIC_EXT_PORT)
+SERVICE_PEER_PORT_DESC = ('topology/pod-1/paths-%s/pathep-[%s]' %
+                          (APIC_EXT_SWITCH, SERVICE_PEER_PORT_LOCAL.lower()))
 
 
 class ControllerMixin(object):
@@ -103,20 +125,6 @@ class ControllerMixin(object):
         attrs['debug_mo'] = mo  # useful for debugging
         self._stage_mocked_response('post', OK, mo, **attrs)
 
-    def mock_response_for_get(self, mo, **attrs):
-        self._stage_mocked_response('get', OK, mo, **attrs)
-
-    def mock_append_to_response(self, mo, **attrs):
-        # Append a MO to the last get response.
-        mo_attrs = attrs and {mo: {'attributes': attrs}} or {}
-        self.response['get'][-1].json.return_value['imdata'].append(mo_attrs)
-
-    def mock_error_post_response(self, status, **attrs):
-        self._stage_mocked_response('post', status, 'error', **attrs)
-
-    def mock_error_get_response(self, status, **attrs):
-        self._stage_mocked_response('get', status, 'error', **attrs)
-
     def _stage_mocked_response(self, req, mock_status, mo, **attrs):
         response = mock.MagicMock()
         response.status_code = mock_status
@@ -124,40 +132,14 @@ class ControllerMixin(object):
         response.json.return_value = {'imdata': mo_attrs}
         self.response[req].append(response)
 
-    def mock_responses_for_create(self, obj):
-        self._mock_container_responses_for_create(
-            apic.ManagedObjectClass(obj).container)
-        name = '-'.join([obj, 'name'])  # useful for debugging
-        self._stage_mocked_response('post', OK, obj, name=name)
-
-    def _mock_container_responses_for_create(self, obj):
-        # Recursively generate responses for creating obj's containers.
-        if obj:
-            mo = apic.ManagedObjectClass(obj)
-            if mo.can_create:
-                if mo.container:
-                    self._mock_container_responses_for_create(mo.container)
-                name = '-'.join([obj, 'name'])  # useful for debugging
-                self._stage_mocked_response('post', OK, obj, debug_name=name)
-
     def mock_apic_manager_login_responses(self, timeout=300):
         # APIC Manager tests are based on authenticated session
         self.mock_response_for_post('aaaLogin', userName=APIC_USR,
                                     token='ok', refreshTimeoutSeconds=timeout)
 
-    def assert_responses_drained(self, req=None):
-        """Fail if all the expected responses have not been consumed."""
-        request = {'post': self.session.post, 'get': self.session.get}
-        reqs = req and [req] or ['post', 'get']  # Both if none specified.
-        for req in reqs:
-            try:
-                request[req]('some url')
-            except StopIteration:
-                pass
-            else:
-                # User-friendly error message
-                msg = req + ' response queue not drained'
-                self.fail(msg=msg)
+    @contextlib.contextmanager
+    def fake_transaction(self, *args, **kwargs):
+        yield 'transaction'
 
 
 class ConfigMixin(object):
@@ -169,8 +151,13 @@ class ConfigMixin(object):
 
     def set_up_mocks(self):
         # Mock the configuration file
-        args = ['--config-file', base.etcdir('neutron.conf.test')]
-        neutron_config.init(args=args)
+        base.BaseTestCase.config_parse()
+
+        # Configure global option apic_system_id
+        cfg.CONF.set_override('apic_system_id', APIC_SYSTEM_ID)
+
+        # Configure option keystone_authtoken
+        cfg.CONF.keystone_authtoken = KEYSTONE_TOKEN
 
         # Configure the ML2 mechanism drivers and network types
         ml2_opts = {
@@ -178,48 +165,69 @@ class ConfigMixin(object):
             'tenant_network_types': ['vlan'],
         }
         for opt, val in ml2_opts.items():
-                ml2_config.cfg.CONF.set_override(opt, val, 'ml2')
+                cfg.CONF.set_override(opt, val, 'ml2')
+
+        # Configure the ML2 type_vlan opts
+        ml2_type_vlan_opts = {
+            'vlan_ranges': ['physnet1:100:199'],
+        }
+        cfg.CONF.set_override('network_vlan_ranges',
+                              ml2_type_vlan_opts['vlan_ranges'],
+                              'ml2_type_vlan')
+        self.vlan_ranges = ml2_type_vlan_opts['vlan_ranges']
 
         # Configure the Cisco APIC mechanism driver
         apic_test_config = {
-            'apic_host': APIC_HOST,
+            'apic_hosts': APIC_HOSTS,
             'apic_username': APIC_USR,
             'apic_password': APIC_PWD,
-            'apic_port': APIC_PORT,
-            'apic_vmm_domain': APIC_DOMAIN,
+            'apic_domain_name': APIC_SYSTEM_ID,
             'apic_vlan_ns_name': APIC_VLAN_NAME,
             'apic_vlan_range': '%d:%d' % (APIC_VLANID_FROM, APIC_VLANID_TO),
             'apic_node_profile': APIC_NODE_PROF,
             'apic_entity_profile': APIC_ATT_ENT_PROF,
             'apic_function_profile': APIC_FUNC_PROF,
+            'apic_host_uplink_ports': APIC_UPLINK_PORTS
         }
         for opt, val in apic_test_config.items():
             cfg.CONF.set_override(opt, val, 'ml2_cisco_apic')
+        self.apic_config = cfg.CONF.ml2_cisco_apic
 
+        # Configure switch topology
         apic_switch_cfg = {
-            'apic_switch:east01': {'ubuntu1,ubuntu2': ['3/11']},
-            'apic_switch:east02': {'rhel01,rhel02': ['4/21'],
-                                   'rhel03': ['4/22']},
+            'apic_switch:101': {'ubuntu1,ubuntu2': ['3/11']},
+            'apic_switch:102': {'rhel01,rhel02': ['4/21'],
+                                'rhel03': ['4/22']},
         }
-        self.mocked_parser = mock.patch.object(cfg,
-                                               'MultiConfigParser').start()
+        self.switch_dict = {
+            '101': {
+                '3/11': ['ubuntu1', 'ubuntu2'],
+            },
+            '102': {
+                '4/21': ['rhel01', 'rhel02'],
+                '4/22': ['rhel03'],
+            },
+        }
+        self.vpc_dict = {
+            '201': '202',
+            '202': '201',
+        }
+        self.external_network_dict = {
+            APIC_NETWORK + '-name': {
+                'switch': APIC_EXT_SWITCH,
+                'port': APIC_EXT_MODULE + '/' + APIC_EXT_PORT,
+                'encap': APIC_EXT_ENCAP,
+                'cidr_exposed': APIC_EXT_CIDR_EXPOSED,
+                'gateway_ip': APIC_EXT_GATEWAY_IP,
+            },
+        }
+        self.mocked_parser = mock.patch.object(
+            cfg, 'MultiConfigParser').start()
         self.mocked_parser.return_value.read.return_value = [apic_switch_cfg]
         self.mocked_parser.return_value.parsed = [apic_switch_cfg]
 
 
-class DbModelMixin(object):
+class FakeDbContract(object):
 
-    """Mock the DB models for the APIC driver and service unit tests."""
-
-    def __init__(self):
-        self.mocked_session = None
-
-    def set_up_mocks(self):
-        self.mocked_session = mock.Mock()
-        get_session = mock.patch('neutron.db.api.get_session').start()
-        get_session.return_value = self.mocked_session
-
-    def mock_db_query_filterby_first_return(self, value):
-        """Mock db.session.query().filterby().first() to return value."""
-        query = self.mocked_session.query.return_value
-        query.filter_by.return_value.first.return_value = value
+    def __init__(self, contract_id):
+        self.contract_id = contract_id

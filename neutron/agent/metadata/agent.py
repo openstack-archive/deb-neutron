@@ -144,7 +144,8 @@ class MetadataProxyHandler(object):
 
         internal_ports = qclient.list_ports(
             device_id=router_id,
-            device_owner=n_const.DEVICE_OWNER_ROUTER_INTF)['ports']
+            device_owner=[n_const.DEVICE_OWNER_ROUTER_INTF,
+                          n_const.DEVICE_OWNER_DVR_INTERFACE])['ports']
         return tuple(p['network_id'] for p in internal_ports)
 
     @utils.cache_method_results
@@ -157,10 +158,11 @@ class MetadataProxyHandler(object):
 
         """
         qclient = self._get_neutron_client()
-
-        return qclient.list_ports(
-            network_id=networks,
+        all_ports = qclient.list_ports(
             fixed_ips=['ip_address=%s' % remote_address])['ports']
+
+        networks = set(networks)
+        return [p for p in all_ports if p['network_id'] in networks]
 
     def _get_ports(self, remote_address, network_id=None, router_id=None):
         """Search for all ports that contain passed ip address and belongs to

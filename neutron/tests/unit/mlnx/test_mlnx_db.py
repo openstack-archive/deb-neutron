@@ -19,8 +19,8 @@ from testtools import matchers
 from neutron.common import exceptions as n_exc
 from neutron.db import api as db
 from neutron.plugins.mlnx.db import mlnx_db_v2 as mlnx_db
-from neutron.tests import base
 from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit import testlib_api
 
 PHYS_NET = 'physnet1'
 PHYS_NET_2 = 'physnet2'
@@ -33,13 +33,11 @@ UPDATED_VLAN_RANGES = {PHYS_NET: [(VLAN_MIN + 5, VLAN_MAX + 5)],
 TEST_NETWORK_ID = 'abcdefghijklmnopqrstuvwxyz'
 
 
-class SegmentationIdAllocationTest(base.BaseTestCase):
+class SegmentationIdAllocationTest(testlib_api.SqlTestCase):
     def setUp(self):
         super(SegmentationIdAllocationTest, self).setUp()
-        db.configure_db()
         mlnx_db.sync_network_states(VLAN_RANGES)
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
 
     def test_sync_segmentationIdAllocation(self):
         self.assertIsNone(mlnx_db.get_network_state(PHYS_NET,
@@ -159,7 +157,6 @@ class SegmentationIdAllocationTest(base.BaseTestCase):
 class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
     def setUp(self):
         super(NetworkBindingsTest, self).setUp()
-        db.configure_db()
         self.session = db.get_session()
 
     def test_add_network_binding(self):
@@ -179,3 +176,29 @@ class NetworkBindingsTest(test_plugin.NeutronDbPluginV2TestCase):
             self.assertEqual(binding.network_type, NET_TYPE)
             self.assertEqual(binding.physical_network, PHYS_NET)
             self.assertEqual(binding.segmentation_id, 1234)
+
+            self.assertTrue(repr(binding))
+
+
+class PortProfileBindingTest(test_plugin.NeutronDbPluginV2TestCase):
+    def setUp(self):
+        super(PortProfileBindingTest, self).setUp()
+        self.session = db.get_session()
+
+    def test_add_port_profile_binding(self):
+        with self.port() as port:
+            TEST_PORT_ID = port['port']['id']
+            VNIC_TYPE = 'normal'
+
+            self.assertIsNone(mlnx_db.get_port_profile_binding(self.session,
+                                                               TEST_PORT_ID))
+            mlnx_db.add_port_profile_binding(self.session,
+                                             TEST_PORT_ID,
+                                             VNIC_TYPE)
+            binding = mlnx_db.get_port_profile_binding(self.session,
+                                                       TEST_PORT_ID)
+            self.assertIsNotNone(binding)
+            self.assertEqual(binding.port_id, TEST_PORT_ID)
+            self.assertEqual(binding.vnic_type, VNIC_TYPE)
+
+            self.assertTrue(repr(binding))

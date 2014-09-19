@@ -27,6 +27,12 @@ from neutron.common import utils
 from neutron.tests import base
 
 
+EXPECTED_OWNER_ROUTERS = [
+    constants.DEVICE_OWNER_ROUTER_INTF,
+    constants.DEVICE_OWNER_DVR_INTERFACE
+]
+
+
 class FakeConf(object):
     admin_user = 'neutron'
     admin_password = 'password'
@@ -104,7 +110,7 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
         networks = self.handler._get_router_networks(router_id)
         mock_list_ports.assert_called_once_with(
             device_id=router_id,
-            device_owner=constants.DEVICE_OWNER_ROUTER_INTF)
+            device_owner=EXPECTED_OWNER_ROUTERS)
         self.assertEqual(expected, networks)
 
     def _test_get_router_networks_twice_helper(self):
@@ -119,7 +125,7 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
             networks = self.handler._get_router_networks(router_id)
             mock_list_ports.assert_called_once_with(
                 device_id=router_id,
-                device_owner=constants.DEVICE_OWNER_ROUTER_INTF)
+                device_owner=EXPECTED_OWNER_ROUTERS)
             self.assertEqual(expected_networks, networks)
             networks = self.handler._get_router_networks(router_id)
 
@@ -130,27 +136,29 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
 
     def test_get_ports_for_remote_address(self):
         remote_address = 'remote_address'
-        networks = 'networks'
+        networks = ('network_id1', 'network_id3')
         fixed_ips = ["ip_address=%s" % remote_address]
+        expected_ports = [{'network_id': 'network_id1', 'something': 42}]
+        mock_list_ports = self.qclient.return_value.list_ports
+        mock_list_ports.return_value = {'ports': [{'network_id': 'network_id1',
+                                                   'something': 42},
+                                                  {'network_id': 'network_id2',
+                                                   'something_else': 64}]}
         ports = self.handler._get_ports_for_remote_address(remote_address,
                                                            networks)
-        mock_list_ports = self.qclient.return_value.list_ports
-        mock_list_ports.assert_called_once_with(
-            network_id=networks, fixed_ips=fixed_ips)
-        self.assertEqual(mock_list_ports.return_value.__getitem__('ports'),
-                         ports)
+        mock_list_ports.assert_called_once_with(fixed_ips=fixed_ips)
+        self.assertEqual(expected_ports, ports)
 
     def _get_ports_for_remote_address_cache_hit_helper(self):
         remote_address = 'remote_address'
         networks = ('net1', 'net2')
         fixed_ips = ["ip_address=%s" % remote_address]
-        ports = self.handler._get_ports_for_remote_address(remote_address,
-                                                           networks)
         mock_list_ports = self.qclient.return_value.list_ports
+        mock_list_ports.return_value = {'ports': [{'network_id': 'net1',
+                                                   'something': 42}]}
+        self.handler._get_ports_for_remote_address(remote_address, networks)
         mock_list_ports.assert_called_once_with(
-            network_id=networks, fixed_ips=fixed_ips)
-        self.assertEqual(
-            mock_list_ports.return_value.__getitem__('ports'), ports)
+            fixed_ips=fixed_ips)
         self.assertEqual(1, mock_list_ports.call_count)
         self.handler._get_ports_for_remote_address(remote_address,
                                                    networks)
@@ -230,14 +238,13 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
                 new_qclient_call,
                 mock.call().list_ports(
                     device_id=router_id,
-                    device_owner=constants.DEVICE_OWNER_ROUTER_INTF
+                    device_owner=EXPECTED_OWNER_ROUTERS
                 )
             ])
 
         expected.extend([
             new_qclient_call,
             mock.call().list_ports(
-                network_id=networks or tuple(),
                 fixed_ips=['ip_address=192.168.1.1'])
         ])
 
@@ -254,7 +261,8 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
         networks = ('net1', 'net2')
         ports = [
             [{'network_id': 'net1'}, {'network_id': 'net2'}],
-            [{'device_id': 'device_id', 'tenant_id': 'tenant_id'}]
+            [{'device_id': 'device_id', 'tenant_id': 'tenant_id',
+              'network_id': 'net1'}]
         ]
 
         self.assertEqual(
@@ -290,7 +298,8 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
 
         ports = [
             [{'device_id': 'device_id',
-              'tenant_id': 'tenant_id'}]
+              'tenant_id': 'tenant_id',
+              'network_id': 'the_id'}]
         ]
 
         self.assertEqual(

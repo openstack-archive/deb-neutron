@@ -20,17 +20,12 @@ import mock
 from oslo.config import cfg
 
 import neutron.common.test_lib as test_lib
-from neutron.db import api as db
 from neutron.plugins.bigswitch import config
 from neutron.tests.unit.bigswitch import fake_server
 
-# REVISIT(kevinbenton): This needs to be imported here to create the
-# portbindings table since it's not imported until function call time
-# in the porttracker_db module, which will cause unit test failures when
-# the unit tests are being run by testtools
-from neutron.db import portbindings_db  # noqa
 
 RESTPROXY_PKG_PATH = 'neutron.plugins.bigswitch.plugin'
+L3_RESTPROXY_PKG_PATH = 'neutron.plugins.bigswitch.l3_router_plugin'
 NOTIFIER = 'neutron.plugins.bigswitch.plugin.AgentNotifierApi'
 CERTFETCH = 'neutron.plugins.bigswitch.servermanager.ServerPool._fetch_cert'
 SERVER_MANAGER = 'neutron.plugins.bigswitch.servermanager'
@@ -42,6 +37,7 @@ CWATCH = SERVER_MANAGER + '.ServerPool._consistency_watchdog'
 class BigSwitchTestBase(object):
 
     _plugin_name = ('%s.NeutronRestProxyV2' % RESTPROXY_PKG_PATH)
+    _l3_plugin_name = ('%s.L3RestProxy' % L3_RESTPROXY_PKG_PATH)
 
     def setup_config_files(self):
         etc_path = os.path.join(os.path.dirname(__file__), 'etc')
@@ -55,6 +51,7 @@ class BigSwitchTestBase(object):
                               os.path.join(etc_path, 'ssl'), 'RESTPROXY')
         # The mock interferes with HTTP(S) connection caching
         cfg.CONF.set_override('cache_connections', False, 'RESTPROXY')
+        cfg.CONF.set_override('service_plugins', ['bigswitch_l3'])
 
     def setup_patches(self):
         self.plugin_notifier_p = mock.patch(NOTIFIER)
@@ -62,7 +59,6 @@ class BigSwitchTestBase(object):
         self.spawn_p = mock.patch(SPAWN, new=lambda *args, **kwargs: None)
         # prevent the consistency watchdog from starting
         self.watch_p = mock.patch(CWATCH, new=lambda *args, **kwargs: None)
-        self.addCleanup(db.clear_db)
         self.plugin_notifier_p.start()
         self.spawn_p.start()
         self.watch_p.start()

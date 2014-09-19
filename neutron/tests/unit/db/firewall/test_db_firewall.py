@@ -15,8 +15,9 @@
 #
 # @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
+from oslo.config import cfg
+
 import contextlib
-import logging
 
 import mock
 import webob.exc
@@ -35,7 +36,6 @@ from neutron.services.firewall import fwaas_plugin
 from neutron.tests.unit import test_db_plugin
 
 
-LOG = logging.getLogger(__name__)
 DB_FW_PLUGIN_KLASS = (
     "neutron.db.firewall.firewall_db.Firewall_db_mixin"
 )
@@ -131,20 +131,22 @@ class FirewallPluginDbTestCase(test_db_plugin.NeutronDbPluginV2TestCase):
                  'enabled': ENABLED}
         return attrs
 
-    def _get_test_firewall_policy_attrs(self, name='firewall_policy1'):
+    def _get_test_firewall_policy_attrs(self, name='firewall_policy1',
+                                        audited=AUDITED):
         attrs = {'name': name,
                  'description': DESCRIPTION,
                  'tenant_id': self._tenant_id,
                  'shared': SHARED,
                  'firewall_rules': [],
-                 'audited': AUDITED}
+                 'audited': audited}
         return attrs
 
-    def _get_test_firewall_attrs(self, name='firewall_1'):
+    def _get_test_firewall_attrs(
+        self, name='firewall_1', status='PENDING_CREATE'):
         attrs = {'name': name,
                  'tenant_id': self._tenant_id,
                  'admin_state_up': ADMIN_STATE_UP,
-                 'status': 'PENDING_CREATE'}
+                 'status': status}
 
         return attrs
 
@@ -373,7 +375,7 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
 
     def test_update_firewall_policy(self):
         name = "new_firewall_policy1"
-        attrs = self._get_test_firewall_policy_attrs(name)
+        attrs = self._get_test_firewall_policy_attrs(name, audited=False)
 
         with self.firewall_policy(shared=SHARED,
                                   firewall_rules=None,
@@ -382,6 +384,22 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
             req = self.new_update_request('firewall_policies', data,
                                           fwp['firewall_policy']['id'])
             res = self.deserialize(self.fmt, req.get_response(self.ext_api))
+            for k, v in attrs.iteritems():
+                self.assertEqual(res['firewall_policy'][k], v)
+
+    def test_update_firewall_policy_set_audited_false(self):
+        attrs = self._get_test_firewall_policy_attrs(audited=False)
+
+        with self.firewall_policy(name='firewall_policy1',
+                                  description='fwp',
+                                  audited=AUDITED) as fwp:
+            data = {'firewall_policy':
+                    {'description': 'fw_p1'}}
+            req = self.new_update_request('firewall_policies', data,
+                                          fwp['firewall_policy']['id'])
+            res = self.deserialize(self.fmt,
+                                   req.get_response(self.ext_api))
+            attrs['description'] = 'fw_p1'
             for k, v in attrs.iteritems():
                 self.assertEqual(res['firewall_policy'][k], v)
 
@@ -746,19 +764,25 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 res = req.get_response(self.ext_api)
                 self.assertEqual(res.status_int, 409)
 
-    def test_create_firewall(self):
-        name = "firewall1"
-        attrs = self._get_test_firewall_attrs(name)
-
+    def _test_create_firewall(self, attrs):
         with self.firewall_policy() as fwp:
             fwp_id = fwp['firewall_policy']['id']
             attrs['firewall_policy_id'] = fwp_id
-            with self.firewall(name=name,
+            with self.firewall(name=attrs['name'],
                                firewall_policy_id=fwp_id,
                                admin_state_up=
                                ADMIN_STATE_UP) as firewall:
                 for k, v in attrs.iteritems():
                     self.assertEqual(firewall['firewall'][k], v)
+
+    def test_create_firewall(self):
+        attrs = self._get_test_firewall_attrs("firewall1")
+        self._test_create_firewall(attrs)
+
+    def test_create_firewall_with_dvr(self):
+        cfg.CONF.set_override('router_distributed', True)
+        attrs = self._get_test_firewall_attrs("firewall1", "CREATED")
+        self._test_create_firewall(attrs)
 
     def test_show_firewall(self):
         name = "firewall1"
@@ -911,6 +935,31 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                         insert_after=None,
                         expected_code=webob.exc.HTTPConflict.code,
                         expected_body=None, body_data=insert_data)
+
+    def test_insert_rule_for_prev_associated_ref_rule(self):
+        with contextlib.nested(self.firewall_rule(name='fwr0'),
+                               self.firewall_rule(name='fwr1')) as fwr:
+            fwr0_id = fwr[0]['firewall_rule']['id']
+            fwr1_id = fwr[1]['firewall_rule']['id']
+            with contextlib.nested(
+                self.firewall_policy(name='fwp0'),
+                    self.firewall_policy(name='fwp1',
+                                         firewall_rules=[fwr1_id])) as fwp:
+                fwp0_id = fwp[0]['firewall_policy']['id']
+                #test inserting before a rule which is associated
+                #with different policy
+                self._rule_action(
+                    'insert', fwp0_id, fwr0_id,
+                    insert_before=fwr1_id,
+                    expected_code=webob.exc.HTTPBadRequest.code,
+                    expected_body=None)
+                #test inserting  after a rule which is associated
+                #with different policy
+                self._rule_action(
+                    'insert', fwp0_id, fwr0_id,
+                    insert_after=fwr1_id,
+                    expected_code=webob.exc.HTTPBadRequest.code,
+                    expected_body=None)
 
     def test_insert_rule_in_policy(self):
         attrs = self._get_test_firewall_policy_attrs()

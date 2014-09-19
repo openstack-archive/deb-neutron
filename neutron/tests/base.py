@@ -16,12 +16,11 @@
 """Base Test Case for all Unit Tests"""
 
 import contextlib
-import gc
-import logging
+import logging as std_logging
 import os
 import os.path
 import sys
-import weakref
+import traceback
 
 import eventlet.timeout
 import fixtures
@@ -32,8 +31,6 @@ import testtools
 
 from neutron.common import config
 from neutron.common import rpc as n_rpc
-from neutron.db import agentschedulers_db
-from neutron import manager
 from neutron.tests import fake_notifier
 from neutron.tests import post_mortem_debug
 
@@ -61,42 +58,6 @@ def fake_consume_in_threads(self):
 
 class BaseTestCase(testtools.TestCase):
 
-    def cleanup_core_plugin(self):
-        """Ensure that the core plugin is deallocated."""
-        nm = manager.NeutronManager
-        if not nm.has_instance():
-            return
-
-        #TODO(marun) Fix plugins that do not properly initialize notifiers
-        agentschedulers_db.AgentSchedulerDbMixin.agent_notifiers = {}
-
-        # Perform a check for deallocation only if explicitly
-        # configured to do so since calling gc.collect() after every
-        # test increases test suite execution time by ~50%.
-        check_plugin_deallocation = (
-            os.environ.get('OS_CHECK_PLUGIN_DEALLOCATION') in TRUE_STRING)
-        if check_plugin_deallocation:
-            plugin = weakref.ref(nm._instance.plugin)
-
-        nm.clear_instance()
-
-        if check_plugin_deallocation:
-            gc.collect()
-
-            #TODO(marun) Ensure that mocks are deallocated?
-            if plugin() and not isinstance(plugin(), mock.Base):
-                self.fail('The plugin for this test was not deallocated.')
-
-    def setup_coreplugin(self, core_plugin=None):
-        if core_plugin is not None:
-            cfg.CONF.set_override('core_plugin', core_plugin)
-
-    def setup_notification_driver(self, notification_driver=None):
-        self.addCleanup(fake_notifier.reset)
-        if notification_driver is None:
-            notification_driver = [fake_notifier.__name__]
-        cfg.CONF.set_override("notification_driver", notification_driver)
-
     @staticmethod
     def config_parse(conf=None, args=None):
         """Create the default configurations."""
@@ -111,21 +72,17 @@ class BaseTestCase(testtools.TestCase):
     def setUp(self):
         super(BaseTestCase, self).setUp()
 
-        # Ensure plugin cleanup is triggered last so that
-        # test-specific cleanup has a chance to release references.
-        self.addCleanup(self.cleanup_core_plugin)
-
         # Configure this first to ensure pm debugging support for setUp()
         if os.environ.get('OS_POST_MORTEM_DEBUG') in TRUE_STRING:
             self.addOnException(post_mortem_debug.exception_handler)
 
         if os.environ.get('OS_DEBUG') in TRUE_STRING:
-            _level = logging.DEBUG
+            _level = std_logging.DEBUG
         else:
-            _level = logging.INFO
+            _level = std_logging.INFO
         capture_logs = os.environ.get('OS_LOG_CAPTURE') in TRUE_STRING
         if not capture_logs:
-            logging.basicConfig(format=LOG_FORMAT, level=_level)
+            std_logging.basicConfig(format=LOG_FORMAT, level=_level)
         self.log_fixture = self.useFixture(
             fixtures.FakeLogger(
                 format=LOG_FORMAT,
@@ -138,7 +95,7 @@ class BaseTestCase(testtools.TestCase):
             fixtures.FakeLogger(
                 name='neutron.api.extensions',
                 format=LOG_FORMAT,
-                level=logging.ERROR,
+                level=std_logging.ERROR,
                 nuke_handlers=capture_logs,
             ))
 
@@ -190,6 +147,18 @@ class BaseTestCase(testtools.TestCase):
         if sys.version_info < (2, 7) and getattr(self, 'fmt', '') == 'xml':
             raise self.skipException('XML Testing Skipped in Py26')
 
+        self.setup_config()
+        self.addOnException(self.check_for_systemexit)
+
+    def check_for_systemexit(self, exc_info):
+        if isinstance(exc_info[1], SystemExit):
+            self.fail("A SystemExit was raised during the test. %s"
+                      % traceback.format_exception(*exc_info))
+
+    def setup_config(self):
+        """Tests that need a non-default config can override this method."""
+        self.config_parse()
+
     def config(self, **kw):
         """Override some configuration values.
 
@@ -212,3 +181,16 @@ class BaseTestCase(testtools.TestCase):
             yield
             return
         self.fail('Execution of this test timed out')
+
+    def assertOrderedEqual(self, expected, actual):
+        expect_val = self.sort_dict_lists(expected)
+        actual_val = self.sort_dict_lists(actual)
+        self.assertEqual(expect_val, actual_val)
+
+    def sort_dict_lists(self, dic):
+        for key, value in dic.iteritems():
+            if isinstance(value, list):
+                dic[key] = sorted(value)
+            elif isinstance(value, dict):
+                dic[key] = self.sort_dict_lists(value)
+        return dic

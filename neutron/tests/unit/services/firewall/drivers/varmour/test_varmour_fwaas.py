@@ -50,6 +50,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.conf.set_override('interface_driver',
                                'neutron.agent.linux.interface.NullDriver')
         self.conf.root_helper = 'sudo'
+        self.conf.state_path = ''
 
         self.device_exists_p = mock.patch(
             'neutron.agent.linux.ip_lib.device_exists')
@@ -74,6 +75,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
         ip_cls = self.ip_cls_p.start()
         self.mock_ip = mock.MagicMock()
         ip_cls.return_value = self.mock_ip
+
+        mock.patch('neutron.agent.l3_agent.L3PluginApi').start()
 
         self.looping_call_p = mock.patch(
             'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')

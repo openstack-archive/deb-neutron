@@ -27,9 +27,10 @@ from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import l3_ext_gw_mode
 from neutron.openstack.common import uuidutils
-from neutron.tests import base
 from neutron.tests.unit import test_db_plugin
 from neutron.tests.unit import test_l3_plugin
+from neutron.tests.unit import testlib_api
+from neutron.tests.unit import testlib_plugin
 
 _uuid = uuidutils.generate_uuid
 FAKE_GW_PORT_ID = _uuid()
@@ -74,7 +75,8 @@ class TestDbSepPlugin(test_l3_plugin.TestL3NatServicePlugin,
     supported_extension_aliases = ["router", "ext-gw-mode"]
 
 
-class TestL3GwModeMixin(base.BaseTestCase):
+class TestL3GwModeMixin(testlib_api.SqlTestCase,
+                        testlib_plugin.PluginSetupHelper):
 
     def setUp(self):
         super(TestL3GwModeMixin, self).setUp()
@@ -84,7 +86,6 @@ class TestL3GwModeMixin(base.BaseTestCase):
         # Patch the context
         ctx_patcher = mock.patch('neutron.context', autospec=True)
         mock_context = ctx_patcher.start()
-        self.addCleanup(db_api.clear_db)
         self.context = mock_context.get_admin_context()
         # This ensure also calls to elevated work in unit tests
         self.context.elevated.return_value = self.context
@@ -200,6 +201,10 @@ class TestL3GwModeMixin(base.BaseTestCase):
         self.fip_request = {'port_id': FAKE_FIP_INT_PORT_ID,
                             'tenant_id': self.tenant_id}
 
+    def _get_gwports_dict(self, gw_ports):
+        return dict((gw_port['id'], gw_port)
+                    for gw_port in gw_ports)
+
     def _reset_ext_gw(self):
         # Reset external gateway
         self.router.gw_port_id = None
@@ -253,7 +258,9 @@ class TestL3GwModeMixin(base.BaseTestCase):
     def test_build_routers_list_no_ext_gw(self):
         self._reset_ext_gw()
         router_dict = self.target_object._make_router_dict(self.router)
-        routers = self.target_object._build_routers_list([router_dict], [])
+        routers = self.target_object._build_routers_list(self.context,
+                                                         [router_dict],
+                                                         [])
         self.assertEqual(1, len(routers))
         router = routers[0]
         self.assertIsNone(router.get('gw_port'))
@@ -262,7 +269,8 @@ class TestL3GwModeMixin(base.BaseTestCase):
     def test_build_routers_list_with_ext_gw(self):
         router_dict = self.target_object._make_router_dict(self.router)
         routers = self.target_object._build_routers_list(
-            [router_dict], [self.router.gw_port])
+            self.context, [router_dict],
+            self._get_gwports_dict([self.router.gw_port]))
         self.assertEqual(1, len(routers))
         router = routers[0]
         self.assertIsNotNone(router.get('gw_port'))
@@ -273,12 +281,22 @@ class TestL3GwModeMixin(base.BaseTestCase):
         self.router.enable_snat = False
         router_dict = self.target_object._make_router_dict(self.router)
         routers = self.target_object._build_routers_list(
-            [router_dict], [self.router.gw_port])
+            self.context, [router_dict],
+            self._get_gwports_dict([self.router.gw_port]))
         self.assertEqual(1, len(routers))
         router = routers[0]
         self.assertIsNotNone(router.get('gw_port'))
         self.assertEqual(FAKE_GW_PORT_ID, router['gw_port']['id'])
         self.assertFalse(router.get('enable_snat'))
+
+    def test_build_routers_list_with_gw_port_mismatch(self):
+        router_dict = self.target_object._make_router_dict(self.router)
+        routers = self.target_object._build_routers_list(
+            self.context, [router_dict], {})
+        self.assertEqual(1, len(routers))
+        router = routers[0]
+        self.assertIsNone(router.get('gw_port'))
+        self.assertIsNone(router.get('enable_snat'))
 
 
 class ExtGwModeIntTestCase(test_db_plugin.NeutronDbPluginV2TestCase,

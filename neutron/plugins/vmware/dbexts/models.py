@@ -15,11 +15,8 @@
 #    under the License.
 
 
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String
-from sqlalchemy import orm
-from sqlalchemy import sql
+from sqlalchemy import Column, Enum, ForeignKey, Integer, String
 
-from neutron.db import l3_db
 from neutron.db import model_base
 
 
@@ -40,9 +37,8 @@ class TzNetworkBinding(model_base.BASEV2):
     binding_type = Column(Enum('flat', 'vlan', 'stt', 'gre', 'l3_ext',
                                name='tz_network_bindings_binding_type'),
                           nullable=False, primary_key=True)
-    phy_uuid = Column(String(36), primary_key=True, nullable=True)
-    vlan_id = Column(Integer, primary_key=True, nullable=True,
-                     autoincrement=False)
+    phy_uuid = Column(String(36), primary_key=True, default='')
+    vlan_id = Column(Integer, primary_key=True, autoincrement=False, default=0)
 
     def __init__(self, network_id, binding_type, phy_uuid, vlan_id):
         self.network_id = network_id
@@ -119,20 +115,3 @@ class MultiProviderNetworks(model_base.BASEV2):
 
     def __init__(self, network_id):
         self.network_id = network_id
-
-
-class NSXRouterExtAttributes(model_base.BASEV2):
-    """Router attributes managed by NSX plugin extensions."""
-    router_id = Column(String(36),
-                       ForeignKey('routers.id', ondelete="CASCADE"),
-                       primary_key=True)
-    distributed = Column(Boolean, default=False, server_default=sql.false(),
-                         nullable=False)
-    service_router = Column(Boolean, default=False, server_default=sql.false(),
-                            nullable=False)
-    # Add a relationship to the Router model in order to instruct
-    # SQLAlchemy to eagerly load this association
-    router = orm.relationship(
-        l3_db.Router,
-        backref=orm.backref("nsx_attributes", lazy='joined',
-                            uselist=False, cascade='delete'))

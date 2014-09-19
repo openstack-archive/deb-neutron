@@ -56,7 +56,6 @@ def get_conf(x):
 
 class EmbraneLbaas(abstract_driver.LoadBalancerAbstractDriver):
     def __init__(self, plugin):
-        edb.initialize()
         config_esm_mgmt = get_conf('esm_mgmt')
         config_admin_username = get_conf('admin_username')
         config_admin_password = get_conf('admin_password')
@@ -86,8 +85,8 @@ class EmbraneLbaas(abstract_driver.LoadBalancerAbstractDriver):
         if vip.get('connection_limit') and vip['connection_limit'] != -1:
             raise h_exc.UnsupportedException(
                 err_msg=_('Connection limit is not supported by Embrane LB'))
-        persistance = vip.get('session_persistence')
-        if (persistance and persistance.get('type') ==
+        persistence = vip.get('session_persistence')
+        if (persistence and persistence.get('type') ==
                 lbcon.SESSION_PERSISTENCE_APP_COOKIE):
             p_type = vip['session_persistence']['type']
             raise h_exc.UnsupportedException(

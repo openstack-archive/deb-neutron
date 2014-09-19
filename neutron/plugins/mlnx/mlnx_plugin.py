@@ -20,6 +20,9 @@ from oslo.config import cfg
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
+from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import l3_rpc
+from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
@@ -48,6 +51,9 @@ from neutron.plugins.mlnx.db import mlnx_db_v2 as db
 from neutron.plugins.mlnx import rpc_callbacks
 
 LOG = logging.getLogger(__name__)
+
+#to be compatible with Linux Bridge Agent on Network Node
+TAP_PREFIX_LEN = 3
 
 
 class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
@@ -120,6 +126,9 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.conn = n_rpc.create_connection(new=True)
         self.endpoints = [rpc_callbacks.MlnxRpcCallbacks(),
+                          securitygroups_rpc.SecurityGroupServerRpcCallback(),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
                           agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
@@ -511,3 +520,20 @@ class MellanoxEswitchPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         # now that we've left db transaction, we are safe to notify
         self.notify_routers_updated(context, router_ids)
         self.notify_security_groups_member_updated(context, port)
+
+    @classmethod
+    def get_port_from_device(cls, device):
+        """Get port according to device.
+
+        To maintain compatibility with Linux Bridge L2 Agent for DHCP/L3
+        services get device either by linux bridge plugin
+        device name convention or by mac address
+        """
+        port = db.get_port_from_device(device[TAP_PREFIX_LEN:])
+        if port:
+            port['device'] = device
+        else:
+            port = db.get_port_from_device_mac(device)
+            if port:
+                port['device'] = device
+        return port

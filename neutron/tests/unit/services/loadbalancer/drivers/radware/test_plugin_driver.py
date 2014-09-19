@@ -24,7 +24,7 @@ from six.moves import queue as Queue
 from neutron import context
 from neutron.extensions import loadbalancer
 from neutron import manager
-from neutron.openstack.common import jsonutils as json
+from neutron.openstack.common import jsonutils
 from neutron.plugins.common import constants
 from neutron.services.loadbalancer.drivers.radware import driver
 from neutron.services.loadbalancer.drivers.radware import exceptions as r_exc
@@ -66,9 +66,9 @@ def rest_call_function_mock(action, resource, data, headers, binary=False):
 def _get_handler(resource):
     if resource == GET_200[2]:
         if rest_call_function_mock.TEMPLATES_MISSING:
-            data = json.loads('[]')
+            data = jsonutils.loads('[]')
         else:
-            data = json.loads(
+            data = jsonutils.loads(
                 '[{"name":"openstack_l2_l3"},{"name":"openstack_l4"}]'
             )
         return 200, '', '', data
@@ -76,7 +76,7 @@ def _get_handler(resource):
     if resource in GET_200:
         return 200, '', '', ''
     else:
-        data = json.loads('{"complete":"True", "success": "True"}')
+        data = jsonutils.loads('{"complete":"True", "success": "True"}')
         return 202, '', '', data
 
 
@@ -86,10 +86,10 @@ def _delete_handler(resource):
 
 def _post_handler(resource, binary):
     if re.search(r'/api/workflow/.+/action/.+', resource):
-        data = json.loads('{"uri":"some_uri"}')
+        data = jsonutils.loads('{"uri":"some_uri"}')
         return 202, '', '', data
     elif re.search(r'/api/service\?name=.+', resource):
-        data = json.loads('{"links":{"actions":{"provision":"someuri"}}}')
+        data = jsonutils.loads('{"links":{"actions":{"provision":"someuri"}}}')
         return 201, '', '', data
     elif binary:
         return 201, '', '', ''
@@ -152,6 +152,29 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
             radware_driver.completion_handler.handle_operation_completion)
 
         self.addCleanup(radware_driver.completion_handler.join)
+
+    def test_get_pip(self):
+        """Call _get_pip twice and verify that a Port is created once."""
+        port_dict = {'fixed_ips': [{'subnet_id': '10.10.10.10',
+                                    'ip_address': '11.11.11.11'}]}
+        self.plugin_instance._core_plugin.get_ports = mock.Mock(
+            return_value=[])
+        self.plugin_instance._core_plugin.create_port = mock.Mock(
+            return_value=port_dict)
+        radware_driver = self.plugin_instance.drivers['radware']
+        radware_driver._get_pip(context.get_admin_context(),
+                                'tenant_id', 'port_name',
+                                'network_id', '10.10.10.10')
+        self.plugin_instance._core_plugin.get_ports.assert_called_once()
+        self.plugin_instance._core_plugin.create_port.assert_called_once()
+        self.plugin_instance._core_plugin.create_port.reset_mock()
+        self.plugin_instance._core_plugin.get_ports.reset_mock()
+        self.plugin_instance._core_plugin.get_ports.return_value = [port_dict]
+        radware_driver._get_pip(context.get_admin_context(),
+                                'tenant_id', 'port_name',
+                                'network_id', '10.10.10.10')
+        self.plugin_instance._core_plugin.get_ports.assert_called_once()
+        self.plugin_instance._core_plugin.create_port.assert_has_calls([])
 
     def test_rest_client_recover_was_called(self):
         """Call the real REST client and verify _recover is called."""

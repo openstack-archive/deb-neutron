@@ -32,6 +32,7 @@ from neutron import quota
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_extensions
 from neutron.tests.unit import testlib_api
+from neutron.tests.unit import testlib_plugin
 
 
 class ProviderExtensionManager(object):
@@ -49,7 +50,8 @@ class ProviderExtensionManager(object):
         return pnet.get_extended_resources(version)
 
 
-class ProvidernetExtensionTestCase(testlib_api.WebTestCase):
+class ProvidernetExtensionTestCase(testlib_api.WebTestCase,
+                                   testlib_plugin.PluginSetupHelper):
     fmt = 'json'
 
     def setUp(self):
@@ -122,6 +124,18 @@ class ProvidernetExtensionTestCase(testlib_api.WebTestCase):
                             expect_errors=expect_errors)
         return res, data
 
+    def _post_network_with_bad_provider_attrs(self, ctx, bad_data,
+                                              expect_errors=False):
+        data = self._prepare_net_data()
+        data.update(bad_data)
+        env = {'neutron.context': ctx}
+        res = self.api.post(test_api_v2._get_path('networks', fmt=self.fmt),
+                            self.serialize({'network': data}),
+                            content_type='application/' + self.fmt,
+                            extra_environ=env,
+                            expect_errors=expect_errors)
+        return res, data
+
     def test_network_create_with_provider_attrs(self):
         ctx = context.get_admin_context()
         ctx.tenant_id = 'an_admin'
@@ -134,6 +148,14 @@ class ProvidernetExtensionTestCase(testlib_api.WebTestCase):
         instance.create_network.assert_called_with(mock.ANY,
                                                    network=exp_input)
         self.assertEqual(res.status_int, web_exc.HTTPCreated.code)
+
+    def test_network_create_with_bad_provider_attrs_400(self):
+        ctx = context.get_admin_context()
+        ctx.tenant_id = 'an_admin'
+        bad_data = {pnet.SEGMENTATION_ID: "abc"}
+        res, _1 = self._post_network_with_bad_provider_attrs(ctx, bad_data,
+                                                             True)
+        self.assertEqual(web_exc.HTTPBadRequest.code, res.status_int)
 
     def test_network_update_with_provider_attrs(self):
         ctx = context.get_admin_context()
@@ -152,8 +174,8 @@ class ProvidernetExtensionTestCase(testlib_api.WebTestCase):
         res, _1 = self._post_network_with_provider_attrs(ctx, True)
         self.assertEqual(res.status_int, web_exc.HTTPForbidden.code)
 
-    def test_network_update_with_provider_attrs_noadmin_returns_404(self):
+    def test_network_update_with_provider_attrs_noadmin_returns_403(self):
         tenant_id = 'no_admin'
         ctx = context.Context('', tenant_id, is_admin=False)
         res, _1, _2 = self._put_network_with_provider_attrs(ctx, True)
-        self.assertEqual(res.status_int, web_exc.HTTPNotFound.code)
+        self.assertEqual(res.status_int, web_exc.HTTPForbidden.code)

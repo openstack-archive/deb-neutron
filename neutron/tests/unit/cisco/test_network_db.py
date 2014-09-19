@@ -17,23 +17,21 @@ import collections
 import mock
 import testtools
 
-from neutron.db import api as db
 from neutron.plugins.cisco.common import cisco_constants
 from neutron.plugins.cisco.common import cisco_credentials_v2
 from neutron.plugins.cisco.common import cisco_exceptions as c_exc
 from neutron.plugins.cisco.common import config as config
 from neutron.plugins.cisco.db import network_db_v2 as cdb
 from neutron.plugins.cisco import network_plugin
-from neutron.tests import base
+from neutron.tests.unit import testlib_api
 
 
-class CiscoNetworkDbTest(base.BaseTestCase):
+class CiscoNetworkDbTest(testlib_api.SqlTestCase):
 
     """Base class for Cisco network database unit tests."""
 
     def setUp(self):
         super(CiscoNetworkDbTest, self).setUp()
-        db.configure_db()
 
         # The Cisco network plugin includes a thin layer of QoS and
         # credential API methods which indirectly call Cisco QoS and
@@ -46,8 +44,6 @@ class CiscoNetworkDbTest(base.BaseTestCase):
         with mock.patch.object(network_plugin.PluginV2,
                                '__init__', new=new_network_plugin_init):
             self._network_plugin = network_plugin.PluginV2()
-
-        self.addCleanup(db.clear_db)
 
 
 class CiscoNetworkQosDbTest(CiscoNetworkDbTest):
@@ -262,15 +258,37 @@ class CiscoNetworkCredentialDbTest(CiscoNetworkDbTest):
                           self._network_plugin.get_credential_details,
                           "dummyCredentialId")
 
+    def test_credential_delete_all_n1kv(self):
+        cred_nexus_1 = self._cred_test_obj('nexus', 1)
+        cred_nexus_2 = self._cred_test_obj('nexus', 2)
+        cred_n1kv_1 = self.CredObj('n1kv-1', 'cisco', '123456', 'n1kv')
+        cred_n1kv_2 = self.CredObj('n1kv-2', 'cisco', '123456', 'n1kv')
+        cred_nexus_1_id = cdb.add_credential(
+            cred_nexus_1.cname, cred_nexus_1.usr,
+            cred_nexus_1.pwd, cred_nexus_1.ctype).credential_id
+        cred_nexus_2_id = cdb.add_credential(
+            cred_nexus_2.cname, cred_nexus_2.usr,
+            cred_nexus_2.pwd, cred_nexus_2.ctype).credential_id
+        cred_n1kv_1_id = cdb.add_credential(
+            cred_n1kv_1.cname, cred_n1kv_1.usr,
+            cred_n1kv_1.pwd, cred_n1kv_1.ctype).credential_id
+        cred_n1kv_2_id = cdb.add_credential(
+            cred_n1kv_2.cname, cred_n1kv_2.usr,
+            cred_n1kv_2.pwd, cred_n1kv_2.ctype).credential_id
+        cdb.delete_all_n1kv_credentials()
+        cred = cdb.get_credential(cred_nexus_1_id)
+        self.assertIsNotNone(cred)
+        cred = cdb.get_credential(cred_nexus_2_id)
+        self.assertIsNotNone(cred)
+        self.assertRaises(c_exc.CredentialNotFound,
+                          cdb.get_credential, cred_n1kv_1_id)
+        self.assertRaises(c_exc.CredentialNotFound,
+                          cdb.get_credential, cred_n1kv_2_id)
 
-class CiscoCredentialStoreTest(base.BaseTestCase):
+
+class CiscoCredentialStoreTest(testlib_api.SqlTestCase):
 
     """Cisco Credential Store unit tests."""
-
-    def setUp(self):
-        super(CiscoCredentialStoreTest, self).setUp()
-        db.configure_db()
-        self.addCleanup(db.clear_db)
 
     def test_cred_store_init_duplicate_creds_ignored(self):
         """Check that with multi store instances, dup creds are ignored."""

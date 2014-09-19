@@ -34,7 +34,7 @@ from neutron import context
 from neutron.db.loadbalancer import loadbalancer_db as lb_db
 from neutron.extensions import loadbalancer
 from neutron.openstack.common import excutils
-from neutron.openstack.common import jsonutils as json
+from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 from neutron.services.loadbalancer.drivers import abstract_driver
@@ -196,11 +196,12 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
         # if VIP and PIP are different, we need an IP address for the PIP
         # so create port on PIP's network and use its IP address
         if vip_network_id != pool_network_id:
-            pip_address = self._create_port_for_pip(
+            pip_address = self._get_pip(
                 context,
                 vip['tenant_id'],
                 _make_pip_name_from_vip(vip),
-                pool_network_id)
+                pool_network_id,
+                ext_vip['pool']['subnet_id'])
             ext_vip['pip_address'] = pip_address
         else:
             ext_vip['pip_address'] = vip['address']
@@ -467,7 +468,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
         resource = '/api/workflow/%s' % (wf_name)
         rest_return = self.rest_client.call('DELETE', resource, None, None)
         response = _rest_wrapper(rest_return, [204, 202, 404])
-        if rest_return[RESP_STATUS] in [404]:
+        if rest_return[RESP_STATUS] == 404:
             if post_remove_function:
                 try:
                     post_remove_function(True)
@@ -555,7 +556,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
         return service_name
 
     def _get_available_service(self, service_name):
-        """Check if service exsists and return its name if it does."""
+        """Check if service exists and return its name if it does."""
         resource = '/api/service/' + service_name
         try:
             _rest_wrapper(self.rest_client.call('GET',
@@ -613,24 +614,44 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
                 raise r_exc.WorkflowMissing(workflow=wf)
         self.workflow_templates_exists = True
 
-    def _create_port_for_pip(self, context, tenant_id, port_name, subnet):
-        """Creates port on subnet, returns that port's IP."""
+    def _get_pip(self, context, tenant_id, port_name,
+                 network_id, subnet_id):
+        """Get proxy IP
 
-        # create port, we just want any IP allocated to the port based on the
-        # network id, so setting 'fixed_ips' to ATTR_NOT_SPECIFIED
-        port_data = {
-            'tenant_id': tenant_id,
-            'name': port_name,
-            'network_id': subnet,
-            'mac_address': attributes.ATTR_NOT_SPECIFIED,
-            'admin_state_up': False,
-            'device_id': '',
-            'device_owner': 'neutron:' + constants.LOADBALANCER,
-            'fixed_ips': attributes.ATTR_NOT_SPECIFIED
+        Creates or get port on network_id, returns that port's IP
+        on the subnet_id.
+        """
+
+        port_filter = {
+            'name': [port_name],
         }
-        port = self.plugin._core_plugin.create_port(context,
-                                                    {'port': port_data})
-        return port['fixed_ips'][0]['ip_address']
+        ports = self.plugin._core_plugin.get_ports(context,
+                                                   filters=port_filter)
+        if not ports:
+            # create port, we just want any IP allocated to the port
+            # based on the network id and subnet_id
+            port_data = {
+                'tenant_id': tenant_id,
+                'name': port_name,
+                'network_id': network_id,
+                'mac_address': attributes.ATTR_NOT_SPECIFIED,
+                'admin_state_up': False,
+                'device_id': '',
+                'device_owner': 'neutron:' + constants.LOADBALANCER,
+                'fixed_ips': [{'subnet_id': subnet_id}]
+            }
+            port = self.plugin._core_plugin.create_port(context,
+                                                        {'port': port_data})
+        else:
+            port = ports[0]
+        ips_on_subnet = [ip for ip in port['fixed_ips']
+                         if ip['subnet_id'] == subnet_id]
+        if not ips_on_subnet:
+            raise Exception(_('Could not find or allocate '
+                              'IP address for subnet id %s'),
+                            subnet_id)
+        else:
+            return ips_on_subnet[0]['ip_address']
 
 
 class vDirectRESTClient:
@@ -707,7 +728,7 @@ class vDirectRESTClient:
         if binary:
             body = data
         else:
-            body = json.dumps(data)
+            body = jsonutils.dumps(data)
 
         debug_data = 'binary' if binary else body
         debug_data = debug_data if debug_data else 'EMPTY'
@@ -737,7 +758,7 @@ class vDirectRESTClient:
             respstr = response.read()
             respdata = respstr
             try:
-                respdata = json.loads(respstr)
+                respdata = jsonutils.loads(respstr)
             except ValueError:
                 # response was not JSON, ignore the exception
                 pass
@@ -1088,8 +1109,7 @@ def _translate_vip_object_graph(extended_vip, plugin, context):
                           _trans_prop_name(hm_property))].append(value)
     ids = get_ids(extended_vip)
     trans_vip['__ids__'] = ids
-    for key in ['pip_address']:
-        if key in extended_vip:
-            trans_vip[key] = extended_vip[key]
+    if 'pip_address' in extended_vip:
+        trans_vip['pip_address'] = extended_vip['pip_address']
     LOG.debug('Translated Vip graph: ' + str(trans_vip))
     return trans_vip

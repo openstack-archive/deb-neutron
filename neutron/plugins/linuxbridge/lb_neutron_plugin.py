@@ -20,6 +20,9 @@ from oslo.config import cfg
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
+from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import l3_rpc
+from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as q_const
 from neutron.common import exceptions as n_exc
@@ -30,12 +33,10 @@ from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2
-from neutron.db import dhcp_rpc_base
 from neutron.db import external_net_db
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
-from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
@@ -52,26 +53,16 @@ from neutron.plugins.linuxbridge.db import l2network_db_v2 as db
 
 LOG = logging.getLogger(__name__)
 
+# Device names start with "tap"
+TAP_PREFIX_LEN = 3
 
-class LinuxBridgeRpcCallbacks(n_rpc.RpcCallback,
-                              dhcp_rpc_base.DhcpRpcCallbackMixin,
-                              l3_rpc_base.L3RpcCallbackMixin,
-                              sg_db_rpc.SecurityGroupServerRpcCallbackMixin
-                              ):
+
+class LinuxBridgeRpcCallbacks(n_rpc.RpcCallback):
 
     # history
     #   1.1 Support Security Group RPC
     #   1.2 Support get_devices_details_list
     RPC_API_VERSION = '1.2'
-    # Device names start with "tap"
-    TAP_PREFIX_LEN = 3
-
-    @classmethod
-    def get_port_from_device(cls, device):
-        port = db.get_port_from_device(device[cls.TAP_PREFIX_LEN:])
-        if port:
-            port['device'] = device
-        return port
 
     def get_device_details(self, rpc_context, **kwargs):
         """Agent requests device details."""
@@ -79,7 +70,8 @@ class LinuxBridgeRpcCallbacks(n_rpc.RpcCallback,
         device = kwargs.get('device')
         LOG.debug(_("Device %(device)s details requested from %(agent_id)s"),
                   {'device': device, 'agent_id': agent_id})
-        port = self.get_port_from_device(device)
+        plugin = manager.NeutronManager.get_plugin()
+        port = plugin.get_port_from_device(device)
         if port:
             binding = db.get_network_binding(db_api.get_session(),
                                              port['network_id'])
@@ -119,10 +111,10 @@ class LinuxBridgeRpcCallbacks(n_rpc.RpcCallback,
         agent_id = kwargs.get('agent_id')
         device = kwargs.get('device')
         host = kwargs.get('host')
-        port = self.get_port_from_device(device)
         LOG.debug(_("Device %(device)s no longer exists on %(agent_id)s"),
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
+        port = plugin.get_port_from_device(device)
         if port:
             entry = {'device': device,
                      'exists': True}
@@ -145,10 +137,10 @@ class LinuxBridgeRpcCallbacks(n_rpc.RpcCallback,
         agent_id = kwargs.get('agent_id')
         device = kwargs.get('device')
         host = kwargs.get('host')
-        port = self.get_port_from_device(device)
         LOG.debug(_("Device %(device)s up on %(agent_id)s"),
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
+        port = plugin.get_port_from_device(device)
         if port:
             if (host and
                 not plugin.get_port_host(rpc_context, port['id']) == host):
@@ -285,6 +277,9 @@ class LinuxBridgePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                svc_constants.L3_ROUTER_NAT: topics.L3PLUGIN}
         self.conn = n_rpc.create_connection(new=True)
         self.endpoints = [LinuxBridgeRpcCallbacks(),
+                          securitygroups_rpc.SecurityGroupServerRpcCallback(),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
                           agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
@@ -542,3 +537,10 @@ class LinuxBridgePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.notifier.port_update(context, port,
                                   binding.physical_network,
                                   binding.vlan_id)
+
+    @classmethod
+    def get_port_from_device(cls, device):
+        port = db.get_port_from_device(device[TAP_PREFIX_LEN:])
+        if port:
+            port['device'] = device
+        return port

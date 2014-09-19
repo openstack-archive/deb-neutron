@@ -15,6 +15,8 @@
 #
 # @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
+from oslo.config import cfg
+
 import sqlalchemy as sa
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy import orm
@@ -239,6 +241,11 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
         LOG.debug(_("create_firewall() called"))
         fw = firewall['firewall']
         tenant_id = self._get_tenant_id_for_create(context, fw)
+        # distributed routers may required a more complex state machine;
+        # the introduction of a new 'CREATED' state allows this, whilst
+        # keeping a backward compatible behavior of the logical resource.
+        status = (const.CREATED
+            if cfg.CONF.router_distributed else const.PENDING_CREATE)
         with context.session.begin(subtransactions=True):
             firewall_db = Firewall(id=uuidutils.generate_uuid(),
                                    tenant_id=tenant_id,
@@ -247,7 +254,7 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
                                    firewall_policy_id=
                                    fw['firewall_policy_id'],
                                    admin_state_up=fw['admin_state_up'],
-                                   status=const.PENDING_CREATE)
+                                   status=status)
             context.session.add(firewall_db)
         return self._make_firewall_dict(firewall_db)
 
@@ -255,11 +262,10 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
         LOG.debug(_("update_firewall() called"))
         fw = firewall['firewall']
         with context.session.begin(subtransactions=True):
-            fw_query = context.session.query(
-                Firewall).with_lockmode('update')
-            firewall_db = fw_query.filter_by(id=id).one()
-            firewall_db.update(fw)
-        return self._make_firewall_dict(firewall_db)
+            count = context.session.query(Firewall).filter_by(id=id).update(fw)
+            if not count:
+                raise firewall.FirewallNotFound(firewall_id=id)
+        return self.get_firewall(context, id)
 
     def delete_firewall(self, context, id):
         LOG.debug(_("delete_firewall() called"))
@@ -312,6 +318,8 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
                 self._set_rules_for_policy(context, fwp_db,
                                            fwp['firewall_rules'])
                 del fwp['firewall_rules']
+            if 'audited' not in fwp or fwp['audited']:
+                fwp['audited'] = False
             fwp_db.update(fwp)
         return self._make_firewall_policy_dict(fwp_db)
 
@@ -450,6 +458,10 @@ class Firewall_db_mixin(firewall.FirewallPluginBase, base_db.CommonDbMixin):
                 # rule is inserted after reference_firewall_rule_id.
                 ref_fwr_db = self._get_firewall_rule(
                     context, ref_firewall_rule_id)
+                if ref_fwr_db.firewall_policy_id != id:
+                    raise firewall.FirewallRuleNotAssociatedWithPolicy(
+                        firewall_rule_id=ref_fwr_db['id'],
+                        firewall_policy_id=id)
                 if insert_before:
                     position = ref_fwr_db.position
                 else:

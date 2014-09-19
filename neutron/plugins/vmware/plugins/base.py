@@ -13,7 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import logging
 import uuid
 
 from oslo.config import cfg
@@ -35,6 +34,7 @@ from neutron.db import db_base_plugin_v2
 from neutron.db import external_net_db
 from neutron.db import extraroute_db
 from neutron.db import l3_db
+from neutron.db import l3_dvr_db
 from neutron.db import l3_gwmode_db
 from neutron.db import models_v2
 from neutron.db import portbindings_db
@@ -51,7 +51,9 @@ from neutron.extensions import portsecurity as psec
 from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
+from neutron.openstack.common.gettextutils import _LE
 from neutron.openstack.common import lockutils
+from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as plugin_const
 from neutron.plugins import vmware
 from neutron.plugins.vmware.api_client import exception as api_exc
@@ -62,7 +64,6 @@ from neutron.plugins.vmware.common import securitygroups as sg_utils
 from neutron.plugins.vmware.common import sync
 from neutron.plugins.vmware.common import utils as c_utils
 from neutron.plugins.vmware.dbexts import db as nsx_db
-from neutron.plugins.vmware.dbexts import distributedrouter as dist_rtr
 from neutron.plugins.vmware.dbexts import maclearning as mac_db
 from neutron.plugins.vmware.dbexts import networkgw_db
 from neutron.plugins.vmware.dbexts import qos_db
@@ -76,7 +77,7 @@ from neutron.plugins.vmware.nsxlib import router as routerlib
 from neutron.plugins.vmware.nsxlib import secgroup as secgrouplib
 from neutron.plugins.vmware.nsxlib import switch as switchlib
 
-LOG = logging.getLogger("NeutronPlugin")
+LOG = logging.getLogger(__name__)
 
 NSX_NOSNAT_RULES_ORDER = 10
 NSX_FLOATINGIP_NAT_RULES_ORDER = 224
@@ -88,7 +89,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                   agentschedulers_db.DhcpAgentSchedulerDbMixin,
                   db_base_plugin_v2.NeutronDbPluginV2,
                   dhcpmeta_modes.DhcpMetadataAccess,
-                  dist_rtr.DistributedRouter_mixin,
+                  l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                   external_net_db.External_net_db_mixin,
                   extraroute_db.ExtraRoute_db_mixin,
                   l3_gwmode_db.L3_NAT_db_mixin,
@@ -101,6 +102,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
 
     supported_extension_aliases = ["allowed-address-pairs",
                                    "binding",
+                                   "dvr",
                                    "dist-router",
                                    "ext-gw-mode",
                                    "extraroute",
@@ -1438,7 +1440,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                                          admin_state_up=r['admin_state_up'],
                                          status=lrouter['status'])
                 context.session.add(router_db)
-                self._process_nsx_router_create(context, router_db, r)
+                self._process_extra_attr_router_create(context, router_db, r)
                 # Ensure neutron router is moved into the transaction's buffer
                 context.session.flush()
                 # Add mapping between neutron and nsx identifiers
@@ -1830,6 +1832,8 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         elif (not associated and
               floatingip_db['status'] != constants.FLOATINGIP_STATUS_DOWN):
             return constants.FLOATINGIP_STATUS_DOWN
+        # in any case ensure the status is not reset by this method!
+        return floatingip_db['status']
 
     def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
         """Update floating IP association data.
@@ -1965,7 +1969,11 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         except n_exc.NotFound:
             LOG.warning(_("Nat rules not found in nsx for port: %s"), id)
 
-        super(NsxPluginV2, self).disassociate_floatingips(context, port_id)
+        # NOTE(ihrachys): L3 agent notifications don't make sense for
+        # NSX VMWare plugin since there is no L3 agent in such setup, so
+        # disabling them here.
+        super(NsxPluginV2, self).disassociate_floatingips(
+            context, port_id, do_notify=False)
 
     def create_network_gateway(self, context, network_gateway):
         """Create a layer-2 network gateway.
@@ -2076,12 +2084,10 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
     def _get_nsx_device_id(self, context, device_id):
         return self._get_gateway_device(context, device_id)['nsx_id']
 
-    def _rollback_gw_device(self, context, device_id,
-                            gw_data=None, new_status=None,
-                            is_create=False, log_level=logging.ERROR):
-        LOG.log(log_level,
-                _("Rolling back database changes for gateway device %s "
-                  "because of an error in the NSX backend"), device_id)
+    def _rollback_gw_device(self, context, device_id, gw_data=None,
+                            new_status=None, is_create=False):
+        LOG.error(_LE("Rolling back database changes for gateway device %s "
+                      "because of an error in the NSX backend"), device_id)
         with context.session.begin(subtransactions=True):
             query = self._model_query(
                 context, networkgw_db.NetworkGatewayDevice).filter(
@@ -2254,7 +2260,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         nsx_device_id = self._get_nsx_device_id(context, device_id)
         super(NsxPluginV2, self).delete_gateway_device(
             context, device_id)
-        # DB operation was successful, peform NSX operation
+        # DB operation was successful, perform NSX operation
         # TODO(salv-orlando): State consistency with neutron DB
         # should be ensured even in case of backend failures
         try:

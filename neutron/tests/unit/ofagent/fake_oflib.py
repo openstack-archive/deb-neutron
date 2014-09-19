@@ -98,11 +98,29 @@ class _Mod(object):
 def patch_fake_oflib_of():
     ryu_mod = mock.Mock()
     ryu_base_mod = ryu_mod.base
+    ryu_ctrl_mod = ryu_mod.controller
+    handler = _Mod('ryu.controller.handler')
+    handler.set_ev_cls = mock.Mock()
+    ofp_event = _Mod('ryu.controller.ofp_event')
+    ryu_ctrl_mod.handler = handler
+    ryu_ctrl_mod.ofp_event = ofp_event
     ryu_lib_mod = ryu_mod.lib
     ryu_lib_hub = ryu_lib_mod.hub
+    ryu_packet_mod = ryu_lib_mod.packet
+    packet = _Mod('ryu.lib.packet.packet')
+    arp = _Mod('ryu.lib.packet.arp')
+    ethernet = _Mod('ryu.lib.packet.ethernet')
+    vlan = _Mod('ryu.lib.packet.vlan')
+    ryu_packet_mod.packet = packet
+    packet.Packet = mock.Mock()
+    ryu_packet_mod.arp = arp
+    ryu_packet_mod.ethernet = ethernet
+    ryu_packet_mod.vlan = vlan
     ryu_ofproto_mod = ryu_mod.ofproto
+    ether = _Mod('ryu.ofproto.ether')
     ofp = _Mod('ryu.ofproto.ofproto_v1_3')
     ofpp = _Mod('ryu.ofproto.ofproto_v1_3_parser')
+    ryu_ofproto_mod.ether = ether
     ryu_ofproto_mod.ofproto_v1_3 = ofp
     ryu_ofproto_mod.ofproto_v1_3_parser = ofpp
     ryu_app_mod = ryu_mod.app
@@ -110,9 +128,20 @@ def patch_fake_oflib_of():
     ryu_ofctl_api = ryu_app_ofctl_mod.api
     modules = {'ryu': ryu_mod,
                'ryu.base': ryu_base_mod,
+               'ryu.controller': ryu_ctrl_mod,
+               'ryu.controller.handler': handler,
+               'ryu.controller.handler.set_ev_cls': handler.set_ev_cls,
+               'ryu.controller.ofp_event': ofp_event,
                'ryu.lib': ryu_lib_mod,
                'ryu.lib.hub': ryu_lib_hub,
+               'ryu.lib.packet': ryu_packet_mod,
+               'ryu.lib.packet.packet': packet,
+               'ryu.lib.packet.packet.Packet': packet.Packet,
+               'ryu.lib.packet.arp': arp,
+               'ryu.lib.packet.ethernet': ethernet,
+               'ryu.lib.packet.vlan': vlan,
                'ryu.ofproto': ryu_ofproto_mod,
+               'ryu.ofproto.ether': ether,
                'ryu.ofproto.ofproto_v1_3': ofp,
                'ryu.ofproto.ofproto_v1_3_parser': ofpp,
                'ryu.app': ryu_app_mod,

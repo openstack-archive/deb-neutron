@@ -15,11 +15,13 @@
 # under the License.
 
 from oslo.config import cfg
+import six
 
 from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import iptables_manager
 from neutron.common import constants as constants
+from neutron.common import ipv6_utils
 from neutron.common import log
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
@@ -74,7 +76,8 @@ class RouterWithMetering(object):
         self.iptables_manager = iptables_manager.IptablesManager(
             root_helper=self.root_helper,
             namespace=self.ns_name,
-            binary_name=WRAP_NAME)
+            binary_name=WRAP_NAME,
+            use_ipv6=ipv6_utils.is_enabled())
         self.metering_labels = {}
 
 
@@ -102,10 +105,10 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     @log.log
     def update_routers(self, context, routers):
         # disassociate removed routers
-        router_ids = [router['id'] for router in routers]
-        for router_id in self.routers:
+        router_ids = set(router['id'] for router in routers)
+        for router_id, rm in six.iteritems(self.routers):
             if router_id not in router_ids:
-                self._process_disassociate_metering_label(router)
+                self._process_disassociate_metering_label(rm.router)
 
         for router in routers:
             old_gw_port_id = None

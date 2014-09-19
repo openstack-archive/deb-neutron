@@ -16,8 +16,6 @@
 #    @author: Salvatore Orlando, VMware
 #
 
-import logging
-
 import mock
 from oslo.config import cfg
 import webob.exc as webexc
@@ -26,20 +24,18 @@ import webtest
 from neutron.api import extensions
 from neutron.common import exceptions as n_exc
 from neutron import context
-from neutron.db import api as db_api
 from neutron.db import servicetype_db as st_db
 from neutron.extensions import servicetype
 from neutron.plugins.common import constants
 from neutron.services import provider_configuration as provconf
-from neutron.tests import base
 from neutron.tests.unit import dummy_plugin as dp
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_db_plugin
 from neutron.tests.unit import test_extensions
 from neutron.tests.unit import testlib_api
+from neutron.tests.unit import testlib_plugin
 
 
-LOG = logging.getLogger(__name__)
 DEFAULT_SERVICE_DEFS = [{'service_class': constants.DUMMY,
                          'plugin': dp.DUMMY_PLUGIN_NAME}]
 
@@ -47,7 +43,7 @@ _uuid = test_api_v2._uuid
 _get_path = test_api_v2._get_path
 
 
-class ServiceTypeManagerTestCase(base.BaseTestCase):
+class ServiceTypeManagerTestCase(testlib_api.SqlTestCase):
     def setUp(self):
         super(ServiceTypeManagerTestCase, self).setUp()
         st_db.ServiceTypeManager._instance = None
@@ -167,7 +163,8 @@ class TestServiceTypeExtensionManager(object):
         return []
 
 
-class ServiceTypeExtensionTestCaseBase(testlib_api.WebTestCase):
+class ServiceTypeExtensionTestCaseBase(testlib_api.WebTestCase,
+                                       testlib_plugin.PluginSetupHelper):
     fmt = 'json'
 
     def setUp(self):
@@ -222,7 +219,6 @@ class ServiceTypeManagerExtTestCase(ServiceTypeExtensionTestCaseBase):
                                ':lbaas:driver_path',
                                constants.DUMMY + ':dummy:dummy_dr'],
                               'service_providers')
-        self.addCleanup(db_api.clear_db)
         super(ServiceTypeManagerExtTestCase, self).setUp()
 
     def _list_service_providers(self):

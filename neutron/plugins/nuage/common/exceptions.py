@@ -14,7 +14,6 @@
 #
 # @author: Ronak Shah, Nuage Networks, Alcatel-Lucent USA Inc.
 
-
 ''' Nuage specific exceptions '''
 
 from neutron.common import exceptions as n_exc
@@ -22,3 +21,7 @@ from neutron.common import exceptions as n_exc
 
 class OperationNotSupported(n_exc.InvalidConfigurationOption):
     message = _("Nuage Plugin does not support this operation: %(msg)s")
+
+
+class NuageBadRequest(n_exc.BadRequest):
+    message = _("Bad request: %(msg)s")

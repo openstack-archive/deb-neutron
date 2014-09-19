@@ -14,7 +14,7 @@
 #    under the License.
 
 import fixtures
-import logging
+import logging as std_logging
 import mock
 from sqlalchemy.orm import query
 
@@ -23,6 +23,7 @@ import neutron.db.api as db
 from neutron.plugins.ml2.drivers import helpers
 from neutron.plugins.ml2.drivers import type_vlan
 from neutron.tests import base
+from neutron.tests.unit import testlib_api
 
 
 TENANT_NET = 'phys_net2'
@@ -34,21 +35,19 @@ NETWORK_VLAN_RANGES = {
 }
 
 
-class HelpersTest(base.BaseTestCase):
+class HelpersTest(testlib_api.SqlTestCase):
 
     def setUp(self):
         super(HelpersTest, self).setUp()
-        db.configure_db()
         self.driver = type_vlan.VlanTypeDriver()
         self.driver.network_vlan_ranges = NETWORK_VLAN_RANGES
         self.driver._sync_vlan_allocations()
         self.session = db.get_session()
-        self.addCleanup(db.clear_db)
         self.useFixture(
             fixtures.FakeLogger(
                 name=helpers.__name__,
                 format=base.LOG_FORMAT,
-                level=logging.DEBUG
+                level=std_logging.DEBUG
             ))
 
     def check_raw_segment(self, expected, observed):

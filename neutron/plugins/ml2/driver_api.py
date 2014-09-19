@@ -149,21 +149,23 @@ class NetworkContext(object):
 
     @abc.abstractproperty
     def current(self):
-        """Return the current state of the network.
+        """Return the network in its current configuration.
 
-        Return the current state of the network, as defined by
-        NeutronPluginBaseV2.create_network and all extensions in the
-        ml2 plugin.
+        Return the network, as defined by NeutronPluginBaseV2.
+        create_network and all extensions in the ml2 plugin, with
+        all its properties 'current' at the time the context was
+        established.
         """
         pass
 
     @abc.abstractproperty
     def original(self):
-        """Return the original state of the network.
+        """Return the network in its original configuration.
 
-        Return the original state of the network, prior to a call to
-        update_network. Method is only valid within calls to
-        update_network_precommit and update_network_postcommit.
+        Return the network, with all its properties set to their
+        original values prior to a call to update_network. Method is
+        only valid within calls to update_network_precommit and
+        update_network_postcommit.
         """
         pass
 
@@ -185,21 +187,23 @@ class SubnetContext(object):
 
     @abc.abstractproperty
     def current(self):
-        """Return the current state of the subnet.
+        """Return the subnet in its current configuration.
 
-        Return the current state of the subnet, as defined by
-        NeutronPluginBaseV2.create_subnet and all extensions in the
-        ml2 plugin.
+        Return the subnet, as defined by NeutronPluginBaseV2.
+        create_subnet and all extensions in the ml2 plugin, with
+        all its properties 'current' at the time the context was
+        established.
         """
         pass
 
     @abc.abstractproperty
     def original(self):
-        """Return the original state of the subnet.
+        """Return the subnet in its original configuration.
 
-        Return the original state of the subnet, prior to a call to
-        update_subnet. Method is only valid within calls to
-        update_subnet_precommit and update_subnet_postcommit.
+        Return the subnet, with all its properties set to their
+        original values prior to a call to update_subnet. Method is
+        only valid within calls to update_subnet_precommit and
+        update_subnet_postcommit.
         """
         pass
 
@@ -216,21 +220,37 @@ class PortContext(object):
 
     @abc.abstractproperty
     def current(self):
-        """Return the current state of the port.
+        """Return the port in its current configuration.
 
-        Return the current state of the port, as defined by
-        NeutronPluginBaseV2.create_port and all extensions in the ml2
-        plugin.
+        Return the port, as defined by NeutronPluginBaseV2.
+        create_port and all extensions in the ml2 plugin, with
+        all its properties 'current' at the time the context was
+        established.
         """
         pass
 
     @abc.abstractproperty
     def original(self):
-        """Return the original state of the port.
+        """Return the port in its original configuration.
 
-        Return the original state of the port, prior to a call to
-        update_port. Method is only valid within calls to
-        update_port_precommit and update_port_postcommit.
+        Return the port, with all its properties set to their
+        original values prior to a call to update_port. Method is
+        only valid within calls to update_port_precommit and
+        update_port_postcommit.
+        """
+        pass
+
+    @abc.abstractproperty
+    def status(self):
+        """Return the status of the current port."""
+        pass
+
+    @abc.abstractproperty
+    def original_status(self):
+        """Return the status of the original port.
+
+        The method is only valid within calls to update_port_precommit and
+        update_port_postcommit.
         """
         pass
 
@@ -251,6 +271,20 @@ class PortContext(object):
         Return the original bound segment dictionary, prior to a call
         to update_port.  Method is only valid within calls to
         update_port_precommit and update_port_postcommit.
+        """
+        pass
+
+    @abc.abstractproperty
+    def host(self):
+        """Return the host associated with the 'current' port."""
+        pass
+
+    @abc.abstractproperty
+    def original_host(self):
+        """Return the host associated with the 'original' port.
+
+        Method is only valid within calls to update_port_precommit
+        and update_port_postcommit.
         """
         pass
 
@@ -291,6 +325,31 @@ class PortContext(object):
         Called by MechanismDriver.bind_port to indicate success and
         specify binding details to use for port. The segment_id must
         identify an item in network.network_segments.
+        """
+        pass
+
+    @abc.abstractmethod
+    def allocate_dynamic_segment(self, segment):
+        """Allocate a dynamic segment.
+
+        :param segment: A partially or fully specified segment dictionary
+
+        Called by the MechanismDriver.bind_port, create_port or update_port
+        to dynamically allocate a segment for the port using the partial
+        segment specified. The segment dictionary can be a fully or partially
+        specified segment. At a minumim it needs the network_type populated to
+        call on the appropriate type driver.
+        """
+        pass
+
+    @abc.abstractmethod
+    def release_dynamic_segment(self, segment_id):
+        """Release an allocated dynamic segment.
+
+        :param segment_id: UUID of the dynamic network segment.
+
+        Called by the MechanismDriver.delete_port or update_port to release
+        the dynamic segment allocated for this port.
         """
         pass
 
@@ -613,5 +672,160 @@ class MechanismDriver(object):
         discarded rather than committed, drivers should avoid making
         persistent state changes in bind_port(), or else must ensure
         that such state changes are eventually cleaned up.
+        """
+        pass
+
+
+@six.add_metaclass(abc.ABCMeta)
+class ExtensionDriver(object):
+    """Define stable abstract interface for ML2 extension drivers.
+
+    An extension driver extends the core resources implemented by the
+    ML2 plugin with additional attributes. Methods that process create
+    and update operations for these resources validate and persist
+    values for extended attributes supplied through the API. Other
+    methods extend the resource dictionaries returned from the API
+    operations with the values of the extended attributes.
+    """
+
+    @abc.abstractmethod
+    def initialize(self):
+        """Perform driver initialization.
+
+        Called after all drivers have been loaded and the database has
+        been initialized. No abstract methods defined below will be
+        called prior to this method being called.
+        """
+        pass
+
+    @abc.abstractproperty
+    def extension_alias(self):
+        """Supported extension alias.
+
+        Return the alias identifying the core API extension supported
+        by this driver.
+        """
+        pass
+
+    def process_create_network(self, session, data, result):
+        """Process extended attributes for create network.
+
+        :param session: database session
+        :param data: dictionary of incoming network data
+        :param result: network dictionary to extend
+
+        Called inside transaction context on session to validate and
+        persist any extended network attributes defined by this
+        driver. Extended attribute values must also be added to
+        result.
+        """
+        pass
+
+    def process_create_subnet(self, session, data, result):
+        """Process extended attributes for create subnet.
+
+        :param session: database session
+        :param data: dictionary of incoming subnet data
+        :param result: subnet dictionary to extend
+
+        Called inside transaction context on session to validate and
+        persist any extended subnet attributes defined by this
+        driver. Extended attribute values must also be added to
+        result.
+        """
+        pass
+
+    def process_create_port(self, session, data, result):
+        """Process extended attributes for create port.
+
+        :param session: database session
+        :param data: dictionary of incoming port data
+        :param result: port dictionary to extend
+
+        Called inside transaction context on session to validate and
+        persist any extended port attributes defined by this
+        driver. Extended attribute values must also be added to
+        result.
+        """
+        pass
+
+    def process_update_network(self, session, data, result):
+        """Process extended attributes for update network.
+
+        :param session: database session
+        :param data: dictionary of incoming network data
+        :param result: network dictionary to extend
+
+        Called inside transaction context on session to validate and
+        update any extended network attributes defined by this
+        driver. Extended attribute values, whether updated or not,
+        must also be added to result.
+        """
+        pass
+
+    def process_update_subnet(self, session, data, result):
+        """Process extended attributes for update subnet.
+
+        :param session: database session
+        :param data: dictionary of incoming subnet data
+        :param result: subnet dictionary to extend
+
+        Called inside transaction context on session to validate and
+        update any extended subnet attributes defined by this
+        driver. Extended attribute values, whether updated or not,
+        must also be added to result.
+        """
+        pass
+
+    def process_update_port(self, session, data, result):
+        """Process extended attributes for update port.
+
+        :param session: database session
+        :param data: dictionary of incoming port data
+        :param result: port dictionary to extend
+
+        Called inside transaction context on session to validate and
+        update any extended port attributes defined by this
+        driver. Extended attribute values, whether updated or not,
+        must also be added to result.
+        """
+        pass
+
+    def extend_network_dict(self, session, result):
+        """Add extended attributes to network dictionary.
+
+        :param session: database session
+        :param result: network dictionary to extend
+
+        Called inside transaction context on session to add any
+        extended attributes defined by this driver to a network
+        dictionary to be used for mechanism driver calls and/or
+        returned as the result of a network operation.
+        """
+        pass
+
+    def extend_subnet_dict(self, session, result):
+        """Add extended attributes to subnet dictionary.
+
+        :param session: database session
+        :param result: subnet dictionary to extend
+
+        Called inside transaction context on session to add any
+        extended attributes defined by this driver to a subnet
+        dictionary to be used for mechanism driver calls and/or
+        returned as the result of a subnet operation.
+        """
+        pass
+
+    def extend_port_dict(self, session, result):
+        """Add extended attributes to port dictionary.
+
+        :param session: database session
+        :param result: port dictionary to extend
+
+        Called inside transaction context on session to add any
+        extended attributes defined by this driver to a port
+        dictionary to be used for mechanism driver calls and/or
+        returned as the result of a port operation.
         """
         pass

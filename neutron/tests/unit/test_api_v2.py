@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import collections
 import os
 
 import mock
@@ -38,6 +39,7 @@ from neutron import quota
 from neutron.tests import base
 from neutron.tests import fake_notifier
 from neutron.tests.unit import testlib_api
+from neutron.tests.unit import testlib_plugin
 
 
 ROOTDIR = os.path.dirname(os.path.dirname(__file__))
@@ -86,7 +88,7 @@ class ResourceIndexTestCase(base.BaseTestCase):
         self.assertEqual(link['rel'], 'self')
 
 
-class APIv2TestBase(base.BaseTestCase):
+class APIv2TestBase(base.BaseTestCase, testlib_plugin.PluginSetupHelper):
     def setUp(self):
         super(APIv2TestBase, self).setUp()
 
@@ -132,8 +134,10 @@ class APIv2TestCase(APIv2TestBase):
     def _do_field_list(self, resource, base_fields):
         attr_info = attributes.RESOURCE_ATTRIBUTE_MAP[resource]
         policy_attrs = [name for (name, info) in attr_info.items()
-                        if info.get('required_by_policy') or
-                        info.get('primary_key')]
+                        if info.get('required_by_policy')]
+        for name, info in attr_info.items():
+            if info.get('primary_key'):
+                policy_attrs.append(name)
         fields = base_fields
         fields.extend(policy_attrs)
         return fields
@@ -141,8 +145,8 @@ class APIv2TestCase(APIv2TestBase):
     def _get_collection_kwargs(self, skipargs=[], **kwargs):
         args_list = ['filters', 'fields', 'sorts', 'limit', 'marker',
                      'page_reverse']
-        args_dict = dict((arg, mock.ANY)
-                         for arg in set(args_list) - set(skipargs))
+        args_dict = collections.OrderedDict(
+            (arg, mock.ANY) for arg in set(args_list) - set(skipargs))
         args_dict.update(kwargs)
         return args_dict
 
@@ -1115,7 +1119,7 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         self.assertEqual(res.status_int, 400)
 
 
-class SubresourceTest(base.BaseTestCase):
+class SubresourceTest(base.BaseTestCase, testlib_plugin.PluginSetupHelper):
     def setUp(self):
         super(SubresourceTest, self).setUp()
 
@@ -1382,7 +1386,7 @@ class QuotaTest(APIv2TestBase):
         self.assertEqual(res.status_int, exc.HTTPCreated.code)
 
 
-class ExtensionTestCase(base.BaseTestCase):
+class ExtensionTestCase(base.BaseTestCase, testlib_plugin.PluginSetupHelper):
     def setUp(self):
         super(ExtensionTestCase, self).setUp()
         plugin = 'neutron.neutron_plugin_base_v2.NeutronPluginBaseV2'
@@ -1453,22 +1457,22 @@ class ExtensionTestCase(base.BaseTestCase):
 
 
 class TestSubresourcePlugin():
-        def get_network_dummies(self, context, network_id,
-                                filters=None, fields=None):
-            return []
+    def get_network_dummies(self, context, network_id,
+                            filters=None, fields=None):
+        return []
 
-        def get_network_dummy(self, context, id, network_id,
-                              fields=None):
-            return {}
+    def get_network_dummy(self, context, id, network_id,
+                          fields=None):
+        return {}
 
-        def create_network_dummy(self, context, network_id, dummy):
-            return {}
+    def create_network_dummy(self, context, network_id, dummy):
+        return {}
 
-        def update_network_dummy(self, context, id, network_id, dummy):
-            return {}
+    def update_network_dummy(self, context, id, network_id, dummy):
+        return {}
 
-        def delete_network_dummy(self, context, id, network_id):
-            return
+    def delete_network_dummy(self, context, id, network_id):
+        return
 
 
 class ListArgsTestCase(base.BaseTestCase):
@@ -1522,7 +1526,7 @@ class FiltersTestCase(base.BaseTestCase):
         }
         expect_val = {'foo': {'key': ['2', '4']}, 'bar': ['3'], 'qux': ['1']}
         actual_val = api_common.get_filters(request, attr_info)
-        self.assertEqual(actual_val, expect_val)
+        self.assertOrderedEqual(expect_val, actual_val)
 
     def test_attr_info_with_convert_to(self):
         path = '/?foo=4&bar=3&baz=2&qux=1'

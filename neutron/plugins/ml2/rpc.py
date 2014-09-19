@@ -16,16 +16,14 @@
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.handlers import dvr_rpc
 from neutron.common import constants as q_const
+from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
-from neutron.db import dhcp_rpc_base
-from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.common import utils
 from neutron.extensions import portbindings
 from neutron import manager
 from neutron.openstack.common import log
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
-from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import type_tunnel
 # REVISIT(kmestery): Allow the type and mechanism drivers to supply the
@@ -33,14 +31,8 @@ from neutron.plugins.ml2.drivers import type_tunnel
 
 LOG = log.getLogger(__name__)
 
-TAP_DEVICE_PREFIX = 'tap'
-TAP_DEVICE_PREFIX_LENGTH = 3
-
 
 class RpcCallbacks(n_rpc.RpcCallback,
-                   dhcp_rpc_base.DhcpRpcCallbackMixin,
-                   dvr_rpc.DVRServerRpcCallbackMixin,
-                   sg_db_rpc.SecurityGroupServerRpcCallbackMixin,
                    type_tunnel.TunnelRpcCallbackMixin):
 
     RPC_API_VERSION = '1.3'
@@ -54,30 +46,6 @@ class RpcCallbacks(n_rpc.RpcCallback,
         self.setup_tunnel_callback_mixin(notifier, type_manager)
         super(RpcCallbacks, self).__init__()
 
-    @classmethod
-    def _device_to_port_id(cls, device):
-        # REVISIT(rkukura): Consider calling into MechanismDrivers to
-        # process device names, or having MechanismDrivers supply list
-        # of device prefixes to strip.
-        if device.startswith(TAP_DEVICE_PREFIX):
-            return device[TAP_DEVICE_PREFIX_LENGTH:]
-        else:
-            # REVISIT(irenab): Consider calling into bound MD to
-            # handle the get_device_details RPC, then remove the 'else' clause
-            if not uuidutils.is_uuid_like(device):
-                port = db.get_port_from_device_mac(device)
-                if port:
-                    return port.id
-        return device
-
-    @classmethod
-    def get_port_from_device(cls, device):
-        port_id = cls._device_to_port_id(device)
-        port = db.get_port_and_sgs(port_id)
-        if port:
-            port['device'] = device
-        return port
-
     def get_device_details(self, rpc_context, **kwargs):
         """Agent requests device details."""
         agent_id = kwargs.get('agent_id')
@@ -86,10 +54,12 @@ class RpcCallbacks(n_rpc.RpcCallback,
         LOG.debug("Device %(device)s details requested by agent "
                   "%(agent_id)s with host %(host)s",
                   {'device': device, 'agent_id': agent_id, 'host': host})
-        port_id = self._device_to_port_id(device)
 
         plugin = manager.NeutronManager.get_plugin()
-        port_context = plugin.get_bound_port_context(rpc_context, port_id)
+        port_id = plugin._device_to_port_id(device)
+        port_context = plugin.get_bound_port_context(rpc_context,
+                                                     port_id,
+                                                     host)
         if not port_context:
             LOG.warning(_("Device %(device)s requested by agent "
                           "%(agent_id)s not found in database"),
@@ -120,6 +90,7 @@ class RpcCallbacks(n_rpc.RpcCallback,
         entry = {'device': device,
                  'network_id': port['network_id'],
                  'port_id': port_id,
+                 'mac_address': port['mac_address'],
                  'admin_state_up': port['admin_state_up'],
                  'network_type': segment[api.NETWORK_TYPE],
                  'segmentation_id': segment[api.SEGMENTATION_ID],
@@ -150,7 +121,7 @@ class RpcCallbacks(n_rpc.RpcCallback,
                     "%(agent_id)s"),
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
-        port_id = self._device_to_port_id(device)
+        port_id = plugin._device_to_port_id(device)
         port_exists = True
         if (host and not plugin.port_bound_to_host(rpc_context,
                                                    port_id, host)):
@@ -175,7 +146,7 @@ class RpcCallbacks(n_rpc.RpcCallback,
         LOG.debug(_("Device %(device)s up at agent %(agent_id)s"),
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
-        port_id = self._device_to_port_id(device)
+        port_id = plugin._device_to_port_id(device)
         if (host and not plugin.port_bound_to_host(rpc_context,
                                                    port_id, host)):
             LOG.debug(_("Device %(device)s not bound to the"
@@ -188,26 +159,13 @@ class RpcCallbacks(n_rpc.RpcCallback,
                                             host)
         l3plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
-        if l3plugin:
-            l3plugin.dvr_vmarp_table_update(rpc_context, port_id, "add")
-
-    def get_dvr_mac_address_by_host(self, rpc_context, **kwargs):
-        host = kwargs.get('host')
-        LOG.debug("DVR Agent requests mac_address for host %s", host)
-        return super(RpcCallbacks, self).get_dvr_mac_address_by_host(
-            rpc_context, host)
-
-    def get_compute_ports_on_host_by_subnet(self, rpc_context, **kwargs):
-        host = kwargs.get('host')
-        subnet = kwargs.get('subnet')
-        LOG.debug("DVR Agent requests list of VM ports on host %s", host)
-        return super(RpcCallbacks, self).get_compute_ports_on_host_by_subnet(
-            rpc_context, host, subnet)
-
-    def get_subnet_for_dvr(self, rpc_context, **kwargs):
-        subnet = kwargs.get('subnet')
-        return super(RpcCallbacks, self).get_subnet_for_dvr(rpc_context,
-                                                            subnet)
+        if (l3plugin and
+            utils.is_extension_supported(l3plugin,
+                                         q_const.L3_DISTRIBUTED_EXT_ALIAS)):
+            try:
+                l3plugin.dvr_vmarp_table_update(rpc_context, port_id, "add")
+            except exceptions.PortNotFound:
+                LOG.debug('Port %s not found during ARP update', port_id)
 
 
 class AgentNotifierApi(n_rpc.RpcProxy,

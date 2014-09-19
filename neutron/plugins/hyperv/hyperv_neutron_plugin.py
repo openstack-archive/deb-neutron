@@ -16,6 +16,8 @@
 
 from oslo.config import cfg
 
+from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
@@ -157,7 +159,6 @@ class HyperVNeutronPlugin(agents_db.AgentDbMixin,
 
     def __init__(self, configfile=None):
         self._db = hyperv_db.HyperVPluginDB()
-        self._db.initialize()
         self.base_binding_dict = {
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_HYPERV}
         portbindings_base.register_port_dict_function()
@@ -189,6 +190,8 @@ class HyperVNeutronPlugin(agents_db.AgentDbMixin,
         self.notifier = agent_notifier_api.AgentNotifierApi(
             topics.AGENT)
         self.endpoints = [rpc_callbacks.HyperVRpcCallbacks(self.notifier),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
                           agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)

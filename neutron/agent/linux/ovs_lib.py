@@ -13,21 +13,25 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import itertools
+import operator
+
 from oslo.config import cfg
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import exceptions
-from neutron.common import utils as common_utils
 from neutron.openstack.common import excutils
 from neutron.openstack.common import jsonutils
 from neutron.openstack.common import log as logging
-from neutron.plugins.common import constants as p_const
-#  TODO(JLH) Should we remove the explicit include of the ovs plugin here
-from neutron.plugins.openvswitch.common import constants
+from neutron.plugins.common import constants
 
 # Default timeout for ovs-vsctl command
 DEFAULT_OVS_VSCTL_TIMEOUT = 10
+
+# Special return value for an invalid OVS ofport
+INVALID_OFPORT = '-1'
+
 OPTS = [
     cfg.IntOpt('ovs_vsctl_timeout',
                default=DEFAULT_OVS_VSCTL_TIMEOUT,
@@ -104,8 +108,6 @@ class OVSBridge(BaseOVS):
     def __init__(self, br_name, root_helper):
         super(OVSBridge, self).__init__(root_helper)
         self.br_name = br_name
-        self.defer_apply_flows = False
-        self.deferred_flows = {'add': '', 'mod': '', 'del': ''}
 
     def set_controller(self, controller_names):
         vsctl_command = ['--', 'set-controller', self.br_name]
@@ -183,32 +185,24 @@ class OVSBridge(BaseOVS):
             int(ofport)
             return ofport
         except (ValueError, TypeError):
-            return constants.INVALID_OFPORT
+            return INVALID_OFPORT
 
     def get_datapath_id(self):
         return self.db_get_val('Bridge',
                                self.br_name, 'datapath_id').strip('"')
 
+    def do_action_flows(self, action, kwargs_list):
+        flow_strs = [_build_flow_expr_str(kw, action) for kw in kwargs_list]
+        self.run_ofctl('%s-flows' % action, ['-'], '\n'.join(flow_strs))
+
     def add_flow(self, **kwargs):
-        flow_str = _build_flow_expr_str(kwargs, 'add')
-        if self.defer_apply_flows:
-            self.deferred_flows['add'] += flow_str + '\n'
-        else:
-            self.run_ofctl("add-flow", [flow_str])
+        self.do_action_flows('add', [kwargs])
 
     def mod_flow(self, **kwargs):
-        flow_str = _build_flow_expr_str(kwargs, 'mod')
-        if self.defer_apply_flows:
-            self.deferred_flows['mod'] += flow_str + '\n'
-        else:
-            self.run_ofctl("mod-flows", [flow_str])
+        self.do_action_flows('mod', [kwargs])
 
     def delete_flows(self, **kwargs):
-        flow_expr_str = _build_flow_expr_str(kwargs, 'del')
-        if self.defer_apply_flows:
-            self.deferred_flows['del'] += flow_expr_str + '\n'
-        else:
-            self.run_ofctl("del-flows", [flow_expr_str])
+        self.do_action_flows('del', [kwargs])
 
     def dump_flows_for_table(self, table):
         retval = None
@@ -219,49 +213,18 @@ class OVSBridge(BaseOVS):
                                if 'NXST' not in item)
         return retval
 
-    def defer_apply_on(self):
-        # TODO(vivek): when defer_apply_on is used, DVR
-        # flows are only getting partially configured when
-        # run concurrently with l2-pop ON.
-        # Will need make ovs_lib flow API context sensitive
-        # and then use the same across this file, which will
-        # address the race issue here.
-        LOG.debug(_('defer_apply_on'))
-        self.defer_apply_flows = True
-
-    def defer_apply_off(self):
-        # TODO(vivek): when defer_apply_off is used, DVR
-        # flows are only getting partially configured when
-        # run concurrently with l2-pop ON.
-        # Will need make ovs_lib flow API context sensitive
-        # and then use the same across this file, which will
-        # address the race issue here.
-        LOG.debug(_('defer_apply_off'))
-        # Note(ethuleau): stash flows and disable deferred mode. Then apply
-        # flows from the stashed reference to be sure to not purge flows that
-        # were added between two ofctl commands.
-        stashed_deferred_flows, self.deferred_flows = (
-            self.deferred_flows, {'add': '', 'mod': '', 'del': ''}
-        )
-        self.defer_apply_flows = False
-        for action, flows in stashed_deferred_flows.items():
-            if flows:
-                LOG.debug(_('Applying following deferred flows '
-                            'to bridge %s'), self.br_name)
-                for line in flows.splitlines():
-                    LOG.debug(_('%(action)s: %(flow)s'),
-                              {'action': action, 'flow': line})
-                self.run_ofctl('%s-flows' % action, ['-'], flows)
+    def deferred(self, **kwargs):
+        return DeferredOVSBridge(self, **kwargs)
 
     def add_tunnel_port(self, port_name, remote_ip, local_ip,
-                        tunnel_type=p_const.TYPE_GRE,
+                        tunnel_type=constants.TYPE_GRE,
                         vxlan_udp_port=constants.VXLAN_UDP_PORT,
                         dont_fragment=True):
         vsctl_command = ["--", "--may-exist", "add-port", self.br_name,
                          port_name]
         vsctl_command.extend(["--", "set", "Interface", port_name,
                               "type=%s" % tunnel_type])
-        if tunnel_type == p_const.TYPE_VXLAN:
+        if tunnel_type == constants.TYPE_VXLAN:
             # Only set the VXLAN UDP port if it's not the default
             if vxlan_udp_port != constants.VXLAN_UDP_PORT:
                 vsctl_command.append("options:dst_port=%s" % vxlan_udp_port)
@@ -273,8 +236,8 @@ class OVSBridge(BaseOVS):
                               "options:out_key=flow"])
         self.run_vsctl(vsctl_command)
         ofport = self.get_port_ofport(port_name)
-        if (tunnel_type == p_const.TYPE_VXLAN and
-                ofport == constants.INVALID_OFPORT):
+        if (tunnel_type == constants.TYPE_VXLAN and
+                ofport == INVALID_OFPORT):
             LOG.error(_('Unable to create VXLAN tunnel port. Please ensure '
                         'that an openvswitch version that supports VXLAN is '
                         'installed.'))
@@ -489,6 +452,77 @@ class OVSBridge(BaseOVS):
         self.destroy()
 
 
+class DeferredOVSBridge(object):
+    '''Deferred OVSBridge.
+
+    This class wraps add_flow, mod_flow and delete_flows calls to an OVSBridge
+    and defers their application until apply_flows call in order to perform
+    bulk calls. It wraps also ALLOWED_PASSTHROUGHS calls to avoid mixing
+    OVSBridge and DeferredOVSBridge uses.
+    This class can be used as a context, in such case apply_flows is called on
+    __exit__ except if an exception is raised.
+    This class is not thread-safe, that's why for every use a new instance
+    must be implemented.
+    '''
+    ALLOWED_PASSTHROUGHS = 'add_port', 'add_tunnel_port', 'delete_port'
+
+    def __init__(self, br, full_ordered=False,
+                 order=('add', 'mod', 'del')):
+        '''Constructor.
+
+        :param br: wrapped bridge
+        :param full_ordered: Optional, disable flow reordering (slower)
+        :param order: Optional, define in which order flow are applied
+        '''
+
+        self.br = br
+        self.full_ordered = full_ordered
+        self.order = order
+        if not self.full_ordered:
+            self.weights = dict((y, x) for x, y in enumerate(self.order))
+        self.action_flow_tuples = []
+
+    def __getattr__(self, name):
+        if name in self.ALLOWED_PASSTHROUGHS:
+            return getattr(self.br, name)
+        raise AttributeError(name)
+
+    def add_flow(self, **kwargs):
+        self.action_flow_tuples.append(('add', kwargs))
+
+    def mod_flow(self, **kwargs):
+        self.action_flow_tuples.append(('mod', kwargs))
+
+    def delete_flows(self, **kwargs):
+        self.action_flow_tuples.append(('del', kwargs))
+
+    def apply_flows(self):
+        action_flow_tuples = self.action_flow_tuples
+        self.action_flow_tuples = []
+        if not action_flow_tuples:
+            return
+
+        if not self.full_ordered:
+            action_flow_tuples.sort(key=lambda af: self.weights[af[0]])
+
+        grouped = itertools.groupby(action_flow_tuples,
+                                    key=operator.itemgetter(0))
+        itemgetter_1 = operator.itemgetter(1)
+        for action, action_flow_list in grouped:
+            flows = map(itemgetter_1, action_flow_list)
+            self.br.do_action_flows(action, flows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is None:
+            self.apply_flows()
+        else:
+            LOG.exception(_("OVS flows could not be applied on bridge %s"),
+                          self.br.br_name)
+
+
 def get_bridge_for_iface(root_helper, iface):
     args = ["ovs-vsctl", "--timeout=%d" % cfg.CONF.ovs_vsctl_timeout,
             "iface-to-br", iface]
@@ -551,26 +585,3 @@ def _build_flow_expr_str(flow_dict, cmd):
         flow_expr_arr.append(actions)
 
     return ','.join(flow_expr_arr)
-
-
-def ofctl_arg_supported(root_helper, cmd, args):
-    '''Verify if ovs-ofctl binary supports command with specific args.
-
-    :param root_helper: utility to use when running shell cmds.
-    :param cmd: ovs-vsctl command to use for test.
-    :param args: arguments to test with command.
-    :returns: a boolean if the args supported.
-    '''
-    supported = True
-    br_name = 'br-test-%s' % common_utils.get_random_string(6)
-    test_br = OVSBridge(br_name, root_helper)
-    test_br.reset_bridge()
-
-    full_args = ["ovs-ofctl", cmd, test_br.br_name] + args
-    try:
-        utils.execute(full_args, root_helper=root_helper)
-    except Exception:
-        supported = False
-
-    test_br.destroy()
-    return supported

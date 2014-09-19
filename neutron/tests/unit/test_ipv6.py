@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import mock
+
 from neutron.common import ipv6_utils
 from neutron.tests import base
 
@@ -48,3 +50,37 @@ class IPv6byEUI64TestCase(base.BaseTestCase):
         prefix = 123
         self.assertRaises(TypeError, lambda:
                           ipv6_utils.get_ipv6_addr_by_EUI64(prefix, mac))
+
+
+class TestIsEnabled(base.BaseTestCase):
+
+    def setUp(self):
+        super(TestIsEnabled, self).setUp()
+        ipv6_utils._IS_IPV6_ENABLED = None
+        self.mock_exists = mock.patch("os.path.exists",
+                                      return_value=True).start()
+        mock_open = mock.patch("__builtin__.open").start()
+        self.mock_read = mock_open.return_value.__enter__.return_value.read
+
+    def test_enabled(self):
+        self.mock_read.return_value = "0"
+        enabled = ipv6_utils.is_enabled()
+        self.assertTrue(enabled)
+
+    def test_disabled(self):
+        self.mock_read.return_value = "1"
+        enabled = ipv6_utils.is_enabled()
+        self.assertFalse(enabled)
+
+    def test_disabled_non_exists(self):
+        self.mock_exists.return_value = False
+        enabled = ipv6_utils.is_enabled()
+        self.assertFalse(enabled)
+        self.assertFalse(self.mock_read.called)
+
+    def test_memoize(self):
+        self.mock_read.return_value = "0"
+        ipv6_utils.is_enabled()
+        enabled = ipv6_utils.is_enabled()
+        self.assertTrue(enabled)
+        self.mock_read.assert_called_once_with()

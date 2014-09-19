@@ -149,7 +149,7 @@ class ExtensionDescriptor(object):
     def get_plugin_interface(self):
         """Returns an abstract class which defines contract for the plugin.
 
-        The abstract class should inherit from extesnions.PluginInterface,
+        The abstract class should inherit from extensions.PluginInterface,
         Methods in this abstract class  should be decorated as abstractmethod
         """
         return None
@@ -679,6 +679,6 @@ def get_extensions_path():
 
 
 def append_api_extensions_path(paths):
-    paths = [cfg.CONF.api_extensions_path] + paths
+    paths = list(set([cfg.CONF.api_extensions_path] + paths))
     cfg.CONF.set_override('api_extensions_path',
                           ':'.join([p for p in paths if p]))

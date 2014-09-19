@@ -36,6 +36,10 @@ class RouterExtraAttributes(model_base.BASEV2):
     distributed = sa.Column(sa.Boolean, default=False,
                             server_default=sa.sql.false(),
                             nullable=False)
+    # Whether the router is to be considered a 'service' router
+    service_router = sa.Column(sa.Boolean, default=False,
+                               server_default=sa.sql.false(),
+                               nullable=False)
     router = orm.relationship(
         l3_db.Router,
         backref=orm.backref("extra_attributes", lazy='joined',
@@ -48,12 +52,12 @@ class ExtraAttributesMixin(object):
     extra_attributes = []
 
     def _extend_extra_router_dict(self, router_res, router_db):
-        extra_attrs = router_db['extra_attributes']
+        extra_attrs = router_db['extra_attributes'] or {}
         for attr in self.extra_attributes:
             name = attr['name']
             default = attr['default']
             router_res[name] = (
-                extra_attrs and extra_attrs[name] or default)
+                extra_attrs[name] if name in extra_attrs else default)
 
     def _get_extra_attributes(self, router, extra_attributes):
         return (dict((attr['name'],

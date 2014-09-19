@@ -21,6 +21,9 @@ from oslo.config import cfg
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
+from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import l3_rpc
+from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.common import constants as q_const
 from neutron.common import exceptions as nexception
 from neutron.common import rpc as n_rpc
@@ -28,12 +31,10 @@ from neutron.common import topics
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import db_base_plugin_v2
-from neutron.db import dhcp_rpc_base
 from neutron.db import external_net_db
 from neutron.db import extraroute_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_gwmode_db
-from neutron.db import l3_rpc_base
 from neutron.db import portbindings_base
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
@@ -51,12 +52,7 @@ LOG = logging.getLogger(__name__)
 IPv6 = 6
 
 
-class NVSDPluginRpcCallbacks(n_rpc.RpcCallback,
-                             dhcp_rpc_base.DhcpRpcCallbackMixin,
-                             l3_rpc_base.L3RpcCallbackMixin,
-                             sg_db_rpc.SecurityGroupServerRpcCallbackMixin):
-
-    RPC_API_VERSION = '1.1'
+class SecurityGroupServerRpcMixin(sg_db_rpc.SecurityGroupServerRpcMixin):
 
     @staticmethod
     def get_port_from_device(device):
@@ -90,7 +86,7 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                              external_net_db.External_net_db_mixin,
                              l3_gwmode_db.L3_NAT_db_mixin,
                              portbindings_base.PortBindingBaseMixin,
-                             sg_db_rpc.SecurityGroupServerRpcMixin):
+                             SecurityGroupServerRpcMixin):
 
     """L2 Virtual Network Plugin.
 
@@ -161,7 +157,9 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.agent_notifiers[q_const.AGENT_TYPE_L3] = (
             l3_rpc_agent_api.L3AgentNotifyAPI()
         )
-        self.endpoints = [NVSDPluginRpcCallbacks(),
+        self.endpoints = [securitygroups_rpc.SecurityGroupServerRpcCallback(),
+                          dhcp_rpc.DhcpRpcCallback(),
+                          l3_rpc.L3RpcCallback(),
                           agents_db.AgentExtRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)

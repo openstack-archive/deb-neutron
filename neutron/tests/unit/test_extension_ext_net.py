@@ -108,6 +108,18 @@ class ExtNetDBTestCase(test_db_plugin.NeutronDbPluginV2TestCase):
         result = plugin.get_networks(ctx, filters=None)
         self.assertEqual(result, [])
 
+    def test_update_network_set_external_non_admin_fails(self):
+        # Assert that a non-admin user cannot update the
+        # router:external attribute
+        with self.network(tenant_id='noadmin') as network:
+            data = {'network': {'router:external': True}}
+            req = self.new_update_request('networks',
+                                          data,
+                                          network['network']['id'])
+            req.environ['neutron.context'] = context.Context('', 'noadmin')
+            res = req.get_response(self.api)
+            self.assertEqual(exc.HTTPForbidden.code, res.status_int)
+
     def test_network_filter_hook_admin_context(self):
         plugin = manager.NeutronManager.get_plugin()
         ctx = context.Context(None, None, is_admin=True)
