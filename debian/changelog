@@ -1,4 +1,4 @@
-neutron (2014.2~b2-1) experimental; urgency=medium
+neutron (2014.2~b3-1) experimental; urgency=medium
 
   [ Thomas Goirand ]
   * Disabled ml2 config patch.
