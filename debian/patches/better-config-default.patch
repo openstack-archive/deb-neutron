@@ -29,8 +29,10 @@ Forwarded: <no|not-needed|url proving that it has been forwarded>
 Reviewed-By: <name and email of someone who approved the patch>
 Last-Update: <YYYY-MM-DD>
 
---- neutron-2014.2~b2.orig/etc/l3_agent.ini
-+++ neutron-2014.2~b2/etc/l3_agent.ini
+Index: neutron/etc/l3_agent.ini
+===================================================================
+--- neutron.orig/etc/l3_agent.ini	2014-09-19 18:09:42.000000000 +0800
++++ neutron/etc/l3_agent.ini	2014-09-19 18:10:35.000000000 +0800
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -44,9 +46,11 @@ Last-Update: <YYYY-MM-DD>
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.2~b2.orig/etc/neutron.conf
-+++ neutron-2014.2~b2/etc/neutron.conf
-@@ -60,8 +60,8 @@ lock_path = $state_path/lock
+Index: neutron/etc/neutron.conf
+===================================================================
+--- neutron.orig/etc/neutron.conf	2014-09-19 18:09:42.000000000 +0800
++++ neutron/etc/neutron.conf	2014-09-19 18:10:35.000000000 +0800
+@@ -60,8 +60,8 @@
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
  #
@@ -56,7 +60,7 @@ Last-Update: <YYYY-MM-DD>
  
  # (ListOpt) List of service plugin entrypoints to be loaded from the
  # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of
-@@ -69,8 +69,8 @@ lock_path = $state_path/lock
+@@ -69,8 +69,8 @@
  # with previous versions, the class name of a plugin can be specified instead
  # of its entrypoint name.
  #
@@ -66,7 +70,7 @@ Last-Update: <YYYY-MM-DD>
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -315,7 +315,7 @@ lock_path = $state_path/lock
+@@ -324,7 +324,7 @@
  
  # The RabbitMQ broker address where a single node is used.
  # (string value)
@@ -75,7 +79,7 @@ Last-Update: <YYYY-MM-DD>
  
  # The RabbitMQ broker port where a single node is used.
  # (integer value)
-@@ -328,10 +328,10 @@ lock_path = $state_path/lock
+@@ -337,10 +337,10 @@
  #rabbit_use_ssl=false
  
  # The RabbitMQ userid. (string value)
@@ -88,7 +92,7 @@ Last-Update: <YYYY-MM-DD>
  
  # the RabbitMQ login method (string value)
  #rabbit_login_method=AMQPLAIN
-@@ -507,7 +507,7 @@ lock_path = $state_path/lock
+@@ -527,7 +527,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -97,7 +101,7 @@ Last-Update: <YYYY-MM-DD>
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -527,14 +527,13 @@ admin_password = %SERVICE_PASSWORD%
+@@ -547,14 +547,13 @@
  [database]
  # This line MUST be changed to actually run the plugin.
  # Example:
@@ -113,8 +117,10 @@ Last-Update: <YYYY-MM-DD>
  
  # Database engine for which script will be generated when using offline
  # migration
---- neutron-2014.2~b2.orig/etc/lbaas_agent.ini
-+++ neutron-2014.2~b2/etc/lbaas_agent.ini
+Index: neutron/etc/lbaas_agent.ini
+===================================================================
+--- neutron.orig/etc/lbaas_agent.ini	2014-09-19 18:00:25.000000000 +0800
++++ neutron/etc/lbaas_agent.ini	2014-09-19 18:10:35.000000000 +0800
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -128,8 +134,10 @@ Last-Update: <YYYY-MM-DD>
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
---- neutron-2014.2~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2014.2~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-09-19 18:00:25.000000000 +0800
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-09-19 18:10:35.000000000 +0800
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
