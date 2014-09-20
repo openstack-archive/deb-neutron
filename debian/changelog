@@ -9,7 +9,7 @@ neutron (2014.2~b3-1) experimental; urgency=medium
   * New upstream release.
   * Support to run neutron under systemd.
 
- -- gustavo panizzo <gfa@zumbi.com.ar>  Mon, 30 Jun 2014 18:14:04 -0300
+ -- Thomas Goirand <zigo@debian.org>  Sat, 20 Sep 2014 07:54:55 +0000
 
 neutron (2014.1.1-1) unstable; urgency=medium
 
