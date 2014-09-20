@@ -102,7 +102,6 @@ case "$1" in
 	echo "Usage: $SCRIPTNAME {start|stop|status|restart|force-reload}" >&2
 	exit 3
 	;;
-esac
   restart|force-reload)
         log_daemon_msg "Restarting $DESC" "$NAME"
         do_stop
