@@ -61,7 +61,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
 
     def _create_router_db(self, context, router, tenant_id):
         """Create a router db object with dvr additions."""
-        router['distributed'] = _is_distributed_router(router)
+        router['distributed'] = is_distributed_router(router)
         with context.session.begin(subtransactions=True):
             router_db = super(
                 L3_NAT_with_dvr_db_mixin, self)._create_router_db(
@@ -128,7 +128,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         router_is_uuid = isinstance(router, basestring)
         if router_is_uuid:
             router = self._get_router(context, router)
-        if _is_distributed_router(router):
+        if is_distributed_router(router):
             return DEVICE_OWNER_DVR_INTERFACE
         return super(L3_NAT_with_dvr_db_mixin,
                      self)._get_device_owner(context, router)
@@ -180,6 +180,26 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 admin_ctx, floatingip, id)
         super(L3_NAT_with_dvr_db_mixin,
               self).delete_floatingip(context, id)
+
+    def _get_floatingip_on_port(self, context, port_id=None):
+        """Helper function to retrieve the fip associated with port."""
+        fip_qry = context.session.query(l3_db.FloatingIP)
+        floating_ip = fip_qry.filter_by(fixed_port_id=port_id)
+        return floating_ip.first()
+
+    def disassociate_floatingips(self, context, port_id, do_notify=True):
+        """Override disassociate floatingips to delete fip agent gw port."""
+        with context.session.begin(subtransactions=True):
+            fip = self._get_floatingip_on_port(
+                context, port_id=port_id)
+            if fip:
+                admin_ctx = context.elevated()
+                self.clear_unused_fip_agent_gw_port(
+                    admin_ctx, fip, id)
+        return super(L3_NAT_with_dvr_db_mixin,
+                     self).disassociate_floatingips(context,
+                                                    port_id,
+                                                    do_notify=do_notify)
 
     def add_router_interface(self, context, router_id, interface_info):
         add_by_port, add_by_sub = self._validate_interface_info(interface_info)
@@ -294,6 +314,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     floating_ip['host'] = self.get_vm_port_hostid(
                         context, floating_ip['port_id'])
                     LOG.debug("Floating IP host: %s", floating_ip['host'])
+                    # if no VM there won't be an agent assigned
+                    if not floating_ip['host']:
+                        continue
                     fip_agent = self._get_agent_by_type_and_host(
                         context, l3_const.AGENT_TYPE_L3,
                         floating_ip['host'])
@@ -534,7 +557,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                                                   l3_port_check=False)
 
 
-def _is_distributed_router(router):
+def is_distributed_router(router):
     """Return True if router to be handled is distributed."""
     try:
         # See if router is a DB object first

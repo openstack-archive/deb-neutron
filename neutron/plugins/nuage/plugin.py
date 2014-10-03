@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Ronak Shah, Nuage Networks, Alcatel-Lucent USA Inc.
 
 import copy
 import re
@@ -41,13 +39,18 @@ from neutron.extensions import securitygroup as ext_sg
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
 from neutron.openstack.common import lockutils
+from neutron.openstack.common import log as logging
+from neutron.openstack.common import loopingcall
 from neutron.plugins.nuage.common import config
 from neutron.plugins.nuage.common import constants
 from neutron.plugins.nuage.common import exceptions as nuage_exc
 from neutron.plugins.nuage import extensions
 from neutron.plugins.nuage.extensions import netpartition
 from neutron.plugins.nuage import nuagedb
+from neutron.plugins.nuage import syncmanager
 from neutron import policy
+
+LOG = logging.getLogger(__name__)
 
 
 class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
@@ -71,6 +74,12 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.nuageclient_init()
         net_partition = cfg.CONF.RESTPROXY.default_net_partition_name
         self._create_default_net_partition(net_partition)
+        if cfg.CONF.SYNCMANAGER.enable_sync:
+            self.syncmanager = syncmanager.SyncManager(self.nuageclient)
+            self._synchronization_thread()
+
+    db_base_plugin_v2.NeutronDbPluginV2.register_dict_extend_funcs(
+        attributes.NETWORKS, ['_extend_network_dict_provider_nuage'])
 
     def nuageclient_init(self):
         server = cfg.CONF.RESTPROXY.server
@@ -84,6 +93,16 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                    serverssl, serverauth,
                                                    auth_resource,
                                                    organization)
+
+    def _synchronization_thread(self):
+        sync_interval = cfg.CONF.SYNCMANAGER.sync_interval
+        fip_quota = str(cfg.CONF.RESTPROXY.default_floatingip_quota)
+        if sync_interval > 0:
+            sync_loop = loopingcall.FixedIntervalLoopingCall(
+                self.syncmanager.synchronize, fip_quota)
+            sync_loop.start(interval=sync_interval)
+        else:
+            self.syncmanager.synchronize(fip_quota)
 
     def _resource_finder(self, context, for_resource, resource, user_req):
         match = re.match(attributes.UUID_PATTERN, user_req[resource])
@@ -264,7 +283,8 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                     net_partition = nuagedb.get_net_partition_by_id(
                         session, subnet_mapping['net_partition_id'])
                     self._create_update_port(context, port,
-                                             net_partition['np_name'])
+                                             net_partition['name'])
+                self._check_floatingip_update(context, port)
                 updated_port = self._make_port_dict(port)
                 sg_port = self._extend_port_dict_security_group(
                     updated_port,
@@ -375,8 +395,9 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         subnets = self.get_subnets(context, filters=filters)
         return bool(routers or subnets)
 
-    def _extend_network_dict_provider(self, context, network):
-        binding = nuagedb.get_network_binding(context.session, network['id'])
+    def _extend_network_dict_provider_nuage(self, network, net_db,
+                                            net_binding=None):
+        binding = net_db.pnetbinding if net_db else net_binding
         if binding:
             network[pnet.NETWORK_TYPE] = binding.network_type
             network[pnet.PHYSICAL_NETWORK] = binding.physical_network
@@ -415,6 +436,7 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         return network_type, physical_network, segmentation_id
 
     def create_network(self, context, network):
+        binding = None
         (network_type, physical_network,
          vlan_id) = self._process_provider_create(context,
                                                   network['network'])
@@ -427,10 +449,11 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                           network)
             self._process_l3_create(context, net, network['network'])
             if network_type == 'vlan':
-                nuagedb.add_network_binding(context.session, net['id'],
+                binding = nuagedb.add_network_binding(context.session,
+                                            net['id'],
                                             network_type,
                                             physical_network, vlan_id)
-            self._extend_network_dict_provider(context, net)
+            self._extend_network_dict_provider_nuage(net, None, binding)
         return net
 
     def _validate_update_network(self, context, id, network):
@@ -455,23 +478,6 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                         constants.NOVA_PORT_OWNER_PREF):
                     raise n_exc.NetworkInUse(net_id=id)
         return (is_external_set, subnet)
-
-    def get_network(self, context, net_id, fields=None):
-        net = super(NuagePlugin, self).get_network(context,
-                                                   net_id,
-                                                   None)
-        self._extend_network_dict_provider(context, net)
-        return self._fields(net, fields)
-
-    def get_networks(self, context, filters=None, fields=None,
-                     sorts=None, limit=None, marker=None, page_reverse=False):
-        nets = super(NuagePlugin,
-                     self).get_networks(context, filters, None, sorts,
-                                        limit, marker, page_reverse)
-        for net in nets:
-            self._extend_network_dict_provider(context, net)
-
-        return [self._fields(net, fields) for net in nets]
 
     def update_network(self, context, id, network):
         pnet._raise_if_updates_provider_attributes(network['network'])
@@ -673,6 +679,12 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
         if self._network_is_external(context, subnet['network_id']):
             super(NuagePlugin, self).delete_subnet(context, id)
             return self._delete_nuage_sharedresource(id)
+
+        filters = {'fixed_ips': {'subnet_id': [id]}}
+        ports = self.get_ports(context, filters)
+        for port in ports:
+            if port['device_owner'] != os_constants.DEVICE_OWNER_DHCP:
+                raise n_exc.SubnetInUse(subnet_id=id)
 
         subnet_l2dom = nuagedb.get_subnet_l2dom_by_id(context.session, id)
         if subnet_l2dom:
@@ -975,8 +987,7 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         super(NuagePlugin, self).delete_router(context, id)
 
-        nuage_zone = self.nuageclient.get_zone_by_routerid(id)
-        if nuage_zone and not self._check_router_subnet_for_tenant(
+        if not self._check_router_subnet_for_tenant(
                 context, neutron_router['tenant_id']):
             user_id, group_id = self.nuageclient.get_usergroup(
                 neutron_router['tenant_id'],
@@ -1084,10 +1095,13 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                   neutron_fip, port_id):
         rtr_id = neutron_fip['router_id']
         net_id = neutron_fip['floating_network_id']
+        subn = nuagedb.get_ipalloc_for_fip(context.session,
+                                           net_id,
+                                           neutron_fip['floating_ip_address'])
 
-        fip_pool = self.nuageclient.get_nuage_fip_pool_by_id(net_id)
+        fip_pool = self.nuageclient.get_nuage_fip_pool_by_id(subn['subnet_id'])
         if not fip_pool:
-            msg = _('sharedresource %s not found on VSD') % net_id
+            msg = _('sharedresource %s not found on VSD') % subn['subnet_id']
             raise n_exc.BadRequest(resource='floatingip',
                                    msg=msg)
 
@@ -1214,13 +1228,13 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         return neutron_fip
 
-    def delete_floatingip(self, context, id):
-        fip = self._get_floatingip(context, id)
+    def delete_floatingip(self, context, fip_id):
+        fip = self._get_floatingip(context, fip_id)
         port_id = fip['fixed_port_id']
         with context.session.begin(subtransactions=True):
             if port_id:
                 params = {
-                    'neutron_port_id': id,
+                    'neutron_port_id': port_id,
                 }
                 nuage_port = self.nuageclient.get_nuage_port_by_id(params)
                 if (nuage_port and
@@ -1230,25 +1244,35 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
                         'nuage_fip_id': None
                     }
                     self.nuageclient.update_nuage_vm_vport(params)
-            rtr_id = fip['last_known_router_id']
-            if rtr_id:
+                    LOG.debug("Floating-ip %(fip)s is disassociated from "
+                              "vport %(vport)s",
+                              {'fip': fip_id,
+                               'vport': nuage_port['nuage_vport_id']})
+
+                router_id = fip['router_id']
+            else:
+                router_id = fip['last_known_router_id']
+
+            if router_id:
                 ent_rtr_mapping = nuagedb.get_ent_rtr_mapping_by_rtrid(
                     context.session,
-                    rtr_id)
+                    router_id)
                 if not ent_rtr_mapping:
                     msg = _('router %s is not associated with '
-                            'any net-partition') % rtr_id
+                            'any net-partition') % router_id
                     raise n_exc.BadRequest(resource='floatingip',
                                        msg=msg)
                 params = {
                     'router_id': ent_rtr_mapping['nuage_router_id'],
-                    'fip_id': id
+                    'fip_id': fip_id
                 }
                 fip = self.nuageclient.get_nuage_fip_by_id(params)
                 if fip:
                     self.nuageclient.delete_nuage_floatingip(
                         fip['nuage_fip_id'])
-            super(NuagePlugin, self).delete_floatingip(context, id)
+                    LOG.debug('Floating-ip %s deleted from VSD', fip_id)
+
+            super(NuagePlugin, self).delete_floatingip(context, fip_id)
 
     def delete_security_group(self, context, id):
         filters = {'security_group_id': [id]}

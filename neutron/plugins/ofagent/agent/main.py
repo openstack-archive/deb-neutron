@@ -1,4 +1,6 @@
 # Copyright (C) 2014 VA Linux Systems Japan K.K.
+# Copyright (C) 2014 Fumihiko Kakuma <kakuma at valinux co jp>
+# Copyright (C) 2014 YAMAMOTO Takashi <yamamoto at valinux co jp>
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -12,9 +14,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Fumihiko Kakuma, VA Linux Systems Japan K.K.
-# @author: YAMAMOTO Takashi, VA Linux Systems Japan K.K.
 
 from ryu.lib import hub
 hub.patch()
@@ -35,5 +34,5 @@ def main():
     # TODO(yamamoto) remove this later
     if ryu_cfg.CONF is not cfg.CONF:
         ryu_cfg.CONF(project='ryu', args=[])
-    common_config.setup_logging(cfg.CONF)
+    common_config.setup_logging()
     AppManager.run_apps(['neutron.plugins.ofagent.agent.ofa_neutron_agent'])

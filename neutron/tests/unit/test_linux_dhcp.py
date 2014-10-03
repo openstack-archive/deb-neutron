@@ -583,6 +583,7 @@ class TestDhcpLocalProcess(TestBase):
             lp.enable()
 
             self.assertEqual(lp.called, ['restart'])
+            self.assertFalse(self.mock_mgr.return_value.setup.called)
 
     def test_enable(self):
         attrs_to_mock = dict(
@@ -732,7 +733,7 @@ class TestDnsmasq(TestBase):
             if index == 0:
                 return '/usr/local/bin/neutron-dhcp-agent'
             else:
-                raise IndexError
+                raise IndexError()
 
         expected = [
             'ip',
@@ -797,7 +798,8 @@ class TestDnsmasq(TestBase):
                 self.assertTrue(mocks['_output_opts_file'].called)
                 self.execute.assert_called_once_with(expected,
                                                      root_helper='sudo',
-                                                     check_exit_code=True)
+                                                     check_exit_code=True,
+                                                     extra_ok_codes=None)
 
     def test_spawn(self):
         self._test_spawn(['--conf-file=', '--domain=openstacklocal'])

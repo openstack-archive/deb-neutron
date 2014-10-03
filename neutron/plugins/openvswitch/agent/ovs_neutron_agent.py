@@ -170,6 +170,7 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
         self.root_helper = root_helper
         self.available_local_vlans = set(moves.xrange(q_const.MIN_VLAN_TAG,
                                                       q_const.MAX_VLAN_TAG))
+        self.use_call = True
         self.tunnel_types = tunnel_types or []
         self.l2_pop = l2_population
         # TODO(ethuleau): Change ARP responder so it's not dependent on the
@@ -255,7 +256,9 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
             self.int_br_device_count)
         try:
             self.state_rpc.report_state(self.context,
-                                        self.agent_state)
+                                        self.agent_state,
+                                        self.use_call)
+            self.use_call = False
             self.agent_state.pop('start_flag', None)
         except Exception:
             LOG.exception(_("Failed reporting state!"))
@@ -1520,7 +1523,7 @@ def create_agent_config_map(config):
 def main():
     cfg.CONF.register_opts(ip_lib.OPTS)
     common_config.init(sys.argv[1:])
-    common_config.setup_logging(cfg.CONF)
+    common_config.setup_logging()
     q_utils.log_opt_values(LOG)
 
     try:

@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mark McClain, DreamHost
 
 import httplib
 import socket
@@ -112,6 +110,8 @@ class NetworkMetadataProxyHandler(object):
             response.headers['Content-Type'] = resp['content-type']
             response.body = content
             return response
+        elif resp.status == 400:
+            return webob.exc.HTTPBadRequest()
         elif resp.status == 404:
             return webob.exc.HTTPNotFound()
         elif resp.status == 409:
@@ -169,7 +169,7 @@ def main():
     cfg.CONF.register_cli_opts(opts)
     # Don't get the default configuration file
     cfg.CONF(project='neutron', default_config_files=[])
-    config.setup_logging(cfg.CONF)
+    config.setup_logging()
     utils.log_opt_values(LOG)
     proxy = ProxyDaemon(cfg.CONF.pid_file,
                         cfg.CONF.metadata_port,

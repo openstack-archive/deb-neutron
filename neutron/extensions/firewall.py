@@ -12,8 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
 import abc
 
@@ -54,6 +52,30 @@ class FirewallPolicyInUse(qexception.InUse):
     message = _("Firewall Policy %(firewall_policy_id)s is being used.")
 
 
+class FirewallRuleSharingConflict(qexception.Conflict):
+
+    """FWaaS exception for firewall rules
+
+    When a shared policy is created or updated with unshared rules,
+    this exception will be raised.
+    """
+    message = _("Operation cannot be performed since Firewall Policy "
+                "%(firewall_policy_id)s is shared but Firewall Rule "
+                "%(firewall_rule_id)s is not shared")
+
+
+class FirewallPolicySharingConflict(qexception.Conflict):
+
+    """FWaaS exception for firewall policy
+
+    When a policy is shared without sharing its associated rules,
+    this exception will be raised.
+    """
+    message = _("Operation cannot be performed. Before sharing Firewall "
+                "Policy %(firewall_policy_id)s, share associated Firewall "
+                "Rule %(firewall_rule_id)s")
+
+
 class FirewallRuleNotFound(qexception.NotFound):
     message = _("Firewall Rule %(firewall_rule_id)s could not be found.")
 
@@ -83,6 +105,10 @@ class FirewallRuleInvalidICMPParameter(qexception.InvalidInput):
                 "is set to ICMP.")
 
 
+class FirewallRuleWithPortWithoutProtocolInvalid(qexception.InvalidInput):
+    message = _("Source/destination port requires a protocol")
+
+
 class FirewallInvalidPortValue(qexception.InvalidInput):
     message = _("Invalid value for port %(port)s.")
 
@@ -99,6 +125,19 @@ class FirewallInternalDriverError(qexception.NeutronException):
     raise this exception to the agent
     """
     message = _("%(driver)s: Internal driver error.")
+
+
+class FirewallRuleConflict(qexception.Conflict):
+
+    """Firewall rule conflict exception.
+
+    Occurs when admin policy tries to use another tenant's unshared
+    rule.
+    """
+
+    message = _("Operation cannot be performed since Firewall Rule "
+                "%(firewall_rule_id)s is not shared and belongs to "
+                "another tenant %(tenant_id)s")
 
 
 fw_valid_protocol_values = [None, constants.TCP, constants.UDP, constants.ICMP]

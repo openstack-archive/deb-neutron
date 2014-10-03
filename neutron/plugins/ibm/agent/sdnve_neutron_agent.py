@@ -13,8 +13,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mohammad Banikazemi, IBM Corp.
 
 
 import socket
@@ -254,7 +252,7 @@ def create_agent_config_map(config):
 def main():
     cfg.CONF.register_opts(ip_lib.OPTS)
     common_config.init(sys.argv[1:])
-    common_config.setup_logging(cfg.CONF)
+    common_config.setup_logging()
 
     try:
         agent_config = create_agent_config_map(cfg.CONF)

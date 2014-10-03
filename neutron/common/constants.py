@@ -29,6 +29,7 @@ FLOATINGIP_STATUS_ACTIVE = 'ACTIVE'
 FLOATINGIP_STATUS_DOWN = 'DOWN'
 FLOATINGIP_STATUS_ERROR = 'ERROR'
 
+DEVICE_OWNER_ROUTER_HA_INTF = "network:router_ha_interface"
 DEVICE_OWNER_ROUTER_INTF = "network:router_interface"
 DEVICE_OWNER_ROUTER_GW = "network:router_gateway"
 DEVICE_OWNER_FLOATINGIP = "network:floatingip"
@@ -42,9 +43,16 @@ DEVICE_ID_RESERVED_DHCP_PORT = "reserved_dhcp_port"
 
 FLOATINGIP_KEY = '_floatingips'
 INTERFACE_KEY = '_interfaces'
+HA_INTERFACE_KEY = '_ha_interface'
+HA_ROUTER_STATE_KEY = '_ha_state'
 METERING_LABEL_KEY = '_metering_labels'
 FLOATINGIP_AGENT_INTF_KEY = '_floatingip_agent_interfaces'
 SNAT_ROUTER_INTF_KEY = '_snat_router_interfaces'
+
+HA_NETWORK_NAME = 'HA network tenant %s'
+HA_SUBNET_NAME = 'HA subnet tenant %s'
+HA_PORT_NAME = 'HA port tenant %s'
+MINIMUM_AGENTS_FOR_HA = 2
 
 IPv4 = 'IPv4'
 IPv6 = 'IPv6'
@@ -53,7 +61,15 @@ DHCP_RESPONSE_PORT = 68
 
 MIN_VLAN_TAG = 1
 MAX_VLAN_TAG = 4094
-MAX_VXLAN_VNI = 16777215
+
+# For GRE Tunnel
+MIN_GRE_ID = 1
+MAX_GRE_ID = 2 ** 32 - 1
+
+# For VXLAN Tunnel
+MIN_VXLAN_VNI = 1
+MAX_VXLAN_VNI = 2 ** 24 - 1
+
 FLOODING_ENTRY = ['00:00:00:00:00:00', '0.0.0.0']
 
 EXT_NS_COMP = '_backward_comp_e_ns'
@@ -101,6 +117,7 @@ L3_AGENT_SCHEDULER_EXT_ALIAS = 'l3_agent_scheduler'
 DHCP_AGENT_SCHEDULER_EXT_ALIAS = 'dhcp_agent_scheduler'
 LBAAS_AGENT_SCHEDULER_EXT_ALIAS = 'lbaas_agent_scheduler'
 L3_DISTRIBUTED_EXT_ALIAS = 'dvr'
+L3_HA_MODE_EXT_ALIAS = 'l3-ha'
 
 # Protocol names and numbers for Security Groups/Firewalls
 PROTO_NAME_TCP = 'tcp'
@@ -130,3 +147,8 @@ IPV6_LLA_PREFIX = 'fe80::/64'
 
 # Linux interface max length
 DEVICE_NAME_MAX_LEN = 15
+
+# Device names start with "tap"
+TAP_DEVICE_PREFIX = 'tap'
+
+ATTRIBUTES_TO_UPDATE = 'attributes_to_update'

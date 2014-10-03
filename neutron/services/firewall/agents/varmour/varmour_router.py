@@ -12,9 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Gary Duan, vArmour Networks Inc.
-#
 
 import sys
 
@@ -26,6 +23,7 @@ from oslo.config import cfg
 
 from neutron.agent.common import config
 from neutron.agent import l3_agent
+from neutron.agent import l3_ha_agent
 from neutron.agent.linux import external_process
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
@@ -332,6 +330,7 @@ class vArmourL3NATAgentWithStateReport(vArmourL3NATAgent,
 def main():
     conf = cfg.CONF
     conf.register_opts(vArmourL3NATAgent.OPTS)
+    conf.register_opts(l3_ha_agent.OPTS)
     config.register_interface_driver_opts_helper(conf)
     config.register_use_namespaces_opts_helper(conf)
     config.register_agent_state_opts_helper(conf)
@@ -339,7 +338,7 @@ def main():
     conf.register_opts(interface.OPTS)
     conf.register_opts(external_process.OPTS)
     common_config.init(sys.argv[1:])
-    config.setup_logging(conf)
+    config.setup_logging()
     server = neutron_service.Service.create(
         binary='neutron-l3-agent',
         topic=topics.L3_AGENT,

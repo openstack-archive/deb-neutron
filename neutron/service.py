@@ -40,7 +40,7 @@ service_opts = [
                help=_('Seconds between running periodic tasks')),
     cfg.IntOpt('api_workers',
                default=0,
-               help=_('Number of separate worker processes for service')),
+               help=_('Number of separate API worker processes for service')),
     cfg.IntOpt('rpc_workers',
                default=0,
                help=_('Number of RPC worker processes for service')),
@@ -88,7 +88,7 @@ class NeutronApiService(WsgiService):
         # flags. Everything else must be set up in the conf file...
         # Log the options used when starting if we're in debug mode...
 
-        config.setup_logging(cfg.CONF)
+        config.setup_logging()
         # Dump the initial option values
         cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
         service = cls(app_name)
@@ -146,7 +146,7 @@ def serve_rpc():
             msg = _("'rpc_workers = %d' ignored because start_rpc_listeners "
                     "is not implemented.")
             LOG.error(msg, cfg.CONF.rpc_workers)
-        raise NotImplementedError
+        raise NotImplementedError()
 
     try:
         rpc = RpcWorker(plugin)

@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Ronak Shah, Aniket Dandekar, Nuage Networks, Alcatel-Lucent USA Inc.
 
 
 import contextlib
@@ -59,6 +57,22 @@ FAKE_ORGANIZATION = 'fake_org'
 _plugin_name = ('%s.NuagePlugin' % NUAGE_PLUGIN_PATH)
 
 
+def getNuageClient():
+    server = FAKE_SERVER
+    serverauth = FAKE_SERVER_AUTH
+    serverssl = FAKE_SERVER_SSL
+    base_uri = FAKE_BASE_URI
+    auth_resource = FAKE_AUTH_RESOURCE
+    organization = FAKE_ORGANIZATION
+    nuageclient = fake_nuageclient.FakeNuageClient(server,
+                                                   base_uri,
+                                                   serverssl,
+                                                   serverauth,
+                                                   auth_resource,
+                                                   organization)
+    return nuageclient
+
+
 class NuagePluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
     def setUp(self, plugin=_plugin_name,
               ext_mgr=None, service_plugins=None):
@@ -67,19 +81,7 @@ class NuagePluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
             self.skipTest("Nuage Plugin does not support IPV6.")
 
         def mock_nuageClient_init(self):
-            server = FAKE_SERVER
-            serverauth = FAKE_SERVER_AUTH
-            serverssl = FAKE_SERVER_SSL
-            base_uri = FAKE_BASE_URI
-            auth_resource = FAKE_AUTH_RESOURCE
-            organization = FAKE_ORGANIZATION
-            self.nuageclient = None
-            self.nuageclient = fake_nuageclient.FakeNuageClient(server,
-                                                                base_uri,
-                                                                serverssl,
-                                                                serverauth,
-                                                                auth_resource,
-                                                                organization)
+            self.nuageclient = getNuageClient()
 
         with mock.patch.object(nuage_plugin.NuagePlugin,
                                'nuageclient_init', new=mock_nuageClient_init):
@@ -244,6 +246,7 @@ class NuagePluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
                         self.assertEqual(
                             fip2['floatingip']['port_id'],
                             body['floatingip']['port_id'])
+                        self._delete('ports', p['port']['id'])
 
                     # Test that port has been successfully deleted.
                     body = self._show('ports', p['port']['id'],
@@ -340,6 +343,20 @@ class TestNuageSubnetsV2(NuagePluginV2TestCase,
             subnet_res = subnet_req.get_response(self.api)
             self.assertEqual(exc.HTTPCreated.code, subnet_res.status_int)
 
+    def test_delete_subnet_port_exists_returns_409(self):
+        gateway_ip = '10.0.0.1'
+        cidr = '10.0.0.0/24'
+        res = self._create_network(fmt=self.fmt, name='net',
+                                   admin_state_up=True)
+        network = self.deserialize(self.fmt, res)
+        subnet = self._make_subnet(self.fmt, network, gateway_ip,
+                                   cidr, ip_version=4)
+        self._create_port(self.fmt,
+                          network['network']['id'])
+        req = self.new_delete_request('subnets', subnet['subnet']['id'])
+        res = req.get_response(self.api)
+        self.assertEqual(409, res.status_int)
+
 
 class TestNuagePluginPortBinding(NuagePluginV2TestCase,
                                  test_bindings.PortBindingsTestCase):
@@ -368,6 +385,34 @@ class TestNuagePluginPortBinding(NuagePluginV2TestCase,
 
 class TestNuageL3NatTestCase(NuagePluginV2TestCase,
                              test_l3_plugin.L3NatDBIntTestCase):
+
+    def test_update_port_with_assoc_floatingip(self):
+        with self.subnet(cidr='200.0.0.0/24') as public_sub:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            with self.port() as port:
+                p_id = port['port']['id']
+                with self.floatingip_with_assoc(port_id=p_id):
+                    # Update the port with dummy vm info
+                    port_dict = {
+                        'device_id': uuidutils.generate_uuid(),
+                        'device_owner': 'compute:Nova'
+                    }
+                    port = self._update('ports', port['port']['id'],
+                                        {'port': port_dict})
+                    self.assertEqual(port_dict['device_id'],
+                                     port['port']['device_id'])
+
+    def test_disassociated_floatingip_delete(self):
+        with self.subnet(cidr='200.0.0.0/24') as public_sub:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            with self.port() as port:
+                p_id = port['port']['id']
+                with self.floatingip_with_assoc(port_id=p_id) as fip:
+
+                    # Disassociate fip from the port
+                    fip = self._update('floatingips', fip['floatingip']['id'],
+                                       {'floatingip': {'port_id': None}})
+                    self.assertIsNone(fip['floatingip']['router_id'])
 
     def test_network_update_external_failure(self):
         self._test_network_update_external_failure()
@@ -426,7 +471,7 @@ class TestNuageExtrarouteTestCase(NuagePluginV2TestCase,
     def test_router_update_with_dup_destination_address(self):
         with self.router() as r:
             with self.subnet(cidr='10.0.1.0/24') as s:
-                with self.port(subnet=s, do_delete=False) as p:
+                with self.port(subnet=s) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -502,30 +547,73 @@ class TestNuageExtrarouteTestCase(NuagePluginV2TestCase,
 class TestNuageProviderNetTestCase(NuagePluginV2TestCase):
 
     def test_create_provider_network(self):
-        phy_net = uuidutils.generate_uuid()
+        phys_net = uuidutils.generate_uuid()
         data = {'network': {'name': 'pnet1',
                             'tenant_id': 'admin',
                             pnet.NETWORK_TYPE: 'vlan',
-                            pnet.PHYSICAL_NETWORK: phy_net,
+                            pnet.PHYSICAL_NETWORK: phys_net,
                             pnet.SEGMENTATION_ID: 123}}
         network_req = self.new_create_request('networks', data, self.fmt)
         net = self.deserialize(self.fmt, network_req.get_response(self.api))
         self.assertEqual('vlan', net['network'][pnet.NETWORK_TYPE])
-        self.assertEqual(phy_net, net['network'][pnet.PHYSICAL_NETWORK])
+        self.assertEqual(phys_net, net['network'][pnet.PHYSICAL_NETWORK])
         self.assertEqual(123, net['network'][pnet.SEGMENTATION_ID])
 
     def test_create_provider_network_no_admin(self):
-        phy_net = uuidutils.generate_uuid()
+        phys_net = uuidutils.generate_uuid()
         data = {'network': {'name': 'pnet1',
                             'tenant_id': 'no_admin',
                             pnet.NETWORK_TYPE: 'vlan',
-                            pnet.PHYSICAL_NETWORK: phy_net,
+                            pnet.PHYSICAL_NETWORK: phys_net,
                             pnet.SEGMENTATION_ID: 123}}
         network_req = self.new_create_request('networks', data, self.fmt)
         network_req.environ['neutron.context'] = context.Context(
                                     '', 'no_admin', is_admin=False)
         res = network_req.get_response(self.api)
         self.assertEqual(exc.HTTPForbidden.code, res.status_int)
+
+    def test_get_network_for_provider_network(self):
+        phys_net = uuidutils.generate_uuid()
+        data = {'network': {'name': 'pnet1',
+                            'tenant_id': 'admin',
+                            pnet.NETWORK_TYPE: 'vlan',
+                            pnet.PHYSICAL_NETWORK: phys_net,
+                            pnet.SEGMENTATION_ID: 123}}
+        network_req = self.new_create_request('networks', data, self.fmt)
+        res = self.deserialize(self.fmt, network_req.get_response(self.api))
+
+        get_req = self.new_show_request('networks', res['network']['id'])
+        net = self.deserialize(self.fmt, get_req.get_response(self.api))
+        self.assertEqual('vlan', net['network'][pnet.NETWORK_TYPE])
+        self.assertEqual(phys_net, net['network'][pnet.PHYSICAL_NETWORK])
+        self.assertEqual(123, net['network'][pnet.SEGMENTATION_ID])
+
+    def test_list_networks_for_provider_network(self):
+        phys_net = uuidutils.generate_uuid()
+        data1 = {'network': {'name': 'pnet1',
+                            'tenant_id': 'admin',
+                            pnet.NETWORK_TYPE: 'vlan',
+                            pnet.PHYSICAL_NETWORK: phys_net,
+                            pnet.SEGMENTATION_ID: 123}}
+        network_req_1 = self.new_create_request('networks', data1, self.fmt)
+        network_req_1.get_response(self.api)
+        data2 = {'network': {'name': 'pnet2',
+                            'tenant_id': 'admin',
+                            pnet.NETWORK_TYPE: 'vlan',
+                            pnet.PHYSICAL_NETWORK: phys_net,
+                            pnet.SEGMENTATION_ID: 234}}
+        network_req_2 = self.new_create_request('networks', data2, self.fmt)
+        network_req_2.get_response(self.api)
+
+        list_req = self.new_list_request('networks')
+        pnets = self.deserialize(self.fmt, list_req.get_response(self.api))
+        self.assertEqual(2, len(pnets['networks']))
+        self.assertEqual('vlan', pnets['networks'][0][pnet.NETWORK_TYPE])
+        self.assertEqual(phys_net, pnets['networks'][0][pnet.PHYSICAL_NETWORK])
+        self.assertEqual(123, pnets['networks'][0][pnet.SEGMENTATION_ID])
+        self.assertEqual('vlan', pnets['networks'][1][pnet.NETWORK_TYPE])
+        self.assertEqual(phys_net, pnets['networks'][1][pnet.PHYSICAL_NETWORK])
+        self.assertEqual(234, pnets['networks'][1][pnet.SEGMENTATION_ID])
 
 
 class TestNuageSecurityGroupTestCase(NuagePluginV2TestCase,

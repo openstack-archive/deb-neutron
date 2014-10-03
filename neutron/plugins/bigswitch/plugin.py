@@ -12,9 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mandeep Dhami, Big Switch Networks, Inc.
-# @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
 """
 Neutron REST Proxy Plug-in for Big Switch and FloodLight Controllers.
@@ -115,7 +112,7 @@ class AgentNotifierApi(n_rpc.RpcProxy,
 class SecurityGroupServerRpcMixin(sg_db_rpc.SecurityGroupServerRpcMixin):
 
     def get_port_from_device(self, device):
-        port_id = re.sub(r"^tap", "", device)
+        port_id = re.sub(r"^%s" % const.TAP_DEVICE_PREFIX, "", device)
         port = self.get_port_and_sgs(port_id)
         if port:
             port['device'] = device
@@ -357,8 +354,10 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
         # In ML2, the host_id is already populated
         if portbindings.HOST_ID in port:
             hostid = port[portbindings.HOST_ID]
-        else:
+        elif 'id' in port:
             hostid = porttracker_db.get_port_hostid(context, port['id'])
+        else:
+            hostid = None
         if hostid:
             port[portbindings.HOST_ID] = hostid
             override = self._check_hostvif_override(hostid)
@@ -446,7 +445,9 @@ class NeutronRestProxyV2Base(db_base_plugin_v2.NeutronDbPluginV2,
 def put_context_in_serverpool(f):
     @functools.wraps(f)
     def wrapper(self, context, *args, **kwargs):
-        self.servers.set_context(context)
+        # core plugin: context is top level object
+        # ml2: keeps context in _plugin_context
+        self.servers.set_context(getattr(context, '_plugin_context', context))
         return f(self, context, *args, **kwargs)
     return wrapper
 

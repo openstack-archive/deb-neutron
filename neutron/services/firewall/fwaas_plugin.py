@@ -12,8 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
 from oslo.config import cfg
 
@@ -182,13 +180,11 @@ class FirewallPlugin(firewall_db.Firewall_db_mixin):
 
     def _rpc_update_firewall(self, context, firewall_id):
         status_update = {"firewall": {"status": const.PENDING_UPDATE}}
-        fw = super(FirewallPlugin, self).update_firewall(context, firewall_id,
-                                                         status_update)
-        if fw:
-            fw_with_rules = (
-                self._make_firewall_dict_with_rules(context,
-                                                    firewall_id))
-            self.agent_rpc.update_firewall(context, fw_with_rules)
+        super(FirewallPlugin, self).update_firewall(context, firewall_id,
+                                                    status_update)
+        fw_with_rules = self._make_firewall_dict_with_rules(context,
+                                                            firewall_id)
+        self.agent_rpc.update_firewall(context, fw_with_rules)
 
     def _rpc_update_firewall_policy(self, context, firewall_policy_id):
         firewall_policy = self.get_firewall_policy(context, firewall_policy_id)

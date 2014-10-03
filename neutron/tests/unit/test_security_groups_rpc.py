@@ -44,7 +44,8 @@ FAKE_PREFIX = {const.IPv4: '10.0.0.0/24',
 FAKE_IP = {const.IPv4: '10.0.0.1',
            const.IPv6: 'fe80::1',
            'IPv6_GLOBAL': '2001:0db8::1',
-           'IPv6_LLA': 'fe80::123'}
+           'IPv6_LLA': 'fe80::123',
+           'IPv6_DHCP': '2001:db8::3'}
 
 
 TEST_PLUGIN_CLASS = ('neutron.tests.unit.test_security_groups_rpc.'
@@ -483,6 +484,18 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 self.deserialize(self.fmt, res)
                 self.assertEqual(res.status_int, webob.exc.HTTPCreated.code)
 
+                dhcp_port = self._create_port(
+                    self.fmt, n['network']['id'],
+                    fixed_ips=[{'subnet_id': subnet_v6['subnet']['id'],
+                                'ip_address': FAKE_IP['IPv6_DHCP']}],
+                    device_owner=const.DEVICE_OWNER_DHCP,
+                    security_groups=[sg1_id])
+                dhcp_rest = self.deserialize(self.fmt, dhcp_port)
+                dhcp_mac = dhcp_rest['port']['mac_address']
+                dhcp_lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+                    const.IPV6_LLA_PREFIX,
+                    dhcp_mac))
+
                 res1 = self._create_port(
                     self.fmt, n['network']['id'],
                     fixed_ips=[{'subnet_id': subnet_v6['subnet']['id']}],
@@ -495,6 +508,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 ports_rpc = self.rpc.security_group_rules_for_devices(
                     ctx, devices=devices)
                 port_rpc = ports_rpc[port_id1]
+                source_port, dest_port, ethertype = sg_db_rpc.DHCP_RULE_PORT[6]
                 expected = [{'direction': 'egress', 'ethertype': const.IPv4,
                              'security_group_id': sg1_id},
                             {'direction': 'egress', 'ethertype': const.IPv6,
@@ -517,9 +531,63 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                              'ethertype': const.IPv6,
                              'source_ip_prefix': fake_gateway,
                              'source_port_range_min': const.ICMPV6_TYPE_RA},
+                            {'direction': 'ingress',
+                             'ethertype': ethertype,
+                             'port_range_max': dest_port,
+                             'port_range_min': dest_port,
+                             'protocol': const.PROTO_NAME_UDP,
+                             'source_ip_prefix': dhcp_lla_ip,
+                             'source_port_range_max': source_port,
+                             'source_port_range_min': source_port}
                             ]
                 self.assertEqual(port_rpc['security_group_rules'],
                                  expected)
+                self._delete('ports', port_id1)
+
+    def test_security_group_info_for_devices_only_ipv6_rule(self):
+        with self.network() as n:
+            with contextlib.nested(self.subnet(n),
+                                   self.security_group()) as (subnet_v4,
+                                                              sg1):
+                sg1_id = sg1['security_group']['id']
+                rule1 = self._build_security_group_rule(
+                    sg1_id,
+                    'ingress', const.PROTO_NAME_TCP, '22',
+                    '22', remote_group_id=sg1_id,
+                    ethertype=const.IPv6)
+                rules = {
+                    'security_group_rules': [rule1['security_group_rule']]}
+                self._make_security_group_rule(self.fmt, rules)
+
+                res1 = self._create_port(
+                    self.fmt, n['network']['id'],
+                    security_groups=[sg1_id])
+                ports_rest1 = self.deserialize(self.fmt, res1)
+                port_id1 = ports_rest1['port']['id']
+                self.rpc.devices = {port_id1: ports_rest1['port']}
+                devices = [port_id1, 'no_exist_device']
+
+                ctx = context.get_admin_context()
+                ports_rpc = self.rpc.security_group_info_for_devices(
+                    ctx, devices=devices)
+                expected = {
+                    'security_groups': {sg1_id: [
+                        {'direction': 'egress', 'ethertype': const.IPv4},
+                        {'direction': 'egress', 'ethertype': const.IPv6},
+                        {'direction': u'ingress',
+                         'protocol': const.PROTO_NAME_TCP,
+                         'ethertype': const.IPv6,
+                         'port_range_max': 22, 'port_range_min': 22,
+                         'remote_group_id': sg1_id}
+                    ]},
+                    'sg_member_ips': {sg1_id: {
+                        'IPv6': [],
+                    }}
+                }
+                self.assertEqual(expected['security_groups'],
+                                 ports_rpc['security_groups'])
+                self.assertEqual(expected['sg_member_ips'][sg1_id]['IPv6'],
+                                 ports_rpc['sg_member_ips'][sg1_id]['IPv6'])
                 self._delete('ports', port_id1)
 
     def test_security_group_ra_rules_for_devices_ipv6_gateway_global(self):
@@ -943,21 +1011,15 @@ class SecurityGroupAgentRpcTestCaseForNoneDriver(base.BaseTestCase):
                          'NoopFirewallDriver')
 
 
-class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
+class BaseSecurityGroupAgentRpcTestCase(base.BaseTestCase):
     def setUp(self, defer_refresh_firewall=False):
-        super(SecurityGroupAgentRpcTestCase, self).setUp()
-        cfg.CONF.set_default('firewall_driver',
-                             'neutron.agent.firewall.NoopFirewallDriver',
-                             group='SECURITYGROUP')
+        super(BaseSecurityGroupAgentRpcTestCase, self).setUp()
+        set_firewall_driver(FIREWALL_NOOP_DRIVER)
         self.agent = sg_rpc.SecurityGroupAgentRpcMixin()
         self.agent.context = None
         mock.patch('neutron.agent.linux.iptables_manager').start()
         self.agent.root_helper = 'sudo'
-        rpc = mock.Mock()
-        rpc.security_group_info_for_devices.side_effect = (
-            messaging.UnsupportedVersion('1.2'))
-        self.agent.plugin_rpc = rpc
-
+        self.agent.plugin_rpc = mock.Mock()
         self.agent.init_firewall(defer_refresh_firewall=defer_refresh_firewall)
         self.firewall = mock.Mock()
         firewall_object = firewall_base.FirewallDriver()
@@ -970,9 +1032,18 @@ class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
                                                       'fake_sgid1',
                                                       'remote_group_id':
                                                       'fake_sgid2'}]}
-        fake_devices = {'fake_device': self.fake_device}
-        self.firewall.ports = fake_devices
-        rpc.security_group_rules_for_devices.return_value = fake_devices
+        self.firewall.ports = {'fake_device': self.fake_device}
+
+
+class SecurityGroupAgentRpcTestCase(BaseSecurityGroupAgentRpcTestCase):
+    def setUp(self, defer_refresh_firewall=False):
+        super(SecurityGroupAgentRpcTestCase, self).setUp(
+            defer_refresh_firewall)
+        rpc = self.agent.plugin_rpc
+        rpc.security_group_info_for_devices.side_effect = (
+                messaging.UnsupportedVersion('1.2'))
+        rpc.security_group_rules_for_devices.return_value = (
+            self.firewall.ports)
 
     def test_prepare_and_remove_devices_filter(self):
         self.agent.prepare_devices_filter(['fake_device'])
@@ -997,7 +1068,7 @@ class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
         self.agent.refresh_firewall = mock.Mock()
         self.agent.prepare_devices_filter(['fake_port_id'])
         self.agent.security_groups_rule_updated(['fake_sgid3', 'fake_sgid4'])
-        self.agent.refresh_firewall.assert_has_calls([])
+        self.assertFalse(self.agent.refresh_firewall.called)
 
     def test_security_groups_member_updated(self):
         self.agent.refresh_firewall = mock.Mock()
@@ -1010,7 +1081,7 @@ class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
         self.agent.refresh_firewall = mock.Mock()
         self.agent.prepare_devices_filter(['fake_port_id'])
         self.agent.security_groups_member_updated(['fake_sgid3', 'fake_sgid4'])
-        self.agent.refresh_firewall.assert_has_calls([])
+        self.assertFalse(self.agent.refresh_firewall.called)
 
     def test_security_groups_provider_updated(self):
         self.agent.refresh_firewall = mock.Mock()
@@ -1038,42 +1109,23 @@ class SecurityGroupAgentRpcTestCase(base.BaseTestCase):
 
     def test_refresh_firewall_none(self):
         self.agent.refresh_firewall([])
-        self.firewall.assert_has_calls([])
+        self.assertFalse(self.firewall.called)
 
 
-class SecurityGroupAgentEnhancedRpcTestCase(base.BaseTestCase):
+class SecurityGroupAgentEnhancedRpcTestCase(
+    BaseSecurityGroupAgentRpcTestCase):
+
     def setUp(self, defer_refresh_firewall=False):
-        super(SecurityGroupAgentEnhancedRpcTestCase, self).setUp()
-        cfg.CONF.set_default('firewall_driver',
-                             'neutron.agent.firewall.NoopFirewallDriver',
-                             group='SECURITYGROUP')
-        self.agent = sg_rpc.SecurityGroupAgentRpcMixin()
-        self.agent.context = None
-        mock.patch('neutron.agent.linux.iptables_manager').start()
-        self.agent.root_helper = 'sudo'
-        rpc = mock.Mock()
-        self.agent.plugin_rpc = rpc
-        self.agent.init_firewall(defer_refresh_firewall=defer_refresh_firewall)
-        self.firewall = mock.Mock()
-        firewall_object = firewall_base.FirewallDriver()
-        self.firewall.defer_apply.side_effect = firewall_object.defer_apply
-        self.agent.firewall = self.firewall
-        self.fake_device = {'device': 'fake_device',
-                            'security_groups': ['fake_sgid1', 'fake_sgid2'],
-                            'security_group_source_groups': ['fake_sgid2'],
-                            'security_group_rules': [{'security_group_id':
-                                                      'fake_sgid1',
-                                                      'remote_group_id':
-                                                      'fake_sgid2'}]}
-        fake_devices = {'fake_device': self.fake_device}
+        super(SecurityGroupAgentEnhancedRpcTestCase, self).setUp(
+            defer_refresh_firewall=defer_refresh_firewall)
         fake_sg_info = {
             'security_groups': {
                 'fake_sgid1': [
                     {'remote_group_id': 'fake_sgid2'}], 'fake_sgid2': []},
             'sg_member_ips': {'fake_sgid2': {'IPv4': [], 'IPv6': []}},
-            'devices': fake_devices}
-        self.firewall.ports = fake_devices
-        rpc.security_group_info_for_devices.return_value = fake_sg_info
+            'devices': self.firewall.ports}
+        self.agent.plugin_rpc.security_group_info_for_devices.return_value = (
+            fake_sg_info)
 
     def test_prepare_and_remove_devices_filter_enhanced_rpc(self):
         self.agent.prepare_devices_filter(['fake_device'])
@@ -1173,7 +1225,7 @@ class SecurityGroupAgentEnhancedRpcTestCase(base.BaseTestCase):
 
     def test_refresh_firewall_none_enhanced_rpc(self):
         self.agent.refresh_firewall([])
-        self.firewall.assert_has_calls([])
+        self.assertFalse(self.firewall.called)
 
 
 class SecurityGroupAgentRpcWithDeferredRefreshTestCase(
@@ -1477,11 +1529,73 @@ COMMIT
 # Completed by iptables_manager
 """ % IPTABLES_ARG
 
+IPTABLES_RAW = """# Generated by iptables_manager
+*raw
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+[0:0] -A PREROUTING -j %(bn)s-PREROUTING
+[0:0] -A OUTPUT -j %(bn)s-OUTPUT
+COMMIT
+# Completed by iptables_manager
+""" % IPTABLES_ARG
+
 CHAINS_EMPTY = 'FORWARD|INPUT|OUTPUT|local|sg-chain|sg-fallback'
 CHAINS_1 = CHAINS_EMPTY + '|i_port1|o_port1|s_port1'
 CHAINS_2 = CHAINS_1 + '|i_port2|o_port2|s_port2'
 
 IPTABLES_ARG['chains'] = CHAINS_1
+
+IPSET_FILTER_1 = """# Generated by iptables_manager
+*filter
+:neutron-filter-top - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+[0:0] -A FORWARD -j neutron-filter-top
+[0:0] -A OUTPUT -j neutron-filter-top
+[0:0] -A neutron-filter-top -j %(bn)s-local
+[0:0] -A INPUT -j %(bn)s-INPUT
+[0:0] -A OUTPUT -j %(bn)s-OUTPUT
+[0:0] -A FORWARD -j %(bn)s-FORWARD
+[0:0] -A %(bn)s-sg-fallback -j DROP
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-i_port1
+[0:0] -A %(bn)s-i_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-i_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-i_port1 -s 10.0.0.2/32 -p udp -m udp --sport 67 --dport 68 \
+-j RETURN
+[0:0] -A %(bn)s-i_port1 -p tcp -m tcp --dport 22 -j RETURN
+[0:0] -A %(bn)s-i_port1 -m set --match-set IPv4security_group1 src -j \
+RETURN
+[0:0] -A %(bn)s-i_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-INPUT %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-s_port1 -m mac --mac-source 12:34:56:78:9a:bc -s 10.0.0.3/32 \
+-j RETURN
+[0:0] -A %(bn)s-s_port1 -j DROP
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 68 --dport 67 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-s_port1
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 67 --dport 68 -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-o_port1 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-sg-chain -j ACCEPT
+COMMIT
+# Completed by iptables_manager
+""" % IPTABLES_ARG
 
 IPTABLES_FILTER_1 = """# Generated by iptables_manager
 *filter
@@ -1586,6 +1700,174 @@ COMMIT
 """ % IPTABLES_ARG
 
 IPTABLES_ARG['chains'] = CHAINS_2
+
+IPSET_FILTER_2 = """# Generated by iptables_manager
+*filter
+:neutron-filter-top - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+[0:0] -A FORWARD -j neutron-filter-top
+[0:0] -A OUTPUT -j neutron-filter-top
+[0:0] -A neutron-filter-top -j %(bn)s-local
+[0:0] -A INPUT -j %(bn)s-INPUT
+[0:0] -A OUTPUT -j %(bn)s-OUTPUT
+[0:0] -A FORWARD -j %(bn)s-FORWARD
+[0:0] -A %(bn)s-sg-fallback -j DROP
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-i_port1
+[0:0] -A %(bn)s-i_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-i_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-i_port1 -s 10.0.0.2/32 -p udp -m udp --sport 67 --dport 68 \
+-j RETURN
+[0:0] -A %(bn)s-i_port1 -p tcp -m tcp --dport 22 -j RETURN
+[0:0] -A %(bn)s-i_port1 -m set --match-set IPv4security_group1 src -j \
+RETURN
+[0:0] -A %(bn)s-i_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-INPUT %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-s_port1 -m mac --mac-source 12:34:56:78:9a:bc -s 10.0.0.3/32 \
+-j RETURN
+[0:0] -A %(bn)s-s_port1 -j DROP
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 68 --dport 67 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-s_port1
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 67 --dport 68 -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-o_port1 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-INGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-INGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-i_port2
+[0:0] -A %(bn)s-i_port2 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-i_port2 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-i_port2 -s 10.0.0.2/32 -p udp -m udp --sport 67 --dport 68 \
+-j RETURN
+[0:0] -A %(bn)s-i_port2 -p tcp -m tcp --dport 22 -j RETURN
+[0:0] -A %(bn)s-i_port2 -m set --match-set IPv4security_group1 src -j \
+RETURN
+[0:0] -A %(bn)s-i_port2 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-o_port2
+[0:0] -A %(bn)s-INPUT %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-o_port2
+[0:0] -A %(bn)s-s_port2 -m mac --mac-source 12:34:56:78:9a:bd -s 10.0.0.4/32 \
+-j RETURN
+[0:0] -A %(bn)s-s_port2 -j DROP
+[0:0] -A %(bn)s-o_port2 -p udp -m udp --sport 68 --dport 67 -j RETURN
+[0:0] -A %(bn)s-o_port2 -j %(bn)s-s_port2
+[0:0] -A %(bn)s-o_port2 -p udp -m udp --sport 67 --dport 68 -j DROP
+[0:0] -A %(bn)s-o_port2 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-o_port2 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-o_port2 -j RETURN
+[0:0] -A %(bn)s-o_port2 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-sg-chain -j ACCEPT
+COMMIT
+# Completed by iptables_manager
+""" % IPTABLES_ARG
+
+IPSET_FILTER_2_3 = """# Generated by iptables_manager
+*filter
+:neutron-filter-top - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+:%(bn)s-(%(chains)s) - [0:0]
+[0:0] -A FORWARD -j neutron-filter-top
+[0:0] -A OUTPUT -j neutron-filter-top
+[0:0] -A neutron-filter-top -j %(bn)s-local
+[0:0] -A INPUT -j %(bn)s-INPUT
+[0:0] -A OUTPUT -j %(bn)s-OUTPUT
+[0:0] -A FORWARD -j %(bn)s-FORWARD
+[0:0] -A %(bn)s-sg-fallback -j DROP
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-INGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-i_port1
+[0:0] -A %(bn)s-i_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-i_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-i_port1 -s 10.0.0.2/32 -p udp -m udp --sport 67 --dport 68 \
+-j RETURN
+[0:0] -A %(bn)s-i_port1 -p tcp -m tcp --dport 22 -j RETURN
+[0:0] -A %(bn)s-i_port1 -m set --match-set IPv4security_group1 src -j \
+RETURN
+[0:0] -A %(bn)s-i_port1 -p icmp -j RETURN
+[0:0] -A %(bn)s-i_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-INPUT %(physdev_mod)s --physdev-EGRESS tap_port1 \
+%(physdev_is_bridged)s -j %(bn)s-o_port1
+[0:0] -A %(bn)s-s_port1 -m mac --mac-source 12:34:56:78:9a:bc -s 10.0.0.3/32 \
+-j RETURN
+[0:0] -A %(bn)s-s_port1 -j DROP
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 68 --dport 67 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-s_port1
+[0:0] -A %(bn)s-o_port1 -p udp -m udp --sport 67 --dport 68 -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-o_port1 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-o_port1 -j RETURN
+[0:0] -A %(bn)s-o_port1 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-INGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-INGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-i_port2
+[0:0] -A %(bn)s-i_port2 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-i_port2 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-i_port2 -s 10.0.0.2/32 -p udp -m udp --sport 67 --dport 68 \
+-j RETURN
+[0:0] -A %(bn)s-i_port2 -p tcp -m tcp --dport 22 -j RETURN
+[0:0] -A %(bn)s-i_port2 -m set --match-set IPv4security_group1 src -j \
+RETURN
+[0:0] -A %(bn)s-i_port2 -p icmp -j RETURN
+[0:0] -A %(bn)s-i_port2 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-FORWARD %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-sg-chain
+[0:0] -A %(bn)s-sg-chain %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-o_port2
+[0:0] -A %(bn)s-INPUT %(physdev_mod)s --physdev-EGRESS tap_port2 \
+%(physdev_is_bridged)s -j %(bn)s-o_port2
+[0:0] -A %(bn)s-s_port2 -m mac --mac-source 12:34:56:78:9a:bd -s 10.0.0.4/32 \
+-j RETURN
+[0:0] -A %(bn)s-s_port2 -j DROP
+[0:0] -A %(bn)s-o_port2 -p udp -m udp --sport 68 --dport 67 -j RETURN
+[0:0] -A %(bn)s-o_port2 -j %(bn)s-s_port2
+[0:0] -A %(bn)s-o_port2 -p udp -m udp --sport 67 --dport 68 -j DROP
+[0:0] -A %(bn)s-o_port2 -m state --state INVALID -j DROP
+[0:0] -A %(bn)s-o_port2 -m state --state RELATED,ESTABLISHED -j RETURN
+[0:0] -A %(bn)s-o_port2 -j RETURN
+[0:0] -A %(bn)s-o_port2 -j %(bn)s-sg-fallback
+[0:0] -A %(bn)s-sg-chain -j ACCEPT
+COMMIT
+# Completed by iptables_manager
+""" % IPTABLES_ARG
 
 IPTABLES_FILTER_2 = """# Generated by iptables_manager
 *filter
@@ -2015,16 +2297,14 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
     PHYSDEV_INGRESS = 'physdev-out'
     PHYSDEV_EGRESS = 'physdev-in'
 
-    def setUp(self, defer_refresh_firewall=False):
+    def setUp(self, defer_refresh_firewall=False, test_rpc_v1_1=True):
         super(TestSecurityGroupAgentWithIptables, self).setUp()
         config.register_root_helper(cfg.CONF)
         cfg.CONF.set_override(
             'lock_path',
             '$state_path/lock')
-        cfg.CONF.set_override(
-            'firewall_driver',
-            self.FIREWALL_DRIVER,
-            group='SECURITYGROUP')
+        set_firewall_driver(self.FIREWALL_DRIVER)
+        cfg.CONF.set_override('enable_ipset', False, group='SECURITYGROUP')
 
         self.agent = sg_rpc.SecurityGroupAgentRpcMixin()
         self.agent.context = None
@@ -2033,12 +2313,13 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
         self.agent.root_helper = 'sudo'
         self.rpc = mock.Mock()
         self.agent.plugin_rpc = self.rpc
-        self.rpc.security_group_info_for_devices.side_effect = (
-            messaging.UnsupportedVersion('1.2'))
+
+        if test_rpc_v1_1:
+            self.rpc.security_group_info_for_devices.side_effect = (
+                messaging.UnsupportedVersion('1.2'))
 
         self.agent.init_firewall(
             defer_refresh_firewall=defer_refresh_firewall)
-
         self.iptables = self.agent.firewall.iptables
         # TODO(jlibosva) Get rid of mocking iptables execute and mock out
         # firewall instead
@@ -2157,7 +2438,7 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
             return_value='')
         self._register_mock_call(
             ['iptables-restore', '-c'],
-            process_input=self._regex(IPTABLES_NAT + v4_filter),
+            process_input=self._regex(IPTABLES_RAW + IPTABLES_NAT + v4_filter),
             root_helper=self.root_helper,
             return_value='')
         self._register_mock_call(
@@ -2216,21 +2497,8 @@ class TestSecurityGroupAgentEnhancedRpcWithIptables(
     TestSecurityGroupAgentWithIptables):
     def setUp(self, defer_refresh_firewall=False):
         super(TestSecurityGroupAgentEnhancedRpcWithIptables, self).setUp(
-            defer_refresh_firewall)
-        self.rpc = mock.Mock()
-        self.agent.plugin_rpc = self.rpc
+            defer_refresh_firewall=defer_refresh_firewall, test_rpc_v1_1=False)
         self.sg_info = self.rpc.security_group_info_for_devices
-        self.agent.init_firewall(
-            defer_refresh_firewall=defer_refresh_firewall)
-        self.iptables = self.agent.firewall.iptables
-        self.iptables_execute = mock.patch.object(self.iptables,
-                                                  "execute").start()
-        self.iptables_execute_return_values = []
-        self.expected_call_count = 0
-        self.expected_calls = []
-        self.expected_process_inputs = []
-        self.iptables_execute.side_effect = (
-            self.iptables_execute_return_values)
 
         rule1 = [{'direction': 'ingress',
                   'protocol': const.PROTO_NAME_UDP,
@@ -2319,6 +2587,58 @@ class TestSecurityGroupAgentEnhancedRpcWithIptables(
         self.sg_info.return_value = self.devices_info2
         self._replay_iptables(IPTABLES_FILTER_2, IPTABLES_FILTER_V6_2)
         self._replay_iptables(IPTABLES_FILTER_2_3, IPTABLES_FILTER_V6_2)
+
+        self.agent.prepare_devices_filter(['tap_port1', 'tap_port3'])
+        self.sg_info.return_value = self.devices_info3
+        self.agent.security_groups_rule_updated(['security_group1'])
+
+        self._verify_mock_calls()
+
+
+class TestSecurityGroupAgentEnhancedIpsetWithIptables(
+        TestSecurityGroupAgentEnhancedRpcWithIptables):
+    def setUp(self, defer_refresh_firewall=False):
+        super(TestSecurityGroupAgentEnhancedIpsetWithIptables, self).setUp(
+            defer_refresh_firewall)
+        self.agent.firewall.enable_ipset = True
+        self.ipset = self.agent.firewall.ipset
+        self.ipset_execute = mock.patch.object(self.ipset,
+                                               "execute").start()
+
+    def test_prepare_remove_port(self):
+        self.sg_info.return_value = self.devices_info1
+        self._replay_iptables(IPSET_FILTER_1, IPTABLES_FILTER_V6_1)
+        self._replay_iptables(IPTABLES_FILTER_EMPTY, IPTABLES_FILTER_V6_EMPTY)
+
+        self.agent.prepare_devices_filter(['tap_port1'])
+        self.agent.remove_devices_filter(['tap_port1'])
+
+        self._verify_mock_calls()
+
+    def test_security_group_member_updated(self):
+        self.sg_info.return_value = self.devices_info1
+        self._replay_iptables(IPSET_FILTER_1, IPTABLES_FILTER_V6_1)
+        self._replay_iptables(IPSET_FILTER_1, IPTABLES_FILTER_V6_1)
+        self._replay_iptables(IPSET_FILTER_2, IPTABLES_FILTER_V6_2)
+        self._replay_iptables(IPSET_FILTER_2, IPTABLES_FILTER_V6_2)
+        self._replay_iptables(IPSET_FILTER_1, IPTABLES_FILTER_V6_1)
+        self._replay_iptables(IPTABLES_FILTER_EMPTY, IPTABLES_FILTER_V6_EMPTY)
+
+        self.agent.prepare_devices_filter(['tap_port1'])
+        self.sg_info.return_value = self.devices_info2
+        self.agent.security_groups_member_updated(['security_group1'])
+        self.agent.prepare_devices_filter(['tap_port2'])
+        self.sg_info.return_value = self.devices_info1
+        self.agent.security_groups_member_updated(['security_group1'])
+        self.agent.remove_devices_filter(['tap_port2'])
+        self.agent.remove_devices_filter(['tap_port1'])
+
+        self._verify_mock_calls()
+
+    def test_security_group_rule_updated(self):
+        self.sg_info.return_value = self.devices_info2
+        self._replay_iptables(IPSET_FILTER_2, IPTABLES_FILTER_V6_2)
+        self._replay_iptables(IPSET_FILTER_2_3, IPTABLES_FILTER_V6_2)
 
         self.agent.prepare_devices_filter(['tap_port1', 'tap_port3'])
         self.sg_info.return_value = self.devices_info3

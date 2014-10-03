@@ -25,42 +25,20 @@ Create Date: 2014-03-25 11:04:27.341830
 revision = '33c3db036fe4'
 down_revision = 'b65aa907aec'
 
-# Change to ['*'] if this migration applies to all plugins
-
-migration_for_plugins = [
-    'neutron.services.metering.metering_plugin.MeteringPlugin'
-]
-
 from alembic import op
 import sqlalchemy as sa
 
 from neutron.db import migration
+from neutron.db.migration.alembic_migrations import metering_init_ops
 
 
-def upgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
-    if op.get_bind().engine.dialect.name == 'postgresql':
-        migration.create_table_if_not_exist_psql(
-            'meteringlabels',
-            "(tenant_id VARCHAR(255) NULL, "
-            "id VARCHAR(36) PRIMARY KEY NOT NULL, "
-            "name VARCHAR(255) NULL, "
-            "description VARCHAR(255) NULL)")
+def upgrade():
+    if migration.schema_has_table('meteringlabels'):
+        op.alter_column('meteringlabels', 'description', type_=sa.String(1024),
+                        existing_nullable=True)
     else:
-        op.execute("CREATE TABLE IF NOT EXISTS meteringlabels( "
-                   "tenant_id VARCHAR(255) NULL, "
-                   "id VARCHAR(36) PRIMARY KEY NOT NULL, "
-                   "name VARCHAR(255) NULL, "
-                   "description VARCHAR(255) NULL)")
-
-    op.alter_column('meteringlabels', 'description', type_=sa.String(1024),
-                    existing_nullable=True)
+        metering_init_ops.create_meteringlabels()
 
 
-def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
+def downgrade():
     pass

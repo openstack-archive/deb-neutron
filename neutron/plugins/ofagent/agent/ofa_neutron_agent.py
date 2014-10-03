@@ -1,5 +1,8 @@
 # Copyright (C) 2014 VA Linux Systems Japan K.K.
 # Copyright (C) 2014 YAMAMOTO Takashi <yamamoto at valinux co jp>
+# Copyright (C) 2014 Fumihiko Kakuma <kakuma at valinux co jp>
+# All Rights Reserved.
+#
 # Based on openvswitch agent.
 #
 # Copyright 2011 VMware, Inc.
@@ -16,7 +19,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-# @author: Fumihiko Kakuma, VA Linux Systems Japan K.K.
 
 import time
 
@@ -41,6 +43,7 @@ from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils as n_utils
 from neutron import context
+from neutron.openstack.common.gettextutils import _LE, _LI, _LW
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.common import constants as p_const
@@ -96,7 +99,7 @@ class Bridge(flows.OFAgentIntegrationBridge, ovs_lib.OVSBridge):
                                                  int(self.datapath_id, 16))
             retry += 1
             if retry >= retry_max:
-                LOG.error(_('Agent terminated!: Failed to get a datapath.'))
+                LOG.error(_LE('Agent terminated!: Failed to get a datapath.'))
                 raise SystemExit(1)
             time.sleep(1)
         self.set_dp(self.datapath)
@@ -115,7 +118,7 @@ class Bridge(flows.OFAgentIntegrationBridge, ovs_lib.OVSBridge):
             self.set_protocols(protocols)
             self.set_controller(controller_names)
         except RuntimeError:
-            LOG.exception(_("Agent terminated"))
+            LOG.exception(_LE("Agent terminated"))
             raise SystemExit(1)
         self.find_datapath_id()
         self.get_datapath(retry_max)
@@ -152,21 +155,14 @@ class OFANeutronAgentRyuApp(app_manager.RyuApp):
         try:
             agent_config = create_agent_config_map(cfg.CONF)
         except ValueError:
-            LOG.exception(_("Agent failed to create agent config map"))
+            LOG.exception(_LE("Agent failed to create agent config map"))
             raise SystemExit(1)
-
-        is_xen_compute_host = ('rootwrap-xen-dom0' in
-                               agent_config['root_helper'])
-        if is_xen_compute_host:
-            # Force ip_lib to always use the root helper to ensure that ip
-            # commands target xen dom0 rather than domU.
-            cfg.CONF.set_default('ip_lib_force_root', True)
 
         agent = OFANeutronAgent(ryuapp, **agent_config)
         self.arplib.set_bridge(agent.int_br)
 
         # Start everything.
-        LOG.info(_("Agent initialized successfully, now running... "))
+        LOG.info(_LI("Agent initialized successfully, now running... "))
         agent.daemon_loop()
 
     @handler.set_ev_cls(ofp_event.EventOFPPacketIn, handler.MAIN_DISPATCHER)
@@ -284,15 +280,15 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                                         self.agent_state)
             self.agent_state.pop('start_flag', None)
         except Exception:
-            LOG.exception(_("Failed reporting state!"))
+            LOG.exception(_LE("Failed reporting state!"))
 
     def _create_tunnel_port_name(self, tunnel_type, ip_address):
         try:
             ip_hex = '%08x' % netaddr.IPAddress(ip_address, version=4)
             return '%s-%s' % (tunnel_type, ip_hex)
         except Exception:
-            LOG.warn(_("Unable to create tunnel port. Invalid remote IP: %s"),
-                     ip_address)
+            LOG.warn(_LW("Unable to create tunnel port. "
+                         "Invalid remote IP: %s"), ip_address)
 
     def setup_rpc(self):
         mac = self.int_br.get_local_port_mac()
@@ -340,6 +336,7 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             if vif_id in vlan_mapping.vif_ports:
                 return network_id
 
+    @log.log
     def port_update(self, context, **kwargs):
         port = kwargs.get('port')
         # Put the port identifier in the updated_ports set.
@@ -347,10 +344,9 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         # they are not used since there is no guarantee the notifications
         # are processed in the same order as the relevant API requests
         self.updated_ports.add(ports.get_normalized_port_name(port['id']))
-        LOG.debug("port_update received port %s", port['id'])
 
+    @log.log
     def fdb_add(self, context, fdb_entries):
-        LOG.debug("fdb_add received")
         for lvm, agent_ports in self.get_agent_ports(fdb_entries,
                                                      self.local_vlan_map):
             if lvm.network_type in self.tunnel_types:
@@ -363,8 +359,8 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             else:
                 self._fdb_add_arp(lvm, agent_ports)
 
+    @log.log
     def fdb_remove(self, context, fdb_entries):
-        LOG.debug("fdb_remove received")
         for lvm, agent_ports in self.get_agent_ports(fdb_entries,
                                                      self.local_vlan_map):
             if lvm.network_type in self.tunnel_types:
@@ -433,8 +429,8 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         elif action == 'remove':
             self.ryuapp.del_arp_table_entry(local_vid, ip_address)
 
+    @log.log
     def _fdb_chg_ip(self, context, fdb_entries):
-        LOG.debug("update chg_ip received")
         self.fdb_chg_ip_tun(context, self.int_br, fdb_entries, self.local_ip,
                             self.local_vlan_map)
 
@@ -450,11 +446,11 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         """
 
         if not self.available_local_vlans:
-            LOG.error(_("No local VLAN available for net-id=%s"), net_uuid)
+            LOG.error(_LE("No local VLAN available for net-id=%s"), net_uuid)
             return
         lvid = self.available_local_vlans.pop()
-        LOG.info(_("Assigning %(vlan_id)s as local vlan for "
-                   "net-id=%(net_uuid)s"),
+        LOG.info(_LI("Assigning %(vlan_id)s as local vlan for "
+                     "net-id=%(net_uuid)s"),
                  {'vlan_id': lvid, 'net_uuid': net_uuid})
         self.local_vlan_map[net_uuid] = LocalVLANMapping(lvid, network_type,
                                                          physical_network,
@@ -465,8 +461,8 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                 self.int_br.provision_tenant_tunnel(network_type, lvid,
                                                     segmentation_id)
             else:
-                LOG.error(_("Cannot provision %(network_type)s network for "
-                          "net-id=%(net_uuid)s - tunneling disabled"),
+                LOG.error(_LE("Cannot provision %(network_type)s network for "
+                              "net-id=%(net_uuid)s - tunneling disabled"),
                           {'network_type': network_type,
                            'net_uuid': net_uuid})
         elif network_type in [p_const.TYPE_VLAN, p_const.TYPE_FLAT]:
@@ -476,9 +472,9 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                                                      segmentation_id,
                                                      phys_port)
             else:
-                LOG.error(_("Cannot provision %(network_type)s network for "
-                            "net-id=%(net_uuid)s - no bridge for "
-                            "physical_network %(physical_network)s"),
+                LOG.error(_LE("Cannot provision %(network_type)s network for "
+                              "net-id=%(net_uuid)s - no bridge for "
+                              "physical_network %(physical_network)s"),
                           {'network_type': network_type,
                            'net_uuid': net_uuid,
                            'physical_network': physical_network})
@@ -486,8 +482,8 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             # no flows needed for local networks
             pass
         else:
-            LOG.error(_("Cannot provision unknown network type "
-                        "%(network_type)s for net-id=%(net_uuid)s"),
+            LOG.error(_LE("Cannot provision unknown network type "
+                          "%(network_type)s for net-id=%(net_uuid)s"),
                       {'network_type': network_type,
                        'net_uuid': net_uuid})
 
@@ -500,10 +496,11 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         """
         lvm = self.local_vlan_map.pop(net_uuid, None)
         if lvm is None:
-            LOG.debug(_("Network %s not used on agent."), net_uuid)
+            LOG.debug("Network %s not used on agent.", net_uuid)
             return
 
-        LOG.info(_("Reclaiming vlan = %(vlan_id)s from net-id = %(net_uuid)s"),
+        LOG.info(_LI("Reclaiming vlan = %(vlan_id)s from "
+                     "net-id = %(net_uuid)s"),
                  {'vlan_id': lvm.vlan,
                   'net_uuid': net_uuid})
 
@@ -523,8 +520,8 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             # no flows needed for local networks
             pass
         else:
-            LOG.error(_("Cannot reclaim unknown network type "
-                        "%(network_type)s for net-id=%(net_uuid)s"),
+            LOG.error(_LE("Cannot reclaim unknown network type "
+                          "%(network_type)s for net-id=%(net_uuid)s"),
                       {'network_type': lvm.network_type,
                        'net_uuid': net_uuid})
 
@@ -570,7 +567,7 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         net_uuid = net_uuid or self.get_net_uuid(vif_id)
 
         if not self.local_vlan_map.get(net_uuid):
-            LOG.info(_('port_unbound() net_uuid %s not in local_vlan_map'),
+            LOG.info(_LI('port_unbound() net_uuid %s not in local_vlan_map'),
                      net_uuid)
             return
 
@@ -651,15 +648,15 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         self.phys_ofports = {}
         ip_wrapper = ip_lib.IPWrapper(self.root_helper)
         for physical_network, bridge in bridge_mappings.iteritems():
-            LOG.info(_("Mapping physical network %(physical_network)s to "
-                       "bridge %(bridge)s"),
+            LOG.info(_LI("Mapping physical network %(physical_network)s to "
+                         "bridge %(bridge)s"),
                      {'physical_network': physical_network,
                       'bridge': bridge})
             # setup physical bridge
             if not ip_lib.device_exists(bridge, self.root_helper):
-                LOG.error(_("Bridge %(bridge)s for physical network "
-                            "%(physical_network)s does not exist. Agent "
-                            "terminated!"),
+                LOG.error(_LE("Bridge %(bridge)s for physical network "
+                              "%(physical_network)s does not exist. Agent "
+                              "terminated!"),
                           {'physical_network': physical_network,
                            'bridge': bridge})
                 raise SystemExit(1)
@@ -713,15 +710,16 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             # for being treated. If that does not happen, it is a potential
             # error condition of which operators should be aware
             if not vif_port.ofport:
-                LOG.warn(_("VIF port: %s has no ofport configured, and might "
-                           "not be able to transmit"), vif_port.port_name)
+                LOG.warn(_LW("VIF port: %s has no ofport configured, "
+                             "and might not be able to transmit"),
+                         vif_port.port_name)
             if admin_state_up:
                 self.port_bound(vif_port, network_id, network_type,
                                 physical_network, segmentation_id)
             else:
                 self.port_dead(vif_port)
         else:
-            LOG.debug(_("No VIF port for port %s defined on agent."), port_id)
+            LOG.debug("No VIF port for port %s defined on agent.", port_id)
 
     def _setup_tunnel_port(self, br, port_name, remote_ip, tunnel_type):
         ofport_str = br.add_tunnel_port(port_name,
@@ -734,10 +732,10 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         try:
             ofport = int(ofport_str)
         except (TypeError, ValueError):
-            LOG.exception(_("ofport should have a value that can be "
-                            "interpreted as an integer"))
+            LOG.exception(_LE("ofport should have a value that can be "
+                              "interpreted as an integer"))
         if ofport < 0:
-            LOG.error(_("Failed to set-up %(type)s tunnel port to %(ip)s"),
+            LOG.error(_LE("Failed to set-up %(type)s tunnel port to %(ip)s"),
                       {'type': tunnel_type, 'ip': remote_ip})
             return 0
 
@@ -779,13 +777,13 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         all_ports = dict((p.normalized_port_name(), p) for p in
                          self._get_ports(self.int_br) if p.is_neutron_port())
         for device in devices:
-            LOG.debug(_("Processing port %s"), device)
+            LOG.debug("Processing port %s", device)
             if device not in all_ports:
                 # The port has disappeared and should not be processed
                 # There is no need to put the port DOWN in the plugin as
                 # it never went up in the first place
-                LOG.info(_("Port %s was not found on the integration bridge "
-                           "and will therefore not be processed"), device)
+                LOG.info(_LI("Port %s was not found on the integration bridge "
+                             "and will therefore not be processed"), device)
                 continue
             port = all_ports[device]
             try:
@@ -793,13 +791,12 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                                                              device,
                                                              self.agent_id)
             except Exception as e:
-                LOG.debug(_("Unable to get port details for "
-                            "%(device)s: %(e)s"),
+                LOG.debug("Unable to get port details for %(device)s: %(e)s",
                           {'device': device, 'e': e})
                 resync = True
                 continue
             if 'port_id' in details:
-                LOG.info(_("Port %(device)s updated. Details: %(details)s"),
+                LOG.info(_LI("Port %(device)s updated. Details: %(details)s"),
                          {'device': device, 'details': details})
                 port.vif_mac = details.get('mac_address')
                 self.treat_vif_port(port, details['port_id'],
@@ -811,16 +808,16 @@ class OFANeutronAgent(n_rpc.RpcCallback,
 
                 # update plugin about port status
                 if details.get('admin_state_up'):
-                    LOG.debug(_("Setting status for %s to UP"), device)
+                    LOG.debug("Setting status for %s to UP", device)
                     self.plugin_rpc.update_device_up(
                         self.context, device, self.agent_id, cfg.CONF.host)
                 else:
-                    LOG.debug(_("Setting status for %s to DOWN"), device)
+                    LOG.debug("Setting status for %s to DOWN", device)
                     self.plugin_rpc.update_device_down(
                         self.context, device, self.agent_id, cfg.CONF.host)
-                LOG.info(_("Configuration for device %s completed."), device)
+                LOG.info(_LI("Configuration for device %s completed."), device)
             else:
-                LOG.warn(_("Device %s not defined on plugin"), device)
+                LOG.warn(_LW("Device %s not defined on plugin"), device)
                 if (port and port.ofport != -1):
                     self.port_dead(port)
         return resync
@@ -829,14 +826,14 @@ class OFANeutronAgent(n_rpc.RpcCallback,
         resync = False
         self.sg_agent.remove_devices_filter(devices)
         for device in devices:
-            LOG.info(_("Attachment %s removed"), device)
+            LOG.info(_LI("Attachment %s removed"), device)
             try:
                 self.plugin_rpc.update_device_down(self.context,
                                                    device,
                                                    self.agent_id,
                                                    cfg.CONF.host)
             except Exception as e:
-                LOG.debug(_("port_removed failed for %(device)s: %(e)s"),
+                LOG.debug("port_removed failed for %(device)s: %(e)s",
                           {'device': device, 'e': e})
                 resync = True
                 continue
@@ -861,16 +858,16 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             start = time.time()
             resync_add = self.treat_devices_added_or_updated(
                 devices_added_updated)
-            LOG.debug(_("process_network_ports - iteration:%(iter_num)d - "
-                        "treat_devices_added_or_updated completed "
-                        "in %(elapsed).3f"),
+            LOG.debug("process_network_ports - iteration:%(iter_num)d - "
+                      "treat_devices_added_or_updated completed "
+                      "in %(elapsed).3f",
                       {'iter_num': self.iter_num,
                        'elapsed': time.time() - start})
         if 'removed' in port_info:
             start = time.time()
             resync_removed = self.treat_devices_removed(port_info['removed'])
-            LOG.debug(_("process_network_ports - iteration:%(iter_num)d - "
-                        "treat_devices_removed completed in %(elapsed).3f"),
+            LOG.debug("process_network_ports - iteration:%(iter_num)d - "
+                      "treat_devices_removed completed in %(elapsed).3f",
                       {'iter_num': self.iter_num,
                        'elapsed': time.time() - start})
         # If one of the above opertaions fails => resync with plugin
@@ -884,7 +881,7 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                                             self.local_ip,
                                             tunnel_type)
         except Exception as e:
-            LOG.debug(_("Unable to sync tunnel IP %(local_ip)s: %(e)s"),
+            LOG.debug("Unable to sync tunnel IP %(local_ip)s: %(e)s",
                       {'local_ip': self.local_ip, 'e': e})
             resync = True
         return resync
@@ -907,16 +904,16 @@ class OFANeutronAgent(n_rpc.RpcCallback,
             LOG.debug("Agent daemon_loop - iteration:%d started",
                       self.iter_num)
             if sync:
-                LOG.info(_("Agent out of sync with plugin!"))
+                LOG.info(_LI("Agent out of sync with plugin!"))
                 ports.clear()
                 sync = False
             # Notify the plugin of tunnel IP
             if self.enable_tunneling and tunnel_sync:
-                LOG.info(_("Agent tunnel out of sync with plugin!"))
+                LOG.info(_LI("Agent tunnel out of sync with plugin!"))
                 try:
                     tunnel_sync = self.tunnel_sync()
                 except Exception:
-                    LOG.exception(_("Error while synchronizing tunnels"))
+                    LOG.exception(_LE("Error while synchronizing tunnels"))
                     tunnel_sync = True
             LOG.debug("Agent daemon_loop - iteration:%(iter_num)d - "
                       "starting polling. Elapsed:%(elapsed).3f",
@@ -956,7 +953,7 @@ class OFANeutronAgent(n_rpc.RpcCallback,
                     port_stats['regular']['removed'] = (
                         len(port_info.get('removed', [])))
             except Exception:
-                LOG.exception(_("Error while processing VIF ports"))
+                LOG.exception(_LE("Error while processing VIF ports"))
                 # Put the ports back in self.updated_port
                 self.updated_ports |= updated_ports_copy
                 sync = True

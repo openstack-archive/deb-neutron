@@ -268,6 +268,8 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
                     yield req.get_response(self.api)
                     if expected_failure:
                         self._create_deviceowner_mock()
+        self._delete('ports', port['port']['id'])
+        self._delete('networks', network['network']['id'])
 
     def _assertExpectedHTTP(self, status, exc):
         """Confirm that an HTTP status corresponds to an expected exception.
@@ -303,8 +305,8 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
                                    'create_port') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
-                    return self._do_side_effect(patched_plugin, orig,
-                                                *args, **kwargs)
+                    return self._fail_second_call(patched_plugin, orig,
+                                                  *args, **kwargs)
 
                 patched_plugin.side_effect = side_effect
                 with self.network() as net:
@@ -337,8 +339,8 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
                                    'create_port') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
-                    return self._do_side_effect(patched_plugin, orig,
-                                                *args, **kwargs)
+                    return self._fail_second_call(patched_plugin, orig,
+                                                  *args, **kwargs)
 
                 patched_plugin.side_effect = side_effect
                 res = self._create_port_bulk(self.fmt, 2, net['network']['id'],
@@ -480,6 +482,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
                     add_keyword_expected=False))
                 self.mock_ncclient.reset_mock()
                 yield
+            self._delete('ports', port['port']['id'])
 
         # Create network and subnet
         with self.network(name=NETWORK_NAME) as network:
@@ -677,8 +680,8 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
             with mock.patch.object(plugin_obj,
                                    'create_network') as patched_plugin:
                 def side_effect(*args, **kwargs):
-                    return self._do_side_effect(patched_plugin, orig,
-                                                *args, **kwargs)
+                    return self._fail_second_call(patched_plugin, orig,
+                                                  *args, **kwargs)
                 patched_plugin.side_effect = side_effect
                 res = self._create_network_bulk(self.fmt, 2, 'test', True)
                 LOG.debug("response is %s" % res)
@@ -697,8 +700,8 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
                                'create_network') as patched_plugin:
 
             def side_effect(*args, **kwargs):
-                return self._do_side_effect(patched_plugin, orig,
-                                            *args, **kwargs)
+                return self._fail_second_call(patched_plugin, orig,
+                                              *args, **kwargs)
 
             patched_plugin.side_effect = side_effect
             res = self._create_network_bulk(self.fmt, 2, 'test', True)
@@ -729,8 +732,8 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
                                    'create_subnet') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
-                    self._do_side_effect(patched_plugin, orig,
-                                         *args, **kwargs)
+                    self._fail_second_call(patched_plugin, orig,
+                                           *args, **kwargs)
 
                 patched_plugin.side_effect = side_effect
                 with self.network() as net:
@@ -751,8 +754,8 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
         with mock.patch.object(plugin_obj,
                                'create_subnet') as patched_plugin:
             def side_effect(*args, **kwargs):
-                return self._do_side_effect(patched_plugin, orig,
-                                            *args, **kwargs)
+                return self._fail_second_call(patched_plugin, orig,
+                                              *args, **kwargs)
 
             patched_plugin.side_effect = side_effect
             with self.network() as net:

@@ -12,10 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mandeep Dhami, Big Switch Networks, Inc.
-# @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
-# @author: Kevin Benton, Big Switch Networks, Inc.
 
 """
 This module manages the HTTP and HTTPS connections to the backend controllers.
@@ -35,6 +31,7 @@ import httplib
 import os
 import socket
 import ssl
+import time
 import weakref
 
 import eventlet
@@ -64,14 +61,18 @@ ROUTERS_PATH = "/tenants/%s/routers/%s"
 ROUTER_INTF_PATH = "/tenants/%s/routers/%s/interfaces/%s"
 TOPOLOGY_PATH = "/topology"
 HEALTH_PATH = "/health"
+SWITCHES_PATH = "/switches/%s"
 SUCCESS_CODES = range(200, 207)
 FAILURE_CODES = [0, 301, 302, 303, 400, 401, 403, 404, 500, 501, 502, 503,
                  504, 505]
 BASE_URI = '/networkService/v1.1'
 ORCHESTRATION_SERVICE_ID = 'Neutron v2.0'
 HASH_MATCH_HEADER = 'X-BSN-BVS-HASH-MATCH'
+REQ_CONTEXT_HEADER = 'X-REQ-CONTEXT'
 # error messages
 NXNETWORK = 'NXVNS'
+HTTP_SERVICE_UNAVAILABLE_RETRY_COUNT = 3
+HTTP_SERVICE_UNAVAILABLE_RETRY_INTERVAL = 3
 
 
 class RemoteRestError(exceptions.NeutronException):
@@ -121,12 +122,11 @@ class ServerProxy(object):
                                                 'cap': self.capabilities})
         return self.capabilities
 
-    def rest_call(self, action, resource, data='', headers={}, timeout=False,
-                  reconnect=False, hash_handler=None):
+    def rest_call(self, action, resource, data='', headers=None,
+                  timeout=False, reconnect=False, hash_handler=None):
         uri = self.base_uri + resource
         body = jsonutils.dumps(data)
-        if not headers:
-            headers = {}
+        headers = headers or {}
         headers['Content-type'] = 'application/json'
         headers['Accept'] = 'application/json'
         headers['NeutronProxy-Agent'] = self.name
@@ -196,8 +196,6 @@ class ServerProxy(object):
                 except ValueError:
                     # response was not JSON, ignore the exception
                     pass
-            else:
-                hash_handler.close_update_session()
             ret = (response.status, response.reason, respstr, respdata)
         except httplib.HTTPException:
             # If we were using a cached connection, try again with a new one.
@@ -423,14 +421,27 @@ class ServerPool(object):
     @utils.synchronized('bsn-rest-call')
     def rest_call(self, action, resource, data, headers, ignore_codes,
                   timeout=False):
-        hash_handler = cdb.HashHandler(context=self.get_context_ref())
+        context = self.get_context_ref()
+        if context:
+            # include the requesting context information if available
+            cdict = context.to_dict()
+            # remove the auth token so it's not present in debug logs on the
+            # backend controller
+            cdict.pop('auth_token', None)
+            headers[REQ_CONTEXT_HEADER] = jsonutils.dumps(cdict)
+        hash_handler = cdb.HashHandler(context=context)
         good_first = sorted(self.servers, key=lambda x: x.failed)
         first_response = None
         for active_server in good_first:
-            ret = active_server.rest_call(action, resource, data, headers,
-                                          timeout,
-                                          reconnect=self.always_reconnect,
-                                          hash_handler=hash_handler)
+            for x in range(HTTP_SERVICE_UNAVAILABLE_RETRY_COUNT + 1):
+                ret = active_server.rest_call(action, resource, data, headers,
+                                              timeout,
+                                              reconnect=self.always_reconnect,
+                                              hash_handler=hash_handler)
+                if ret[0] != httplib.SERVICE_UNAVAILABLE:
+                    break
+                time.sleep(HTTP_SERVICE_UNAVAILABLE_RETRY_INTERVAL)
+
             # If inconsistent, do a full synchronization
             if ret[0] == httplib.CONFLICT:
                 if not self.get_topo_function:
@@ -472,13 +483,15 @@ class ServerPool(object):
         return first_response
 
     def rest_action(self, action, resource, data='', errstr='%s',
-                    ignore_codes=[], headers={}, timeout=False):
+                    ignore_codes=None, headers=None, timeout=False):
         """
         Wrapper for rest_call that verifies success and raises a
         RemoteRestError on failure with a provided error string
         By default, 404 errors on DELETE calls are ignored because
         they already do not exist on the backend.
         """
+        ignore_codes = ignore_codes or []
+        headers = headers or {}
         if not ignore_codes and action == 'DELETE':
             ignore_codes = [404]
         resp = self.rest_call(action, resource, data, headers, ignore_codes,
@@ -577,6 +590,11 @@ class ServerPool(object):
         resource = FLOATINGIPS_PATH % (tenant_id, oldid)
         errstr = _("Unable to delete floating IP: %s")
         self.rest_action('DELETE', resource, errstr=errstr)
+
+    def rest_get_switch(self, switch_id):
+        resource = SWITCHES_PATH % switch_id
+        errstr = _("Unable to retrieve switch: %s")
+        return self.rest_action('GET', resource, errstr=errstr)
 
     def _consistency_watchdog(self, polling_interval=60):
         if 'consistency' not in self.get_capabilities():

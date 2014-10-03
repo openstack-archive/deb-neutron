@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mark McClain, DreamHost
 
 import sys
 
@@ -59,7 +57,7 @@ def main():
     config.register_root_helper(cfg.CONF)
 
     common_config.init(sys.argv[1:])
-    config.setup_logging(cfg.CONF)
+    config.setup_logging()
 
     mgr = manager.LbaasAgentManager(cfg.CONF)
     svc = LbaasAgentService(

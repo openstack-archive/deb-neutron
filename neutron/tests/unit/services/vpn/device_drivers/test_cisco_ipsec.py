@@ -11,11 +11,10 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Paul Michali, Cisco Systems, Inc.
 
 import copy
 import httplib
+import operator
 
 import mock
 
@@ -1532,7 +1531,8 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
                                 u'4': {u'status': constants.ACTIVE,
                                        u'updated_pending_status': True}}
                             }]
-        self.assertEqual(expected_report, report)
+        self.assertEqual(expected_report,
+                         sorted(report, key=operator.itemgetter('id')))
         # Check that service and connection statuses are updated
         self.assertEqual(constants.ACTIVE, vpn_service1.last_status)
         self.assertEqual(constants.ACTIVE,

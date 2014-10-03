@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mark McClain, DreamHost
 
 import contextlib
 import socket
@@ -218,6 +216,8 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
             return {'ports': list_ports_retval.pop(0)}
 
         self.qclient.return_value.list_ports.side_effect = mock_list_ports
+        self.qclient.return_value.get_auth_info.return_value = {
+            'auth_token': None, 'endpoint_url': None}
         instance_id, tenant_id = self.handler._get_instance_and_tenant_id(req)
         new_qclient_call = mock.call(
             username=FakeConf.admin_user,
@@ -231,7 +231,8 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
             ca_cert=FakeConf.auth_ca_cert,
             endpoint_url=None,
             endpoint_type=FakeConf.endpoint_type)
-        expected = [new_qclient_call]
+
+        expected = []
 
         if router_id:
             expected.extend([
@@ -239,13 +240,15 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
                 mock.call().list_ports(
                     device_id=router_id,
                     device_owner=EXPECTED_OWNER_ROUTERS
-                )
+                ),
+                mock.call().get_auth_info()
             ])
 
         expected.extend([
             new_qclient_call,
             mock.call().list_ports(
-                fixed_ips=['ip_address=192.168.1.1'])
+                fixed_ips=['ip_address=192.168.1.1']),
+            mock.call().get_auth_info()
         ])
 
         self.qclient.assert_has_calls(expected)
@@ -322,6 +325,64 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
             (None, None)
         )
 
+    def test_auth_info_cache(self):
+        router_id = 'the_id'
+        list_ports = [
+            [{'network_id': 'net1'}],
+            [{'device_id': 'did', 'tenant_id': 'tid', 'network_id': 'net1'}]]
+
+        def update_get_auth_info(*args, **kwargs):
+            self.qclient.return_value.get_auth_info.return_value = {
+                'auth_token': 'token', 'endpoint_url': 'uri'}
+            return {'ports': list_ports.pop(0)}
+
+        self.qclient.return_value.list_ports.side_effect = update_get_auth_info
+
+        new_qclient_call = mock.call(
+            username=FakeConf.admin_user,
+            tenant_name=FakeConf.admin_tenant_name,
+            region_name=FakeConf.auth_region,
+            auth_url=FakeConf.auth_url,
+            password=FakeConf.admin_password,
+            auth_strategy=FakeConf.auth_strategy,
+            token=None,
+            insecure=FakeConf.auth_insecure,
+            ca_cert=FakeConf.auth_ca_cert,
+            endpoint_url=None,
+            endpoint_type=FakeConf.endpoint_type)
+
+        cached_qclient_call = mock.call(
+            username=FakeConf.admin_user,
+            tenant_name=FakeConf.admin_tenant_name,
+            region_name=FakeConf.auth_region,
+            auth_url=FakeConf.auth_url,
+            password=FakeConf.admin_password,
+            auth_strategy=FakeConf.auth_strategy,
+            token='token',
+            insecure=FakeConf.auth_insecure,
+            ca_cert=FakeConf.auth_ca_cert,
+            endpoint_url='uri',
+            endpoint_type=FakeConf.endpoint_type)
+
+        headers = {'X-Forwarded-For': '192.168.1.10',
+                   'X-Neutron-Router-ID': router_id}
+        req = mock.Mock(headers=headers)
+        self.handler._get_instance_and_tenant_id(req)
+
+        expected = [
+            new_qclient_call,
+            mock.call().list_ports(
+                device_id=router_id,
+                device_owner=EXPECTED_OWNER_ROUTERS
+            ),
+            mock.call().get_auth_info(),
+            cached_qclient_call,
+            mock.call().list_ports(fixed_ips=['ip_address=192.168.1.10']),
+            mock.call().get_auth_info(),
+        ]
+
+        self.qclient.assert_has_calls(expected)
+
     def _proxy_request_test_helper(self, response_code=200, method='GET'):
         hdrs = {'X-Forwarded-For': '8.8.8.8'}
         body = 'body'
@@ -371,6 +432,10 @@ class TestMetadataProxyHandlerCache(base.BaseTestCase):
         response = self._proxy_request_test_helper(200)
         self.assertEqual(response.content_type, "text/plain")
         self.assertEqual(response.body, 'content')
+
+    def test_proxy_request_400(self):
+        self.assertIsInstance(self._proxy_request_test_helper(400),
+                              webob.exc.HTTPBadRequest)
 
     def test_proxy_request_403(self):
         self.assertIsInstance(self._proxy_request_test_helper(403),
@@ -432,8 +497,8 @@ class TestUnixDomainWSGIServer(base.BaseTestCase):
 
     def test_start(self):
         mock_app = mock.Mock()
-        with mock.patch.object(self.server, 'pool') as pool:
-            self.server.start(mock_app, '/the/path', workers=0, backlog=128)
+        with mock.patch.object(self.server, '_launch') as launcher:
+            self.server.start(mock_app, '/the/path', workers=5, backlog=128)
             self.eventlet.assert_has_calls([
                 mock.call.listen(
                     '/the/path',
@@ -441,27 +506,7 @@ class TestUnixDomainWSGIServer(base.BaseTestCase):
                     backlog=128
                 )]
             )
-            pool.spawn_n.assert_called_once_with(
-                self.server._run,
-                mock_app,
-                self.eventlet.listen.return_value
-            )
-
-    @mock.patch('neutron.openstack.common.service.ProcessLauncher')
-    def test_start_multiple_workers(self, process_launcher):
-        launcher = process_launcher.return_value
-
-        mock_app = mock.Mock()
-        self.server.start(mock_app, '/the/path', workers=2, backlog=128)
-        launcher.running = True
-        launcher.launch_service.assert_called_once_with(self.server._server,
-                                                        workers=2)
-
-        self.server.stop()
-        self.assertFalse(launcher.running)
-
-        self.server.wait()
-        launcher.wait.assert_called_once_with()
+            launcher.assert_called_once_with(mock_app, workers=5)
 
     def test_run(self):
         with mock.patch.object(agent, 'logging') as logging:

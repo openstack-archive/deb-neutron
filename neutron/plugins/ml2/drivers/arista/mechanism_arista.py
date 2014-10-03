@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import threading
 
 import jsonrpclib
@@ -43,6 +44,7 @@ class AristaRPCWrapper(object):
         self._server = jsonrpclib.Server(self._eapi_host_url())
         self.keystone_conf = cfg.CONF.keystone_authtoken
         self.region = cfg.CONF.ml2_arista.region_name
+        self.sync_interval = cfg.CONF.ml2_arista.sync_interval
         self._region_updated_time = None
         # The cli_commands dict stores the mapping between the CLI command key
         # and the actual CLI command.
@@ -197,6 +199,18 @@ class AristaRPCWrapper(object):
                 'no dhcp id %s port-id %s' % (dhcp_id, port_id),
                 'exit']
         self._run_openstack_cmds(cmds)
+
+    def sync_start(self):
+        """Sends indication to EOS that ML2->EOS sync has started."""
+
+        sync_start_cmd = ['sync start']
+        self._run_openstack_cmds(sync_start_cmd)
+
+    def sync_end(self):
+        """Sends indication to EOS that ML2->EOS sync has completed."""
+
+        sync_end_cmd = ['sync end']
+        self._run_openstack_cmds(sync_end_cmd)
 
     def create_network(self, tenant_id, network):
         """Creates a single network on Arista hardware
@@ -377,14 +391,22 @@ class AristaRPCWrapper(object):
         This the initial handshake between Neutron and EOS.
         critical end-point information is registered with EOS.
         """
-        cmds = ['auth url %s user "%s" password "%s"' %
-                (self._keystone_url(),
-                self.keystone_conf.admin_user,
-                self.keystone_conf.admin_password)]
 
-        log_cmds = ['auth url %s user %s password ******' %
-                    (self._keystone_url(),
-                    self.keystone_conf.admin_user)]
+        cmds = ['auth url %s user %s password %s tenant %s' % (
+                self._keystone_url(),
+                self.keystone_conf.admin_user,
+                self.keystone_conf.admin_password,
+                self.keystone_conf.admin_tenant_name)]
+
+        log_cmds = ['auth url %s user %s password %s tenant %s' % (
+                    self._keystone_url(),
+                    self.keystone_conf.admin_user,
+                    '******',
+                    self.keystone_conf.admin_tenant_name)]
+
+        sync_interval_cmd = 'sync interval %d' % self.sync_interval
+        cmds.append(sync_interval_cmd)
+        log_cmds.append(sync_interval_cmd)
 
         self._run_openstack_cmds(cmds, commands_to_log=log_cmds)
 
@@ -424,11 +446,11 @@ class AristaRPCWrapper(object):
                                  param is logged.
         """
 
-        log_cmd = commands
+        log_cmds = commands
         if commands_to_log:
-            log_cmd = commands_to_log
+            log_cmds = commands_to_log
 
-        LOG.info(_('Executing command on Arista EOS: %s'), log_cmd)
+        LOG.info(_('Executing command on Arista EOS: %s'), log_cmds)
 
         try:
             # this returns array of return values for every command in
@@ -436,10 +458,21 @@ class AristaRPCWrapper(object):
             ret = self._server.runCmds(version=1, cmds=commands)
         except Exception as error:
             host = cfg.CONF.ml2_arista.eapi_host
+            error_msg_str = unicode(error)
+            if commands_to_log:
+                # The command might contain sensitive information. If the
+                # command to log is different from the actual command, use
+                # that in the error message.
+                for cmd, log_cmd in itertools.izip(commands, log_cmds):
+                    error_msg_str = error_msg_str.replace(cmd, log_cmd)
             msg = (_('Error %(err)s while trying to execute '
                      'commands %(cmd)s on EOS %(host)s') %
-                   {'err': error, 'cmd': commands_to_log, 'host': host})
-            LOG.exception(msg)
+                  {'err': error_msg_str,
+                   'cmd': commands_to_log,
+                   'host': host})
+            # Logging exception here can reveal passwords as the exception
+            # contains the CLI command which contains the credentials.
+            LOG.error(msg)
             raise arista_exc.AristaRpcError(msg=msg)
 
         return ret
@@ -514,7 +547,7 @@ class AristaRPCWrapper(object):
 
 
 class SyncService(object):
-    """Synchronizatin of information between Neutron and EOS
+    """Synchronization of information between Neutron and EOS
 
     Periodically (through configuration option), this service
     ensures that Networks and VMs configured on EOS/Arista HW
@@ -524,6 +557,24 @@ class SyncService(object):
         self._rpc = rpc_wrapper
         self._ndb = neutron_db
         self._force_sync = True
+
+    def do_synchronize(self):
+        try:
+            # Send trigger to EOS that the ML2->EOS sync has started.
+            self._rpc.sync_start()
+            LOG.info(_('Sync start trigger sent to EOS'))
+        except arista_exc.AristaRpcError:
+            LOG.warning(EOS_UNREACHABLE_MSG)
+            return
+
+        # Perform the sync
+        self.synchronize()
+
+        try:
+            # Send trigger to EOS that the ML2->EOS sync is Complete.
+            self._rpc.sync_end()
+        except arista_exc.AristaRpcError:
+            LOG.warning(EOS_UNREACHABLE_MSG)
 
     def synchronize(self):
         """Sends data to EOS which differs from neutron DB."""
@@ -991,7 +1042,7 @@ class AristaDriver(driver_api.MechanismDriver):
 
     def _synchronization_thread(self):
         with self.eos_sync_lock:
-            self.eos.synchronize()
+            self.eos.do_synchronize()
 
         self.timer = threading.Timer(self.sync_timeout,
                                      self._synchronization_thread)

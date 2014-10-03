@@ -1,4 +1,5 @@
 # Copyright (C) 2014 VA Linux Systems Japan K.K.
+# Copyright (C) 2014 YAMAMOTO Takashi <yamamoto at valinux co jp>
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -12,12 +13,11 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: YAMAMOTO Takashi, VA Linux Systems Japan K.K.
 
 
 import mock
 
+from neutron.common import constants as n_const
 from neutron.plugins.ofagent.agent import ports
 from neutron.tests import base
 
@@ -35,7 +35,7 @@ class TestOFAgentPorts(base.BaseTestCase):
         self.assertFalse(p2.is_neutron_port())
 
     def test_neutron_port(self):
-        for pref in ['qvo', 'qr-', 'qg-', 'tap']:
+        for pref in ['qvo', 'qr-', 'qg-', n_const.TAP_DEVICE_PREFIX]:
             name = pref + '03b9a237-0b'
             p1 = ports.Port(port_name=name, ofport=999)
             ryu_ofp_port = mock.Mock(port_no=999)

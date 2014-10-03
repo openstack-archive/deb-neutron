@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Hareesh Puthalath, Cisco Systems, Inc.
 
 import eventlet
 eventlet.monkey_patch()
@@ -129,20 +127,20 @@ class CiscoCfgAgent(manager.Manager):
         self.devmgr_rpc = CiscoDeviceManagementApi(topics.L3PLUGIN, host)
 
     def _initialize_service_helpers(self, host):
-        svc_helper_class = self.conf.routing_svc_helper_class
+        svc_helper_class = self.conf.cfg_agent.routing_svc_helper_class
         try:
             self.routing_service_helper = importutils.import_object(
                 svc_helper_class, host, self.conf, self)
         except ImportError as e:
             LOG.warn(_("Error in loading routing service helper. Class "
                        "specified is %(class)s. Reason:%(reason)s"),
-                     {'class': self.conf.routing_svc_helper_class,
+                     {'class': self.conf.cfg_agent.routing_svc_helper_class,
                       'reason': e})
             self.routing_service_helper = None
 
     def _start_periodic_tasks(self):
         self.loop = loopingcall.FixedIntervalLoopingCall(self.process_services)
-        self.loop.start(interval=self.conf.rpc_loop_interval)
+        self.loop.start(interval=self.conf.cfg_agent.rpc_loop_interval)
 
     def after_start(self):
         LOG.info(_("Cisco cfg agent started"))
@@ -336,14 +334,14 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
 def main(manager='neutron.plugins.cisco.cfg_agent.'
                  'cfg_agent.CiscoCfgAgentWithStateReport'):
     conf = cfg.CONF
-    conf.register_opts(CiscoCfgAgent.OPTS)
+    conf.register_opts(CiscoCfgAgent.OPTS, "cfg_agent")
     config.register_agent_state_opts_helper(conf)
     config.register_root_helper(conf)
     conf.register_opts(interface.OPTS)
     conf.register_opts(external_process.OPTS)
     common_config.init(sys.argv[1:])
     conf(project='neutron')
-    config.setup_logging(conf)
+    config.setup_logging()
     server = neutron_service.Service.create(
         binary='neutron-cisco-cfg-agent',
         topic=c_constants.CFG_AGENT,

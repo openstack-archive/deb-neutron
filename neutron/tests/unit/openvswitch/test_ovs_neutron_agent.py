@@ -32,8 +32,7 @@ from neutron.plugins.openvswitch.common import constants
 from neutron.tests import base
 
 
-NOTIFIER = ('neutron.plugins.openvswitch.'
-            'ovs_neutron_plugin.AgentNotifierApi')
+NOTIFIER = 'neutron.plugins.ml2.rpc.AgentNotifierApi'
 OVS_LINUX_KERN_VERS_WITHOUT_VXLAN = "3.12.0"
 
 FAKE_MAC = '00:11:22:33:44:55'
@@ -136,6 +135,9 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                        'FixedIntervalLoopingCall',
                        new=MockFixedIntervalLoopingCall)):
             self.agent = ovs_neutron_agent.OVSNeutronAgent(**kwargs)
+            # set back to true because initial report state will succeed due
+            # to mocked out RPC calls
+            self.agent.use_call = True
             self.agent.tun_br = mock.Mock()
         self.agent.sg_agent = mock.Mock()
 
@@ -291,6 +293,10 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self._test_port_bound_for_dvr(
             device_owner=n_const.DEVICE_OWNER_LOADBALANCER)
 
+    def test_port_bound_for_dvr_with_dhcp_ports(self):
+        self._test_port_bound_for_dvr(
+            device_owner=n_const.DEVICE_OWNER_DHCP)
+
     def test_port_bound_for_dvr_with_csnat_ports(self, ofport=10):
         self._setup_for_dvr_test()
         with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge.'
@@ -433,6 +439,10 @@ class TestOvsNeutronAgent(base.BaseTestCase):
     def test_treat_devices_removed_for_dvr_with_lbaas_vip_ports(self):
         self._test_treat_devices_removed_for_dvr(
             device_owner=n_const.DEVICE_OWNER_LOADBALANCER)
+
+    def test_treat_devices_removed_for_dvr_with_dhcp_ports(self):
+        self._test_treat_devices_removed_for_dvr(
+            device_owner=n_const.DEVICE_OWNER_DHCP)
 
     def test_treat_devices_removed_for_dvr_csnat_port(self, ofport=10):
         self._setup_for_dvr_test()
@@ -777,12 +787,27 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             self.agent.int_br_device_count = 5
             self.agent._report_state()
             report_st.assert_called_with(self.agent.context,
-                                         self.agent.agent_state)
+                                         self.agent.agent_state, True)
             self.assertNotIn("start_flag", self.agent.agent_state)
+            self.assertFalse(self.agent.use_call)
             self.assertEqual(
                 self.agent.agent_state["configurations"]["devices"],
                 self.agent.int_br_device_count
             )
+            self.agent._report_state()
+            report_st.assert_called_with(self.agent.context,
+                                         self.agent.agent_state, False)
+
+    def test_report_state_fail(self):
+        with mock.patch.object(self.agent.state_rpc,
+                               "report_state") as report_st:
+            report_st.side_effect = Exception()
+            self.agent._report_state()
+            report_st.assert_called_with(self.agent.context,
+                                         self.agent.agent_state, True)
+            self.agent._report_state()
+            report_st.assert_called_with(self.agent.context,
+                                         self.agent.agent_state, True)
 
     def test_network_delete(self):
         with contextlib.nested(
@@ -1397,8 +1422,13 @@ class AncillaryBridgesTest(base.BaseTestCase):
         device_ids = ancillary[:]
 
         def pullup_side_effect(self, *args):
-            result = device_ids.pop(0)
-            return result
+            # Check that the device_id exists, if it does return it
+            # if it does not return None
+            try:
+                device_ids.remove(args[0])
+                return args[0]
+            except Exception:
+                return None
 
         with contextlib.nested(
             mock.patch('neutron.plugins.openvswitch.agent.ovs_neutron_agent.'

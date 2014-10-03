@@ -12,10 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Sylvain Afchain, eNovance SAS
-# @author: Francois Eleouet, Orange
-# @author: Mathieu Rohon, Orange
 
 import mock
 
@@ -522,7 +518,7 @@ class TestL2PopulationRpcTestCase(test_plugin.NeutronDbPluginV2TestCase):
                     self.callbacks.update_device_up(self.adminContext,
                                                     agent_id=HOST,
                                                     device=device1)
-
+                self._delete('ports', port2['port']['id'])
                 p2_ips = [p['ip_address'] for p in p2['fixed_ips']]
                 expected = {'args':
                             {'fdb_entries':
@@ -558,7 +554,7 @@ class TestL2PopulationRpcTestCase(test_plugin.NeutronDbPluginV2TestCase):
                     self.callbacks.update_device_up(self.adminContext,
                                                     agent_id=HOST,
                                                     device=device)
-
+                self._delete('ports', port['port']['id'])
                 p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
                 expected = {'args':
                             {'fdb_entries':

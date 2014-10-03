@@ -22,21 +22,20 @@ from neutron.agent.linux import interface
 from neutron.debug import debug_agent
 from neutron.openstack.common import importutils
 from neutronclient.common import exceptions as exc
-from neutronclient.common import utils
 from neutronclient import shell
 
 COMMAND_V2 = {
-    'probe-create': utils.import_class(
+    'probe-create': importutils.import_class(
         'neutron.debug.commands.CreateProbe'),
-    'probe-delete': utils.import_class(
+    'probe-delete': importutils.import_class(
         'neutron.debug.commands.DeleteProbe'),
-    'probe-list': utils.import_class(
+    'probe-list': importutils.import_class(
         'neutron.debug.commands.ListProbe'),
-    'probe-clear': utils.import_class(
+    'probe-clear': importutils.import_class(
         'neutron.debug.commands.ClearProbe'),
-    'probe-exec': utils.import_class(
+    'probe-exec': importutils.import_class(
         'neutron.debug.commands.ExecProbe'),
-    'ping-all': utils.import_class(
+    'ping-all': importutils.import_class(
         'neutron.debug.commands.PingAll'),
     #TODO(nati)  ping, netcat , nmap, bench
 }
@@ -76,7 +75,7 @@ class NeutronDebugShell(shell.NeutronShell):
         config.register_use_namespaces_opts_helper(cfg.CONF)
         config.register_root_helper(cfg.CONF)
         cfg.CONF(['--config-file', self.options.config_file])
-        config.setup_logging(cfg.CONF)
+        config.setup_logging()
         driver = importutils.import_object(cfg.CONF.interface_driver, cfg.CONF)
         self.debug_agent = debug_agent.NeutronDebugAgent(cfg.CONF,
                                                          client,

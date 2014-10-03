@@ -38,6 +38,13 @@ def _migrate_data(old_table, new_table):
                     "FROM %(old_table)s old_t "
                     "WHERE new_t.router_id = old_t.router_id") %
                    {'new_table': new_table, 'old_table': old_table})
+    elif engine.name == 'ibm_db_sa':
+        op.execute(("UPDATE %(new_table)s new_t "
+                    "SET (distributed, service_router) = "
+                    "(SELECT old_t.distributed, old_t.service_router "
+                    "FROM %(old_table)s old_t "
+                    "WHERE new_t.router_id = old_t.router_id)") %
+                   {'new_table': new_table, 'old_table': old_table})
     else:
         op.execute(("UPDATE %(new_table)s new_t "
                     "INNER JOIN %(old_table)s as old_t "
@@ -47,7 +54,7 @@ def _migrate_data(old_table, new_table):
                    {'new_table': new_table, 'old_table': old_table})
 
 
-def upgrade(active_plugins=None, options=None):
+def upgrade():
     op.add_column('router_extra_attributes',
                   sa.Column('service_router', sa.Boolean(),
                             nullable=False,
@@ -56,7 +63,7 @@ def upgrade(active_plugins=None, options=None):
     op.drop_table('nsxrouterextattributess')
 
 
-def downgrade(active_plugins=None, options=None):
+def downgrade():
     op.create_table(
         'nsxrouterextattributess',
         sa.Column('router_id', sa.String(length=36), nullable=False),

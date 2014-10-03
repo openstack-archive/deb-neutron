@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Mark McClain, DreamHost
 
 import mock
 
@@ -43,7 +41,8 @@ class TestProcessManager(base.BaseTestCase):
                 name.assert_called_once_with(ensure_pids_dir=True)
                 self.execute.assert_called_once_with(['the', 'cmd'],
                                                      root_helper='sudo',
-                                                     check_exit_code=True)
+                                                     check_exit_code=True,
+                                                     extra_ok_codes=None)
 
     def test_enable_with_namespace(self):
         callback = mock.Mock()
@@ -124,7 +123,7 @@ class TestProcessManager(base.BaseTestCase):
             isdir.return_value = True
             manager = ep.ProcessManager(self.conf, 'uuid')
             retval = manager.get_pid_file_name(ensure_pids_dir=True)
-            self.assertEqual(retval, '/var/path/uuid/pid')
+            self.assertEqual(retval, '/var/path/uuid.pid')
 
     def test_get_pid_file_name_not_existing(self):
         with mock.patch.object(ep.utils.os.path, 'isdir') as isdir:
@@ -132,15 +131,15 @@ class TestProcessManager(base.BaseTestCase):
                 isdir.return_value = False
                 manager = ep.ProcessManager(self.conf, 'uuid')
                 retval = manager.get_pid_file_name(ensure_pids_dir=True)
-                self.assertEqual(retval, '/var/path/uuid/pid')
-                makedirs.assert_called_once_with('/var/path/uuid', 0o755)
+                self.assertEqual(retval, '/var/path/uuid.pid')
+                makedirs.assert_called_once_with('/var/path', 0o755)
 
     def test_get_pid_file_name_default(self):
         with mock.patch.object(ep.utils.os.path, 'isdir') as isdir:
             isdir.return_value = True
             manager = ep.ProcessManager(self.conf, 'uuid')
             retval = manager.get_pid_file_name(ensure_pids_dir=False)
-            self.assertEqual(retval, '/var/path/uuid/pid')
+            self.assertEqual(retval, '/var/path/uuid.pid')
             self.assertFalse(isdir.called)
 
     def test_pid(self):

@@ -15,7 +15,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-# @author: Kevin Benton, kevin.benton@bigswitch.com
 
 import sys
 import time
@@ -166,7 +165,7 @@ class RestProxyAgent(n_rpc.RpcCallback,
 
 def main():
     config.init(sys.argv[1:])
-    config.setup_logging(cfg.CONF)
+    config.setup_logging()
     pl_config.register_config()
 
     integ_br = cfg.CONF.RESTPROXYAGENT.integration_bridge

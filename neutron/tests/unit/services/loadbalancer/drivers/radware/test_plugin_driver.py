@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Avishay Balderman, Radware
 
 import re
 
@@ -174,7 +172,7 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
                                 'tenant_id', 'port_name',
                                 'network_id', '10.10.10.10')
         self.plugin_instance._core_plugin.get_ports.assert_called_once()
-        self.plugin_instance._core_plugin.create_port.assert_has_calls([])
+        self.assertFalse(self.plugin_instance._core_plugin.create_port.called)
 
     def test_rest_client_recover_was_called(self):
         """Call the real REST client and verify _recover is called."""
@@ -215,8 +213,8 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_create_vip_failure(self):
         """Test the rest call failure handling by Exception raising."""
-        with self.network(do_delete=False) as network:
-            with self.subnet(network=network, do_delete=False) as subnet:
+        with self.network() as network:
+            with self.subnet(network=network) as subnet:
                 with self.pool(do_delete=False,
                                provider='radware',
                                subnet_id=subnet['subnet']['id']) as pool:
@@ -495,8 +493,8 @@ class TestLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_delete_vip_failure(self):
         plugin = self.plugin_instance
 
-        with self.network(do_delete=False) as network:
-            with self.subnet(network=network, do_delete=False) as subnet:
+        with self.network() as network:
+            with self.subnet(network=network) as subnet:
                 with self.pool(do_delete=False,
                                provider='radware',
                                subnet_id=subnet['subnet']['id']) as pool:

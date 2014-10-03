@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Kedar Kulkarni, One Convergence, Inc.
 
 """NVSD agent code for security group events."""
 
@@ -164,7 +162,7 @@ class NVSDNeutronAgent(n_rpc.RpcCallback):
 
 def main():
     common_config.init(sys.argv[1:])
-    common_config.setup_logging(config.CONF)
+    common_config.setup_logging()
 
     integ_br = config.AGENT.integration_bridge
     root_helper = config.AGENT.root_helper

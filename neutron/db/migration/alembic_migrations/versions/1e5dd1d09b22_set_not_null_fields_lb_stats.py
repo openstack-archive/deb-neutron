@@ -25,42 +25,46 @@ Create Date: 2014-03-17 11:00:35.370618
 revision = '1e5dd1d09b22'
 down_revision = '54f7549a0e5f'
 
-# Change to ['*'] if this migration applies to all plugins
-
-migration_for_plugins = [
-    'neutron.services.loadbalancer.plugin.LoadBalancerPlugin'
-]
-
-from alembic import op
 import sqlalchemy as sa
-
 
 from neutron.db import migration
 
 
-def upgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
+@migration.skip_if_offline
+def upgrade():
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'bytes_in',
+        nullable=False,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'bytes_out',
+        nullable=False,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'active_connections',
+        nullable=False,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'total_connections',
+        nullable=False,
+        existing_type=sa.BigInteger())
 
-    op.alter_column('poolstatisticss', 'bytes_in', nullable=False,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'bytes_out', nullable=False,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'active_connections', nullable=False,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'total_connections', nullable=False,
-                    existing_type=sa.BigInteger())
 
-
-def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
-    op.alter_column('poolstatisticss', 'bytes_in', nullable=True,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'bytes_out', nullable=True,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'active_connections', nullable=True,
-                    existing_type=sa.BigInteger())
-    op.alter_column('poolstatisticss', 'total_connections', nullable=True,
-                    existing_type=sa.BigInteger())
+@migration.skip_if_offline
+def downgrade():
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'bytes_in',
+        nullable=True,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'bytes_out',
+        nullable=True,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'active_connections',
+        nullable=True,
+        existing_type=sa.BigInteger())
+    migration.alter_column_if_exists(
+        'poolstatisticss', 'total_connections',
+        nullable=True,
+        existing_type=sa.BigInteger())

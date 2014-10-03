@@ -1,7 +1,5 @@
 # Copyright (C) 2013 eNovance SAS <licensing@enovance.com>
 #
-# Author: Sylvain Afchain <sylvain.afchain@enovance.com>
-#
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
 # a copy of the License at
@@ -286,7 +284,7 @@ def main():
     config.register_agent_state_opts_helper(conf)
     config.register_root_helper(conf)
     common_config.init(sys.argv[1:])
-    config.setup_logging(conf)
+    config.setup_logging()
     server = neutron_service.Service.create(
         binary='neutron-metering-agent',
         topic=topics.METERING_AGENT,

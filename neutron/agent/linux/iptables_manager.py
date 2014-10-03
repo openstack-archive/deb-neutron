@@ -13,9 +13,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 #
-# @author: Juliano Martinez, Locaweb.
 # based on
-#   https://github.com/openstack/nova/blob/master/nova/network/linux_net.py
+# https://github.com/openstack/nova/blob/master/nova/network/linux_net.py
 
 """Implements iptables rules using linux utilities."""
 
@@ -321,6 +320,10 @@ class IptablesManager(object):
                 {'nat': IptablesTable(binary_name=self.wrap_name)})
             builtin_chains[4].update({'nat': ['PREROUTING',
                                       'OUTPUT', 'POSTROUTING']})
+            self.ipv4.update(
+                {'raw': IptablesTable(binary_name=self.wrap_name)})
+            builtin_chains[4].update({'raw': ['PREROUTING',
+                                      'OUTPUT']})
 
         for ip_version in builtin_chains:
             if ip_version == 4:

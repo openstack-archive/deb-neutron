@@ -125,10 +125,24 @@ class BaseTestCase(testtools.TestCase):
             'neutron.common.exceptions.NeutronException.use_fatal_exceptions',
             fake_use_fatal_exceptions))
 
+        self.setup_rpc_mocks()
+
+        if sys.version_info < (2, 7) and getattr(self, 'fmt', '') == 'xml':
+            raise self.skipException('XML Testing Skipped in Py26')
+
+        self.setup_config()
+        self.addOnException(self.check_for_systemexit)
+
+    def setup_rpc_mocks(self):
         # don't actually start RPC listeners when testing
         self.useFixture(fixtures.MonkeyPatch(
             'neutron.common.rpc.Connection.consume_in_threads',
             fake_consume_in_threads))
+
+        # immediately return RPC calls
+        self.useFixture(fixtures.MonkeyPatch(
+            'neutron.common.rpc.RpcProxy._RpcProxy__call_rpc_method',
+            mock.MagicMock()))
 
         self.useFixture(fixtures.MonkeyPatch(
             'oslo.messaging.Notifier', fake_notifier.FakeNotifier))
@@ -143,12 +157,6 @@ class BaseTestCase(testtools.TestCase):
 
         self.addCleanup(n_rpc.cleanup)
         n_rpc.init(CONF)
-
-        if sys.version_info < (2, 7) and getattr(self, 'fmt', '') == 'xml':
-            raise self.skipException('XML Testing Skipped in Py26')
-
-        self.setup_config()
-        self.addOnException(self.check_for_systemexit)
 
     def check_for_systemexit(self, exc_info):
         if isinstance(exc_info[1], SystemExit):
@@ -194,3 +202,23 @@ class BaseTestCase(testtools.TestCase):
             elif isinstance(value, dict):
                 dic[key] = self.sort_dict_lists(value)
         return dic
+
+    def assertDictSupersetOf(self, expected_subset, actual_superset):
+        """Checks that actual dict contains the expected dict.
+
+        After checking that the arguments are of the right type, this checks
+        that each item in expected_subset is in, and matches, what is in
+        actual_superset. Separate tests are done, so that detailed info can
+        be reported upon failure.
+        """
+        if not isinstance(expected_subset, dict):
+            self.fail("expected_subset (%s) is not an instance of dict" %
+                      type(expected_subset))
+        if not isinstance(actual_superset, dict):
+            self.fail("actual_superset (%s) is not an instance of dict" %
+                      type(actual_superset))
+        for k, v in expected_subset.items():
+            self.assertIn(k, actual_superset)
+            self.assertEqual(v, actual_superset[k],
+                             "Key %(key)s expected: %(exp)r, actual %(act)r" %
+                             {'key': k, 'exp': v, 'act': actual_superset[k]})

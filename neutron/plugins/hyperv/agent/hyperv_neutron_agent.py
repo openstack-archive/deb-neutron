@@ -13,8 +13,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-# @author: Pedro Navarro Perez
-# @author: Alessandro Pilotti, Cloudbase Solutions Srl
 
 import platform
 import re
@@ -464,7 +462,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
 
 def main():
     common_config.init(sys.argv[1:])
-    common_config.setup_logging(cfg.CONF)
+    common_config.setup_logging()
 
     plugin = HyperVNeutronAgent()
 

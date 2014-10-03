@@ -11,11 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Juergen Brendel, Cisco Systems Inc.
-# @author: Abhishek Raut, Cisco Systems Inc.
-# @author: Sourabh Patwardhan, Cisco Systems Inc.
-# @author: Marga Millet, Cisco Systems Inc.
 
 import mock
 import webob.exc
@@ -1051,6 +1046,9 @@ class TestN1kvSubnets(test_plugin.TestSubnetsV2,
         if self._testMethodName in self._unsupported:
             self.skipTest("Unsupported test")
         super(TestN1kvSubnets, self).setUp()
+
+    def test_port_prevents_network_deletion(self):
+        self.skipTest("plugin does not return standard conflict code")
 
     def test_create_subnet_with_invalid_parameters(self):
         """Test subnet creation with invalid parameters sent to the VSM"""

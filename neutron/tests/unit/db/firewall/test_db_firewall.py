@@ -12,8 +12,6 @@
 #  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #  License for the specific language governing permissions and limitations
 #  under the License.
-#
-# @author: Sumit Naiksatam, sumitnaiksatam@gmail.com, Big Switch Networks, Inc.
 
 from oslo.config import cfg
 
@@ -337,6 +335,17 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 for k, v in attrs.iteritems():
                     self.assertEqual(fwp['firewall_policy'][k], v)
 
+    def test_create_admin_firewall_policy_with_other_tenant_rules(self):
+        with self.firewall_rule(shared=False) as fr:
+            fw_rule_ids = [fr['firewall_rule']['id']]
+            res = self._create_firewall_policy(None, 'firewall_policy1',
+                                               description=DESCRIPTION,
+                                               shared=SHARED,
+                                               firewall_rules=fw_rule_ids,
+                                               audited=AUDITED,
+                                               tenant_id='admin-tenant')
+            self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
+
     def test_create_firewall_policy_with_previously_associated_rule(self):
         with self.firewall_rule() as fwr:
             fw_rule_ids = [fwr['firewall_rule']['id']]
@@ -346,6 +355,14 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                     shared=SHARED, firewall_rules=fw_rule_ids,
                     audited=AUDITED)
                 self.assertEqual(res.status_int, 409)
+
+    def test_create_shared_firewall_policy_with_unshared_rule(self):
+        with self.firewall_rule(shared=False) as fwr:
+            fw_rule_ids = [fwr['firewall_rule']['id']]
+            res = self._create_firewall_policy(
+                None, 'firewall_policy1', description=DESCRIPTION, shared=True,
+                firewall_rules=fw_rule_ids, audited=AUDITED)
+            self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
 
     def test_show_firewall_policy(self):
         name = "firewall_policy1"
@@ -520,6 +537,42 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 for k, v in attrs.iteritems():
                     self.assertEqual(res['firewall_policy'][k], v)
 
+    def test_update_shared_firewall_policy_with_unshared_rule(self):
+        with self.firewall_rule(name='fwr1', shared=False) as fr:
+            with self.firewall_policy() as fwp:
+                fw_rule_ids = [fr['firewall_rule']['id']]
+                # update shared policy with unshared rule
+                data = {'firewall_policy':
+                        {'firewall_rules': fw_rule_ids}}
+                req = self.new_update_request('firewall_policies', data,
+                                              fwp['firewall_policy']['id'])
+                res = req.get_response(self.ext_api)
+                self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
+
+    def test_update_firewall_policy_with_shared_attr_unshared_rule(self):
+        with self.firewall_rule(name='fwr1', shared=False) as fr:
+            with self.firewall_policy(shared=False) as fwp:
+                fw_rule_ids = [fr['firewall_rule']['id']]
+                # update shared policy with shared attr and unshared rule
+                data = {'firewall_policy': {'shared': True,
+                                            'firewall_rules': fw_rule_ids}}
+                req = self.new_update_request('firewall_policies', data,
+                                              fwp['firewall_policy']['id'])
+                res = req.get_response(self.ext_api)
+                self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
+
+    def test_update_firewall_policy_with_shared_attr_exist_unshare_rule(self):
+        with self.firewall_rule(name='fwr1', shared=False) as fr:
+            fw_rule_ids = [fr['firewall_rule']['id']]
+            with self.firewall_policy(shared=False,
+                                      firewall_rules=fw_rule_ids) as fwp:
+                # update policy with shared attr
+                data = {'firewall_policy': {'shared': True}}
+                req = self.new_update_request('firewall_policies', data,
+                                              fwp['firewall_policy']['id'])
+                res = req.get_response(self.ext_api)
+                self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
+
     def test_delete_firewall_policy(self):
         ctx = context.get_admin_context()
         with self.firewall_policy(do_delete=False) as fwp:
@@ -613,6 +666,20 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                                 protocol='icmp') as firewall_rule:
             for k, v in attrs.iteritems():
                 self.assertEqual(firewall_rule['firewall_rule'][k], v)
+
+    def test_create_firewall_rule_without_protocol_with_dport(self):
+        attrs = self._get_test_firewall_rule_attrs()
+        attrs['protocol'] = None
+        attrs['source_port'] = None
+        res = self._create_firewall_rule(self.fmt, **attrs)
+        self.assertEqual(400, res.status_int)
+
+    def test_create_firewall_rule_without_protocol_with_sport(self):
+        attrs = self._get_test_firewall_rule_attrs()
+        attrs['protocol'] = None
+        attrs['destination_port'] = None
+        res = self._create_firewall_rule(self.fmt, **attrs)
+        self.assertEqual(400, res.status_int)
 
     def test_show_firewall_rule_with_fw_policy_not_associated(self):
         attrs = self._get_test_firewall_rule_attrs()
@@ -709,6 +776,46 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
             for k, v in attrs.iteritems():
                 self.assertEqual(res['firewall_rule'][k], v)
 
+    def test_update_firewall_rule_with_port_and_no_proto(self):
+        with self.firewall_rule() as fwr:
+            data = {'firewall_rule': {'protocol': None,
+                                      'destination_port': 80}}
+            req = self.new_update_request('firewall_rules', data,
+                                          fwr['firewall_rule']['id'])
+            res = req.get_response(self.ext_api)
+            self.assertEqual(400, res.status_int)
+
+    def test_update_firewall_rule_without_ports_and_no_proto(self):
+        with self.firewall_rule() as fwr:
+            data = {'firewall_rule': {'protocol': None,
+                                      'destination_port': None,
+                                      'source_port': None}}
+            req = self.new_update_request('firewall_rules', data,
+                                          fwr['firewall_rule']['id'])
+            res = req.get_response(self.ext_api)
+            self.assertEqual(200, res.status_int)
+
+    def test_update_firewall_rule_with_port(self):
+        with self.firewall_rule(source_port=None,
+                                destination_port=None,
+                                protocol=None) as fwr:
+            data = {'firewall_rule': {'destination_port': 80}}
+            req = self.new_update_request('firewall_rules', data,
+                                          fwr['firewall_rule']['id'])
+            res = req.get_response(self.ext_api)
+            self.assertEqual(400, res.status_int)
+
+    def test_update_firewall_rule_with_port_and_protocol(self):
+        with self.firewall_rule(source_port=None,
+                                destination_port=None,
+                                protocol=None) as fwr:
+            data = {'firewall_rule': {'destination_port': 80,
+                                      'protocol': 'tcp'}}
+            req = self.new_update_request('firewall_rules', data,
+                                          fwr['firewall_rule']['id'])
+            res = req.get_response(self.ext_api)
+            self.assertEqual(200, res.status_int)
+
     def test_update_firewall_rule_with_policy_associated(self):
         name = "new_firewall_rule1"
         attrs = self._get_test_firewall_rule_attrs(name)
@@ -737,6 +844,17 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                 self.assertEqual(res['firewall_policy']['firewall_rules'],
                                  [fwr_id])
                 self.assertEqual(res['firewall_policy']['audited'], False)
+
+    def test_update_firewall_rule_associated_with_other_tenant_policy(self):
+        with self.firewall_rule(shared=True, tenant_id='tenant1') as fwr:
+            fwr_id = [fwr['firewall_rule']['id']]
+            with self.firewall_policy(shared=False,
+                                      firewall_rules=fwr_id):
+                data = {'firewall_rule': {'shared': False}}
+                req = self.new_update_request('firewall_rules', data,
+                                              fwr['firewall_rule']['id'])
+                res = req.get_response(self.ext_api)
+                self.assertEqual(webob.exc.HTTPConflict.code, res.status_int)
 
     def test_delete_firewall_rule(self):
         ctx = context.get_admin_context()
@@ -960,6 +1078,18 @@ class TestFirewallDBPlugin(FirewallPluginDbTestCase):
                     insert_after=fwr1_id,
                     expected_code=webob.exc.HTTPBadRequest.code,
                     expected_body=None)
+
+    def test_insert_rule_for_policy_of_other_tenant(self):
+        with self.firewall_rule(tenant_id='tenant-2', shared=False) as fwr:
+            fwr_id = fwr['firewall_rule']['id']
+            with self.firewall_policy(name='firewall_policy') as fwp:
+                fwp_id = fwp['firewall_policy']['id']
+                insert_data = {'firewall_rule_id': fwr_id}
+                self._rule_action(
+                    'insert', fwp_id, fwr_id, insert_before=None,
+                    insert_after=None,
+                    expected_code=webob.exc.HTTPConflict.code,
+                    expected_body=None, body_data=insert_data)
 
     def test_insert_rule_in_policy(self):
         attrs = self._get_test_firewall_policy_attrs()

@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # Copyright (c) 2012 New Dream Network, LLC (DreamHost)
-# Author: Julien Danjou <julien@danjou.info>
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -21,8 +20,6 @@ subnets.
 
 import sys
 
-from oslo.config import cfg
-
 from neutron.common import config
 from neutron.common import rpc as n_rpc
 from neutron import context
@@ -31,7 +28,7 @@ from neutron import manager
 
 def main():
     config.init(sys.argv[1:])
-    config.setup_logging(cfg.CONF)
+    config.setup_logging()
 
     cxt = context.get_admin_context()
     plugin = manager.NeutronManager.get_plugin()

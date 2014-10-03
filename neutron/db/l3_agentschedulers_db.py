@@ -23,12 +23,14 @@ from sqlalchemy import func
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import joinedload
+from sqlalchemy import sql
 
 from neutron.common import constants
 from neutron.common import utils as n_utils
 from neutron import context as n_ctx
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
+from neutron.db import l3_attrs_db
 from neutron.db import model_base
 from neutron.extensions import l3agentscheduler
 from neutron import manager
@@ -114,7 +116,13 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             context.session.query(RouterL3AgentBinding).
             join(agents_db.Agent).
             filter(agents_db.Agent.heartbeat_timestamp < cutoff,
-                   agents_db.Agent.admin_state_up))
+                   agents_db.Agent.admin_state_up).
+            outerjoin(l3_attrs_db.RouterExtraAttributes,
+                      l3_attrs_db.RouterExtraAttributes.router_id ==
+                      RouterL3AgentBinding.router_id).
+            filter(sa.or_(l3_attrs_db.RouterExtraAttributes.ha == sql.false(),
+                          l3_attrs_db.RouterExtraAttributes.ha == sql.null())))
+
         for binding in down_bindings:
             LOG.warn(_LW("Rescheduling router %(router)s from agent %(agent)s "
                          "because the agent did not report to the server in "
@@ -284,8 +292,14 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 RouterL3AgentBinding.router_id.in_(router_ids))
         router_ids = [item[0] for item in query]
         if router_ids:
-            return self.get_sync_data(context, router_ids=router_ids,
-                                      active=True)
+            if n_utils.is_extension_supported(self,
+                                              constants.L3_HA_MODE_EXT_ALIAS):
+                return self.get_ha_sync_data_for_host(context, host,
+                                                      router_ids=router_ids,
+                                                      active=True)
+            else:
+                return self.get_sync_data(context, router_ids=router_ids,
+                                          active=True)
         else:
             return []
 
@@ -354,17 +368,15 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 if agentschedulers_db.AgentSchedulerDbMixin.is_eligible_agent(
                     active, l3_agent)]
 
-    def check_ports_exist_on_l3agent(self, context, l3_agent, router_id,
-                                     subnet_id):
+    def check_ports_exist_on_l3agent(self, context, l3_agent, router_id):
         """
         This function checks for existence of dvr serviceable
         ports on the host, running the input l3agent.
         """
-        if not subnet_id:
-            return True
+        subnet_ids = self.get_subnet_ids_on_router(context, router_id)
 
         core_plugin = manager.NeutronManager.get_plugin()
-        filter = {'fixed_ips': {'subnet_id': [subnet_id]}}
+        filter = {'fixed_ips': {'subnet_id': subnet_ids}}
         ports = core_plugin.get_ports(context, filters=filter)
         for port in ports:
             if (n_utils.is_dvr_serviced(port['device_owner']) and
@@ -407,8 +419,7 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             candidates.append(l3_agent)
         return candidates
 
-    def get_l3_agent_candidates(self, context, sync_router, l3_agents,
-                                subnet_id=None):
+    def get_l3_agent_candidates(self, context, sync_router, l3_agents):
         """Get the valid l3 agents for the router from a list of l3_agents."""
         candidates = []
         for l3_agent in l3_agents:
@@ -436,7 +447,7 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 candidates.append(l3_agent)
             elif is_router_distributed and agent_mode.startswith('dvr') and (
                 self.check_ports_exist_on_l3agent(
-                    context, l3_agent, sync_router['id'], subnet_id)):
+                    context, l3_agent, sync_router['id'])):
                 candidates.append(l3_agent)
         return candidates
 
@@ -445,15 +456,15 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             return self.router_scheduler.auto_schedule_routers(
                 self, context, host, router_ids)
 
-    def schedule_router(self, context, router, candidates=None, hints=None):
+    def schedule_router(self, context, router, candidates=None):
         if self.router_scheduler:
             return self.router_scheduler.schedule(
-                self, context, router, candidates=candidates, hints=hints)
+                self, context, router, candidates=candidates)
 
-    def schedule_routers(self, context, routers, hints=None):
+    def schedule_routers(self, context, routers):
         """Schedule the routers to l3 agents."""
         for router in routers:
-            self.schedule_router(context, router, candidates=None, hints=hints)
+            self.schedule_router(context, router, candidates=None)
 
     def get_l3_agent_with_min_routers(self, context, agent_ids):
         """Return l3 agent with the least number of routers."""

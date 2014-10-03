@@ -17,8 +17,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-# @author: Ryota MIBU
-# @author: Akihiro MOTOKI
 
 import socket
 import sys
@@ -235,7 +233,7 @@ class NECNeutronAgent(object):
 def main():
     common_config.init(sys.argv[1:])
 
-    common_config.setup_logging(config.CONF)
+    common_config.setup_logging()
 
     # Determine which agent type to use.
     integ_br = config.OVS.integration_bridge

@@ -11,11 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Aruna Kushwaha, Cisco Systems Inc.
-# @author: Abhishek Raut, Cisco Systems Inc.
-# @author: Rudrajit Tapadar, Cisco Systems Inc.
-# @author: Sergey Sudakovich, Cisco Systems Inc.
 
 import netaddr
 import re
@@ -564,7 +559,7 @@ def reserve_specific_vlan(db_session, physical_network, vlan_id):
             alloc.allocated = True
             db_session.add(alloc)
         except exc.NoResultFound:
-            raise c_exc.VlanIDOutsidePool
+            raise c_exc.VlanIDOutsidePool()
 
 
 def release_vlan(db_session, physical_network, vlan_id):
@@ -643,7 +638,7 @@ def reserve_specific_vxlan(db_session, vxlan_id):
             alloc.allocated = True
             db_session.add(alloc)
         except exc.NoResultFound:
-            raise c_exc.VxlanIDOutsidePool
+            raise c_exc.VxlanIDOutsidePool()
 
 
 def release_vxlan(db_session, vxlan_id):
@@ -1362,18 +1357,18 @@ class NetworkProfile_db_mixin(object):
         if segment_type == c_const.NETWORK_TYPE_VLAN:
             if not ((seg_min <= seg_max) and
                     ((seg_min in range(constants.MIN_VLAN_TAG,
-                                       c_const.NEXUS_VLAN_RESERVED_MIN) and
+                                       c_const.N1KV_VLAN_RESERVED_MIN) and
                       seg_max in range(constants.MIN_VLAN_TAG,
-                                       c_const.NEXUS_VLAN_RESERVED_MIN)) or
-                     (seg_min in range(c_const.NEXUS_VLAN_RESERVED_MAX + 1,
+                                       c_const.N1KV_VLAN_RESERVED_MIN)) or
+                     (seg_min in range(c_const.N1KV_VLAN_RESERVED_MAX + 1,
                                        constants.MAX_VLAN_TAG) and
-                      seg_max in range(c_const.NEXUS_VLAN_RESERVED_MAX + 1,
+                      seg_max in range(c_const.N1KV_VLAN_RESERVED_MAX + 1,
                                        constants.MAX_VLAN_TAG)))):
                 msg = (_("Segment range is invalid, select from "
                          "%(min)s-%(nmin)s, %(nmax)s-%(max)s") %
                        {"min": constants.MIN_VLAN_TAG,
-                        "nmin": c_const.NEXUS_VLAN_RESERVED_MIN - 1,
-                        "nmax": c_const.NEXUS_VLAN_RESERVED_MAX + 1,
+                        "nmin": c_const.N1KV_VLAN_RESERVED_MIN - 1,
+                        "nmax": c_const.N1KV_VLAN_RESERVED_MAX + 1,
                         "max": constants.MAX_VLAN_TAG - 1})
                 LOG.error(msg)
                 raise n_exc.InvalidInput(error_message=msg)
@@ -1385,12 +1380,12 @@ class NetworkProfile_db_mixin(object):
                               c_const.NETWORK_TYPE_MULTI_SEGMENT,
                               c_const.NETWORK_TYPE_TRUNK]:
             if (seg_min > seg_max or
-                seg_min < c_const.NEXUS_VXLAN_MIN or
-                seg_max > c_const.NEXUS_VXLAN_MAX):
+                seg_min < c_const.N1KV_VXLAN_MIN or
+                seg_max > c_const.N1KV_VXLAN_MAX):
                 msg = (_("segment range is invalid. Valid range is : "
                          "%(min)s-%(max)s") %
-                       {"min": c_const.NEXUS_VXLAN_MIN,
-                        "max": c_const.NEXUS_VXLAN_MAX})
+                       {"min": c_const.N1KV_VXLAN_MIN,
+                        "max": c_const.N1KV_VXLAN_MAX})
                 LOG.error(msg)
                 raise n_exc.InvalidInput(error_message=msg)
             profiles = _get_network_profiles(db_session=context.session)

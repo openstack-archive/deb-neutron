@@ -34,6 +34,7 @@ from neutron.db import l3_attrs_db  # noqa
 from neutron.db import l3_db  # noqa
 from neutron.db import l3_dvrscheduler_db  # noqa
 from neutron.db import l3_gwmode_db  # noqa
+from neutron.db import l3_hamode_db  # noqa
 from neutron.db.loadbalancer import loadbalancer_db  # noqa
 from neutron.db.metering import metering_db  # noqa
 from neutron.db import model_base
@@ -52,7 +53,6 @@ from neutron.plugins.brocade.db import models as brocade_models  # noqa
 from neutron.plugins.cisco.db.l3 import l3_models  # noqa
 from neutron.plugins.cisco.db import n1kv_models_v2  # noqa
 from neutron.plugins.cisco.db import network_models_v2  # noqa
-from neutron.plugins.cisco.db import nexus_models_v2  # noqa
 from neutron.plugins.hyperv import model  # noqa
 from neutron.plugins.linuxbridge.db import l2network_models_v2  # noqa
 from neutron.plugins.metaplugin import meta_models_v2  # noqa

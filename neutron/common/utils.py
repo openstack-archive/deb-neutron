@@ -272,6 +272,14 @@ def is_valid_vlan_tag(vlan):
     return q_const.MIN_VLAN_TAG <= vlan <= q_const.MAX_VLAN_TAG
 
 
+def is_valid_gre_id(gre_id):
+    return q_const.MIN_GRE_ID <= gre_id <= q_const.MAX_GRE_ID
+
+
+def is_valid_vxlan_vni(vni):
+    return q_const.MIN_VXLAN_VNI <= vni <= q_const.MAX_VXLAN_VNI
+
+
 def get_random_mac(base_mac):
     mac = [int(base_mac[0], 16), int(base_mac[1], 16),
            int(base_mac[2], 16), random.randint(0x00, 0xff),
@@ -345,6 +353,7 @@ def is_dvr_serviced(device_owner):
         if they are required for DVR or any service directly or
         indirectly associated with DVR.
         """
-        if (device_owner.startswith('compute:') or (
-            q_const.DEVICE_OWNER_LOADBALANCER == device_owner)):
-            return True
+        dvr_serviced_device_owners = (q_const.DEVICE_OWNER_LOADBALANCER,
+                                      q_const.DEVICE_OWNER_DHCP)
+        return (device_owner.startswith('compute:') or
+                device_owner in dvr_serviced_device_owners)

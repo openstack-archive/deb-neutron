@@ -11,8 +11,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author: Hareesh Puthalath, Cisco Systems, Inc.
 
 from neutron.openstack.common import excutils
 from neutron.openstack.common import importutils
@@ -77,11 +75,12 @@ class DeviceDriverManager(object):
                 self._drivers[resource_id] = driver
             return driver
         except ImportError:
-            LOG.exception(_("Error loading cfg agent driver %(driver)s for "
-                            "hosting device template %(t_name)s(%(t_id)s)"),
-                          {'driver': driver_class, 't_id': hd_id,
-                           't_name': hosting_device['name']})
             with excutils.save_and_reraise_exception(reraise=False):
+                LOG.exception(_("Error loading cfg agent driver %(driver)s "
+                                "for hosting device template "
+                                "%(t_name)s(%(t_id)s)"),
+                              {'driver': driver_class, 't_id': hd_id,
+                               't_name': resource['name']})
                 raise cfg_exceptions.DriverNotExist(driver=driver_class)
         except KeyError as e:
             with excutils.save_and_reraise_exception(reraise=False):

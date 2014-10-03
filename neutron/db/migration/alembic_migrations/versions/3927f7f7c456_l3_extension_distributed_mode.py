@@ -24,21 +24,12 @@ Create Date: 2014-04-02 23:26:19.303633
 revision = '3927f7f7c456'
 down_revision = 'db_healing'
 
-migration_for_plugins = [
-    '*'
-]
-
-
 from alembic import op
 import sqlalchemy as sa
 
-from neutron.db import migration
 
-
-def upgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
+def upgrade():
+    context = op.get_context()
     op.create_table(
         'router_extra_attributes',
         sa.Column('router_id', sa.String(length=36), nullable=False),
@@ -48,12 +39,16 @@ def upgrade(active_plugins=None, options=None):
             ['router_id'], ['routers.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('router_id')
     )
-    op.execute("INSERT INTO router_extra_attributes SELECT id as router_id, "
-               "False as distributed from routers")
+    if context.bind.dialect.name == 'ibm_db_sa':
+        # NOTE(mriedem): DB2 stores booleans as 0 and 1.
+        op.execute("INSERT INTO router_extra_attributes "
+              "SELECT id as router_id, "
+              "0 as distributed from routers")
+    else:
+        op.execute("INSERT INTO router_extra_attributes "
+              "SELECT id as router_id, "
+              "False as distributed from routers")
 
 
-def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
+def downgrade():
     op.drop_table('router_extra_attributes')

@@ -12,8 +12,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-#
-# @author:  Ivar Lazzaro, Embrane, Inc. ivar@embrane.com
 
 import sys
 
@@ -58,7 +56,7 @@ class TestLoadBalancerPlugin(test_db_loadbalancer.TestLoadBalancer,
         self.skip("App cookie persistence not supported.")
 
     def test_pool_port(self):
-        with self.port(do_delete=False) as port:
+        with self.port() as port:
             with self.pool() as pool:
                 h_db.add_pool_port(context.get_admin_context(),
                                    pool['pool']['id'], port['port']['id'])

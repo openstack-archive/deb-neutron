@@ -22,6 +22,7 @@ import netaddr
 from oslo.config import cfg
 from webob import exc
 
+from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as l3_constants
@@ -306,6 +307,13 @@ class TestL3NatAgentSchedulingServicePlugin(TestL3NatServicePlugin,
                                             L3AgentSchedulerDbMixin):
 
     supported_extension_aliases = ["router", "l3_agent_scheduler"]
+
+    def __init__(self):
+        super(TestL3NatAgentSchedulingServicePlugin, self).__init__()
+        self.router_scheduler = importutils.import_object(
+            cfg.CONF.router_scheduler_driver)
+        self.agent_notifiers.update(
+            {l3_constants.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotifyAPI()})
 
 
 class L3NATdbonlyMixinTestCase(base.BaseTestCase):
@@ -833,7 +841,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
 
     def test_router_add_interface_port(self):
         with self.router() as r:
-            with self.port(do_delete=False) as p:
+            with self.port() as p:
                 body = self._router_interface_action('add',
                                                      r['router']['id'],
                                                      None,
@@ -865,7 +873,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                               'roles': []}
             tdict.return_value = admin_context
             with self.router() as r:
-                with self.port(do_delete=False) as p:
+                with self.port() as p:
                     tdict.return_value = tenant_context
                     err_code = exc.HTTPNotFound.code
                     self._router_interface_action('add',
@@ -914,7 +922,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
     def test_router_add_interface_dup_subnet2_returns_400(self):
         with self.router() as r:
             with self.subnet() as s:
-                with self.port(subnet=s, do_delete=False) as p1:
+                with self.port(subnet=s) as p1:
                     with self.port(subnet=s) as p2:
                         self._router_interface_action('add',
                                                       r['router']['id'],
@@ -1136,7 +1144,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
     def test_router_remove_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
             with self.subnet() as s:
-                with self.port(do_delete=False) as p:
+                with self.port() as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -1154,7 +1162,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
 
     def test_router_remove_interface_returns_200(self):
         with self.router() as r:
-            with self.port(do_delete=False) as p:
+            with self.port() as p:
                 body = self._router_interface_action('add',
                                                      r['router']['id'],
                                                      None,
@@ -1168,7 +1176,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
     def test_router_remove_interface_wrong_port_returns_404(self):
         with self.router() as r:
             with self.subnet():
-                with self.port(do_delete=False) as p:
+                with self.port() as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
@@ -1410,7 +1418,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                         self.assertEqual(
                             body['floatingip']['port_id'],
                             fip2['floatingip']['port_id'])
-
+                    self._delete('ports', p['port']['id'])
                     # Test that port has been successfully deleted.
                     body = self._show('ports', p['port']['id'],
                                       expected_code=exc.HTTPNotFound.code)
@@ -1525,6 +1533,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 # note: once this port goes out of scope, the port will be
                 # deleted, which is what we want to test. We want to confirm
                 # that the fields are set back to None
+                self._delete('ports', p['port']['id'])
                 body = self._show('floatingips', fip['floatingip']['id'])
                 self.assertEqual(body['floatingip']['id'],
                                  fip['floatingip']['id'])
@@ -1770,7 +1779,7 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         with self.network() as net:
             net_id = net['network']['id']
             self._set_net_external(net_id)
-            with self.subnet(network=net, do_delete=False):
+            with self.subnet(network=net):
                 self._make_floatingip(self.fmt, net_id)
 
 
@@ -1780,7 +1789,7 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
 
     def test_l3_agent_routers_query_interfaces(self):
         with self.router() as r:
-            with self.port(do_delete=False) as p:
+            with self.port() as p:
                 self._router_interface_action('add',
                                               r['router']['id'],
                                               None,
@@ -1804,7 +1813,6 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
         with self.router() as r:
             with self.subnet(cidr='9.0.1.0/24') as subnet:
                 with self.port(subnet=subnet,
-                               do_delete=False,
                                fixed_ips=[{'ip_address': '9.0.1.3'}]) as p:
                     self._router_interface_action('add',
                                                   r['router']['id'],
@@ -1892,7 +1900,7 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
         self._test_notify_op_agent(self._test_router_gateway_op_agent)
 
     def _test_interfaces_op_agent(self, r, notifyApi):
-        with self.port(do_delete=False) as p:
+        with self.port() as p:
             self._router_interface_action('add',
                                           r['router']['id'],
                                           None,

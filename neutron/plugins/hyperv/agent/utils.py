@@ -13,8 +13,6 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-# @author: Pedro Navarro Perez
-# @author: Alessandro Pilotti, Cloudbase Solutions Srl
 
 import sys
 import time
@@ -166,6 +164,9 @@ class HyperVUtils(object):
             raise HyperVException(
                 msg=_('Failed creating port for %s') % vswitch_name)
         return new_port
+
+    def remove_all_security_rules(self, switch_port_name):
+        pass
 
     def disconnect_switch_port(
             self, vswitch_name, switch_port_name, delete_port):

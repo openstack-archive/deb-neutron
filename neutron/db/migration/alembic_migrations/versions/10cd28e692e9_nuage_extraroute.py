@@ -25,20 +25,19 @@ Create Date: 2014-05-14 14:47:53.148132
 revision = '10cd28e692e9'
 down_revision = '1b837a7125a9'
 
-# Change to ['*'] if this migration applies to all plugins
-
-migration_for_plugins = [
-    'neutron.plugins.nuage.plugin.NuagePlugin'
-]
 
 from alembic import op
 import sqlalchemy as sa
 
 from neutron.db import migration
+from neutron.db.migration.alembic_migrations import l3_init_ops
 
 
-def upgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
+def upgrade():
+
+    if not migration.schema_has_table('routers'):
+        # In the database we are migrating from, the configured plugin
+        # did not create the routers table.
         return
 
     op.create_table(
@@ -48,21 +47,12 @@ def upgrade(active_plugins=None, options=None):
         sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
                                 ondelete='CASCADE'),
     )
-    op.create_table(
-        'routerroutes',
-        sa.Column('destination', sa.String(length=64), nullable=False),
-        sa.Column('nexthop', sa.String(length=64), nullable=False),
-        sa.Column('router_id', sa.String(length=36), nullable=False),
-        sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
-                                ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('destination', 'nexthop',
-                                'router_id'),
-    )
+    # This table might already exist as it might have been created
+    # if another plugin was configured before the nuage one
+    if not migration.schema_has_table('routerroutes'):
+        l3_init_ops.create_routerroutes()
 
 
-def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
-    op.drop_table('routerroutes')
+def downgrade():
+    # The routerroutes table should not be dropped
     op.drop_table('routerroutes_mapping')

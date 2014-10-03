@@ -24,6 +24,7 @@ from testtools import matchers
 
 from neutron.agent.common import config as agent_config
 from neutron.agent import l3_agent
+from neutron.agent import l3_ha_agent
 from neutron.agent.linux import interface
 from neutron.common import config as base_config
 from neutron.common import constants as l3_constants
@@ -230,7 +231,7 @@ def router_append_interface(router, count=1, ip_version=4, ra_mode=None,
 
 
 def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
-                        enable_floating_ip=False):
+                        enable_floating_ip=False, enable_ha=False):
     if ip_version == 4:
         ip_addr = '19.4.4.4'
         cidr = '19.4.4.0/24'
@@ -267,6 +268,10 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
 
     router_append_interface(router, count=num_internal_ports,
                             ip_version=ip_version)
+    if enable_ha:
+        router['ha'] = True
+        router['ha_vr_id'] = 1
+        router[l3_constants.HA_INTERFACE_KEY] = get_ha_interface()
 
     if enable_snat is not None:
         router['enable_snat'] = enable_snat
@@ -277,6 +282,26 @@ def _get_subnet_id(port):
     return port['fixed_ips'][0]['subnet_id']
 
 
+def get_ha_interface():
+    return {'admin_state_up': True,
+            'device_id': _uuid(),
+            'device_owner': 'network:router_ha_interface',
+            'fixed_ips': [{'ip_address': '169.254.0.2',
+                           'subnet_id': _uuid()}],
+            'id': _uuid(),
+            'mac_address': '12:34:56:78:2b:5d',
+            'name': u'L3 HA Admin port 0',
+            'network_id': _uuid(),
+            'status': u'ACTIVE',
+            'subnet': {'cidr': '169.254.0.0/24',
+                       'gateway_ip': '169.254.0.1',
+                       'id': _uuid()},
+            'tenant_id': '',
+            'agent_id': _uuid(),
+            'agent_host': 'aaa',
+            'priority': 1}
+
+
 class TestBasicRouterOperations(base.BaseTestCase):
 
     def setUp(self):
@@ -284,6 +309,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.conf = agent_config.setup_conf()
         self.conf.register_opts(base_config.core_opts)
         self.conf.register_opts(l3_agent.L3NATAgent.OPTS)
+        self.conf.register_opts(l3_ha_agent.OPTS)
         agent_config.register_interface_driver_opts_helper(self.conf)
         agent_config.register_use_namespaces_opts_helper(self.conf)
         agent_config.register_root_helper(self.conf)
@@ -291,11 +317,18 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.conf.set_override('router_id', 'fake_id')
         self.conf.set_override('interface_driver',
                                'neutron.agent.linux.interface.NullDriver')
+        self.conf.set_override('send_arp_for_ha', 1)
+        self.conf.set_override('state_path', '')
         self.conf.root_helper = 'sudo'
 
         self.device_exists_p = mock.patch(
             'neutron.agent.linux.ip_lib.device_exists')
         self.device_exists = self.device_exists_p.start()
+
+        mock.patch('neutron.agent.l3_ha_agent.AgentMixin'
+                   '._init_ha_conf_path').start()
+        mock.patch('neutron.agent.linux.keepalived.KeepalivedNotifierMixin'
+                   '._get_full_config_file_path').start()
 
         self.utils_exec_p = mock.patch(
             'neutron.agent.linux.utils.execute')
@@ -342,6 +375,27 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.looping_call_p = mock.patch(
             'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
         self.looping_call_p.start()
+
+        self.snat_ports = [{'subnet': {'cidr': '152.2.0.0/16',
+                                       'gateway_ip': '152.2.0.1',
+                                       'id': _uuid()},
+                           'network_id': _uuid(),
+                           'device_owner': 'network:router_centralized_snat',
+                           'ip_cidr': '152.2.0.13/16',
+                           'mac_address': 'fa:16:3e:80:8d:80',
+                           'fixed_ips': [{'subnet_id': _uuid(),
+                                          'ip_address': '152.2.0.13'}],
+                           'id': _uuid(), 'device_id': _uuid()},
+                          {'subnet': {'cidr': '152.10.0.0/16',
+                                      'gateway_ip': '152.10.0.1',
+                                      'id': _uuid()},
+                           'network_id': _uuid(),
+                           'device_owner': 'network:router_centralized_snat',
+                           'ip_cidr': '152.10.0.13/16',
+                           'mac_address': 'fa:16:3e:80:8d:80',
+                           'fixed_ips': [{'subnet_id': _uuid(),
+                                         'ip_address': '152.10.0.13'}],
+                           'id': _uuid(), 'device_id': _uuid()}]
 
     def _prepare_internal_network_data(self):
         port_id = _uuid()
@@ -464,11 +518,17 @@ class TestBasicRouterOperations(base.BaseTestCase):
     def test_agent_remove_internal_network(self):
         self._test_internal_network_action('remove')
 
-    def _test_external_gateway_action(self, action):
-        router = prepare_router_data(num_internal_ports=2)
+    def _test_external_gateway_action(self, action, router):
         ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
                                  self.conf.use_namespaces, router=router)
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        # Special setup for dvr routers
+        if router.get('distributed'):
+            agent.conf.agent_mode = 'dvr_snat'
+            agent.host = HOSTNAME
+            agent._create_dvr_gateway = mock.Mock()
+            agent.get_snat_interfaces = mock.Mock(return_value=self.snat_ports)
+
         ex_gw_port = {'fixed_ips': [{'ip_address': '20.0.0.30',
                                      'subnet_id': _uuid()}],
                       'subnet': {'gateway_ip': '20.0.0.1'},
@@ -487,17 +547,23 @@ class TestBasicRouterOperations(base.BaseTestCase):
                                          'port_id': _uuid()}]}
             router[l3_constants.FLOATINGIP_KEY] = fake_fip['floatingips']
             agent.external_gateway_added(ri, ex_gw_port, interface_name)
-            self.assertEqual(self.mock_driver.plug.call_count, 1)
-            self.assertEqual(self.mock_driver.init_l3.call_count, 1)
-            self.send_arp.assert_called_once_with(ri.ns_name, interface_name,
-                                                  '20.0.0.30')
-            kwargs = {'preserve_ips': ['192.168.1.34/32'],
-                      'namespace': 'qrouter-' + router['id'],
-                      'gateway': '20.0.0.1',
-                      'extra_subnets': [{'cidr': '172.16.0.0/24'}]}
-            self.mock_driver.init_l3.assert_called_with(interface_name,
-                                                        ['20.0.0.30/24'],
-                                                        **kwargs)
+            if not router.get('distributed'):
+                self.assertEqual(self.mock_driver.plug.call_count, 1)
+                self.assertEqual(self.mock_driver.init_l3.call_count, 1)
+                self.send_arp.assert_called_once_with(ri.ns_name,
+                                                      interface_name,
+                                                      '20.0.0.30')
+                kwargs = {'preserve_ips': ['192.168.1.34/32'],
+                          'namespace': 'qrouter-' + router['id'],
+                          'gateway': '20.0.0.1',
+                          'extra_subnets': [{'cidr': '172.16.0.0/24'}]}
+                self.mock_driver.init_l3.assert_called_with(interface_name,
+                                                            ['20.0.0.30/24'],
+                                                            **kwargs)
+            else:
+                agent._create_dvr_gateway.assert_called_once_with(
+                    ri, ex_gw_port, interface_name,
+                    self.snat_ports)
 
         elif action == 'remove':
             self.device_exists.return_value = True
@@ -581,7 +647,14 @@ class TestBasicRouterOperations(base.BaseTestCase):
                                                  'dvr_snat', 1)
 
     def test_agent_add_external_gateway(self):
-        self._test_external_gateway_action('add')
+        router = prepare_router_data(num_internal_ports=2)
+        self._test_external_gateway_action('add', router)
+
+    def test_agent_add_external_gateway_dist(self):
+        router = prepare_router_data(num_internal_ports=2)
+        router['distributed'] = True
+        router['gw_port_host'] = HOSTNAME
+        self._test_external_gateway_action('add', router)
 
     def _test_arping(self, namespace):
         if not namespace:
@@ -609,7 +682,14 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self._test_arping(namespace=False)
 
     def test_agent_remove_external_gateway(self):
-        self._test_external_gateway_action('remove')
+        router = prepare_router_data(num_internal_ports=2)
+        self._test_external_gateway_action('remove', router)
+
+    def test_agent_remove_external_gateway_dist(self):
+        router = prepare_router_data(num_internal_ports=2)
+        router['distributed'] = True
+        router['gw_port_host'] = HOSTNAME
+        self._test_external_gateway_action('remove', router)
 
     def _check_agent_method_called(self, agent, calls, namespace):
         self.mock_ip.netns.execute.assert_has_calls(
@@ -840,6 +920,16 @@ class TestBasicRouterOperations(base.BaseTestCase):
         agent.add_arp_entry(None, payload)
         self.assertFalse(agent._update_arp_entry.called)
 
+    def test__update_arp_entry_with_no_subnet(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        ri = l3_agent.RouterInfo(
+            'foo_router_id', mock.ANY, True,
+            {'distributed': True, 'gw_port_host': HOSTNAME})
+        with mock.patch.object(l3_agent.ip_lib, 'IPDevice') as f:
+            agent._update_arp_entry(ri, mock.ANY, mock.ANY,
+                                    'foo_subnet_id', 'add')
+        self.assertFalse(f.call_count)
+
     def test_del_arp_entry(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         router = prepare_router_data(num_internal_ports=2)
@@ -949,6 +1039,60 @@ class TestBasicRouterOperations(base.BaseTestCase):
         self.assertFalse(agent.process_router_floating_ip_addresses.called)
         self.assertFalse(agent.process_router_floating_ip_nat_rules.called)
 
+    def test_ha_router_keepalived_config(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        router = prepare_router_data(enable_ha=True)
+        router['routes'] = [
+            {'destination': '8.8.8.8/32', 'nexthop': '35.4.0.10'},
+            {'destination': '8.8.4.4/32', 'nexthop': '35.4.0.11'}]
+        ri = l3_agent.RouterInfo(router['id'], self.conf.root_helper,
+                                 self.conf.use_namespaces, router=router)
+        ri.router = router
+        with contextlib.nested(mock.patch.object(agent,
+                                                 '_spawn_metadata_proxy'),
+                               mock.patch('neutron.agent.linux.'
+                                          'utils.replace_file'),
+                               mock.patch('neutron.agent.linux.'
+                                          'utils.execute'),
+                               mock.patch('os.makedirs')):
+            agent.process_ha_router_added(ri)
+            agent.process_router(ri)
+            config = ri.keepalived_manager.config
+            ha_iface = agent.get_ha_device_name(ri.ha_port['id'])
+            ex_iface = agent.get_external_device_name(ri.ex_gw_port['id'])
+            int_iface = agent.get_internal_device_name(
+                ri.internal_ports[0]['id'])
+
+            expected = """vrrp_sync_group VG_1 {
+    group {
+        VR_1
+    }
+}
+vrrp_instance VR_1 {
+    state BACKUP
+    interface %(ha_iface)s
+    virtual_router_id 1
+    priority 50
+    nopreempt
+    advert_int 2
+    track_interface {
+        %(ha_iface)s
+    }
+    virtual_ipaddress {
+        19.4.4.4/24 dev %(ex_iface)s
+    }
+    virtual_ipaddress_excluded {
+        35.4.0.4/24 dev %(int_iface)s
+    }
+    virtual_routes {
+        0.0.0.0/0 via 19.4.4.1 dev %(ex_iface)s
+        8.8.8.8/32 via 35.4.0.10
+        8.8.4.4/32 via 35.4.0.11
+    }
+}""" % {'ha_iface': ha_iface, 'ex_iface': ex_iface, 'int_iface': int_iface}
+
+            self.assertEqual(expected, config.get_config_str())
+
     @mock.patch('neutron.agent.linux.ip_lib.IPDevice')
     def _test_process_router_floating_ip_addresses_add(self, ri,
                                                        agent, IPDevice):
@@ -1037,6 +1181,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
 
         ri = mock.MagicMock()
         ri.router.get.return_value = []
+        type(ri).is_ha = mock.PropertyMock(return_value=False)
         ri.router['distributed'].__nonzero__ = lambda self: False
 
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -1045,6 +1190,10 @@ class TestBasicRouterOperations(base.BaseTestCase):
             ri, {'id': _uuid()})
         self.assertEqual({}, fip_statuses)
         device.addr.delete.assert_called_once_with(4, '15.1.2.3/32')
+        self.mock_driver.delete_conntrack_state.assert_called_once_with(
+            root_helper=self.conf.root_helper,
+            namespace=ri.ns_name,
+            ip='15.1.2.3/32')
 
     def test_process_router_floating_ip_nat_rules_remove(self):
         ri = mock.MagicMock()
@@ -1071,7 +1220,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
         device.addr.list.return_value = [{'cidr': '15.1.2.3/32'}]
         ri = mock.MagicMock()
         ri.router['distributed'].__nonzero__ = lambda self: False
-
+        type(ri).is_ha = mock.PropertyMock(return_value=False)
         ri.router.get.return_value = [fip]
 
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -1116,6 +1265,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
             'fixed_ip_address': '192.168.0.2'
         }
         ri = mock.MagicMock()
+        type(ri).is_ha = mock.PropertyMock(return_value=False)
         ri.router.get.return_value = [fip]
         ri.router['distributed'].__nonzero__ = lambda self: False
 
@@ -1456,6 +1606,19 @@ class TestBasicRouterOperations(base.BaseTestCase):
                 mock.ANY, ri.router_id,
                 {fip_id: l3_constants.FLOATINGIP_STATUS_ERROR})
 
+    def test_handle_router_snat_rules_distributed_without_snat_manager(self):
+        ri = l3_agent.RouterInfo(
+            'foo_router_id', mock.ANY, True, {'distributed': True})
+        ri.iptables_manager = mock.Mock()
+
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        with mock.patch.object(l3_agent.LOG, 'debug') as log_debug:
+            agent._handle_router_snat_rules(
+                ri, mock.ANY, mock.ANY, mock.ANY, mock.ANY)
+        self.assertIsNone(ri.snat_iptables_manager)
+        self.assertFalse(ri.iptables_manager.called)
+        self.assertTrue(log_debug.called)
+
     def test_handle_router_snat_rules_add_back_jump(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = mock.MagicMock()
@@ -1687,7 +1850,7 @@ class TestBasicRouterOperations(base.BaseTestCase):
                 agent, '_spawn_metadata_proxy') as spawn_proxy:
                 agent._router_added(router_id, router)
                 if enableflag:
-                    spawn_proxy.assert_called_with(mock.ANY, mock.ANY)
+                    spawn_proxy.assert_called_with(router_id, mock.ANY)
                 else:
                     self.assertFalse(spawn_proxy.call_count)
                 agent._router_removed(router_id)
@@ -1951,31 +2114,11 @@ class TestBasicRouterOperations(base.BaseTestCase):
                        'mac_address': 'ca:fe:de:ad:be:ef',
                        'ip_cidr': '20.0.0.30/24'}
 
-        snat_ports = [{'subnet': {'cidr': '152.2.0.0/16',
-                                  'gateway_ip': '152.2.0.1',
-                                  'id': _uuid()},
-                       'network_id': _uuid(),
-                       'device_owner': 'network:router_centralized_snat',
-                       'ip_cidr': '152.2.0.13/16',
-                       'mac_address': 'fa:16:3e:80:8d:80',
-                       'fixed_ips': [{'subnet_id': _uuid(),
-                                      'ip_address': '152.2.0.13'}],
-                       'id': _uuid(), 'device_id': _uuid()},
-                      {'subnet': {'cidr': '152.10.0.0/16',
-                                  'gateway_ip': '152.10.0.1',
-                                  'id': _uuid()},
-                       'network_id': _uuid(),
-                       'device_owner': 'network:router_centralized_snat',
-                       'ip_cidr': '152.10.0.13/16',
-                       'mac_address': 'fa:16:3e:80:8d:80',
-                       'fixed_ips': [{'subnet_id': _uuid(),
-                                     'ip_address': '152.10.0.13'}],
-                       'id': _uuid(), 'device_id': _uuid()}]
-
         interface_name = agent.get_snat_int_device_name(port_id)
         self.device_exists.return_value = False
 
-        agent._create_dvr_gateway(ri, dvr_gw_port, interface_name, snat_ports)
+        agent._create_dvr_gateway(ri, dvr_gw_port, interface_name,
+                                  self.snat_ports)
 
         # check 2 internal ports are plugged
         # check 1 ext-gw-port is plugged
@@ -2123,6 +2266,7 @@ class TestL3AgentEventHandler(base.BaseTestCase):
     def setUp(self):
         super(TestL3AgentEventHandler, self).setUp()
         cfg.CONF.register_opts(l3_agent.L3NATAgent.OPTS)
+        cfg.CONF.register_opts(l3_ha_agent.OPTS)
         agent_config.register_interface_driver_opts_helper(cfg.CONF)
         agent_config.register_use_namespaces_opts_helper(cfg.CONF)
         cfg.CONF.set_override(
@@ -2171,12 +2315,12 @@ class TestL3AgentEventHandler(base.BaseTestCase):
         cfg.CONF.set_override('debug', True)
 
         self.external_process_p.stop()
-        ns = 'qrouter-' + router_id
+        ri = l3_agent.RouterInfo(router_id, None, True, None)
         try:
             with mock.patch(ip_class_path) as ip_mock:
-                self.agent._spawn_metadata_proxy(router_id, ns)
+                self.agent._spawn_metadata_proxy(ri.router_id, ri.ns_name)
                 ip_mock.assert_has_calls([
-                    mock.call('sudo', ns),
+                    mock.call('sudo', ri.ns_name),
                     mock.call().netns.execute([
                         'neutron-ns-metadata-proxy',
                         mock.ANY,

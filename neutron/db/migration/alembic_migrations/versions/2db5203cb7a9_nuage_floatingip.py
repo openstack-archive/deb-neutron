@@ -25,59 +25,72 @@ Create Date: 2014-05-19 16:39:42.048125
 revision = '2db5203cb7a9'
 down_revision = '10cd28e692e9'
 
-migration_for_plugins = [
-    'neutron.plugins.nuage.plugin.NuagePlugin'
-]
 
 from alembic import op
 import sqlalchemy as sa
 
 from neutron.db import migration
 
-
-def upgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
-
-    op.create_table(
-        'nuage_floatingip_pool_mapping',
-        sa.Column('fip_pool_id', sa.String(length=36), nullable=False),
-        sa.Column('net_id', sa.String(length=36), nullable=True),
-        sa.Column('router_id', sa.String(length=36), nullable=True),
-        sa.ForeignKeyConstraint(['net_id'], ['networks.id'],
-                                ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
-                                ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('fip_pool_id'),
-    )
-    op.create_table(
-        'nuage_floatingip_mapping',
-        sa.Column('fip_id', sa.String(length=36), nullable=False),
-        sa.Column('router_id', sa.String(length=36), nullable=True),
-        sa.Column('nuage_fip_id', sa.String(length=36), nullable=True),
-        sa.ForeignKeyConstraint(['fip_id'], ['floatingips.id'],
-                                ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('fip_id'),
-    )
-    op.rename_table('net_partitions', 'nuage_net_partitions')
-    op.rename_table('net_partition_router_mapping',
-                    'nuage_net_partition_router_mapping')
-    op.rename_table('router_zone_mapping', 'nuage_router_zone_mapping')
-    op.rename_table('subnet_l2dom_mapping', 'nuage_subnet_l2dom_mapping')
-    op.rename_table('port_mapping', 'nuage_port_mapping')
-    op.rename_table('routerroutes_mapping', 'nuage_routerroutes_mapping')
+# This migration will be executed only if the neutron DB schema contains
+# the tables for the nuage plugin.
+# This migration will be skipped when executed in offline mode.
 
 
-def downgrade(active_plugins=None, options=None):
-    if not migration.should_run(active_plugins, migration_for_plugins):
-        return
+@migration.skip_if_offline
+def upgrade():
+    # These tables will be created even if the nuage plugin is not enabled.
+    # This is fine as they would be created anyway by the healing migration.
+    if migration.schema_has_table('routers'):
+        # In the database we are migrating from, the configured plugin
+        # did not create the routers table.
+        op.create_table(
+            'nuage_floatingip_pool_mapping',
+            sa.Column('fip_pool_id', sa.String(length=36), nullable=False),
+            sa.Column('net_id', sa.String(length=36), nullable=True),
+            sa.Column('router_id', sa.String(length=36), nullable=True),
+            sa.ForeignKeyConstraint(['net_id'], ['networks.id'],
+                                    ondelete='CASCADE'),
+            sa.ForeignKeyConstraint(['router_id'], ['routers.id'],
+                                    ondelete='CASCADE'),
+            sa.PrimaryKeyConstraint('fip_pool_id'),
+        )
+    if migration.schema_has_table('floatingips'):
+        # In the database we are migrating from, the configured plugin
+        # did not create the floatingips table.
+        op.create_table(
+            'nuage_floatingip_mapping',
+            sa.Column('fip_id', sa.String(length=36), nullable=False),
+            sa.Column('router_id', sa.String(length=36), nullable=True),
+            sa.Column('nuage_fip_id', sa.String(length=36), nullable=True),
+            sa.ForeignKeyConstraint(['fip_id'], ['floatingips.id'],
+                                    ondelete='CASCADE'),
+            sa.PrimaryKeyConstraint('fip_id'),
+        )
+    migration.rename_table_if_exists('net_partitions',
+                                     'nuage_net_partitions')
+    migration.rename_table_if_exists('net_partition_router_mapping',
+                                     'nuage_net_partition_router_mapping')
+    migration.rename_table_if_exists('router_zone_mapping',
+                                     'nuage_router_zone_mapping')
+    migration.rename_table_if_exists('subnet_l2dom_mapping',
+                                     'nuage_subnet_l2dom_mapping')
+    migration.rename_table_if_exists('port_mapping',
+                                     'nuage_port_mapping')
+    migration.rename_table_if_exists('routerroutes_mapping',
+                                     'nuage_routerroutes_mapping')
 
-    op.drop_table('nuage_floatingip_mapping')
-    op.drop_table('nuage_floatingip_pool_mapping')
-    op.rename_table('nuage_net_partitions', 'net_partitions')
-    op.rename_table('nuage_net_partition_router_mapping',
-                    'net_partition_router_mapping')
-    op.rename_table('nuage_router_zone_mapping', 'router_zone_mapping')
-    op.rename_table('nuage_subnet_l2dom_mapping', 'subnet_l2dom_mapping')
-    op.rename_table('nuage_port_mapping', 'port_mapping')
-    op.rename_table('nuage_routerroutes_mapping', 'routerroutes_mapping')
+
+@migration.skip_if_offline
+def downgrade():
+    migration.drop_table_if_exists('nuage_floatingip_mapping')
+    migration.drop_table_if_exists('nuage_floatingip_pool_mapping')
+    migration.rename_table_if_exists('nuage_net_partitions', 'net_partitions')
+    migration.rename_table_if_exists('nuage_net_partition_router_mapping',
+                                     'net_partition_router_mapping')
+    migration.rename_table_if_exists('nuage_router_zone_mapping',
+                                     'router_zone_mapping')
+    migration.rename_table_if_exists('nuage_subnet_l2dom_mapping',
+                                     'subnet_l2dom_mapping')
+    migration.rename_table_if_exists('nuage_port_mapping', 'port_mapping')
+    migration.rename_table_if_exists('nuage_routerroutes_mapping',
+                                     'routerroutes_mapping')
