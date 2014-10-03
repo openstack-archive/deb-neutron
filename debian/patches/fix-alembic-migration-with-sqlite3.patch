@@ -6,255 +6,118 @@ Author: Thomas Goirand <zigo@debian.org>
 Bug-Debian: http://bugs.debian.org/726719
 Bug-Ubuntu: https://launchpad.net/bugs/1241952
 Forwarded: https://review.openstack.org/#/c/52636
-Last-Update: 2014-07-31
+Last-Update: 2014-10-03
 
-Index: neutron/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py	2014-09-19 18:10:26.000000000 +0800
-@@ -41,8 +41,48 @@
- def upgrade(active_plugins=None, options=None):
-     if not migration.should_run(active_plugins, migration_for_plugins):
-         return
--    op.drop_column('healthmonitors', 'status')
--    op.drop_column('healthmonitors', 'status_description')
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
-+        op.execute("CREATE TEMPORARY TABLE healthmonitors_backup ( "
-+                   "tenant_id VARCHAR(255),  "
-+                   "id VARCHAR(36) NOT NULL, "
-+                   "type VARCHAR(5) NOT NULL, "
-+                   "delay INTEGER NOT NULL, "
-+                   "timeout INTEGER NOT NULL, "
-+                   "max_retries INTEGER NOT NULL, "
-+                   "http_method VARCHAR(16), "
-+                   "url_path VARCHAR(255), "
-+                   "expected_codes VARCHAR(64), "
-+                   "admin_state_up BOOLEAN NOT NULL, "
-+                   "PRIMARY KEY (id), "
-+                   "CONSTRAINT healthmontiors_type CHECK (type IN ('PING', 'TCP', 'HTTP', 'HTTPS')), "
-+                   "CHECK (admin_state_up IN (0, 1)));")
-+        op.execute("INSERT INTO healthmonitors_backup SELECT "
-+                   "tenant_id,id,type,delay,timeout,max_retries,http_method,url_path,expected_codes,admin_state_up "
-+                   "FROM healthmonitors;")
-+        op.execute("DROP TABLE healthmonitors;");
-+        op.execute("CREATE TEMPORARY TABLE healthmonitors ( "
-+                   "tenant_id VARCHAR(255),  "
-+                   "id VARCHAR(36) NOT NULL, "
-+                   "type VARCHAR(5) NOT NULL, "
-+                   "delay INTEGER NOT NULL, "
-+                   "timeout INTEGER NOT NULL, "
-+                   "max_retries INTEGER NOT NULL, "
-+                   "http_method VARCHAR(16), "
-+                   "url_path VARCHAR(255), "
-+                   "expected_codes VARCHAR(64), "
-+                   "admin_state_up BOOLEAN NOT NULL, "
-+                   "PRIMARY KEY (id), "
-+                   "CONSTRAINT healthmontiors_type CHECK (type IN ('PING', 'TCP', 'HTTP', 'HTTPS')), "
-+                   "CHECK (admin_state_up IN (0, 1)));")
-+        op.execute("INSERT INTO healthmonitors SELECT "
-+                   "tenant_id,id,type,delay,timeout,max_retries,http_method,url_path,expected_codes,admin_state_up "
-+                   "FROM healthmonitors_backup;")
-+        op.execute("DROP TABLE healthmonitors_backup;");
-+    else:
-+        op.drop_column('healthmonitors', 'status')
-+        op.drop_column('healthmonitors', 'status_description')
- 
- 
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py	2014-09-19 18:10:26.000000000 +0800
-@@ -53,19 +53,63 @@
+--- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
++++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
+@@ -50,6 +50,45 @@ def upgrade():
              "UPDATE ml2_port_bindings SET"
              " vif_details = '{\"port_filter\": false}'"
              " WHERE cap_port_filter = 0")
-+
++        op.drop_column('ml2_port_bindings', 'cap_port_filter')
++    elif op.get_bind().engine.name == 'sqlite':
++        op.execute("CREATE TEMPORARY TABLE ml2_port_bindings_backup ( "
++            "port_id VARCHAR(36) NOT NULL, "    
++            "host VARCHAR(255) NOT NULL, "      
++            "vif_type VARCHAR(64) NOT NULL, "   
++            "cap_port_filter BOOLEAN NOT NULL, "
++            "driver VARCHAR(64), " 
++            "segment VARCHAR(36), "
++            "vnic_type VARCHAR(64) DEFAULT 'normal' NOT NULL, "
++            "vif_details VARCHAR(4095) DEFAULT '' NOT NULL, "
++            "PRIMARY KEY (port_id), "
++            "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
++            "FOREIGN KEY(segment) REFERENCES ml2_network_segments (id) ON DELETE SET NULL, "
++            "CHECK (cap_port_filter IN (0, 1)));") 
++        op.execute("INSERT INTO ml2_port_bindings_backup "
++            "(port_id,host,vif_type,cap_port_filter,driver,segment,vnic_type) "
++            "SELECT port_id,host,vif_type,cap_port_filter,driver,segment,vnic_type "
++            "FROM ml2_port_bindings;")
++        for value in ('true', 'false'):
++            op.execute("UPDATE ml2_port_bindings_backup SET"
++                       " vif_details = '{\"port_filter\": %(value)s}'"
++                       " WHERE cap_port_filter = '%(value)s'" % {'value': value})
++        op.execute("DROP TABLE ml2_port_bindings")
++        op.execute("CREATE TABLE ml2_port_bindings ( "
++            "port_id VARCHAR(36) NOT NULL, " 
++            "host VARCHAR(255) NOT NULL, "   
++            "vif_type VARCHAR(64) NOT NULL, "
++            "driver VARCHAR(64), " 
++            "segment VARCHAR(36), "
++            "vnic_type VARCHAR(64) DEFAULT 'normal' NOT NULL, "
++            "vif_details VARCHAR(4095) DEFAULT '' NOT NULL, "
++            "PRIMARY KEY (port_id), "
++            "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
++            "FOREIGN KEY(segment) REFERENCES ml2_network_segments (id) ON DELETE SET NULL);")
++        op.execute("INSERT INTO ml2_port_bindings "
++            "SELECT port_id,host,vif_type,driver,segment,vnic_type,vif_details "
++            "FROM ml2_port_bindings_backup;")
++        op.execute("DROP TABLE ml2_port_bindings_backup")
      else:
--        op.execute(
--            "UPDATE ml2_port_bindings SET"
--            " vif_details = '{\"port_filter\": true}'"
--            " WHERE cap_port_filter = true")
--        op.execute(
--            "UPDATE ml2_port_bindings SET"
--            " vif_details = '{\"port_filter\": false}'"
--            " WHERE cap_port_filter = false")
+         op.execute(
+             "UPDATE ml2_port_bindings SET"
+@@ -59,7 +98,7 @@ def upgrade():
+             "UPDATE ml2_port_bindings SET"
+             " vif_details = '{\"port_filter\": false}'"
+             " WHERE cap_port_filter = false")
 -    op.drop_column('ml2_port_bindings', 'cap_port_filter')
-+        if op.get_bind().engine.name == 'sqlite':
-+            op.execute("CREATE TEMPORARY TABLE ml2_port_bindings_backup ( "
-+                       "port_id VARCHAR(36) NOT NULL, "
-+                       "host VARCHAR(255) NOT NULL, "
-+                       "vif_type VARCHAR(64) NOT NULL, "
-+                       "cap_port_filter BOOLEAN NOT NULL, "
-+                       "driver VARCHAR(64), "
-+                       "segment VARCHAR(36), "
-+                       "vnic_type VARCHAR(64) DEFAULT 'normal' NOT NULL, "
-+                       "vif_details VARCHAR(4095) DEFAULT '' NOT NULL, "
-+                       "PRIMARY KEY (port_id), "
-+                       "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
-+                       "FOREIGN KEY(segment) REFERENCES ml2_network_segments (id) ON DELETE SET NULL, "
-+                       "CHECK (cap_port_filter IN (0, 1)));")
-+            op.execute("INSERT INTO ml2_port_bindings_backup "
-+                       "(port_id,host,vif_type,cap_port_filter,driver,segment,vnic_type) "
-+                       "SELECT port_id,host,vif_type,cap_port_filter,driver,segment,vnic_type "
-+                       "FROM ml2_port_bindings;")
-+            for value in ('true', 'false'):
-+                op.execute("UPDATE ml2_port_bindings_backup SET"
-+                           " vif_details = '{\"port_filter\": %(value)s}'"
-+                           " WHERE cap_port_filter = '%(value)s'" % {'value': value})
-+            op.execute("DROP TABLE ml2_port_bindings")
-+            op.execute("CREATE TABLE ml2_port_bindings ( "
-+                       "port_id VARCHAR(36) NOT NULL, "
-+                       "host VARCHAR(255) NOT NULL, "
-+                       "vif_type VARCHAR(64) NOT NULL, "
-+                       "driver VARCHAR(64), "
-+                       "segment VARCHAR(36), "
-+                       "vnic_type VARCHAR(64) DEFAULT 'normal' NOT NULL, "
-+                       "vif_details VARCHAR(4095) DEFAULT '' NOT NULL, "
-+                       "PRIMARY KEY (port_id), "
-+                       "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
-+                       "FOREIGN KEY(segment) REFERENCES ml2_network_segments (id) ON DELETE SET NULL);")
-+            op.execute("INSERT INTO ml2_port_bindings "
-+                       "SELECT port_id,host,vif_type,driver,segment,vnic_type,vif_details "
-+                       "FROM ml2_port_bindings_backup;")
-+            op.execute("DROP TABLE ml2_port_bindings_backup")
-+        else:
-+        
-+             op.execute(
-+                "UPDATE ml2_port_bindings SET"
-+                " vif_details = '{\"port_filter\": true}'"
-+                " WHERE cap_port_filter = true")
-+            op.execute(
-+                "UPDATE ml2_port_bindings SET"
-+                " vif_details = '{\"port_filter\": false}'"
-+                " WHERE cap_port_filter = false")
-+            op.drop_column('ml2_port_bindings', 'cap_port_filter')
-+
++        op.drop_column('ml2_port_bindings', 'cap_port_filter')
      if op.get_bind().engine.name == 'ibm_db_sa':
          op.execute("CALL SYSPROC.ADMIN_CMD('REORG TABLE ml2_port_bindings')")
  
-+    
-+
+--- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
++++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
+@@ -36,11 +36,15 @@ TABLE_NAME = 'members'
  
- def downgrade(active_plugins=None, options=None):
-     pass
-Index: neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py	2014-09-19 18:10:26.000000000 +0800
-@@ -59,7 +59,7 @@
-     op.add_column('routers', sa.Column('enable_snat', sa.Boolean(),
-                                        nullable=False, server_default="1"))
-     # Set enable_snat to True for existing routers
--    op.execute("UPDATE routers SET enable_snat=True")
-+    op.execute("UPDATE routers SET enable_snat='True'")
- 
- 
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py	2014-09-19 18:10:26.000000000 +0800
-@@ -44,11 +44,27 @@
-     if not migration.should_run(active_plugins, migration_for_plugins):
-         return
- 
--    op.create_unique_constraint(
--        name=CONSTRAINT_NAME,
--        source=TABLE_NAME,
--        local_cols=['id']
--    )
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
-+        op.execute("CREATE TEMPORARY TABLE ovs_tunnel_endpoints_backup ( "
-+                   "ip_address VARCHAR(64) NOT NULL, "
-+                   "id INTEGER NOT NULL UNIQUE, "
-+                   "PRIMARY KEY (ip_address) );")
-+        op.execute("INSERT INTO ovs_tunnel_endpoints_backup SELECT ip_address,id FROM ovs_tunnel_endpoints;")
-+        op.execute("DROP TABLE ovs_tunnel_endpoints;");
-+        op.execute("CREATE TABLE ovs_tunnel_endpoints ( "
-+                   "ip_address VARCHAR(64) NOT NULL, "
-+                   "id INTEGER UNIQUE NOT NULL, "
-+                   "PRIMARY KEY (ip_address) );")
-+        op.execute("INSERT INTO ovs_tunnel_endpoints SELECT ip_address,id FROM ovs_tunnel_endpoints_backup;")
-+        op.execute("DROP TABLE ovs_tunnel_endpoints_backup;")
-+    else:
-+        op.create_unique_constraint(
-+            name=CONSTRAINT_NAME,
-+            source=TABLE_NAME,
-+            local_cols=['id']
-+        )
+ def upgrade():
+     if migration.schema_has_table(TABLE_NAME):
+-        op.create_unique_constraint(
+-            name=CONSTRAINT_NAME,
+-            source=TABLE_NAME,
+-            local_cols=['pool_id', 'address', 'protocol_port']
+-        )
++        if op.get_bind().engine.name == 'sqlite':
++            op.execute("CREATE UNIQUE INDEX uniq_member0pool_id0address0port "
++                       "on members (pool_id,address,protocol_port);")
++        else:
++            op.create_unique_constraint(
++                name=CONSTRAINT_NAME,
++                source=TABLE_NAME,
++                local_cols=['pool_id', 'address', 'protocol_port']
++            )
  
  
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py	2014-09-19 18:10:26.000000000 +0800
-@@ -45,11 +45,17 @@
-     if not migration.should_run(active_plugins, migration_for_plugins):
-         return
+ def downgrade():
+--- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
++++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
+@@ -34,14 +34,15 @@ from neutron.db import migration
  
--    op.create_unique_constraint(
--        name=CONSTRAINT_NAME,
--        source=TABLE_NAME,
--        local_cols=['pool_id', 'address', 'protocol_port']
--    )
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
-+        op.execute("CREATE UNIQUE INDEX uniq_member0pool_id0address0port "
-+                   "on members (pool_id,address,protocol_port);")
-+    else:
-+        op.create_unique_constraint(
-+            name=CONSTRAINT_NAME,
-+            source=TABLE_NAME,
-+            local_cols=['pool_id', 'address', 'protocol_port']
-+        )
- 
- 
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py	2014-09-19 18:10:26.000000000 +0800
-@@ -41,14 +41,19 @@
-     if not migration.should_run(active_plugins, migration_for_plugins):
-         return
- 
--    op.alter_column('poolstatisticss', 'bytes_in',
--                    type_=sa.BigInteger(), existing_type=sa.Integer())
--    op.alter_column('poolstatisticss', 'bytes_out',
--                    type_=sa.BigInteger(), existing_type=sa.Integer())
--    op.alter_column('poolstatisticss', 'active_connections',
--                    type_=sa.BigInteger(), existing_type=sa.Integer())
--    op.alter_column('poolstatisticss', 'total_connections',
--                    type_=sa.BigInteger(), existing_type=sa.Integer())
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    # There's no such thing as "BIGINT" in SQLite, just INTEGER,
-+    # so we have nothing to do for SQLite.
-+    if engine.name != 'sqlite':
-+        op.alter_column('poolstatisticss', 'bytes_in',
-+                        type_=sa.BigInteger(), existing_type=sa.Integer())
-+        op.alter_column('poolstatisticss', 'bytes_out',
-+                        type_=sa.BigInteger(), existing_type=sa.Integer())
-+        op.alter_column('poolstatisticss', 'active_connections',
-+                        type_=sa.BigInteger(), existing_type=sa.Integer())
-+        op.alter_column('poolstatisticss', 'total_connections',
-+                        type_=sa.BigInteger(), existing_type=sa.Integer())
+ def upgrade():
+     if migration.schema_has_table('poolstatisticss'):
+-        op.alter_column('poolstatisticss', 'bytes_in',
+-                        type_=sa.BigInteger(), existing_type=sa.Integer())
+-        op.alter_column('poolstatisticss', 'bytes_out',
+-                        type_=sa.BigInteger(), existing_type=sa.Integer())
+-        op.alter_column('poolstatisticss', 'active_connections',
+-                        type_=sa.BigInteger(), existing_type=sa.Integer())
+-        op.alter_column('poolstatisticss', 'total_connections',
+-                        type_=sa.BigInteger(), existing_type=sa.Integer())
++        if op.get_bind().engine.name != 'sqlite':
++            op.alter_column('poolstatisticss', 'bytes_in',
++                            type_=sa.BigInteger(), existing_type=sa.Integer())
++            op.alter_column('poolstatisticss', 'bytes_out',
++                            type_=sa.BigInteger(), existing_type=sa.Integer())
++            op.alter_column('poolstatisticss', 'active_connections',
++                            type_=sa.BigInteger(), existing_type=sa.Integer())
++            op.alter_column('poolstatisticss', 'total_connections',
++                            type_=sa.BigInteger(), existing_type=sa.Integer())
  
  
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py	2014-09-19 18:10:26.000000000 +0800
-@@ -54,11 +54,17 @@
-     if not migration.should_run(active_plugins, migration_for_plugins):
+ def downgrade():
+--- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
++++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
+@@ -41,11 +41,15 @@ def upgrade():
+         # configured plugin did not create the agents table.
          return
  
 -    op.create_unique_constraint(
@@ -262,9 +125,7 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_age
 -        source=TABLE_NAME,
 -        local_cols=['agent_type', 'host']
 -    )
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
++    if op.get_bind().engine.name == 'sqlite':
 +        op.execute("CREATE UNIQUE INDEX uniq_agents0agent_type0host "
 +                   "on agents (agent_type,host);")
 +    else:
@@ -275,52 +136,4 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_age
 +        )
  
  
- def downgrade(active_plugins=None, options=None):
-Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
-===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py	2014-09-19 18:10:26.000000000 +0800
-@@ -36,7 +36,42 @@
- 
- 
- def upgrade(active_plugins=None, options=None):
--    op.drop_column('ipallocations', u'expiration')
-+    bind = op.get_bind()
-+    engine = bind.engine
-+    if engine.name == 'sqlite':
-+        op.execute("CREATE TEMPORARY TABLE ipallocations_backup ("
-+                   "port_id VARCHAR(36), "
-+                   "ip_address VARCHAR(64) NOT NULL, "
-+                   "subnet_id VARCHAR(36) NOT NULL, "
-+                   "network_id VARCHAR(36) NOT NULL, "
-+                   "PRIMARY KEY (ip_address, subnet_id, network_id), "
-+                   "FOREIGN KEY(network_id) REFERENCES networks (id) "
-+                   "ON DELETE CASCADE, "
-+                   "FOREIGN KEY(port_id) REFERENCES ports (id) "
-+                   "ON DELETE CASCADE, "
-+                   "FOREIGN KEY(subnet_id) REFERENCES subnets (id) "
-+                   "ON DELETE CASCADE "
-+                   ");")
-+        op.execute("INSERT INTO ipallocations_backup "
-+                   "SELECT port_id,ip_address,subnet_id,network_id "
-+                   "FROM ipallocations;")
-+        op.execute("DROP TABLE ipallocations;")
-+        op.execute("CREATE TABLE ipallocations ("
-+                   "port_id VARCHAR(36), "
-+                   "ip_address VARCHAR(64) NOT NULL, "
-+                   "subnet_id VARCHAR(36) NOT NULL, "
-+                   "network_id VARCHAR(36) NOT NULL, "
-+                   "PRIMARY KEY (ip_address, subnet_id, network_id), "
-+                   "FOREIGN KEY(network_id) REFERENCES networks (id) ON DELETE CASCADE, "
-+                   "FOREIGN KEY(port_id) REFERENCES ports (id) ON DELETE CASCADE, "
-+                   "FOREIGN KEY(subnet_id) REFERENCES subnets (id) ON DELETE CASCADE "
-+                   ");")
-+        op.execute("INSERT INTO ipallocations "
-+                   "SELECT port_id,ip_address,subnet_id,network_id "
-+                   "FROM ipallocations_backup;")
-+        op.execute("DROP TABLE ipallocations_backup;")
-+    else:
-+        op.drop_column('ipallocations', u'expiration')
- 
- 
- def downgrade(active_plugins=None, options=None):
+ def downgrade():

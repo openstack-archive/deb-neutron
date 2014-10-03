@@ -31,8 +31,8 @@ Last-Update: <YYYY-MM-DD>
 
 Index: neutron/etc/l3_agent.ini
 ===================================================================
---- neutron.orig/etc/l3_agent.ini	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/etc/l3_agent.ini	2014-09-19 18:10:35.000000000 +0800
+--- neutron.orig/etc/l3_agent.ini	2014-10-03 19:07:30.000000000 +0800
++++ neutron/etc/l3_agent.ini	2014-10-03 19:11:29.000000000 +0800
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -48,8 +48,8 @@ Index: neutron/etc/l3_agent.ini
  # Support kernels with limited namespace support
 Index: neutron/etc/neutron.conf
 ===================================================================
---- neutron.orig/etc/neutron.conf	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/etc/neutron.conf	2014-09-19 18:10:35.000000000 +0800
+--- neutron.orig/etc/neutron.conf	2014-10-03 19:07:30.000000000 +0800
++++ neutron/etc/neutron.conf	2014-10-03 19:11:29.000000000 +0800
 @@ -60,8 +60,8 @@
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -70,7 +70,7 @@ Index: neutron/etc/neutron.conf
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -324,7 +324,7 @@
+@@ -340,7 +340,7 @@
  
  # The RabbitMQ broker address where a single node is used.
  # (string value)
@@ -79,7 +79,7 @@ Index: neutron/etc/neutron.conf
  
  # The RabbitMQ broker port where a single node is used.
  # (integer value)
-@@ -337,10 +337,10 @@
+@@ -353,10 +353,10 @@
  #rabbit_use_ssl=false
  
  # The RabbitMQ userid. (string value)
@@ -92,7 +92,7 @@ Index: neutron/etc/neutron.conf
  
  # the RabbitMQ login method (string value)
  #rabbit_login_method=AMQPLAIN
-@@ -527,7 +527,7 @@
+@@ -543,7 +543,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -101,7 +101,7 @@ Index: neutron/etc/neutron.conf
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -547,14 +547,13 @@
+@@ -563,14 +563,13 @@
  [database]
  # This line MUST be changed to actually run the plugin.
  # Example:
@@ -119,8 +119,8 @@ Index: neutron/etc/neutron.conf
  # migration
 Index: neutron/etc/lbaas_agent.ini
 ===================================================================
---- neutron.orig/etc/lbaas_agent.ini	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/etc/lbaas_agent.ini	2014-09-19 18:10:35.000000000 +0800
+--- neutron.orig/etc/lbaas_agent.ini	2014-10-03 19:03:50.000000000 +0800
++++ neutron/etc/lbaas_agent.ini	2014-10-03 19:11:29.000000000 +0800
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -136,8 +136,8 @@ Index: neutron/etc/lbaas_agent.ini
  # Support kernels with limited namespace support
 Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 ===================================================================
---- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-09-19 18:00:25.000000000 +0800
-+++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-09-19 18:10:35.000000000 +0800
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-10-03 19:03:50.000000000 +0800
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-10-03 19:11:29.000000000 +0800
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.
