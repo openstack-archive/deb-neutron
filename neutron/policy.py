@@ -18,12 +18,15 @@
 """
 Policy engine for neutron.  Largely copied from nova.
 """
+
+import collections
 import itertools
 import re
 
 from oslo.config import cfg
 
 from neutron.api.v2 import attributes
+from neutron.common import constants as const
 from neutron.common import exceptions
 import neutron.common.utils as utils
 from neutron import manager
@@ -119,12 +122,26 @@ def _set_rules(data):
     policy.set_rules(policies)
 
 
-def _is_attribute_explicitly_set(attribute_name, resource, target):
-    """Verify that an attribute is present and has a non-default value."""
+def _is_attribute_explicitly_set(attribute_name, resource, target, action):
+    """Verify that an attribute is present and is explicitly set."""
+    if 'update' in action:
+        # In the case of update, the function should not pay attention to a
+        # default value of an attribute, but check whether it was explicitly
+        # marked as being updated instead.
+        return (attribute_name in target[const.ATTRIBUTES_TO_UPDATE] and
+                target[attribute_name] is not attributes.ATTR_NOT_SPECIFIED)
     return ('default' in resource[attribute_name] and
             attribute_name in target and
             target[attribute_name] is not attributes.ATTR_NOT_SPECIFIED and
             target[attribute_name] != resource[attribute_name]['default'])
+
+
+def _should_validate_sub_attributes(attribute, sub_attr):
+    """Verify that sub-attributes are iterable and should be validated."""
+    validate = attribute.get('validate')
+    return (validate and isinstance(sub_attr, collections.Iterable) and
+            any([k.startswith('type:dict') and
+                 v for (k, v) in validate.iteritems()]))
 
 
 def _build_subattr_match_rule(attr_name, attr, action, target):
@@ -164,7 +181,6 @@ def _build_match_rule(action, target):
        action is being executed
        (e.g.: create_router:external_gateway_info:network_id)
     """
-
     match_rule = policy.RuleCheck('rule', action)
     resource, is_write = get_resource_and_action(action)
     # Attribute-based checks shall not be enforced on GETs
@@ -175,16 +191,14 @@ def _build_match_rule(action, target):
             for attribute_name in res_map[resource]:
                 if _is_attribute_explicitly_set(attribute_name,
                                                 res_map[resource],
-                                                target):
+                                                target, action):
                     attribute = res_map[resource][attribute_name]
                     if 'enforce_policy' in attribute:
                         attr_rule = policy.RuleCheck('rule', '%s:%s' %
                                                      (action, attribute_name))
-                        # Build match entries for sub-attributes, if present
-                        validate = attribute.get('validate')
-                        if (validate and any([k.startswith('type:dict') and v
-                                              for (k, v) in
-                                              validate.iteritems()])):
+                        # Build match entries for sub-attributes
+                        if _should_validate_sub_attributes(
+                                attribute, target[attribute_name]):
                             attr_rule = policy.AndCheck(
                                 [attr_rule, _build_subattr_match_rule(
                                     attribute_name, attribute,
@@ -317,7 +331,6 @@ class FieldCheck(policy.Check):
 
 def _prepare_check(context, action, target):
     """Prepare rule, target, and credentials for the policy engine."""
-    init()
     # Compare with None to distinguish case in which target is {}
     if target is None:
         target = {}
@@ -326,7 +339,7 @@ def _prepare_check(context, action, target):
     return match_rule, target, credentials
 
 
-def check(context, action, target, plugin=None):
+def check(context, action, target, plugin=None, might_not_exist=False):
     """Verifies that the action is valid on the target in this context.
 
     :param context: neutron context
@@ -337,25 +350,14 @@ def check(context, action, target, plugin=None):
         location of the object e.g. ``{'project_id': context.project_id}``
     :param plugin: currently unused and deprecated.
         Kept for backward compatibility.
+    :param might_not_exist: If True the policy check is skipped (and the
+        function returns True) if the specified policy does not exist.
+        Defaults to false.
 
     :return: Returns True if access is permitted else False.
     """
-    return policy.check(*(_prepare_check(context, action, target)))
-
-
-def check_if_exists(context, action, target):
-    """Verify if the action can be authorized, and raise if it is unknown.
-
-    Check whether the action can be performed on the target within this
-    context, and raise a PolicyRuleNotFound exception if the action is
-    not defined in the policy engine.
-    """
-    # TODO(salvatore-orlando): Consider modifying oslo policy engine in
-    # order to allow to raise distinct exception when check fails and
-    # when policy is missing
-    # Raise if there's no match for requested action in the policy engine
-    if not policy._rules or action not in policy._rules:
-        raise exceptions.PolicyRuleNotFound(rule=action)
+    if might_not_exist and not (policy._rules and action in policy._rules):
+        return True
     return policy.check(*(_prepare_check(context, action, target)))
 
 
@@ -374,7 +376,6 @@ def enforce(context, action, target, plugin=None):
     :raises neutron.exceptions.PolicyNotAuthorized: if verification fails.
     """
 
-    init()
     rule, target, credentials = _prepare_check(context, action, target)
     result = policy.check(rule, target, credentials, action=action)
     if not result:

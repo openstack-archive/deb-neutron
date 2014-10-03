@@ -21,6 +21,8 @@
 
 import eventlet
 
+from oslo.config import cfg as q_conf
+
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
@@ -35,11 +37,13 @@ from neutron.db import db_base_plugin_v2
 from neutron.db import dhcp_rpc_base
 from neutron.db import external_net_db
 from neutron.db import extraroute_db
-from neutron.db import l3_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_rpc_base
 from neutron.db import portbindings_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet
+from neutron.openstack.common import excutils
+from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import rpc
 from neutron.openstack.common import uuidutils as uuidutils
@@ -78,12 +82,12 @@ class N1kvRpcCallbacks(dhcp_rpc_base.DhcpRpcCallbackMixin,
 class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                           external_net_db.External_net_db_mixin,
                           extraroute_db.ExtraRoute_db_mixin,
-                          l3_db.L3_NAT_db_mixin,
                           portbindings_db.PortBindingMixin,
                           n1kv_db_v2.NetworkProfile_db_mixin,
                           n1kv_db_v2.PolicyProfile_db_mixin,
                           network_db_v2.Credential_db_mixin,
-                          agentschedulers_db.AgentSchedulerDbMixin):
+                          l3_agentschedulers_db.L3AgentSchedulerDbMixin,
+                          agentschedulers_db.DhcpAgentSchedulerDbMixin):
 
     """
     Implement the Neutron abstractions using Cisco Nexus1000V.
@@ -99,7 +103,9 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
     supported_extension_aliases = ["provider", "agent",
                                    "n1kv", "network_profile",
                                    "policy_profile", "external-net", "router",
-                                   "binding", "credential"]
+                                   "binding", "credential",
+                                   "l3_agent_scheduler",
+                                   "dhcp_agent_scheduler"]
 
     def __init__(self, configfile=None):
         """
@@ -119,6 +125,12 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         c_cred.Store.initialize()
         self._setup_vsm()
         self._setup_rpc()
+        self.network_scheduler = importutils.import_object(
+            q_conf.CONF.network_scheduler_driver
+        )
+        self.router_scheduler = importutils.import_object(
+            q_conf.CONF.router_scheduler_driver
+        )
 
     def _setup_rpc(self):
         # RPC support
@@ -967,7 +979,8 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 self._send_create_network_request(context, net, segment_pairs)
         except(cisco_exceptions.VSMError,
                cisco_exceptions.VSMConnectionFailed):
-            super(N1kvNeutronPluginV2, self).delete_network(context, net['id'])
+            with excutils.save_and_reraise_exception():
+                self._delete_network_db(context, net['id'])
         else:
             LOG.debug(_("Created network: %s"), net['id'])
             return net
@@ -1039,7 +1052,6 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """
         session = context.session
         with session.begin(subtransactions=True):
-            binding = n1kv_db_v2.get_network_binding(session, id)
             network = self.get_network(context, id)
             if n1kv_db_v2.is_trunk_member(session, id):
                 msg = _("Cannot delete network '%s' "
@@ -1049,16 +1061,22 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 msg = _("Cannot delete network '%s' that is a member of a "
                         "multi-segment network") % network['name']
                 raise n_exc.InvalidInput(error_message=msg)
+            self._delete_network_db(context, id)
+            # the network_binding record is deleted via cascade from
+            # the network record, so explicit removal is not necessary
+        self._send_delete_network_request(context, network)
+        LOG.debug("Deleted network: %s", id)
+
+    def _delete_network_db(self, context, id):
+        session = context.session
+        with session.begin(subtransactions=True):
+            binding = n1kv_db_v2.get_network_binding(session, id)
             if binding.network_type == c_const.NETWORK_TYPE_OVERLAY:
                 n1kv_db_v2.release_vxlan(session, binding.segmentation_id)
             elif binding.network_type == c_const.NETWORK_TYPE_VLAN:
                 n1kv_db_v2.release_vlan(session, binding.physical_network,
                                         binding.segmentation_id)
             super(N1kvNeutronPluginV2, self).delete_network(context, id)
-            # the network_binding record is deleted via cascade from
-            # the network record, so explicit removal is not necessary
-        self._send_delete_network_request(context, network)
-        LOG.debug(_("Deleted network: %s"), id)
 
     def get_network(self, context, id, fields=None):
         """
@@ -1113,12 +1131,15 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         """
         p_profile = None
         port_count = None
+        vm_network = None
         vm_network_name = None
         profile_id_set = False
 
         # Set the network policy profile id for auto generated L3/DHCP ports
         if ('device_id' in port['port'] and port['port']['device_owner'] in
-            [constants.DEVICE_OWNER_DHCP, constants.DEVICE_OWNER_ROUTER_INTF]):
+            [constants.DEVICE_OWNER_DHCP, constants.DEVICE_OWNER_ROUTER_INTF,
+             constants.DEVICE_OWNER_ROUTER_GW,
+             constants.DEVICE_OWNER_FLOATINGIP]):
             p_profile_name = c_conf.CISCO_N1K.network_node_policy_profile
             p_profile = self._get_policy_profile_by_name(p_profile_name)
             if p_profile:
@@ -1156,11 +1177,11 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                                profile_id,
                                                pt['network_id'])
                 port_count = 1
-                n1kv_db_v2.add_vm_network(context.session,
-                                          vm_network_name,
-                                          profile_id,
-                                          pt['network_id'],
-                                          port_count)
+                vm_network = n1kv_db_v2.add_vm_network(context.session,
+                                                       vm_network_name,
+                                                       profile_id,
+                                                       pt['network_id'],
+                                                       port_count)
             else:
                 # Update port count of the VM network.
                 vm_network_name = vm_network['name']
@@ -1182,7 +1203,8 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                            vm_network_name)
         except(cisco_exceptions.VSMError,
                cisco_exceptions.VSMConnectionFailed):
-            super(N1kvNeutronPluginV2, self).delete_port(context, pt['id'])
+            with excutils.save_and_reraise_exception():
+                self._delete_port_db(context, pt, vm_network)
         else:
             LOG.debug(_("Created port: %s"), pt)
             return pt
@@ -1221,6 +1243,16 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             vm_network = n1kv_db_v2.get_vm_network(context.session,
                                                    port[n1kv.PROFILE_ID],
                                                    port['network_id'])
+            router_ids = self.disassociate_floatingips(
+                context, id, do_notify=False)
+            self._delete_port_db(context, port, vm_network)
+
+        # now that we've left db transaction, we are safe to notify
+        self.notify_routers_updated(context, router_ids)
+        self._send_delete_port_request(context, port, vm_network)
+
+    def _delete_port_db(self, context, port, vm_network):
+        with context.session.begin(subtransactions=True):
             vm_network['port_count'] -= 1
             n1kv_db_v2.update_vm_network_port_count(context.session,
                                                     vm_network['name'],
@@ -1229,14 +1261,7 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 n1kv_db_v2.delete_vm_network(context.session,
                                              port[n1kv.PROFILE_ID],
                                              port['network_id'])
-            router_ids = self.disassociate_floatingips(
-                context, id, do_notify=False)
-            super(N1kvNeutronPluginV2, self).delete_port(context, id)
-
-        # now that we've left db transaction, we are safe to notify
-        self.notify_routers_updated(context, router_ids)
-
-        self._send_delete_port_request(context, port, vm_network)
+            super(N1kvNeutronPluginV2, self).delete_port(context, port['id'])
 
     def get_port(self, context, id, fields=None):
         """
@@ -1289,7 +1314,9 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self._send_create_subnet_request(context, sub)
         except(cisco_exceptions.VSMError,
                cisco_exceptions.VSMConnectionFailed):
-            super(N1kvNeutronPluginV2, self).delete_subnet(context, sub['id'])
+            with excutils.save_and_reraise_exception():
+                super(N1kvNeutronPluginV2,
+                      self).delete_subnet(context, sub['id'])
         else:
             LOG.debug(_("Created subnet: %s"), sub['id'])
             return sub
@@ -1380,17 +1407,17 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                                       context.tenant_id)
         except(cisco_exceptions.VSMError,
                cisco_exceptions.VSMConnectionFailed):
-            n1kv_db_v2.delete_profile_binding(context.session,
-                                              context.tenant_id,
-                                              net_p['id'])
+            with excutils.save_and_reraise_exception():
+                super(N1kvNeutronPluginV2,
+                      self).delete_network_profile(context, net_p['id'])
         try:
             self._send_create_network_profile_request(context, net_p)
         except(cisco_exceptions.VSMError,
                cisco_exceptions.VSMConnectionFailed):
-            n1kv_db_v2.delete_profile_binding(context.session,
-                                              context.tenant_id,
-                                              net_p['id'])
-            self._send_delete_logical_network_request(net_p)
+            with excutils.save_and_reraise_exception():
+                super(N1kvNeutronPluginV2,
+                      self).delete_network_profile(context, net_p['id'])
+                self._send_delete_logical_network_request(net_p)
         return net_p
 
     def delete_network_profile(self, context, id):
@@ -1423,3 +1450,20 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                                             network_profile))
         self._send_update_network_profile_request(net_p)
         return net_p
+
+    def create_router(self, context, router):
+        """
+        Handle creation of router.
+
+        Schedule router to L3 agent as part of the create handling.
+        :param context: neutron api request context
+        :param router: router dictionary
+        :returns: router object
+        """
+        session = context.session
+        with session.begin(subtransactions=True):
+            rtr = (super(N1kvNeutronPluginV2, self).
+                   create_router(context, router))
+            LOG.debug(_("Scheduling router %s"), rtr['id'])
+            self.schedule_router(context, rtr['id'])
+        return rtr

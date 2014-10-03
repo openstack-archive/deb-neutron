@@ -298,6 +298,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                 routerlib.delete_nat_rules_by_match(
                     self.cluster, nsx_router_id, "SourceNatRule",
                     max_num_expected=1, min_num_expected=0,
+                    raise_on_len_mismatch=False,
                     source_ip_addresses=cidr)
         if add_snat_rules:
             ip_addresses = self._build_ip_address_list(
@@ -1153,7 +1154,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
                         port_data[addr_pair.ADDRESS_PAIRS])
             else:
                 # remove ATTR_NOT_SPECIFIED
-                port_data[addr_pair.ADDRESS_PAIRS] = None
+                port_data[addr_pair.ADDRESS_PAIRS] = []
 
             # security group extension checks
             if port_security and has_ip:
@@ -1682,6 +1683,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             routerlib.delete_nat_rules_by_match(
                 self.cluster, nsx_router_id, "SourceNatRule",
                 max_num_expected=1, min_num_expected=1,
+                raise_on_len_mismatch=False,
                 source_ip_addresses=subnet['cidr'])
 
     def add_router_interface(self, context, router_id, interface_info):
@@ -1786,6 +1788,7 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
             routerlib.delete_nat_rules_by_match(
                 self.cluster, nsx_router_id, "NoSourceNatRule",
                 max_num_expected=1, min_num_expected=0,
+                raise_on_len_mismatch=False,
                 destination_ip_addresses=subnet['cidr'])
         except n_exc.NotFound:
             LOG.error(_("Logical router resource %s not found "
@@ -2007,7 +2010,11 @@ class NsxPluginV2(addr_pair_db.AllowedAddressPairsMixin,
         except n_exc.NotFound:
             LOG.warning(_("Nat rules not found in nsx for port: %s"), id)
 
-        super(NsxPluginV2, self).disassociate_floatingips(context, port_id)
+        # NOTE(ihrachys): L3 agent notifications don't make sense for
+        # NSX VMWare plugin since there is no L3 agent in such setup, so
+        # disabling them here.
+        super(NsxPluginV2, self).disassociate_floatingips(
+            context, port_id, do_notify=False)
 
     def create_network_gateway(self, context, network_gateway):
         """Create a layer-2 network gateway.

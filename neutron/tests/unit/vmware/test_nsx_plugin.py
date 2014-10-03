@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import contextlib
+import uuid
 
 import mock
 import netaddr
@@ -943,17 +944,22 @@ class TestL3NatTestCase(L3NatTest,
         with self.port() as p:
             private_sub = {'subnet': {'id':
                                       p['port']['fixed_ips'][0]['subnet_id']}}
-            with self.floatingip_no_assoc(private_sub) as fip:
-                port_id = p['port']['id']
-                body = self._update('floatingips', fip['floatingip']['id'],
-                                    {'floatingip': {'port_id': port_id}})
-                self.assertEqual(body['floatingip']['port_id'], port_id)
-                # Disassociate
-                body = self._update('floatingips', fip['floatingip']['id'],
-                                    {'floatingip': {'port_id': None}})
-                body = self._show('floatingips', fip['floatingip']['id'])
-                self.assertIsNone(body['floatingip']['port_id'])
-                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+            plugin = manager.NeutronManager.get_plugin()
+            with mock.patch.object(plugin, 'notify_routers_updated') as notify:
+                with self.floatingip_no_assoc(private_sub) as fip:
+                    port_id = p['port']['id']
+                    body = self._update('floatingips', fip['floatingip']['id'],
+                                        {'floatingip': {'port_id': port_id}})
+                    self.assertEqual(body['floatingip']['port_id'], port_id)
+                    # Disassociate
+                    body = self._update('floatingips', fip['floatingip']['id'],
+                                        {'floatingip': {'port_id': None}})
+                    body = self._show('floatingips', fip['floatingip']['id'])
+                    self.assertIsNone(body['floatingip']['port_id'])
+                    self.assertIsNone(body['floatingip']['fixed_ip_address'])
+
+                # check that notification was not requested
+                self.assertFalse(notify.called)
 
     def test_create_router_maintenance_returns_503(self):
         with self._create_l3_ext_network() as net:
@@ -1145,12 +1151,21 @@ class NeutronNsxOutOfSync(NsxPluginV2TestCase,
         res = req.get_response(self.ext_api)
         self.assertEqual(res.status_int, 200)
 
-    def test_remove_router_interface_not_in_nsx(self):
+    def _test_remove_router_interface_nsx_out_of_sync(self, unsync_action):
+        # Create external network and subnet
+        ext_net_id = self._create_network_and_subnet('1.1.1.0/24', True)[0]
         # Create internal network and subnet
         int_sub_id = self._create_network_and_subnet('10.0.0.0/24')[1]
         res = self._create_router('json', 'tenant')
         router = self.deserialize('json', res)
-        # Add interface to router (needed to generate NAT rule)
+        # Set gateway and add interface to router (needed to generate NAT rule)
+        req = self.new_update_request(
+            'routers',
+            {'router': {'external_gateway_info':
+                        {'network_id': ext_net_id}}},
+            router['router']['id'])
+        res = req.get_response(self.ext_api)
+        self.assertEqual(res.status_int, 200)
         req = self.new_action_request(
             'routers',
             {'subnet_id': int_sub_id},
@@ -1158,7 +1173,7 @@ class NeutronNsxOutOfSync(NsxPluginV2TestCase,
             "add_router_interface")
         res = req.get_response(self.ext_api)
         self.assertEqual(res.status_int, 200)
-        self.fc._fake_lrouter_dict.clear()
+        unsync_action()
         req = self.new_action_request(
             'routers',
             {'subnet_id': int_sub_id},
@@ -1166,6 +1181,27 @@ class NeutronNsxOutOfSync(NsxPluginV2TestCase,
             "remove_router_interface")
         res = req.get_response(self.ext_api)
         self.assertEqual(res.status_int, 200)
+
+    def test_remove_router_interface_not_in_nsx(self):
+
+        def unsync_action():
+            self.fc._fake_lrouter_dict.clear()
+            self.fc._fake_lrouter_nat_dict.clear()
+
+        self._test_remove_router_interface_nsx_out_of_sync(unsync_action)
+
+    def test_remove_router_interface_nat_rule_not_in_nsx(self):
+        self._test_remove_router_interface_nsx_out_of_sync(
+            self.fc._fake_lrouter_nat_dict.clear)
+
+    def test_remove_router_interface_duplicate_nat_rules_in_nsx(self):
+
+        def unsync_action():
+            # duplicate every entry in the nat rule dict
+            for (_rule_id, rule) in self.fc._fake_lrouter_nat_dict.items():
+                self.fc._fake_lrouter_nat_dict[uuid.uuid4()] = rule
+
+        self._test_remove_router_interface_nsx_out_of_sync(unsync_action)
 
     def test_update_router_not_in_nsx(self):
         res = self._create_router('json', 'tenant')

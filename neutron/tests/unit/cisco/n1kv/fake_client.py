@@ -28,7 +28,11 @@ _resource_metadata = {'port': ['id', 'macAddress', 'ipAddress', 'subnetId'],
                                     'networkSegment', 'portProfile',
                                     'portProfileId', 'tenantId',
                                     'portId', 'macAddress',
-                                    'ipAddress', 'subnetId']}
+                                    'ipAddress', 'subnetId'],
+                      'subnet': ['addressRangeStart', 'addressRangeEnd',
+                                 'ipAddressSubnet', 'description', 'gateway',
+                                 'dhcp', 'dnsServersList', 'networkAddress',
+                                 'netSegmentName', 'id', 'tenantId']}
 
 
 class TestClient(n1kv_client):
@@ -65,6 +69,13 @@ class TestClientInvalidRequest(TestClient):
         self.inject_params = True
 
 
+class TestClientInvalidResponse(TestClient):
+
+    def __init__(self, **kwargs):
+        super(TestClientInvalidResponse, self).__init__()
+        self.broken = True
+
+
 def _validate_resource(action, body=None):
     if body:
         body_set = set(body.keys())
@@ -77,6 +88,10 @@ def _validate_resource(action, body=None):
     elif 'port' in action:
         port_set = set(_resource_metadata['port'])
         if body_set - port_set:
+            raise c_exc.VSMError(reason='Invalid Request')
+    elif 'subnet' in action:
+        subnet_set = set(_resource_metadata['subnet'])
+        if body_set - subnet_set:
             raise c_exc.VSMError(reason='Invalid Request')
     else:
         return

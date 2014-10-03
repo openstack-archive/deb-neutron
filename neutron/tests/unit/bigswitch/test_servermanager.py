@@ -21,8 +21,10 @@ from contextlib import nested
 import mock
 from oslo.config import cfg
 
+from neutron import context
 from neutron.manager import NeutronManager
 from neutron.openstack.common import importutils
+from neutron.openstack.common import jsonutils
 from neutron.plugins.bigswitch import servermanager
 from neutron.tests.unit.bigswitch import test_restproxy_plugin as test_rp
 
@@ -80,6 +82,51 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             rmock.assert_called_with('GET', '/health', '', {}, [], False)
             self.assertEqual(1, len(lmock.mock_calls))
 
+    def test_consistency_hash_header(self):
+        # mock HTTP class instead of rest_call so we can see headers
+        with mock.patch(HTTPCON) as conmock:
+            rv = conmock.return_value
+            rv.getresponse.return_value.getheader.return_value = 'HASHHEADER'
+            rv.getresponse.return_value.status = 200
+            rv.getresponse.return_value.read.return_value = ''
+            with self.network():
+                callheaders = rv.request.mock_calls[0][1][3]
+                self.assertIn('X-BSN-BVS-HASH-MATCH', callheaders)
+                # first call will be empty to indicate no previous state hash
+                self.assertEqual(callheaders['X-BSN-BVS-HASH-MATCH'], '')
+                # change the header that will be received on delete call
+                rv.getresponse.return_value.getheader.return_value = 'HASH2'
+
+            # net delete should have used header received on create
+            callheaders = rv.request.mock_calls[1][1][3]
+            self.assertEqual(callheaders['X-BSN-BVS-HASH-MATCH'], 'HASHHEADER')
+
+            # create again should now use header received from prev delete
+            with self.network():
+                callheaders = rv.request.mock_calls[2][1][3]
+                self.assertIn('X-BSN-BVS-HASH-MATCH', callheaders)
+                self.assertEqual(callheaders['X-BSN-BVS-HASH-MATCH'],
+                                 'HASH2')
+
+    def test_consistency_hash_header_no_update_on_bad_response(self):
+        # mock HTTP class instead of rest_call so we can see headers
+        with mock.patch(HTTPCON) as conmock:
+            rv = conmock.return_value
+            rv.getresponse.return_value.getheader.return_value = 'HASHHEADER'
+            rv.getresponse.return_value.status = 200
+            rv.getresponse.return_value.read.return_value = ''
+            with self.network():
+                # change the header that will be received on delete call
+                rv.getresponse.return_value.getheader.return_value = 'EVIL'
+                rv.getresponse.return_value.status = 'GARBAGE'
+
+            # create again should not use header from delete call
+            with self.network():
+                callheaders = rv.request.mock_calls[2][1][3]
+                self.assertIn('X-BSN-BVS-HASH-MATCH', callheaders)
+                self.assertEqual(callheaders['X-BSN-BVS-HASH-MATCH'],
+                                 'HASHHEADER')
+
     def test_file_put_contents(self):
         pl = NeutronManager.get_plugin()
         with mock.patch(SERVERMANAGER + '.open', create=True) as omock:
@@ -108,6 +155,21 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
                 mock.call.read(),
                 mock.call.write('certdata')
             ])
+
+    def test_req_context_header(self):
+        sp = NeutronManager.get_plugin().servers
+        ncontext = context.Context('uid', 'tid')
+        sp.set_context(ncontext)
+        with mock.patch(HTTPCON) as conmock:
+            rv = conmock.return_value
+            rv.getresponse.return_value.getheader.return_value = 'HASHHEADER'
+            sp.rest_action('GET', '/')
+        callheaders = rv.request.mock_calls[0][1][3]
+        self.assertIn(servermanager.REQ_CONTEXT_HEADER, callheaders)
+        ctxdct = ncontext.to_dict()
+        self.assertEqual(
+            ctxdct, jsonutils.loads(
+                callheaders[servermanager.REQ_CONTEXT_HEADER]))
 
     def test_capabilities_retrieval(self):
         sp = servermanager.ServerPool()
@@ -185,6 +247,26 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             conmock.return_value.request.side_effect = socket.timeout()
             resp = sp.servers[0].rest_call('GET', '/')
             self.assertEqual(resp, (0, None, None, None))
+
+    def test_retry_on_unavailable(self):
+        pl = NeutronManager.get_plugin()
+        with nested(
+            mock.patch(SERVERMANAGER + '.ServerProxy.rest_call',
+                       return_value=(httplib.SERVICE_UNAVAILABLE, 0, 0, 0)),
+            mock.patch(SERVERMANAGER + '.time.sleep')
+        ) as (srestmock, tmock):
+            # making a call should trigger retries with sleeps in between
+            pl.servers.rest_call('GET', '/', '', None, [])
+            rest_call = [mock.call('GET', '/', '', None, False, reconnect=True,
+                                   hash_handler=mock.ANY)]
+            rest_call_count = (
+                servermanager.HTTP_SERVICE_UNAVAILABLE_RETRY_COUNT + 1)
+            srestmock.assert_has_calls(rest_call * rest_call_count)
+            sleep_call = [mock.call(
+                servermanager.HTTP_SERVICE_UNAVAILABLE_RETRY_INTERVAL)]
+            # should sleep 1 less time than the number of calls
+            sleep_call_count = rest_call_count - 1
+            tmock.assert_has_calls(sleep_call * sleep_call_count)
 
 
 class TestSockets(test_rp.BigSwitchProxyPluginV2TestCase):
