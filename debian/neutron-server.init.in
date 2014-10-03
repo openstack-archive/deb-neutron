@@ -1,0 +1,46 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          neutron-server
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Should-Start:      mysql postgresql rabbitmq-server keystone
+# Should-Stop:       mysql postgresql rabbitmq-server keystone
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: neutron-server
+# Description:       Provides the Neutron networking service
+### END INIT INFO
+
+DESC="OpenStack Neutron Server"
+PROJECT_NAME=neutron
+NAME=${PROJECT_NAME}-server
+
+### Maintain the plugin selection so that we can load the corresponding .ini file    ###
+### after this, openstack-pkg-tools will add --config-file=/etc/neutron/neutron.conf ###
+DAEMON_ARGS=""
+[ -r /usr/share/neutron-common/plugin_guess_func ] || exit 0
+. /usr/share/neutron-common/plugin_guess_func
+
+if ! [ -r /etc/neutron/neutron.conf ] ; then
+	echo "Cloud not read /etc/neutron/neutron.conf: exiting"
+	exit 0
+fi
+
+CURRENT_PLUGIN=`grep "^[ \t]*core_plugin[ \t]*=[ \t]*[._a-zA-Z0-9]*\$" /etc/neutron/neutron.conf | sed -e 's/^[ \t]*core_plugin[ \t]*=[ \t]*//'`
+if [ -z "${CURRENT_PLUGIN}" ] ; then
+	echo "No core_plugin= value found: please set it and try again"
+	exit 0
+fi
+neutron_core_plugin_to_plugin_name ${CURRENT_PLUGIN}
+neutron_plugin_ini_path ${NEUTRON_PLUGIN_NAME}
+if [ -z "${NEUTRON_PLUGIN_CONFIG}" ] ; then
+	echo "Plugin not recognized: please edit /etc/init.d/neutron-server to select the correct .ini file to load for your plugin"
+else
+	DAEMON_ARGS="${DAEMON_ARGS} --config-file=${NEUTRON_PLUGIN_CONFIG}"
+	DESC="${DESC} with ${NEUTRON_PLUGIN_NAME} plugin"
+fi
+
+### Neutron folders creation ###
+mkdir -p /var/lib/neutron/tmp
+chown neutron:neutron /var/lib/neutron/tmp
+export TMPDIR=/var/lib/neutron/tmp

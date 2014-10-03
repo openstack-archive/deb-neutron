@@ -1,15 +1,12 @@
 #!/usr/bin/make -f
 
-#export DH_VERBOSE=1
-
 include /usr/share/openstack-pkg-tools/pkgos.make
-
 export OSLO_PACKAGE_VERSION=$(VERSION)
 
 PYTHONS:=$(shell pyversions -vr)
 
 %:
-	dh $@ --buildsystem=python_distutils --with python2
+	dh $@ --buildsystem=python_distutils --with python2,systemd
 
 override_dh_auto_install:
 	echo "Nothing to do!"
@@ -54,6 +51,7 @@ override_dh_auto_clean:
 		debian/neutron-dhcp-agent.postinst \
 		debian/neutron-metadata-agent.config \
 		debian/neutron-metadata-agent.postinst
+	rm -f debian/*.init debian/*.service debian/*.upstart
 
 override_dh_clean:
 	dh_clean

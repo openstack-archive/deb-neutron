@@ -1,4 +1,4 @@
-/var/log/neutron/ovs-agent.log {
+/var/log/neutron/neutron-openvswitch-agent.log {
     daily
     missingok
     compress

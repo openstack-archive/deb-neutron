@@ -1,4 +1,4 @@
-/var/log/neutron/metering-agent.log {
+/var/log/neutron/neutron-metering-agent.log {
     daily
     missingok
     compress

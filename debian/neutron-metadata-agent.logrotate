@@ -1,4 +1,4 @@
-/var/log/neutron/metadata-agent.log {
+/var/log/neutron/neutron-metadata-agent.log {
     daily
     missingok
     compress

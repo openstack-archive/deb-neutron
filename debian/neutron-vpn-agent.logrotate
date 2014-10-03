@@ -1,4 +1,4 @@
-/var/log/neutron/vpn-agent.log {
+/var/log/neutron/neutron-vpn-agent.log {
     daily
     missingok
     compress

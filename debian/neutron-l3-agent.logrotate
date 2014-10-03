@@ -1,4 +1,4 @@
-/var/log/neutron/l3-agent.log {
+/var/log/neutron/neutron-l3-agent.log {
     daily
     missingok
     compress
