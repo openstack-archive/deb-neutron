@@ -6,6 +6,7 @@ neutron (2014.2~rc1-1) experimental; urgency=medium
   * Refreshed/rebased/reworked fix-alembic-migration-with-sqlite3.patch.
   * Removed reference and license for tools/rfc.sh which doesn't exist, in
     debian/copyright.
+  * Standards-Version is now 3.9.6.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 03 Oct 2014 18:53:11 +0800
 
