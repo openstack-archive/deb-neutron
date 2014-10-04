@@ -4,6 +4,8 @@ neutron (2014.2~rc1-1) experimental; urgency=medium
   * Now using templated init script for sysv-rc, generated systemd unit and
     upstart jobs, using openstack-pkg-tools >= 13.
   * Refreshed/rebased/reworked fix-alembic-migration-with-sqlite3.patch.
+  * Removed reference and license for tools/rfc.sh which doesn't exist, in
+    debian/copyright.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 03 Oct 2014 18:53:11 +0800
 
