@@ -1,3 +1,9 @@
+neutron (2014.1.3-3) UNRELEASED; urgency=medium
+
+  * Re-added neutron-server.upstart.in file for neutron-server and OVS.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 07 Oct 2014 19:06:52 +0800
+
 neutron (2014.1.3-2) unstable; urgency=medium
 
   * Mangling upstream rc and beta versions in watch file.
