@@ -9,7 +9,7 @@ export OSLO_PACKAGE_VERSION=$(VERSION)
 PYTHONS:=$(shell pyversions -vr)
 
 %:
-	dh $@ --buildsystem=python_distutils --with python2
+	dh $@ --buildsystem=python_distutils --with python2,systemd
 
 override_dh_auto_install:
 	echo "Nothing to do!"
@@ -58,6 +58,7 @@ override_dh_auto_clean:
 override_dh_clean:
 	dh_clean
 	find . -type f -name "*.pyc" -delete
+	rm -f debian/*.init debian/*.service debian/*.upstart
 
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 override_dh_auto_test:
