@@ -177,6 +177,7 @@ Depends: adduser,
          python-neutron (= ${source:Version}),
          python-pyparsing (>=1.5.7),
          python-sqlalchemy,
+         sqlite3,
          ${misc:Depends},
          ${python:Depends}
 Provides: neutron-plugin,
