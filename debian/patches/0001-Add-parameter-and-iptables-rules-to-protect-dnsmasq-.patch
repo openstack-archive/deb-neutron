@@ -132,7 +132,7 @@ Index: neutron/neutron/agent/linux/dhcp.py
  
          return dhcp_port
  
-+        @staticmethod
++    @staticmethod
 +    def _get_isolation_rule(proto, chain, interface):
 +        return ('-p %(proto)s -m %(proto)s '
 +                '--dport %(port)s -i %(interface)s '
