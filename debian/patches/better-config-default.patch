@@ -7,8 +7,8 @@ Last-Update: 2014-04-02
 
 Index: neutron/etc/l3_agent.ini
 ===================================================================
---- neutron.orig/etc/l3_agent.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/l3_agent.ini	2014-04-09 23:45:39.000000000 +0800
+--- neutron.orig/etc/l3_agent.ini
++++ neutron/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -24,9 +24,9 @@ Index: neutron/etc/l3_agent.ini
  # Support kernels with limited namespace support
 Index: neutron/etc/neutron.conf
 ===================================================================
---- neutron.orig/etc/neutron.conf	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/neutron.conf	2014-04-09 23:45:39.000000000 +0800
-@@ -50,8 +50,7 @@
+--- neutron.orig/etc/neutron.conf
++++ neutron/etc/neutron.conf
+@@ -50,8 +50,7 @@ lock_path = $state_path/lock
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
  #
@@ -36,7 +36,7 @@ Index: neutron/etc/neutron.conf
  
  # (ListOpt) List of service plugin entrypoints to be loaded from the
  # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of
-@@ -59,8 +58,8 @@
+@@ -59,8 +58,8 @@ lock_path = $state_path/lock
  # with previous versions, the class name of a plugin can be specified instead
  # of its entrypoint name.
  #
@@ -46,7 +46,7 @@ Index: neutron/etc/neutron.conf
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -131,16 +130,16 @@
+@@ -131,16 +130,16 @@ lock_path = $state_path/lock
  # SSL certification authority file (valid only if SSL enabled)
  # kombu_ssl_ca_certs =
  # IP address of the RabbitMQ installation
@@ -66,7 +66,7 @@ Index: neutron/etc/neutron.conf
  # Location of a virtual RabbitMQ installation.
  # rabbit_virtual_host = /
  # Maximum retries with trying to connect to RabbitMQ
-@@ -382,7 +381,7 @@
+@@ -382,7 +381,7 @@ notification_driver = neutron.openstack.
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -75,7 +75,7 @@ Index: neutron/etc/neutron.conf
  
  # =========== items for agent management extension =============
  # seconds between nodes reporting state to server; should be less than
-@@ -402,11 +401,9 @@
+@@ -402,11 +401,9 @@ signing_dir = $state_path/keystone-signi
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -90,8 +90,8 @@ Index: neutron/etc/neutron.conf
  # slave_connection =
 Index: neutron/etc/lbaas_agent.ini
 ===================================================================
---- neutron.orig/etc/lbaas_agent.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/lbaas_agent.ini	2014-04-09 23:45:39.000000000 +0800
+--- neutron.orig/etc/lbaas_agent.ini
++++ neutron/etc/lbaas_agent.ini
 @@ -9,11 +9,10 @@
  
  # LBaas requires an interface driver be set. Choose the one that best
@@ -107,8 +107,8 @@ Index: neutron/etc/lbaas_agent.ini
  # Support kernels with limited namespace support
 Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 ===================================================================
---- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-04-09 23:45:35.000000000 +0800
-+++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	2014-04-09 23:45:39.000000000 +0800
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -30,22 +30,22 @@
  #          point setting tunnel_type below will be required to enable
  #          tunneling.

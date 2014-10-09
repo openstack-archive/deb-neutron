@@ -10,9 +10,9 @@ Last-Update: 2013-10-22
 
 Index: neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
 ===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py	2014-04-02 00:09:00.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py	2014-04-02 00:27:32.000000000 +0800
-@@ -59,9 +59,9 @@
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext_gw_mode.py
+@@ -59,9 +59,9 @@ def upgrade(active_plugins=None, options
          return
  
      op.add_column('routers', sa.Column('enable_snat', sa.Boolean(),
@@ -26,9 +26,9 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/128e042a2b68_ext
  def downgrade(active_plugins=None, options=None):
 Index: neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
 ===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py	2014-04-02 00:07:50.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py	2014-04-02 00:27:32.000000000 +0800
-@@ -46,11 +46,27 @@
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_tunnelendpoints_id_unique.py
+@@ -46,11 +46,27 @@ def upgrade(active_plugins=None, options
      if not migration.should_run(active_plugins, migration_for_plugins):
          return
  
@@ -63,9 +63,9 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/63afba73813_ovs_
  def downgrade(active_plugins=None, options=None):
 Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
 ===================================================================
---- neutron.orig/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py	2014-04-02 00:07:50.000000000 +0800
-+++ neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py	2014-04-02 00:27:32.000000000 +0800
-@@ -38,7 +38,42 @@
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remove_dhcp_lease.py
+@@ -38,7 +38,42 @@ import sqlalchemy as sa
  
  
  def upgrade(active_plugins=None, options=None):
@@ -109,8 +109,10 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/35c7c198ddea_lbaas_healthmon_del_status.py
 @@ -43,8 +43,48 @@ from neutron.db import migration
  def upgrade(active_plugins=None, options=None):
      if not migration.should_run(active_plugins, migration_for_plugins):
@@ -162,8 +164,10 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
 @@ -44,17 +44,58 @@ def upgrade(active_plugins=None, options
      if not migration.should_run(active_plugins, migration_for_plugins):
          return
@@ -233,8 +237,10 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
 @@ -47,11 +47,17 @@ def upgrade(active_plugins=None, options
      if not migration.should_run(active_plugins, migration_for_plugins):
          return
@@ -258,8 +264,10 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
 @@ -43,14 +43,19 @@ def upgrade(active_plugins=None, options
      if not migration.should_run(active_plugins, migration_for_plugins):
          return
@@ -288,9 +296,11 @@ Index: neutron/neutron/db/migration/alembic_migrations/versions/f9263d6df56_remo
  
  
  def downgrade(active_plugins=None, options=None):
---- neutron-2014.1~rc1.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
-+++ neutron-2014.1~rc1/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
-@@ -55,11 +55,17 @@ def upgrade(active_plugins=None, options
+Index: neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
+@@ -56,11 +56,17 @@ def upgrade(active_plugins=None, options
      if not migration.should_run(active_plugins, migration_for_plugins):
          return
  
