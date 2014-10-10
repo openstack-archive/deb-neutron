@@ -1,11 +1,12 @@
-neutron (2014.2~rc1-3) unstable; urgency=medium
+neutron (2014.2~rc1-2) experimental; urgency=medium
 
   * Mangling upstream rc and beta versions in watch file.
   * Fixed 0001-Add-parameter-and-iptables-rules-to-protect-dnsmasq-.patch
     wrong identation.
   * Added sqlite3 as dependency.
+  * Added debian/patches/more-alembic-with-sqlite-migration-fixes.patch.
 
- -- Thomas Goirand <zigo@debian.org>  Thu, 09 Oct 2014 11:21:51 +0800
+ -- Thomas Goirand <zigo@debian.org>  Fri, 10 Oct 2014 15:00:51 +0800
 
 neutron (2014.2~rc1-1) experimental; urgency=medium
 
