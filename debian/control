@@ -101,6 +101,7 @@ Breaks: python-quantum (<< 2013.2~),
         quantum-plugin-ryu (<< 2013),
         quantum-plugin-ryu-agent (<< 2013)
 Depends: alembic (>= 0.6.4),
+         ipset,
          python-anyjson (>= 0.3.3),
          python-argparse,
          python-babel (>= 1.3),
