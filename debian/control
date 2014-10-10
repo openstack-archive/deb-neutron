@@ -101,6 +101,8 @@ Breaks: python-quantum (<< 2013.2~),
         quantum-plugin-ryu (<< 2013),
         quantum-plugin-ryu-agent (<< 2013)
 Depends: alembic (>= 0.6.4),
+         arping,
+         iproute2,
          ipset,
          python-anyjson (>= 0.3.3),
          python-argparse,
@@ -245,6 +247,7 @@ Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          debconf,
+         keepalived,
          iputils-arping,
          neutron-common (= ${source:Version}),
          sudo,

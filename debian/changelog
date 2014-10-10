@@ -1,6 +1,6 @@
 neutron (2014.2~rc1-4) experimental; urgency=medium
 
-  * Added ipset as dependency.
+  * Added ipset, iproute2, arping and keepalived as dependency.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 10 Oct 2014 23:11:10 +0800
 
