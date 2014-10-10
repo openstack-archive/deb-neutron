@@ -1,6 +1,7 @@
 neutron (2014.2~rc1-3) experimental; urgency=medium
 
   * Fixed debconf template and ran debconf-updatepo.
+  * Another fix for the SQLite Alembic migrations.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 10 Oct 2014 07:34:35 +0000
 
