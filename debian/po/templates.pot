@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -125,12 +125,6 @@ msgstr ""
 #. Choices
 #: ../neutron-common.templates:6001
 msgid "RYU"
-msgstr ""
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
 msgstr ""
 
 #. Type: select

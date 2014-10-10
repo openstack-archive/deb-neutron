@@ -2,12 +2,12 @@
 # Copyright (C) 2013, French l10n team <debian-l10n-french@lists.debian.org> 
 # This file is distributed under the same license as the neutron package.
 # Julien Patriarca <leatherface@debian.org>, 2013.
-# 
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2013-10-31 11:05+0100\n"
 "Last-Translator: Julien Patriarca <leatherface@debian.org>\n"
 "Language-Team: FRENCH <debian-l10n-french@lists.debian.org>\n"
@@ -43,8 +43,8 @@ msgstr "Nom d'espace client du serveur d'authentification :"
 #: ../neutron-common.templates:3001
 msgid "Please specify the authentication server tenant name."
 msgstr ""
-"Veuillez indiquer le nom d'espace client du serveur "
-"d'authentification."
+"Veuillez indiquer le nom d'espace client du serveur d'authentification."
+
 #. Type: string
 #. Description
 #: ../neutron-common.templates:4001
@@ -132,12 +132,6 @@ msgstr "Hyper-V"
 #: ../neutron-common.templates:6001
 msgid "RYU"
 msgstr "RYU"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
 
 #. Type: select
 #. Choices
@@ -250,8 +244,7 @@ msgstr "Adresse IP de votre hôte RabbitMQ :"
 #. Description
 #. Type: password
 #. Description
-#: ../neutron-common.templates:8001
-#: ../neutron-common.templates:9001
+#: ../neutron-common.templates:8001 ../neutron-common.templates:9001
 #: ../neutron-common.templates:10001
 msgid ""
 "In order to interoperate with other components of OpenStack, this package "
@@ -291,8 +284,8 @@ msgstr "Mot de passe pour la connexion au serveur RabbitMQ :"
 #: ../neutron-common.templates:10001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
-"Veuillez indiquer le mot de passe à utiliser pour se connecter au "
-"serveur RabbitMQ."
+"Veuillez indiquer le mot de passe à utiliser pour se connecter au serveur "
+"RabbitMQ."
 
 #. Type: select
 #. Choices
@@ -350,9 +343,9 @@ msgid ""
 msgstr ""
 "La valeur « local » est utile seulement pour des tests avec un seul nœud. "
 "Afin que les réseaux d'espace client fournissent de la connectivité entre "
-"les hôtes, il est nécessaire de choisir entre « vlan » puis de configurer « "
-"network_vlan_ranges », ou bien de choisir « gre » et alors de configurer « "
-"tunnel_id_ranges ». Veuillez choisir « aucun » pour désactiver la création "
+"les hôtes, il est nécessaire de choisir entre « vlan » puis de configurer "
+"« network_vlan_ranges », ou bien de choisir « gre » et alors de configurer "
+"« tunnel_id_ranges ». Veuillez choisir « aucun » pour désactiver la création "
 "de réseaux d'espace client."
 
 #. Type: boolean
@@ -369,8 +362,8 @@ msgid ""
 "server and agents. This requires kernel support for OVS patch ports and GRE "
 "tunneling."
 msgstr ""
-"Veuillez décider si la prise en charge des réseaux GRE doit être activé sur le "
-"serveur et les agents. Ceci nécessite que le noyau gère les « patch "
+"Veuillez décider si la prise en charge des réseaux GRE doit être activé sur "
+"le serveur et les agents. Ceci nécessite que le noyau gère les « patch "
 "ports » OVS et les tunnels GRE."
 
 #. Type: string
@@ -487,8 +480,8 @@ msgid ""
 "address."
 msgstr ""
 "L'adresse IP devra être accessible depuis les clients qui utiliseront ce "
-"service, donc si vous installez un nuage public ce devra être une adresse "
-"IP publique."
+"service, donc si vous installez un nuage public ce devra être une adresse IP "
+"publique."
 
 #. Type: string
 #. Description
@@ -559,3 +552,6 @@ msgstr ""
 "OpenStack supporte l'utilisation de zones disponibles, avec chaque région "
 "représentant un lieu. Veuillez entrer la zone que le serveur de métadonnées "
 "devra utiliser."
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

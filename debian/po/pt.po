@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2013.2-4\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2013-11-18 23:23+0000\n"
 "Last-Translator: Américo Monteiro <a_monteiro@gmx.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
@@ -137,12 +137,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -235,8 +229,8 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "neutron\"."
 msgstr ""
-"Você pode modificar estas definições mais tarde ao correr "
-"\"dpkg-reconfigure -plow neutron\"."
+"Você pode modificar estas definições mais tarde ao correr \"dpkg-reconfigure "
+"-plow neutron\"."
 
 #. Type: string
 #. Description
@@ -256,8 +250,8 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
-"De modo a interagir com outros componentes do OpenStack, este pacote "
-"precisa de ligar a um servidor RabbitMQ central."
+"De modo a interagir com outros componentes do OpenStack, este pacote precisa "
+"de ligar a um servidor RabbitMQ central."
 
 #. Type: string
 #. Description
@@ -348,10 +342,10 @@ msgid ""
 "disable creation of tenant networks."
 msgstr ""
 "O valor \"local\" é útil apenas para testes em máquina-única. De modo a que "
-"redes tenant disponibilizem ligações entre máquinas, é necessário ou escolher "
-"\"vlan\" e depois configurar \"network_vlan_ranges\" ou escolher \"gre\" e "
-"depois configurar \"tunnel_id_ranges\". Escolha \"nenhum\" para desactivar a "
-"criação de redes tenant."
+"redes tenant disponibilizem ligações entre máquinas, é necessário ou "
+"escolher \"vlan\" e depois configurar \"network_vlan_ranges\" ou escolher "
+"\"gre\" e depois configurar \"tunnel_id_ranges\". Escolha \"nenhum\" para "
+"desactivar a criação de redes tenant."
 
 #. Type: boolean
 #. Description
@@ -367,8 +361,8 @@ msgid ""
 "server and agents. This requires kernel support for OVS patch ports and GRE "
 "tunneling."
 msgstr ""
-"Por favor escolha se deve ser activado suporte para redes GRE no servidor "
-"e nos agentes. Isto requer suporte de kernel para portos de patch OVS e "
+"Por favor escolha se deve ser activado suporte para redes GRE no servidor e "
+"nos agentes. Isto requer suporte de kernel para portos de patch OVS e "
 "ligação GRE em túnel."
 
 #. Type: string
@@ -385,10 +379,9 @@ msgid ""
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
 "allocation if tenant_network_type is \"gre\"."
 msgstr ""
-"Por favor indique uma lista separada por vírgulas de \"tuples\" "
-"<tun_min>:<tun_max> enumerando alcances de IDs de túnel GRE que estão "
-"disponíveis para alocação de rede tenant se o \"tipo de rede tenant\" for "
-"\"gre\"."
+"Por favor indique uma lista separada por vírgulas de \"tuples\" <tun_min>:"
+"<tun_max> enumerando alcances de IDs de túnel GRE que estão disponíveis para "
+"alocação de rede tenant se o \"tipo de rede tenant\" for \"gre\"."
 
 #. Type: string
 #. Description
@@ -427,8 +420,8 @@ msgid ""
 "Note that you will need to have an up and running Keystone server on which "
 "to connect using the Keystone authentication token."
 msgstr ""
-"Note que irá precisar de ter um servidor Keystone a funcionar no qual "
-"ligar usando o sinal de autenticação do Keystone."
+"Note que irá precisar de ter um servidor Keystone a funcionar no qual ligar "
+"usando o sinal de autenticação do Keystone."
 
 #. Type: string
 #. Description
@@ -460,8 +453,8 @@ msgid ""
 "To configure its endpoint in Keystone, neutron-server needs the Keystone "
 "auth token."
 msgstr ""
-"Para configurar o seu endpoint no Keystone, o neutron-server precisa do sinal "
-"de autenticação do Keystone."
+"Para configurar o seu endpoint no Keystone, o neutron-server precisa do "
+"sinal de autenticação do Keystone."
 
 #. Type: string
 #. Description
@@ -484,9 +477,9 @@ msgid ""
 "service, so if you are installing a public cloud, this should be a public IP "
 "address."
 msgstr ""
-"Este endereço IP deve ser acessível a partir dos clientes que vão usar "
-"este serviço, portanto se está a instalar uma \"cloud\" pública, este deve "
-"ser um endereço IP público."
+"Este endereço IP deve ser acessível a partir dos clientes que vão usar este "
+"serviço, portanto se está a instalar uma \"cloud\" pública, este deve ser um "
+"endereço IP público."
 
 #. Type: string
 #. Description
@@ -503,8 +496,8 @@ msgid ""
 "endpoint."
 msgstr ""
 "O OpenStack suporta usar zonas de disponibilidade, com cada região a "
-"representar um local. Por favor indique a zona que deseja usar ao registar "
-"o endpoint."
+"representar um local. Por favor indique a zona que deseja usar ao registar o "
+"endpoint."
 
 #. Type: string
 #. Description
@@ -559,3 +552,5 @@ msgstr ""
 "região a representar um local. Por favor indique a zona que o servidor de "
 "meta-dados deverá usar."
 
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

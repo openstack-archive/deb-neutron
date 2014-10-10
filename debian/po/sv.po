@@ -7,15 +7,15 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2014-01-09 10:22+0100\n"
 "Last-Translator: Martin Bagge / brother <brother@bsnet.se>\n"
 "Language-Team: Swedish <debian-l10n-swedish@lists.debian.org>\n"
+"Language: Swedish\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: Poedit 1.5.4\n"
-"Language: Swedish\n"
 
 #. Type: string
 #. Description
@@ -132,12 +132,6 @@ msgstr "Hyper-V"
 #: ../neutron-common.templates:6001
 msgid "RYU"
 msgstr "RYU"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
 
 #. Type: select
 #. Choices
@@ -544,3 +538,6 @@ msgid ""
 msgstr ""
 "OpenStack kan användas med tillgänglighetszoner. Varje region representerar "
 "en plats. Ange zonen som ska användas när ändpunkten registreras."
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

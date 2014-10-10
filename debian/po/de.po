@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2013.2.1-3\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2014-02-11 23:31+0100\n"
 "Last-Translator: Chris Leick <c.leick@vollbio.de>\n"
 "Language-Team: German <debian-l10n-german@lists.debian.org>\n"
@@ -30,8 +30,8 @@ msgid ""
 "this is also the hostname of your OpenStack Identity Service (Keystone)."
 msgstr ""
 "Bitte geben Sie den Rechnernamen Ihres Neutron-Authentifizierungsservers an. "
-"Typischerweise ist das gleichzeitig der Rechnername Ihres "
-"OpenStack-Identitätsdienstes (Keystone)."
+"Typischerweise ist das gleichzeitig der Rechnername Ihres OpenStack-"
+"Identitätsdienstes (Keystone)."
 
 #. Type: string
 #. Description
@@ -70,8 +70,8 @@ msgstr "Passwort des Authentifizierungsservers:"
 #: ../neutron-common.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
-"Bitte geben Sie das Passwort an, das für den Authentifizierungsserver benutzt "
-"wird."
+"Bitte geben Sie das Passwort an, das für den Authentifizierungsserver "
+"benutzt wird."
 
 #. Type: select
 #. Choices
@@ -136,12 +136,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -199,9 +193,9 @@ msgid ""
 "No database has been set up for Neutron to use. Before continuing, you "
 "should make sure you have the following information:"
 msgstr ""
-"Für die Benutzung durch Neutron wurde keine Datenbank eingerichtet. Bevor Sie "
-"fortfahren, sollten Sie sich versichern, dass Sie die folgenden Informationen "
-"haben:"
+"Für die Benutzung durch Neutron wurde keine Datenbank eingerichtet. Bevor "
+"Sie fortfahren, sollten Sie sich versichern, dass Sie die folgenden "
+"Informationen haben:"
 
 #. Type: boolean
 #. Description
@@ -291,8 +285,8 @@ msgstr "Passwort für die Verbindung mit dem RabbitMQ-Server:"
 #: ../neutron-common.templates:10001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
-"Bitte geben Sie das Passwort ein, das Sie zum Verbinden mit dem "
-"RabbitMQ-Server verwenden."
+"Bitte geben Sie das Passwort ein, das Sie zum Verbinden mit dem RabbitMQ-"
+"Server verwenden."
 
 #. Type: select
 #. Choices
@@ -300,10 +294,10 @@ msgstr ""
 msgid "local"
 msgstr "lokal"
 
+# http://de.wikipedia.org/wiki/Generic_Routing_Encapsulation_Protocol
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:11001
-# http://de.wikipedia.org/wiki/Generic_Routing_Encapsulation_Protocol
 msgid "gre"
 msgstr "GRE"
 
@@ -352,8 +346,8 @@ msgstr ""
 "Der Wert »lokal« ist nur für das Testen einzelner Boxen nützlich. Damit "
 "Tenant-Netzwerke Verbindungen zwischen Rechnern bereitstellen können, ist es "
 "nötig, entweder »VLAN« auszuwählen und dann »network_vlan_ranges« zu "
-"konfigurieren oder »GRE« und dann »tunnel_id_ranges« einzurichten. Wählen Sie "
-"»keines«, um das Erstellen von Tenant-Netzwerken zu deaktivieren."
+"konfigurieren oder »GRE« und dann »tunnel_id_ranges« einzurichten. Wählen "
+"Sie »keines«, um das Erstellen von Tenant-Netzwerken zu deaktivieren."
 
 #. Type: boolean
 #. Description
@@ -369,9 +363,9 @@ msgid ""
 "server and agents. This requires kernel support for OVS patch ports and GRE "
 "tunneling."
 msgstr ""
-"Bitte wählen Sie, ob auf dem Server und den Clients Unterstützung für "
-"GRE-Netzwerke aktiviert werden soll. Dies erfordert Kernel-Unterstützung für "
-"OVS-Patch-Ports und GRE-Tunnel."
+"Bitte wählen Sie, ob auf dem Server und den Clients Unterstützung für GRE-"
+"Netzwerke aktiviert werden soll. Dies erfordert Kernel-Unterstützung für OVS-"
+"Patch-Ports und GRE-Tunnel."
 
 #. Type: string
 #. Description
@@ -387,10 +381,9 @@ msgid ""
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
 "allocation if tenant_network_type is \"gre\"."
 msgstr ""
-"Bitte geben Sie eine durch Kommas getrennte Liste von "
-"<tun_min>:<tun_max>-Tupeln ein, die für die Reservierung von "
-"Tenant-Netzwerken verfügbare Bereiche von GRE-Tunnel-IDs aufzählen, falls der "
-"Netzwerktyp »GRE« ist."
+"Bitte geben Sie eine durch Kommas getrennte Liste von <tun_min>:<tun_max>-"
+"Tupeln ein, die für die Reservierung von Tenant-Netzwerken verfügbare "
+"Bereiche von GRE-Tunnel-IDs aufzählen, falls der Netzwerktyp »GRE« ist."
 
 #. Type: string
 #. Description
@@ -449,7 +442,6 @@ msgstr ""
 "Bitte geben Sie die IP-Adresse des Keystone-Servers an, so dass Neutron-API "
 "Keystone kontaktieren kann, um den Neutron-Dienst und den Endpunkt zu "
 "erstellen."
-
 
 #. Type: password
 #. Description
@@ -563,3 +555,6 @@ msgstr ""
 "OpenStack kann mittels Verfügbarkeitszonen verwendet werden, bei der jede "
 "Region einen Ort repräsentiert. Bitte geben Sie die Zone an, die der "
 "Metadaten-Server benutzt."
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

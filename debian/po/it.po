@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2014-04-21 09:44+0200\n"
 "Last-Translator: Beatrice Torracca <beatricet@libero.it>\n"
 "Language-Team: Italian <debian-l10n-italian@lists.debian.org>\n"
@@ -134,12 +134,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -180,8 +174,8 @@ msgstr ""
 "Neutron usa un'architettura a plugin per gestire la rete. Quando si avvia il "
 "demone del server Neutron, il file di configurazione corrispondente al "
 "plugin che si desidera usare deve essere caricato fornendolo come parametro "
-"all'avvio del demone neutron-server. Inoltre la direttiva core_plugin "
-"deve corrispondere. Selezionare quale plugin usare."
+"all'avvio del demone neutron-server. Inoltre la direttiva core_plugin deve "
+"corrispondere. Selezionare quale plugin usare."
 
 #. Type: boolean
 #. Description
@@ -271,7 +265,8 @@ msgstr "Nome utente per la connessione al server RabbitMQ:"
 #. Description
 #: ../neutron-common.templates:9001
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr "Specificare il nome utente da usare per connettersi al server RabbitMQ."
+msgstr ""
+"Specificare il nome utente da usare per connettersi al server RabbitMQ."
 
 #. Type: password
 #. Description
@@ -409,8 +404,8 @@ msgid ""
 "endpoint-create\". This can be done automatically now."
 msgstr ""
 "Ogni servizio OpenStack (ogni API) dovrebbe essere registrato per poter "
-"essere accessibile. Ciò viene fatto usando «keystone service-create» e «"
-"keystone endpoint-create». Ciò può essere fatto ora automaticamente."
+"essere accessibile. Ciò viene fatto usando «keystone service-create» e "
+"«keystone endpoint-create». Ciò può essere fatto ora automaticamente."
 
 #. Type: boolean
 #. Description
@@ -548,3 +543,6 @@ msgstr ""
 "OpenStack può essere usato utilizzando le zone di disponibilità, con ogni "
 "regione che rappresenta una posizione. Inserire la zona che deve essere "
 "usata dal server di metadati."
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

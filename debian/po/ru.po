@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2014.1-2\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2014-05-04 09:17+0400\n"
 "Last-Translator: Yuri Kozlov <yuray@komyakino.ru>\n"
 "Language-Team: Russian <man-pages-ru-talks@lists.sourceforge.net>\n"
@@ -14,8 +14,8 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<"
-"=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
+"%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 "X-Generator: Lokalize 1.5\n"
 
 #. Type: string
@@ -32,8 +32,7 @@ msgid ""
 "this is also the hostname of your OpenStack Identity Service (Keystone)."
 msgstr ""
 "Введите имя узла сервера аутентификации Neutron. Данное имя обычно совпадает "
-"с "
-"OpenStack Identity Service (Keystone)."
+"с OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -134,12 +133,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -177,11 +170,10 @@ msgid ""
 "starting the neutron-server daemon. Also, the core_plugin directive needs to "
 "match. Please select which plugin to use."
 msgstr ""
-"В Neutron для управления сетью используется модульная архитектура. "
-"При запуске службы сервера neutron-server параметром задаётся "
-"соответствующий файл настройки модуля. "
-"Также, это значение должно совпадать с директивой core_plugin. "
-"Выберите, какой модуль нужно использовать."
+"В Neutron для управления сетью используется модульная архитектура. При "
+"запуске службы сервера neutron-server параметром задаётся соответствующий "
+"файл настройки модуля. Также, это значение должно совпадать с директивой "
+"core_plugin. Выберите, какой модуль нужно использовать."
 
 #. Type: boolean
 #. Description
@@ -252,8 +244,8 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
-"Для взаимодействия с другими компонентами OpenStack, этому пакету "
-"необходимо подключаться к центральному серверу RabbitMQ."
+"Для взаимодействия с другими компонентами OpenStack, этому пакету необходимо "
+"подключаться к центральному серверу RabbitMQ."
 
 #. Type: string
 #. Description
@@ -339,11 +331,10 @@ msgid ""
 "choose \"gre\" and then configure \"tunnel_id_ranges\". Choose \"none\" to "
 "disable creation of tenant networks."
 msgstr ""
-"Значение «local» полезно только для тестирования на одной машине. "
-"Чтобы для связи узлов использовались tenant-сети необходимо "
-"или выбрать «vlan» и затем настроить «network_vlan_ranges», "
-"или выбрать «gre» и затем настроить «tunnel_id_ranges». Выберите «нет», "
-"чтобы отключить создание tenant-сетей."
+"Значение «local» полезно только для тестирования на одной машине. Чтобы для "
+"связи узлов использовались tenant-сети необходимо или выбрать «vlan» и затем "
+"настроить «network_vlan_ranges», или выбрать «gre» и затем настроить "
+"«tunnel_id_ranges». Выберите «нет», чтобы отключить создание tenant-сетей."
 
 #. Type: boolean
 #. Description
@@ -359,9 +350,8 @@ msgid ""
 "server and agents. This requires kernel support for OVS patch ports and GRE "
 "tunneling."
 msgstr ""
-"Выберите, нужно ли активировать поддержку сетей GRE на "
-"сервере и агентах. Это требует поддержки в ядре патч-портов OVS и "
-"туннелирования GRE."
+"Выберите, нужно ли активировать поддержку сетей GRE на сервере и агентах. "
+"Это требует поддержки в ядре патч-портов OVS и туннелирования GRE."
 
 #. Type: string
 #. Description
@@ -377,9 +367,9 @@ msgid ""
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
 "allocation if tenant_network_type is \"gre\"."
 msgstr ""
-"Введите через запятую кортежи <tun_min>:<tun_max>, перечисляющие "
-"диапазоны идентификаторов туннелей GRE, которые доступны для "
-"tenant-сети, если tenant_network_type равен «gre»."
+"Введите через запятую кортежи <tun_min>:<tun_max>, перечисляющие диапазоны "
+"идентификаторов туннелей GRE, которые доступны для tenant-сети, если "
+"tenant_network_type равен «gre»."
 
 #. Type: string
 #. Description
@@ -435,8 +425,7 @@ msgid ""
 "contact Keystone to do the Neutron service and endpoint creation."
 msgstr ""
 "Введите IP-адрес сервера Keystone для того, чтобы neutron-api могла "
-"подключиться "
-"к Keystone для запуска службы Neutron и создания конечной точки."
+"подключиться к Keystone для запуска службы Neutron и создания конечной точки."
 
 #. Type: password
 #. Description
@@ -452,8 +441,7 @@ msgid ""
 "auth token."
 msgstr ""
 "Для настройки собственной конечной точки в Keystone neutron-api требуется "
-"токен "
-"аутентификации Keystone."
+"токен аутентификации Keystone."
 
 #. Type: string
 #. Description
@@ -549,3 +537,5 @@ msgstr ""
 "область представляет определённое расположение. Введите зону, которую должен "
 "использовать сервер метаданных."
 
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

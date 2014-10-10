@@ -1,3 +1,9 @@
+neutron (2014.2~rc1-3) experimental; urgency=medium
+
+  * Fixed debconf template and ran debconf-updatepo.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 10 Oct 2014 07:34:35 +0000
+
 neutron (2014.2~rc1-2) experimental; urgency=medium
 
   * Mangling upstream rc and beta versions in watch file.

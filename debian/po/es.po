@@ -23,7 +23,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2013.2.1-1\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2014-10-10 07:34+0000\n"
 "PO-Revision-Date: 2013-12-23 16:41+0200\n"
 "Last-Translator: Camaleón <noelamac@gmail.com>\n"
 "Language-Team: Debian Spanish <debian-l10n-spanish@lists.debian.org>\n"
@@ -152,12 +152,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -250,8 +244,8 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "neutron\"."
 msgstr ""
-"Podrá cambiar esta configuración más adelante ejecutando «dpkg-reconfigure "
-"-plow neutron»."
+"Podrá cambiar esta configuración más adelante ejecutando «dpkg-reconfigure -"
+"plow neutron»."
 
 #. Type: string
 #. Description
@@ -485,7 +479,8 @@ msgstr "Dirección IP del punto final de Neutron:"
 #. Description
 #: ../neutron-server.templates:5001
 msgid "Please enter the IP address that will be used to contact Neutron."
-msgstr "Introduzca la dirección IP que se utilizará para contactar con Neutron."
+msgstr ""
+"Introduzca la dirección IP que se utilizará para contactar con Neutron."
 
 #. Type: string
 #. Description
@@ -568,3 +563,6 @@ msgstr ""
 "OpenStack puede utilizarse con zonas de disponibilidad, donde cada región "
 "representa una ubicación. Introduzca la zona que desea que utilice el "
 "servidor de metadatos."
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"
