@@ -1,4 +1,4 @@
-/var/log/neutron/neutron-ns-metadata-proxy*.log {
+/var/log/neutron/*.log {
     daily
     missingok
     compress
