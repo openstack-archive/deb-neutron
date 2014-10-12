@@ -1,6 +1,7 @@
 neutron (2014.2~rc2-1) experimental; urgency=medium
 
   * New upstream release.
+  * Updated (build-)depends for this release.
   * Added ipset, iproute2, arping and keepalived as dependency.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 10 Oct 2014 23:11:10 +0800
