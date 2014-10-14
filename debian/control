@@ -100,7 +100,6 @@ Breaks: python-quantum (<< 2013.2~),
         quantum-plugin-ryu (<< 2013),
         quantum-plugin-ryu-agent (<< 2013)
 Depends: alembic (>= 0.6.4),
-         arping,
          iproute2,
          ipset,
          python-anyjson (>= 0.3.3),
@@ -137,6 +136,7 @@ Depends: alembic (>= 0.6.4),
          python-webob (>= 1.2.3),
          ${misc:Depends},
          ${python:Depends}
+Recommends: iputils-arping
 Provides: ${python:Provides}
 Description: OpenStack virtual network service - Python library
  Neutron provides an API to dynamically request and configure virtual networks.
