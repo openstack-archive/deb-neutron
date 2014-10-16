@@ -1,9 +1,15 @@
-neutron (2014.2~rc2-2) experimental; urgency=medium
+neutron (2014.2-2) experimental; urgency=medium
 
   * Removed arping from depends of python-neutron, and put iputils-arping as
     Recommends:.
 
- -- Thomas Goirand <zigo@debian.org>  Tue, 14 Oct 2014 18:00:20 +0800
+ -- Thomas Goirand <zigo@debian.org>  Thu, 16 Oct 2014 15:17:02 +0000
+
+neutron (2014.2-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 16 Oct 2014 14:52:35 +0000
 
 neutron (2014.2~rc2-1) experimental; urgency=medium
 
