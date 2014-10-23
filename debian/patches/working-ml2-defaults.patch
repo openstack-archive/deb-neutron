@@ -1,0 +1,61 @@
+Description: Nicer ml2 plugin defaults
+ This patch configures the ml2 plugin as described at:
+ http://docs.openstack.org/juno/install-guide/install/apt-debian/content/neutron-controller-node.html
+Author: Thomas Goirand <zigo@debian.org>
+Origin: upstream, http://docs.openstack.org/juno/install-guide/install/apt-debian/content/neutron-controller-node.html
+Forwarded: not-needed
+Last-Update: 2014-10-23
+
+--- neutron-2014.2~rc2.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-2014.2~rc2/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -2,24 +2,24 @@
+ # (ListOpt) List of network type driver entrypoints to be loaded from
+ # the neutron.ml2.type_drivers namespace.
+ #
+-# type_drivers = local,flat,vlan,gre,vxlan
+-# Example: type_drivers = flat,vlan,gre,vxlan
++# Example: type_drivers = local,flat,vlan,gre,vxlan
++type_drivers = flat,gre
+ 
+ # (ListOpt) Ordered list of network_types to allocate as tenant
+ # networks. The default value 'local' is useful for single-box testing
+ # but provides no connectivity between hosts.
+ #
+-# tenant_network_types = local
+ # Example: tenant_network_types = vlan,gre,vxlan
++tenant_network_types = gre
+ 
+ # (ListOpt) Ordered list of networking mechanism driver entrypoints
+ # to be loaded from the neutron.ml2.mechanism_drivers namespace.
+-# mechanism_drivers =
+ # Example: mechanism_drivers = openvswitch,mlnx
+ # Example: mechanism_drivers = arista
+ # Example: mechanism_drivers = cisco,logger
+ # Example: mechanism_drivers = openvswitch,brocade
+ # Example: mechanism_drivers = linuxbridge,brocade
++mechanism_drivers = openvswitch
+ 
+ # (ListOpt) Ordered list of extension driver entrypoints
+ # to be loaded from the neutron.ml2.extension_drivers namespace.
+@@ -46,7 +46,7 @@
+ 
+ [ml2_type_gre]
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
+-# tunnel_id_ranges =
++tunnel_id_ranges = 1:1000
+ 
+ [ml2_type_vxlan]
+ # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
+@@ -64,8 +64,10 @@
+ [securitygroup]
+ # Controls if neutron security group is enabled or not.
+ # It should be false when you use nova security group.
+-# enable_security_group = True
++enable_security_group = True
+ 
+ # Use ipset to speed-up the iptables security groups. Enabling ipset support
+ # requires that ipset is installed on L2 agent node.
+-# enable_ipset = True
++enable_ipset = True
++
++firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver

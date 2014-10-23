@@ -1,3 +1,9 @@
+neutron (2014.2-3) experimental; urgency=medium
+
+  * Patches the ml2 plugin ini file to be like the install-guide by default.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 23 Oct 2014 14:59:07 +0800
+
 neutron (2014.2-2) experimental; urgency=medium
 
   * Removed arping from depends of python-neutron, and put iputils-arping as
