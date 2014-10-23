@@ -1,6 +1,8 @@
 neutron (2014.2-3) experimental; urgency=medium
 
   * Patches the ml2 plugin ini file to be like the install-guide by default.
+  * Added defaults-closer-to-install-guide.patch to have l3 and dhcp init files
+    match what the install-guide proposes as configuration.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 23 Oct 2014 14:59:07 +0800
 
