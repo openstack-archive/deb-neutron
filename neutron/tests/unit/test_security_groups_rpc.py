@@ -544,6 +544,52 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                                  expected)
                 self._delete('ports', port_id1)
 
+    def test_security_group_info_for_devices_only_ipv6_rule(self):
+        with self.network() as n:
+            with contextlib.nested(self.subnet(n),
+                                   self.security_group()) as (subnet_v4,
+                                                              sg1):
+                sg1_id = sg1['security_group']['id']
+                rule1 = self._build_security_group_rule(
+                    sg1_id,
+                    'ingress', const.PROTO_NAME_TCP, '22',
+                    '22', remote_group_id=sg1_id,
+                    ethertype=const.IPv6)
+                rules = {
+                    'security_group_rules': [rule1['security_group_rule']]}
+                self._make_security_group_rule(self.fmt, rules)
+
+                res1 = self._create_port(
+                    self.fmt, n['network']['id'],
+                    security_groups=[sg1_id])
+                ports_rest1 = self.deserialize(self.fmt, res1)
+                port_id1 = ports_rest1['port']['id']
+                self.rpc.devices = {port_id1: ports_rest1['port']}
+                devices = [port_id1, 'no_exist_device']
+
+                ctx = context.get_admin_context()
+                ports_rpc = self.rpc.security_group_info_for_devices(
+                    ctx, devices=devices)
+                expected = {
+                    'security_groups': {sg1_id: [
+                        {'direction': 'egress', 'ethertype': const.IPv4},
+                        {'direction': 'egress', 'ethertype': const.IPv6},
+                        {'direction': u'ingress',
+                         'protocol': const.PROTO_NAME_TCP,
+                         'ethertype': const.IPv6,
+                         'port_range_max': 22, 'port_range_min': 22,
+                         'remote_group_id': sg1_id}
+                    ]},
+                    'sg_member_ips': {sg1_id: {
+                        'IPv6': [],
+                    }}
+                }
+                self.assertEqual(expected['security_groups'],
+                                 ports_rpc['security_groups'])
+                self.assertEqual(expected['sg_member_ips'][sg1_id]['IPv6'],
+                                 ports_rpc['sg_member_ips'][sg1_id]['IPv6'])
+                self._delete('ports', port_id1)
+
     def test_security_group_ra_rules_for_devices_ipv6_gateway_global(self):
         fake_prefix = FAKE_PREFIX[const.IPv6]
         fake_gateway = FAKE_IP['IPv6_GLOBAL']
@@ -975,6 +1021,7 @@ class BaseSecurityGroupAgentRpcTestCase(base.BaseTestCase):
         self.agent.root_helper = 'sudo'
         self.agent.plugin_rpc = mock.Mock()
         self.agent.init_firewall(defer_refresh_firewall=defer_refresh_firewall)
+        self.default_firewall = self.agent.firewall
         self.firewall = mock.Mock()
         firewall_object = firewall_base.FirewallDriver()
         self.firewall.defer_apply.side_effect = firewall_object.defer_apply
@@ -1010,6 +1057,26 @@ class SecurityGroupAgentRpcTestCase(BaseSecurityGroupAgentRpcTestCase):
                                         mock.call.remove_port_filter(
                                             self.fake_device),
                                         ])
+
+    def test_prepare_devices_filter_with_noopfirewall(self):
+        self.agent.firewall = self.default_firewall
+        self.agent.plugin_rpc.security_group_info_for_devices = mock.Mock()
+        self.agent.plugin_rpc.security_group_rules_for_devices = mock.Mock()
+        self.agent.prepare_devices_filter(['fake_device'])
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_info_for_devices.called)
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_rules_for_devices.called)
+
+    def test_prepare_devices_filter_with_firewall_disabled(self):
+        cfg.CONF.set_override('enable_security_group', False, 'SECURITYGROUP')
+        self.agent.plugin_rpc.security_group_info_for_devices = mock.Mock()
+        self.agent.plugin_rpc.security_group_rules_for_devices = mock.Mock()
+        self.agent.prepare_devices_filter(['fake_device'])
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_info_for_devices.called)
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_rules_for_devices.called)
 
     def test_security_groups_rule_updated(self):
         self.agent.refresh_firewall = mock.Mock()
@@ -1064,6 +1131,30 @@ class SecurityGroupAgentRpcTestCase(BaseSecurityGroupAgentRpcTestCase):
     def test_refresh_firewall_none(self):
         self.agent.refresh_firewall([])
         self.assertFalse(self.firewall.called)
+
+    def test_refresh_firewall_with_firewall_disabled(self):
+        cfg.CONF.set_override('enable_security_group', False, 'SECURITYGROUP')
+        self.agent.plugin_rpc.security_group_info_for_devices = mock.Mock()
+        self.agent.plugin_rpc.security_group_rules_for_devices = mock.Mock()
+        self.agent.firewall.defer_apply = mock.Mock()
+        self.agent.refresh_firewall([self.fake_device])
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_info_for_devices.called)
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_rules_for_devices.called)
+        self.assertFalse(self.agent.firewall.defer_apply.called)
+
+    def test_refresh_firewall_with_noopfirewall(self):
+        self.agent.firewall = self.default_firewall
+        self.agent.plugin_rpc.security_group_info_for_devices = mock.Mock()
+        self.agent.plugin_rpc.security_group_rules_for_devices = mock.Mock()
+        self.agent.firewall.defer_apply = mock.Mock()
+        self.agent.refresh_firewall([self.fake_device])
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_info_for_devices.called)
+        self.assertFalse(self.agent.plugin_rpc.
+                         security_group_rules_for_devices.called)
+        self.assertFalse(self.agent.firewall.defer_apply.called)
 
 
 class SecurityGroupAgentEnhancedRpcTestCase(
@@ -2254,11 +2345,13 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
     def setUp(self, defer_refresh_firewall=False, test_rpc_v1_1=True):
         super(TestSecurityGroupAgentWithIptables, self).setUp()
         config.register_root_helper(cfg.CONF)
+        config.register_iptables_opts(cfg.CONF)
         cfg.CONF.set_override(
             'lock_path',
             '$state_path/lock')
         set_firewall_driver(self.FIREWALL_DRIVER)
         cfg.CONF.set_override('enable_ipset', False, group='SECURITYGROUP')
+        cfg.CONF.set_override('comment_iptables_rules', False, group='AGENT')
 
         self.agent = sg_rpc.SecurityGroupAgentRpcMixin()
         self.agent.context = None

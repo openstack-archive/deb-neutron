@@ -16,6 +16,7 @@
 
 import collections
 import contextlib
+import copy
 
 import mock
 
@@ -203,6 +204,22 @@ class TestArpLib(OFAAgentTestCase):
         self.arplib.del_arp_table_entry(self.nets[0].net, self.nets[0].ip)
         self.assertEqual(self.arplib._arp_tbl, {})
 
+    def test_del_arp_table_entry_unknown_network(self):
+        self.arplib._arp_tbl = {
+            100: {"192.0.2.1": "fa:16:3e:e2:37:37"},
+        }
+        orig = copy.deepcopy(self.arplib._arp_tbl)
+        self.arplib.del_arp_table_entry(200, "192.0.2.1")
+        self.assertEqual(orig, self.arplib._arp_tbl)
+
+    def test_del_arp_table_entry_unknown_ip(self):
+        self.arplib._arp_tbl = {
+            100: {"192.0.2.1": "fa:16:3e:e2:37:37"},
+        }
+        orig = copy.deepcopy(self.arplib._arp_tbl)
+        self.arplib.del_arp_table_entry(100, "192.0.2.9")
+        self.assertEqual(orig, self.arplib._arp_tbl)
+
     def test_del_arp_table_entry_multiple_net(self):
         self.arplib._arp_tbl = {
             self.nets[0].net: {self.nets[0].ip: self.nets[0].mac},
@@ -287,6 +304,11 @@ class TestArpLib(OFAAgentTestCase):
 
     def test_packet_in_handler_non_arp(self):
         self._fake_get_protocol_arp = False
+        self._test_packet_in_handler_drop()
+
+    def test_packet_in_handler_corrupted(self):
+        mock.patch('ryu.lib.packet.packet.Packet',
+                   side_effect=ValueError).start()
         self._test_packet_in_handler_drop()
 
     def test_packet_in_handler_unknown_network(self):

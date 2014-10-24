@@ -447,8 +447,6 @@ class ServerPool(object):
                 if not self.get_topo_function:
                     raise cfg.Error(_('Server requires synchronization, '
                                       'but no topology function was defined.'))
-                # The hash was incorrect so it needs to be removed
-                hash_handler.put_hash('')
                 data = self.get_topo_function(**self.get_topo_function_args)
                 active_server.rest_call('PUT', TOPOLOGY_PATH, data,
                                         timeout=None)
@@ -639,8 +637,9 @@ class HTTPSConnectionWithValidation(httplib.HTTPSConnection):
         if self.combined_cert:
             self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file,
                                         cert_reqs=ssl.CERT_REQUIRED,
-                                        ca_certs=self.combined_cert)
+                                        ca_certs=self.combined_cert,
+                                        ssl_version=ssl.PROTOCOL_TLSv1)
         else:
-            self.sock = ssl.wrap_socket(sock, self.key_file,
-                                        self.cert_file,
-                                        cert_reqs=ssl.CERT_NONE)
+            self.sock = ssl.wrap_socket(sock, self.key_file, self.cert_file,
+                                        cert_reqs=ssl.CERT_NONE,
+                                        ssl_version=ssl.PROTOCOL_TLSv1)

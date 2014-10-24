@@ -22,6 +22,7 @@ eventlet.monkey_patch()
 import netaddr
 import os
 from oslo.config import cfg
+from oslo import messaging
 import Queue
 
 from neutron.agent.common import config
@@ -34,13 +35,15 @@ from neutron.agent.linux import ra
 from neutron.agent import rpc as agent_rpc
 from neutron.common import config as common_config
 from neutron.common import constants as l3_constants
+from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils as common_utils
-from neutron import context
+from neutron import context as n_context
 from neutron import manager
 from neutron.openstack.common import excutils
+from neutron.openstack.common.gettextutils import _LE, _LW
 from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
@@ -241,7 +244,7 @@ class LinkLocalAllocator(object):
 class RouterInfo(l3_ha_agent.RouterMixin):
 
     def __init__(self, router_id, root_helper, use_namespaces, router,
-                 use_ipv6=False):
+                 use_ipv6=False, ns_name=None):
         self.router_id = router_id
         self.ex_gw_port = None
         self._snat_enabled = None
@@ -254,7 +257,7 @@ class RouterInfo(l3_ha_agent.RouterMixin):
         self.use_namespaces = use_namespaces
         # Invoke the setter for establishing initial SNAT action
         self.router = router
-        self.ns_name = NS_PREFIX + router_id if use_namespaces else None
+        self.ns_name = ns_name
         self.iptables_manager = iptables_manager.IptablesManager(
             root_helper=root_helper,
             use_ipv6=use_ipv6,
@@ -518,31 +521,47 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             LOG.error(msg)
             raise SystemExit(1)
 
-        self.context = context.get_admin_context_without_session()
+        self.context = n_context.get_admin_context_without_session()
         self.plugin_rpc = L3PluginApi(topics.L3PLUGIN, host)
         self.fullsync = True
-        self.updated_routers = set()
-        self.removed_routers = set()
         self.sync_progress = False
 
         # Get the list of service plugins from Neutron Server
-        try:
-            self.neutron_service_plugins = (
-                self.plugin_rpc.get_service_plugin_list(self.context))
-        except n_rpc.RemoteError as e:
-            LOG.warning(_('l3-agent cannot check service plugins '
-                          'enabled at the neutron server when startup '
-                          'due to RPC error. It happens when the server '
-                          'does not support this RPC API. If the error '
-                          'is UnsupportedVersion you can ignore '
-                          'this warning. Detail message: %s'), e)
-            self.neutron_service_plugins = None
+        # This is the first place where we contact neutron-server on startup
+        # so retry in case its not ready to respond.
+        retry_count = 5
+        while True:
+            retry_count = retry_count - 1
+            try:
+                self.neutron_service_plugins = (
+                    self.plugin_rpc.get_service_plugin_list(self.context))
+            except n_rpc.RemoteError as e:
+                with excutils.save_and_reraise_exception() as ctx:
+                    ctx.reraise = False
+                    LOG.warning(_LW('l3-agent cannot check service plugins '
+                                    'enabled at the neutron server when '
+                                    'startup due to RPC error. It happens '
+                                    'when the server does not support this '
+                                    'RPC API. If the error is '
+                                    'UnsupportedVersion you can ignore this '
+                                    'warning. Detail message: %s'), e)
+                self.neutron_service_plugins = None
+            except messaging.MessagingTimeout as e:
+                with excutils.save_and_reraise_exception() as ctx:
+                    if retry_count > 0:
+                        ctx.reraise = False
+                        LOG.warning(_LW('l3-agent cannot check service '
+                                        'plugins enabled on the neutron '
+                                        'server. Retrying. '
+                                        'Detail message: %s'), e)
+                        continue
+            break
 
         self._clean_stale_namespaces = self.conf.use_namespaces
 
         # dvr data
         self.agent_gateway_port = None
-        self.agent_fip_count = 0
+        self.fip_ns_subscribers = set()
         self.local_subnets = LinkLocalAllocator(
             os.path.join(self.conf.state_path, 'fip-linklocal-networks'),
             FIP_LL_SUBNET)
@@ -553,6 +572,15 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
         self.target_ex_net_id = None
         self.use_ipv6 = ipv6_utils.is_enabled()
+
+    def _fip_ns_subscribe(self, router_id):
+        is_first = (len(self.fip_ns_subscribers) == 0)
+        self.fip_ns_subscribers.add(router_id)
+        return is_first
+
+    def _fip_ns_unsubscribe(self, router_id):
+        self.fip_ns_subscribers.discard(router_id)
+        return len(self.fip_ns_subscribers) == 0
 
     def _check_config_params(self):
         """Check items in configuration files.
@@ -588,16 +616,22 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                             'for namespace cleanup.'))
             return set()
 
+    def _get_routers_namespaces(self, router_ids):
+        namespaces = set(self.get_ns_name(rid) for rid in router_ids)
+        namespaces.update(self.get_snat_ns_name(rid) for rid in router_ids)
+        return namespaces
+
     def _cleanup_namespaces(self, router_namespaces, router_ids):
         """Destroy stale router namespaces on host when L3 agent restarts
 
-            This routine is called when self._clean_stale_namespaces is True.
+        This routine is called when self._clean_stale_namespaces is True.
 
         The argument router_namespaces is the list of all routers namespaces
         The argument router_ids is the list of ids for known routers.
         """
-        ns_to_ignore = set(NS_PREFIX + id for id in router_ids)
-        ns_to_ignore.update(SNAT_NS_PREFIX + id for id in router_ids)
+        # Don't destroy namespaces of routers this agent handles.
+        ns_to_ignore = self._get_routers_namespaces(router_ids)
+
         ns_to_destroy = router_namespaces - ns_to_ignore
         self._destroy_stale_router_namespaces(ns_to_destroy)
 
@@ -610,7 +644,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         one attempt will be made to delete them.
         """
         for ns in router_namespaces:
-            ra.disable_ipv6_ra(ns[len(NS_PREFIX):], ns, self.root_helper)
             try:
                 self._destroy_namespace(ns)
             except RuntimeError:
@@ -620,8 +653,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
     def _destroy_namespace(self, ns):
         if ns.startswith(NS_PREFIX):
-            if self.conf.enable_metadata_proxy:
-                self._destroy_metadata_proxy(ns[len(NS_PREFIX):], ns)
             self._destroy_router_namespace(ns)
         elif ns.startswith(FIP_NS_PREFIX):
             self._destroy_fip_namespace(ns)
@@ -670,6 +701,10 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self.agent_gateway_port = None
 
     def _destroy_router_namespace(self, ns):
+        router_id = ns[len(NS_PREFIX):]
+        ra.disable_ipv6_ra(router_id, ns, self.root_helper)
+        if self.conf.enable_metadata_proxy:
+            self._destroy_metadata_proxy(router_id, ns)
         ns_ip = ip_lib.IPWrapper(self.root_helper, namespace=ns)
         for d in ns_ip.get_devices(exclude_loopback=True):
             if d.name.startswith(INTERNAL_DEV_PREFIX):
@@ -727,9 +762,14 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                     raise Exception(msg)
 
     def _router_added(self, router_id, router):
-        ri = RouterInfo(router_id, self.root_helper,
-                        self.conf.use_namespaces, router,
-                        use_ipv6=self.use_ipv6)
+        ns_name = (self.get_ns_name(router_id)
+                   if self.conf.use_namespaces else None)
+        ri = RouterInfo(router_id=router_id,
+                        root_helper=self.root_helper,
+                        use_namespaces=self.conf.use_namespaces,
+                        router=router,
+                        use_ipv6=self.use_ipv6,
+                        ns_name=ns_name)
         self.router_info[router_id] = ri
         if self.conf.use_namespaces:
             self._create_router_namespace(ri)
@@ -768,15 +808,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         for c, r in self.metadata_nat_rules():
             ri.iptables_manager.ipv4['nat'].remove_rule(c, r)
         ri.iptables_manager.apply()
-        if self.conf.enable_metadata_proxy:
-            self._destroy_metadata_proxy(ri.router_id, ri.ns_name)
         del self.router_info[router_id]
         self._destroy_router_namespace(ri.ns_name)
 
     def _get_metadata_proxy_callback(self, router_id):
 
         def callback(pid_file):
-            metadata_proxy_socket = cfg.CONF.metadata_proxy_socket
+            metadata_proxy_socket = self.conf.metadata_proxy_socket
             proxy_cmd = ['neutron-ns-metadata-proxy',
                          '--pid_file=%s' % pid_file,
                          '--metadata_proxy_socket=%s' % metadata_proxy_socket,
@@ -784,7 +822,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                          '--state_path=%s' % self.conf.state_path,
                          '--metadata_port=%s' % self.conf.metadata_port]
             proxy_cmd.extend(config.get_log_args(
-                cfg.CONF, 'neutron-ns-metadata-proxy-%s.log' %
+                self.conf, 'neutron-ns-metadata-proxy-%s.log' %
                 router_id))
             return proxy_cmd
 
@@ -948,7 +986,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         # Process SNAT/DNAT rules for floating IPs
         fip_statuses = {}
         try:
-            if ex_gw_port or ri.ex_gw_port:
+            if ex_gw_port:
                 existing_floating_ips = ri.floating_ips
                 self.process_router_floating_ip_nat_rules(ri)
                 ri.iptables_manager.defer_apply_off()
@@ -962,7 +1000,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             for fip in ri.router.get(l3_constants.FLOATINGIP_KEY, []):
                 fip_statuses[fip['id']] = l3_constants.FLOATINGIP_STATUS_ERROR
 
-        if ex_gw_port or ri.ex_gw_port:
+        if ex_gw_port:
             # Identify floating IPs which were disabled
             ri.floating_ips = set(fip_statuses.keys())
             for fip_id in existing_floating_ips - ri.floating_ips:
@@ -1066,9 +1104,11 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         if ri.router['distributed']:
             # filter out only FIPs for this host/agent
             floating_ips = [i for i in floating_ips if i['host'] == self.host]
-            if floating_ips and self.agent_gateway_port is None:
-                self._create_agent_gateway_port(ri, floating_ips[0]
-                                                ['floating_network_id'])
+            if floating_ips:
+                is_first = self._fip_ns_subscribe(ri.router_id)
+                if is_first:
+                    self._create_agent_gateway_port(ri, floating_ips[0]
+                                                    ['floating_network_id'])
 
             if self.agent_gateway_port:
                 if floating_ips and ri.dist_fip_count == 0:
@@ -1115,6 +1155,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         else:
             net = netaddr.IPNetwork(ip_cidr)
             device.addr.delete(net.version, ip_cidr)
+            self.driver.delete_conntrack_state(root_helper=self.root_helper,
+                                               namespace=ri.ns_name,
+                                               ip=ip_cidr)
             if ri.router['distributed']:
                 self.floating_ip_removed_dist(ri, ip_cidr)
 
@@ -1214,6 +1257,9 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
     def get_fip_ns_name(self, ext_net_id):
         return (FIP_NS_PREFIX + ext_net_id)
+
+    def get_ns_name(self, router_id):
+        return (NS_PREFIX + router_id)
 
     def get_snat_ns_name(self, router_id):
         return (SNAT_NS_PREFIX + router_id)
@@ -1384,7 +1430,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                 self._snat_redirect_remove(ri, p, internal_interface)
 
             if self.conf.agent_mode == 'dvr_snat' and (
-                ex_gw_port['binding:host_id'] == self.host):
+                ri.router['gw_port_host'] == self.host):
                 ns_name = self.get_snat_ns_name(ri.router['id'])
             else:
                 # not hosting agent - no work to do
@@ -1626,7 +1672,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                                          interface_name, floating_ip,
                                          distributed=True)
         # update internal structures
-        self.agent_fip_count = self.agent_fip_count + 1
         ri.dist_fip_count = ri.dist_fip_count + 1
 
     def floating_ip_removed_dist(self, ri, fip_cidr):
@@ -1660,10 +1705,10 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             self.local_subnets.release(ri.router_id)
             ri.rtr_fip_subnet = None
             ns_ip.del_veth(fip_2_rtr_name)
-        # clean up fip-namespace if this is the last FIP
-        self.agent_fip_count = self.agent_fip_count - 1
-        if self.agent_fip_count == 0:
-            self._destroy_fip_namespace(fip_ns_name)
+            is_last = self._fip_ns_unsubscribe(ri.router_id)
+            # clean up fip-namespace if this is the last FIP
+            if is_last:
+                self._destroy_fip_namespace(fip_ns_name)
 
     def floating_forward_rules(self, floating_ip, fixed_ip):
         return [('PREROUTING', '-d %s -j DNAT --to %s' %
@@ -1742,51 +1787,38 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         LOG.debug(_('Got router added to agent :%r'), payload)
         self.routers_updated(context, payload)
 
-    def _process_routers(self, routers, all_routers=False):
-        pool = eventlet.GreenPool()
+    def _process_router_if_compatible(self, router):
         if (self.conf.external_network_bridge and
             not ip_lib.device_exists(self.conf.external_network_bridge)):
             LOG.error(_("The external network bridge '%s' does not exist"),
                       self.conf.external_network_bridge)
             return
 
+        # If namespaces are disabled, only process the router associated
+        # with the configured agent id.
+        if (not self.conf.use_namespaces and
+            router['id'] != self.conf.router_id):
+            raise n_exc.RouterNotCompatibleWithAgent(router_id=router['id'])
+
+        # Either ex_net_id or handle_internal_only_routers must be set
+        ex_net_id = (router['external_gateway_info'] or {}).get('network_id')
+        if not ex_net_id and not self.conf.handle_internal_only_routers:
+            raise n_exc.RouterNotCompatibleWithAgent(router_id=router['id'])
+
+        # If target_ex_net_id and ex_net_id are set they must be equal
         target_ex_net_id = self._fetch_external_net_id()
-        # if routers are all the routers we have (They are from router sync on
-        # starting or when error occurs during running), we seek the
-        # routers which should be removed.
-        # If routers are from server side notification, we seek them
-        # from subset of incoming routers and ones we have now.
-        if all_routers:
-            prev_router_ids = set(self.router_info)
-        else:
-            prev_router_ids = set(self.router_info) & set(
-                [router['id'] for router in routers])
-        cur_router_ids = set()
-        for r in routers:
-            # If namespaces are disabled, only process the router associated
-            # with the configured agent id.
-            if (not self.conf.use_namespaces and
-                r['id'] != self.conf.router_id):
-                continue
-            ex_net_id = (r['external_gateway_info'] or {}).get('network_id')
-            if not ex_net_id and not self.conf.handle_internal_only_routers:
-                continue
-            if (target_ex_net_id and ex_net_id and
-                ex_net_id != target_ex_net_id):
-                # Double check that our single external_net_id has not changed
-                # by forcing a check by RPC.
-                if (ex_net_id != self._fetch_external_net_id(force=True)):
-                    continue
-            cur_router_ids.add(r['id'])
-            if r['id'] not in self.router_info:
-                self._router_added(r['id'], r)
-            ri = self.router_info[r['id']]
-            ri.router = r
-            pool.spawn_n(self.process_router, ri)
-        # identify and remove routers that no longer exist
-        for router_id in prev_router_ids - cur_router_ids:
-            pool.spawn_n(self._router_removed, router_id)
-        pool.waitall()
+        if (target_ex_net_id and ex_net_id and ex_net_id != target_ex_net_id):
+            # Double check that our single external_net_id has not changed
+            # by forcing a check by RPC.
+            if ex_net_id != self._fetch_external_net_id(force=True):
+                raise n_exc.RouterNotCompatibleWithAgent(
+                    router_id=router['id'])
+
+        if router['id'] not in self.router_info:
+            self._router_added(router['id'], router)
+        ri = self.router_info[router['id']]
+        ri.router = router
+        self.process_router(ri)
 
     def _process_router_update(self):
         for rp, update in self._queue.each_update_to_next_router():
@@ -1810,7 +1842,15 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                 self._router_removed(update.id)
                 continue
 
-            self._process_routers([router])
+            try:
+                self._process_router_if_compatible(router)
+            except n_exc.RouterNotCompatibleWithAgent as e:
+                LOG.exception(e.msg)
+                # Was the router previously handled by this agent?
+                if router['id'] in self.router_info:
+                    LOG.error(_LE("Removing incompatible router '%s'"),
+                              router['id'])
+                    self._router_removed(router['id'])
             LOG.debug("Finished a router update for %s", update.id)
             rp.fetched_and_processed(update.timestamp)
 
@@ -1819,12 +1859,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         pool = eventlet.GreenPool(size=8)
         while True:
             pool.spawn_n(self._process_router_update)
-
-    def _process_router_delete(self):
-        current_removed_routers = list(self.removed_routers)
-        for router_id in current_removed_routers:
-            self._router_removed(router_id)
-            self.removed_routers.remove(router_id)
 
     def _router_ids(self):
         if not self.conf.use_namespaces:
@@ -1851,8 +1885,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
         try:
             router_ids = self._router_ids()
-            self.updated_routers.clear()
-            self.removed_routers.clear()
             timestamp = timeutils.utcnow()
             routers = self.plugin_rpc.get_routers(
                 context, router_ids)
@@ -1946,7 +1978,7 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 'interface_driver': self.conf.interface_driver},
             'start_flag': True,
             'agent_type': l3_constants.AGENT_TYPE_L3}
-        report_interval = cfg.CONF.AGENT.report_interval
+        report_interval = self.conf.AGENT.report_interval
         self.use_call = True
         if report_interval:
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(

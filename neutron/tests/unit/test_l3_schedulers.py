@@ -822,7 +822,7 @@ class L3DvrSchedulerTestCase(testlib_api.SqlTestCase,
                        '.L3AgentNotifyAPI')):
             self.dut.dvr_update_router_addvm(self.adminContext, port)
 
-    def test_get_dvr_routers_by_vmportid(self):
+    def test_get_dvr_routers_by_portid(self):
         dvr_port = {
                 'id': 'dvr_port1',
                 'device_id': 'r1',
@@ -844,8 +844,8 @@ class L3DvrSchedulerTestCase(testlib_api.SqlTestCase,
                        '.get_port', return_value=dvr_port),
             mock.patch('neutron.db.db_base_plugin_v2.NeutronDbPluginV2'
                        '.get_ports', return_value=[dvr_port])):
-            router_id = self.dut.get_dvr_routers_by_vmportid(self.adminContext,
-                                                             dvr_port['id'])
+            router_id = self.dut.get_dvr_routers_by_portid(self.adminContext,
+                                                           dvr_port['id'])
             self.assertEqual(router_id.pop(), r1['id'])
 
     def test_get_subnet_ids_on_router(self):
@@ -1056,11 +1056,12 @@ class L3HATestCaseMixin(testlib_api.SqlTestCase,
         self._register_l3_agents()
 
     def _create_ha_router(self, ha=True, tenant_id='tenant1'):
+        self.adminContext.tenant_id = tenant_id
         router = {'name': 'router1', 'admin_state_up': True}
         if ha is not None:
             router['ha'] = ha
-        return self.plugin._create_router_db(self.adminContext,
-                                             router, tenant_id)
+        return self.plugin.create_router(self.adminContext,
+                                         {'router': router})
 
 
 class L3_HA_scheduler_db_mixinTestCase(L3HATestCaseMixin):

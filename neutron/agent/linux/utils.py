@@ -14,9 +14,9 @@
 #    under the License.
 
 import fcntl
+import glob
 import os
 import shlex
-import shutil
 import socket
 import struct
 import tempfile
@@ -58,7 +58,8 @@ def create_process(cmd, root_helper=None, addl_env=None):
 
 
 def execute(cmd, root_helper=None, process_input=None, addl_env=None,
-            check_exit_code=True, return_stderr=False, log_fail_as_error=True):
+            check_exit_code=True, return_stderr=False, log_fail_as_error=True,
+            extra_ok_codes=None):
     try:
         obj, cmd = create_process(cmd, root_helper=root_helper,
                                   addl_env=addl_env)
@@ -69,6 +70,10 @@ def execute(cmd, root_helper=None, process_input=None, addl_env=None,
         m = _("\nCommand: %(cmd)s\nExit code: %(code)s\nStdout: %(stdout)r\n"
               "Stderr: %(stderr)r") % {'cmd': cmd, 'code': obj.returncode,
                                        'stdout': _stdout, 'stderr': _stderr}
+
+        extra_ok_codes = extra_ok_codes or []
+        if obj.returncode and obj.returncode in extra_ok_codes:
+            obj.returncode = None
 
         if obj.returncode and log_fail_as_error:
             LOG.error(m)
@@ -129,19 +134,19 @@ def find_child_pids(pid):
     return [x.strip() for x in raw_pids.split('\n') if x.strip()]
 
 
-def _get_conf_dir(cfg_root, uuid, ensure_conf_dir):
-    confs_dir = os.path.abspath(os.path.normpath(cfg_root))
-    conf_dir = os.path.join(confs_dir, uuid)
+def _get_conf_base(cfg_root, uuid, ensure_conf_dir):
+    conf_dir = os.path.abspath(os.path.normpath(cfg_root))
+    conf_base = os.path.join(conf_dir, uuid)
     if ensure_conf_dir:
         if not os.path.isdir(conf_dir):
             os.makedirs(conf_dir, 0o755)
-    return conf_dir
+    return conf_base
 
 
 def get_conf_file_name(cfg_root, uuid, cfg_file, ensure_conf_dir=False):
     """Returns the file name for a given kind of config file."""
-    conf_dir = _get_conf_dir(cfg_root, uuid, ensure_conf_dir)
-    return os.path.join(conf_dir, cfg_file)
+    conf_base = _get_conf_base(cfg_root, uuid, ensure_conf_dir)
+    return "%s.%s" % (conf_base, cfg_file)
 
 
 def get_value_from_conf_file(cfg_root, uuid, cfg_file, converter=None):
@@ -163,15 +168,13 @@ def get_value_from_conf_file(cfg_root, uuid, cfg_file, converter=None):
 
 
 def remove_conf_files(cfg_root, uuid):
-    conf_dir = _get_conf_dir(cfg_root, uuid, False)
-    shutil.rmtree(conf_dir, ignore_errors=True)
+    conf_base = _get_conf_base(cfg_root, uuid, False)
+    for file_path in glob.iglob("%s.*" % conf_base):
+        os.unlink(file_path)
 
 
 def remove_conf_file(cfg_root, uuid, cfg_file):
-    """Remove a config file. Remove the directory if this is the last file."""
+    """Remove a config file."""
     conf_file = get_conf_file_name(cfg_root, uuid, cfg_file)
     if os.path.exists(conf_file):
         os.unlink(conf_file)
-        conf_dir = _get_conf_dir(cfg_root, uuid, False)
-        if not os.listdir(conf_dir):
-            shutil.rmtree(conf_dir, ignore_errors=True)

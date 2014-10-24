@@ -22,6 +22,7 @@ import netaddr
 from oslo.config import cfg
 from webob import exc
 
+from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as l3_constants
@@ -307,6 +308,13 @@ class TestL3NatAgentSchedulingServicePlugin(TestL3NatServicePlugin,
 
     supported_extension_aliases = ["router", "l3_agent_scheduler"]
 
+    def __init__(self):
+        super(TestL3NatAgentSchedulingServicePlugin, self).__init__()
+        self.router_scheduler = importutils.import_object(
+            cfg.CONF.router_scheduler_driver)
+        self.agent_notifiers.update(
+            {l3_constants.AGENT_TYPE_L3: l3_rpc_agent_api.L3AgentNotifyAPI()})
+
 
 class L3NATdbonlyMixinTestCase(base.BaseTestCase):
 
@@ -469,7 +477,7 @@ class L3NatTestCaseMixin(object):
                         public_sub['subnet']['network_id'],
                         port_id=private_port['port']['id'],
                         fixed_ip=fixed_ip,
-                        set_context=False)
+                        set_context=set_context)
                     yield floatingip
 
                     if floatingip:
@@ -1094,11 +1102,17 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                             'remove', tenant_router['router']['id'],
                             s['subnet']['id'], None, tenant_id='tenant_a')
 
-    def test_router_add_gateway_invalid_network_returns_404(self):
+    def test_router_add_gateway_invalid_network_returns_400(self):
         with self.router() as r:
             self._add_external_gateway_to_router(
                 r['router']['id'],
-                "foobar", expected_code=exc.HTTPNotFound.code)
+                "foobar", expected_code=exc.HTTPBadRequest.code)
+
+    def test_router_add_gateway_non_existent_network_returns_404(self):
+        with self.router() as r:
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                _uuid(), expected_code=exc.HTTPNotFound.code)
 
     def test_router_add_gateway_net_not_external_returns_400(self):
         with self.router() as r:
