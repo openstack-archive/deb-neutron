@@ -1,0 +1,548 @@
+# Danish translation neutron.
+# Copyright (c) 2014 neutron & nedenstående oversættere.
+# This file is distributed under the same license as the neutron package.
+# Joe Hansen <joedalton2@yahoo.dk>, 2014.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: neutron\n"
+"Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
+"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"PO-Revision-Date: 2014-10-18 17:30+01:00\n"
+"Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
+"Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
+"Language: da\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:2001
+msgid "Authentication server hostname:"
+msgstr "Værtsnavn for godkendelsesserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:2001
+msgid ""
+"Please specify the hostname of your Neutron authentication server. Typically "
+"this is also the hostname of your OpenStack Identity Service (Keystone)."
+msgstr ""
+"Angiv venligst værtsnavnet for din Neutron-godkendelseserver. Dette er typisk "
+"også værtsnavnet for din OpenStack Identity Service (Keystone)."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:3001
+msgid "Authentication server tenant name:"
+msgstr "Navn »tenant« (administrator) på godkendelsesserveren:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:3001
+msgid "Please specify the authentication server tenant name."
+msgstr ""
+"Angiv venligst »tenant«-navn for godkendelsesserveren. (»Tenant« kan delvist "
+"oversættes til administrator)."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:4001
+msgid "Authentication server username:"
+msgstr "Brugernavn for godkendelsesserveren:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:4001
+msgid "Please specify the username to use with the authentication server."
+msgstr ""
+"Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:5001
+msgid "Authentication server password:"
+msgstr "Adgangskode for godkendelsesserveren:"
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:5001
+msgid "Please specify the password to use with the authentication server."
+msgstr ""
+"Angiv venligst adgangskoden for brug med godkendelsesserveren."
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "OpenVSwitch"
+msgstr "OpenVSwitch"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "LinuxBridge"
+msgstr "LinuxBridge"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "ml2"
+msgstr "ml2"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Brocade"
+msgstr "Brocade"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Nicira"
+msgstr "Nicira"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Midonet"
+msgstr "Midonet"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "NEC"
+msgstr "NEC"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Mellanox"
+msgstr "Mellanox"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Hyper-V"
+msgstr "Hyper-V"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "RYU"
+msgstr "RYU"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "ml2/ml2_conf.ini"
+msgstr "ml2/ml2_conf.ini"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "MetaPlugin"
+msgstr "MetaPlugin"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "BigSwitch"
+msgstr "BigSwitch"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "Cisco"
+msgstr "Cisco"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:6001
+msgid "PLUMgrid"
+msgstr "PLUMgrid"
+
+#. Type: select
+#. Description
+#: ../neutron-common.templates:6002
+msgid "Neutron plugin:"
+msgstr "Neutron-instick:"
+
+#. Type: select
+#. Description
+#: ../neutron-common.templates:6002
+msgid ""
+"Neutron uses a plugin architecture to manage networking. When starting the "
+"Neutron server daemon, the configuration file corresponding to the plugin "
+"you wish to use needs to be loaded, by giving it as a parameter when "
+"starting the neutron-server daemon. Also, the core_plugin directive needs to "
+"match. Please select which plugin to use."
+msgstr ""
+"Neutron anvender en arkitektur med udvidelsesmoduler til at håndtere netværk. "
+"Når du starter Neutrons serverdæmon, skal konfigurationsfilen, der svarer til "
+"udvidelsesmodulet, du ønsker at bruge, indlæses ved at give det en parameter når "
+"neturon-server-dæmonen startes. Direktivet core_plugin skal også matche. Vælg "
+"venligst hvilket udvidelsesmodul du ønsker at bruge."
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid "Set up a database for Neutron?"
+msgstr "Opsæt en database for Neutron?"
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid ""
+"No database has been set up for Neutron to use. Before continuing, you "
+"should make sure you have the following information:"
+msgstr ""
+"Ingen database er blevet opsat for Neutron. Før du fortsætter skal du "
+"sikre dig, at du har den følgende information:"
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid ""
+" * the type of database that you want to use;\n"
+" * the database server hostname (that server must allow TCP connections from "
+"this\n"
+"   machine);\n"
+" * a username and password to access the database."
+msgstr ""
+" * databasetypen du ønsker at bruge\n"
+" * serverens værtsnavn (den server skal tillade TCP-forbindelser fra denne\n"
+"   maskine)\n"
+" * et brugernavn og adgangskode til at tilgå databasen.."
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid ""
+"If some of these requirements are missing, do not choose this option and run "
+"with regular SQLite support."
+msgstr ""
+"Hvis nogle af disse krav mangler, så vælg ikke denne indstilling og fortsæt "
+"med normal SQLite-understøttelse."
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:7001
+msgid ""
+"You can change this setting later on by running \"dpkg-reconfigure -plow "
+"neutron\"."
+msgstr ""
+"Du kan ændre denne indstilling senere ved at køre »dpkg-reconfigure -plow "
+"neutron«."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:8001
+msgid "IP address of your RabbitMQ host:"
+msgstr "IP-adresse for din RabbitMQ-vært:"
+
+#. Type: string
+#. Description
+#. Type: string
+#. Description
+#. Type: password
+#. Description
+#: ../neutron-common.templates:8001 ../neutron-common.templates:9001
+#: ../neutron-common.templates:10001
+msgid ""
+"In order to interoperate with other components of OpenStack, this package "
+"needs to connect to a central RabbitMQ server."
+msgstr ""
+"For at fungere med andre komponenter fra OpenStack, skal denne pakke "
+"forbinde til en central RabbitMQ-server."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:8001
+msgid "Please specify the IP address of that server."
+msgstr "Angiv venligst IP-adressen for den server."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:9001
+msgid "Username for connection to the RabbitMQ server:"
+msgstr "Brugernavn for forbindelsen til RabbitMQ-serveren:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:9001
+msgid "Please specify the username used to connect to the RabbitMQ server."
+msgstr ""
+"Angiv venligst brugernavnet brugt til at forbinde til RabbitMQ-serveren:"
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:10001
+msgid "Password for connection to the RabbitMQ server:"
+msgstr "Adgangskode for forbindelsen til RabbitMQ-serveren:"
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:10001
+msgid "Please specify the password used to connect to the RabbitMQ server."
+msgstr "Angiv venligst adgangskoden brugt til at forbinde til RabbitMQ-serveren:"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:11001
+msgid "local"
+msgstr "lokal"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:11001
+msgid "gre"
+msgstr "gre"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:11001
+msgid "vlan"
+msgstr "vlan"
+
+#. Type: select
+#. Choices
+#: ../neutron-common.templates:11001
+msgid "none"
+msgstr "ingen"
+
+#. Type: select
+#. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it parenthezised. Example for French:
+#. locataire ("tenant")
+#: ../neutron-common.templates:11002
+msgid "Type of network to allocate for tenant networks:"
+msgstr "Netværkstype at allokere for tenant-netværk:"
+
+#. Type: select
+#. Description
+#. Translators: a "tenant" in OpenStack world is
+#. an entity that contains one or more username/password couples.
+#. It's typically the tenant that will be used for billing. Having more than one
+#. username/password is very helpful in larger organization.
+#. You're advised to either keep "tenant" without translating it
+#. or keep it parenthezised. Example for French:
+#. locataire ("tenant")
+#: ../neutron-common.templates:11002
+msgid ""
+"The value \"local\" is useful only for single-box testing. In order for "
+"tenant networks to provide connectivity between hosts, it is necessary to "
+"either choose \"vlan\" and then configure \"network_vlan_ranges\" or to "
+"choose \"gre\" and then configure \"tunnel_id_ranges\". Choose \"none\" to "
+"disable creation of tenant networks."
+msgstr ""
+"Værdien »lokal« er kun nyttig for single-box-test. For at tenant-netværk kan"
+"tilbyde forbindelse mellem værter, er det nødvendigt at vælge enten »vlan« og "
+"så konfigurere »network_vlan_ranges« eller at vælge »gre« og så konfigurere "
+"»tunnel_id_ranges«. Vælg »ingen« for at deaktivere oprettelsen af tenant-"
+"netværk."
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:12001
+msgid "Enable tunneling?"
+msgstr "Aktiver tunnelstøtte?"
+
+#. Type: boolean
+#. Description
+#: ../neutron-common.templates:12001
+msgid ""
+"Please choose whether support should be activated for GRE networks on the "
+"server and agents. This requires kernel support for OVS patch ports and GRE "
+"tunneling."
+msgstr ""
+"Angiv venligst om understøttelse skal aktiveres for GRE-netværk på serveren "
+"og agenterne. Dette kræver kerneunderstøttelse for OVS-rettelsesporte og "
+"GRE-tunnelstøtte."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:13001
+msgid "Tunnel id ranges:"
+msgstr "Tunnel-id-intervaller:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:13001
+msgid ""
+"Please enter a comma-separated list of <tun_min>:<tun_max> tuples "
+"enumerating ranges of GRE tunnel IDs that are available for tenant network "
+"allocation if tenant_network_type is \"gre\"."
+msgstr ""
+"Angiv en kommaadskilt liste med <tun_min>:<tun_max>-tupleroptællingsintervaller "
+"for GRE-tunnel-id'er som er tilgængelige for tenant-netværksallokering hvis "
+"tenant_network_type er »gre«."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:14001
+msgid "Local IP address of this hypervisor:"
+msgstr "Lokal IP-adresse for denne hypervisor:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:14001
+msgid "Please enter the local IP address for this hypervisor."
+msgstr "Angiv den lokale IP-adresse for denne hypervisor."
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid "Register Neutron in the Keystone endpoint catalog?"
+msgstr "Registrer Neutron i Keystones slutpunktskatalog?"
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid ""
+"Each OpenStack service (each API) should be registered in order to be "
+"accessible. This is done using \"keystone service-create\" and \"keystone "
+"endpoint-create\". This can be done automatically now."
+msgstr ""
+"Alle OpenStack-tjenester (hver API) skal registreres for at kunne tilgås. "
+"Dette gøres med »keystone service-create« og »keystone endpoint-create«. "
+"Dette kan nu gøres automatisk."
+
+#. Type: boolean
+#. Description
+#: ../neutron-server.templates:2001
+msgid ""
+"Note that you will need to have an up and running Keystone server on which "
+"to connect using the Keystone authentication token."
+msgstr ""
+"Bemærk at du skal have en fungerende Keystone-server at forbinde til via "
+"Keystones godkendelsessymbol."
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:3001
+msgid "Keystone server IP address:"
+msgstr "IP-adresse for Keystone-serveren:"
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:3001
+msgid ""
+"Please enter the IP address of the Keystone server, so that neutron-api can "
+"contact Keystone to do the Neutron service and endpoint creation."
+msgstr ""
+"Angiv IP-adressen for din Keystone-server, så at neutron-api kan kontakte "
+"Keystone for at udføre Neutron-tjenesten og slutpunktsoprettelse."
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:4001
+msgid "Keystone authentication token:"
+msgstr "Symbol for Keystone-godkendelse:"
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:4001
+msgid ""
+"To configure its endpoint in Keystone, neutron-server needs the Keystone "
+"auth token."
+msgstr ""
+"For at konfigurere slutpunktet i Keystone, skal neutron-server bruge "
+"Keystones godkendelsessymbol."
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid "Neutron endpoint IP address:"
+msgstr "IP-adresse for Neutron-slutpunkt:"
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid "Please enter the IP address that will be used to contact Neutron."
+msgstr "Angiv IP-adressen som skal bruges til at kontakte Neutron."
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:5001
+msgid ""
+"This IP address should be accessible from the clients that will use this "
+"service, so if you are installing a public cloud, this should be a public IP "
+"address."
+msgstr ""
+"Denne IP-adresse skal være tilgængelig fra klienterne, som vil bruge denne "
+"tjeneste, så hvis du installerer en offentlig sky, skal dette være en offentlig "
+"IP-adresse."
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:6001
+msgid "Name of the region to register:"
+msgstr "Regionsnavn at registrere:"
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:6001
+msgid ""
+"OpenStack supports using availability zones, with each region representing a "
+"location. Please enter the zone that you wish to use when registering the "
+"endpoint."
+msgstr ""
+"OpenStack understøtter tilgængelighedszoner, hvor hver regioner repræsenterer "
+"et sted. Indtast venligst zonen du øsnker at bruge når slutpunktet registreres."
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:2001
+msgid "Auth server hostname:"
+msgstr "Værtsnavn for godkendelsesserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:2001
+msgid ""
+"Please specify the URL of your Neutron authentication server. Typically this "
+"is also the URL of your OpenStack Identity Service (Keystone)."
+msgstr ""
+"Angiv venligst adressen for din Neutron-godkendelsesserver. Typisk er "
+"dette også adressen for din OpenStack identity Service (Keystone)."
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:3001
+msgid "Auth server tenant name:"
+msgstr "»Tenant«-navn for godkendelseserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:4001
+msgid "Auth server username:"
+msgstr "Brugernavn for godkendelsesserver:"
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:5001
+msgid "Auth server password:"
+msgstr "Adgangskode for godkendelsesserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:6001
+msgid "Name of the region to be used by the metadata server:"
+msgstr "Regionsnavn der skal bruges af metadataserveren:"
+
+#. Type: string
+#. Description
+#: ../neutron-metadata-agent.templates:6001
+msgid ""
+"Openstack can be used using availability zones, with each region "
+"representing a location. Please enter the zone that the metadata server "
+"should use."
+msgstr ""
+"OpenStack kan anvendes af tilgængeligehedszoner. Hver region repræsenterer "
+"en plads. Indtast venligst zonen som metadataserveren skal bruge."
