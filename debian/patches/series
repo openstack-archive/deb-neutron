@@ -6,3 +6,4 @@ Properly_apply_column_default_in_migration_pool_monitor_status.patch
 #sane-defaults-for-ml2_conf.ini.patch
 #sane-defaults-for-dhcp_agent.ini.patch
 cve-2014-7821_DoS_through_invalid_DNS_configuration_icehouse.patch
+do-not-use-PROTOCOL_SSLv3.patch

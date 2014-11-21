@@ -1,0 +1,18 @@
+Description: PROTOCOL_SSLv3 is gone from Python in Sid
+ This patch removes its use.
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: no
+Last-Update: 2014-11-21
+
+--- neutron-2014.1.3.orig/neutron/openstack/common/sslutils.py
++++ neutron-2014.1.3/neutron/openstack/common/sslutils.py
+@@ -80,8 +80,7 @@ def wrap(sock):
+ 
+ _SSL_PROTOCOLS = {
+     "tlsv1": ssl.PROTOCOL_TLSv1,
+-    "sslv23": ssl.PROTOCOL_SSLv23,
+-    "sslv3": ssl.PROTOCOL_SSLv3
++    "sslv23": ssl.PROTOCOL_SSLv23
+ }
+ 
+ try:
