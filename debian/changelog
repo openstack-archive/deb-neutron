@@ -1,3 +1,10 @@
+neutron (2014.2-4) experimental; urgency=medium
+
+  * CVE-2014-7821: DoS through invalid DNS configuration. Applied upstream
+    patch: Fix hostname regex pattern (Closes: #770431).
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 21 Nov 2014 16:39:03 +0800
+
 neutron (2014.2-3) experimental; urgency=medium
 
   * Patches the ml2 plugin ini file to be like the install-guide by default.
