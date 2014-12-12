@@ -1,6 +1,8 @@
 neutron (2014.2.1-1) experimental; urgency=medium
 
   * New upstream release.
+  * cve-2014-7821_DoS_through_invalid_DNS_configuration_juno.patch is now
+    applied upstream, so removed it.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 12 Dec 2014 23:02:10 +0800
 
