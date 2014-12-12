@@ -10,8 +10,10 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2014-10-10
 
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/117643811bca_nec_delete_ofc_mapping.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/117643811bca_nec_delete_ofc_mapping.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/117643811bca_nec_delete_ofc_mapping.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/117643811bca_nec_delete_ofc_mapping.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/117643811bca_nec_delete_ofc_mapping.py
 @@ -120,52 +120,78 @@ def upgrade():
          sa_expr.column('network_id'))
  
@@ -131,8 +133,10 @@ Last-Update: 2014-10-10
  
      # drop old mapping tables
      op.drop_table('ofctenants')
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/1d6ee1ae5da5_db_healing.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/1d6ee1ae5da5_db_healing.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/1d6ee1ae5da5_db_healing.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/1d6ee1ae5da5_db_healing.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/1d6ee1ae5da5_db_healing.py
 @@ -25,11 +25,16 @@ Create Date: 2014-05-29 10:52:43.898980
  revision = 'db_healing'
  down_revision = '5446f2a45467'
@@ -151,8 +155,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/1e5dd1d09b22_set_not_null_fields_lb_stats.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/1e5dd1d09b22_set_not_null_fields_lb_stats.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/1e5dd1d09b22_set_not_null_fields_lb_stats.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/1e5dd1d09b22_set_not_null_fields_lb_stats.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/1e5dd1d09b22_set_not_null_fields_lb_stats.py
 @@ -25,6 +25,7 @@ Create Date: 2014-03-17 11:00:35.370618
  revision = '1e5dd1d09b22'
  down_revision = '54f7549a0e5f'
@@ -201,8 +207,10 @@ Last-Update: 2014-10-10
  
  
  @migration.skip_if_offline
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/1fcfc149aca4_agents_unique_by_type_and_host.py
 @@ -41,11 +41,15 @@ def upgrade():
          # configured plugin did not create the agents table.
          return
@@ -224,9 +232,11 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/31d7f831a591_add_constraint_for_routerid.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/31d7f831a591_add_constraint_for_routerid.py
-@@ -58,13 +58,22 @@ def upgrade():
+Index: neutron/neutron/db/migration/alembic_migrations/versions/31d7f831a591_add_constraint_for_routerid.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/31d7f831a591_add_constraint_for_routerid.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/31d7f831a591_add_constraint_for_routerid.py
+@@ -48,13 +48,22 @@ def upgrade():
                     'ON %(table)s.id = temp.id WHERE temp.id is NULL);'
                     % {'table': TABLE_NAME})
      else:
@@ -253,10 +263,12 @@ Last-Update: 2014-10-10
 +    else:
 +        op.drop_column(TABLE_NAME, 'id')
  
-     # DB2 doesn't support nullable column in primary key
-     if context.bind.dialect.name == 'ibm_db_sa':
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/33c3db036fe4_set_length_of_description_field_metering.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/33c3db036fe4_set_length_of_description_field_metering.py
+     with migration.remove_fks_from_table(TABLE_NAME):
+         # DB2 doesn't support nullable column in primary key
+Index: neutron/neutron/db/migration/alembic_migrations/versions/33c3db036fe4_set_length_of_description_field_metering.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/33c3db036fe4_set_length_of_description_field_metering.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/33c3db036fe4_set_length_of_description_field_metering.py
 @@ -34,8 +34,9 @@ from neutron.db.migration.alembic_migrat
  
  def upgrade():
@@ -269,8 +281,10 @@ Last-Update: 2014-10-10
      else:
          metering_init_ops.create_meteringlabels()
  
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/3927f7f7c456_l3_extension_distributed_mode.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/3927f7f7c456_l3_extension_distributed_mode.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/3927f7f7c456_l3_extension_distributed_mode.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/3927f7f7c456_l3_extension_distributed_mode.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/3927f7f7c456_l3_extension_distributed_mode.py
 @@ -45,9 +45,14 @@ def upgrade():
                "SELECT id as router_id, "
                "0 as distributed from routers")
@@ -289,8 +303,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/4eba2f05c2f4_correct_vxlan_endpoint_primary_key.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/4eba2f05c2f4_correct_vxlan_endpoint_primary_key.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/4eba2f05c2f4_correct_vxlan_endpoint_primary_key.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/4eba2f05c2f4_correct_vxlan_endpoint_primary_key.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/4eba2f05c2f4_correct_vxlan_endpoint_primary_key.py
 @@ -34,8 +34,11 @@ PK_NAME = 'ml2_vxlan_endpoints_pkey'
  
  
@@ -305,8 +321,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/50d5ba354c23_ml2_binding_vif_details.py
 @@ -50,6 +50,45 @@ def upgrade():
              "UPDATE ml2_port_bindings SET"
              " vif_details = '{\"port_filter\": false}'"
@@ -362,8 +380,10 @@ Last-Update: 2014-10-10
      if op.get_bind().engine.name == 'ibm_db_sa':
          op.execute("CALL SYSPROC.ADMIN_CMD('REORG TABLE ml2_port_bindings')")
  
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/538732fa21e1_nec_rename_quantum_id_to_neutron_id.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/538732fa21e1_nec_rename_quantum_id_to_neutron_id.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/538732fa21e1_nec_rename_quantum_id_to_neutron_id.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/538732fa21e1_nec_rename_quantum_id_to_neutron_id.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/538732fa21e1_nec_rename_quantum_id_to_neutron_id.py
 @@ -38,14 +38,126 @@ def upgrade():
          # configured plugin did not create any ofc tables.
          return
@@ -499,8 +519,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/5446f2a45467_set_server_default.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/5446f2a45467_set_server_default.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/5446f2a45467_set_server_default.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/5446f2a45467_set_server_default.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/5446f2a45467_set_server_default.py
 @@ -26,6 +26,7 @@ revision = '5446f2a45467'
  down_revision = '2db5203cb7a9'
  
@@ -940,8 +962,10 @@ Last-Update: 2014-10-10
 +            server_default=default,
 +            existing_nullable=False,
 +            existing_type=sa.Boolean)
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/54f7549a0e5f_set_not_null_peer_address.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/54f7549a0e5f_set_not_null_peer_address.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/54f7549a0e5f_set_not_null_peer_address.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/54f7549a0e5f_set_not_null_peer_address.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/54f7549a0e5f_set_not_null_peer_address.py
 @@ -30,6 +30,7 @@ down_revision = 'icehouse'
  # This migration will be skipped when executed in offline mode.
  
@@ -966,8 +990,10 @@ Last-Update: 2014-10-10
  
  
  @migration.skip_if_offline
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/5ac1c354a051_n1kv_segment_alloc.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/5ac1c354a051_n1kv_segment_alloc.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/5ac1c354a051_n1kv_segment_alloc.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/5ac1c354a051_n1kv_segment_alloc.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/5ac1c354a051_n1kv_segment_alloc.py
 @@ -42,28 +42,30 @@ def upgrade():
          'cisco_n1kv_vlan_allocations',
          sa.Column('network_profile_id',
@@ -1015,8 +1041,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/6be312499f9_set_not_null_vlan_id_cisco.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/6be312499f9_set_not_null_vlan_id_cisco.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/6be312499f9_set_not_null_vlan_id_cisco.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/6be312499f9_set_not_null_vlan_id_cisco.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/6be312499f9_set_not_null_vlan_id_cisco.py
 @@ -29,6 +29,7 @@ down_revision = 'd06e871c0d5'
  # contains the tables for the cisco plugin.
  # This migration will be skipped when executed in offline mode.
@@ -1051,8 +1079,10 @@ Last-Update: 2014-10-10
 +            'cisco_nexusport_bindings', 'vlan_id',
 +            nullable=True,
 +            existing_type=sa.Integer)
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/884573acbf1c_unify_nsx_router_extra_attributes.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/884573acbf1c_unify_nsx_router_extra_attributes.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/884573acbf1c_unify_nsx_router_extra_attributes.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/884573acbf1c_unify_nsx_router_extra_attributes.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/884573acbf1c_unify_nsx_router_extra_attributes.py
 @@ -46,12 +46,15 @@ def _migrate_data(old_table, new_table):
                      "WHERE new_t.router_id = old_t.router_id)") %
                     {'new_table': new_table, 'old_table': old_table})
@@ -1075,8 +1105,10 @@ Last-Update: 2014-10-10
  
  
  def upgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/abc88c33f74f_lb_stats_needs_bigint.py
 @@ -34,14 +34,15 @@ from neutron.db import migration
  
  def upgrade():
@@ -1101,8 +1133,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/b65aa907aec_set_length_of_protocol_field.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/b65aa907aec_set_length_of_protocol_field.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/b65aa907aec_set_length_of_protocol_field.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/b65aa907aec_set_length_of_protocol_field.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/b65aa907aec_set_length_of_protocol_field.py
 @@ -29,6 +29,7 @@ down_revision = '1e5dd1d09b22'
  # the firewall service plugin
  # This migration will not be executed in offline mode
@@ -1129,8 +1163,10 @@ Last-Update: 2014-10-10
  
  
  def downgrade():
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/d06e871c0d5_set_admin_state_up_not_null_ml2.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/d06e871c0d5_set_admin_state_up_not_null_ml2.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/d06e871c0d5_set_admin_state_up_not_null_ml2.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/d06e871c0d5_set_admin_state_up_not_null_ml2.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/d06e871c0d5_set_admin_state_up_not_null_ml2.py
 @@ -30,6 +30,7 @@ down_revision = '4eca4a84f08a'
  # This migration will be skipped when executed in offline mode.
  
@@ -1165,8 +1201,10 @@ Last-Update: 2014-10-10
 +            'ml2_brocadeports', 'admin_state_up',
 +            nullable=True,
 +            existing_type=sa.Boolean)
---- neutron-2014.2~rc1.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
-+++ neutron-2014.2~rc1/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
+Index: neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
+===================================================================
+--- neutron.orig/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
++++ neutron/neutron/db/migration/alembic_migrations/versions/e197124d4b9_add_unique_constrain.py
 @@ -36,11 +36,15 @@ TABLE_NAME = 'members'
  
  def upgrade():
