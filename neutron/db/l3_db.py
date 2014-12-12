@@ -21,6 +21,7 @@ from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
+from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import utils
 from neutron.db import model_base
@@ -169,10 +170,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         return self._make_router_dict(router_db)
 
     def _update_router_db(self, context, router_id, data, gw_info):
-        """Update the DB object and related gw info, if available."""
+        """Update the DB object."""
         with context.session.begin(subtransactions=True):
-            if gw_info != attributes.ATTR_NOT_SPECIFIED:
-                self._update_router_gw_info(context, router_id, gw_info)
             router_db = self._get_router(context, router_id)
             if data:
                 router_db.update(data)
@@ -188,6 +187,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         if gw_info != attributes.ATTR_NOT_SPECIFIED:
             candidates = self._check_router_needs_rescheduling(
                 context, id, gw_info)
+            # Update the gateway outside of the DB update since it involves L2
+            # calls that don't make sense to rollback and may cause deadlocks
+            # in a transaction.
+            self._update_router_gw_info(context, id, gw_info)
         else:
             candidates = None
         router_db = self._update_router_db(context, id, r, gw_info)
@@ -459,15 +462,20 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
     def _add_interface_by_subnet(self, context, router, subnet_id, owner):
         subnet = self._core_plugin._get_subnet(context, subnet_id)
-        if not subnet['gateway_ip']:
+        if (not subnet['gateway_ip']
+            and not ipv6_utils.is_slaac_subnet(subnet)):
             msg = _('Subnet for router interface must have a gateway IP')
             raise n_exc.BadRequest(resource='router', msg=msg)
         self._check_for_dup_router_subnet(context, router,
                                           subnet['network_id'],
                                           subnet_id,
                                           subnet['cidr'])
-        fixed_ip = {'ip_address': subnet['gateway_ip'],
-                    'subnet_id': subnet['id']}
+        if subnet['gateway_ip']:
+            fixed_ip = {'ip_address': subnet['gateway_ip'],
+                        'subnet_id': subnet['id']}
+        else:
+            fixed_ip = {'subnet_id': subnet['id']}
+
         return self._core_plugin.create_port(context, {
             'port':
             {'tenant_id': subnet['tenant_id'],

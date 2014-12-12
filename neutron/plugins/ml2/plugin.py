@@ -29,6 +29,7 @@ from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants as const
 from neutron.common import exceptions as exc
+from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
@@ -724,10 +725,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                              filter_by(network_id=subnet['network_id']).
                              with_lockmode('update').all())
                 LOG.debug(_("Ports to auto-deallocate: %s"), allocated)
-                only_auto_del = all(not a.port_id or
-                                    a.ports.device_owner in db_base_plugin_v2.
-                                    AUTO_DELETE_PORT_OWNERS
-                                    for a in allocated)
+                only_auto_del = ipv6_utils.is_slaac_subnet(subnet) or all(
+                    not a.port_id or a.ports.device_owner in db_base_plugin_v2.
+                    AUTO_DELETE_PORT_OWNERS for a in allocated)
                 if not only_auto_del:
                     LOG.debug(_("Tenant-owned ports exist"))
                     raise exc.SubnetInUse(subnet_id=id)
@@ -990,7 +990,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             port = self._make_port_dict(port_db)
 
             network = self.get_network(context, port['network_id'])
-            mech_context = None
+            bound_mech_contexts = []
             device_owner = port['device_owner']
             if device_owner == const.DEVICE_OWNER_DVR_INTERFACE:
                 bindings = db.get_dvr_port_bindings(context.session, id)
@@ -998,6 +998,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     mech_context = driver_context.DvrPortContext(
                         self, context, port, network, bind)
                     self.mechanism_manager.delete_port_precommit(mech_context)
+                    bound_mech_contexts.append(mech_context)
             else:
                 mech_context = driver_context.PortContext(self, context, port,
                                                           network, binding)
@@ -1005,6 +1006,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     router_info = l3plugin.dvr_deletens_if_no_port(context, id)
                     removed_routers += router_info
                 self.mechanism_manager.delete_port_precommit(mech_context)
+                bound_mech_contexts.append(mech_context)
                 self._delete_port_security_group_bindings(context, id)
             if l3plugin:
                 router_ids = l3plugin.disassociate_floatingips(
@@ -1029,12 +1031,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                         {'id': router['router_id'],
                          'agent': router['agent_id']})
         try:
-            # for both normal and DVR Interface ports, only one invocation of
-            # delete_port_postcommit.  We use gather/scatter technique for DVR
-            # interface ports, where the bindings are gathered in
-            # delete_port_precommit() call earlier and scattered as l2pop
-            # rules to cloud nodes in delete_port_postcommit() here
-            if mech_context:
+            # Note that DVR Interface ports will have bindings on
+            # multiple hosts, and so will have multiple mech_contexts,
+            # while other ports typically have just one.
+            for mech_context in bound_mech_contexts:
                 self.mechanism_manager.delete_port_postcommit(mech_context)
         except ml2_exc.MechanismDriverError:
             # TODO(apech) - One or more mechanism driver failed to
@@ -1156,12 +1156,18 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             port_host = db.get_port_binding_host(port_id)
             return (port_host == host)
 
-    def get_port_from_device(self, device):
-        port_id = self._device_to_port_id(device)
-        port = db.get_port_and_sgs(port_id)
-        if port:
-            port['device'] = device
-        return port
+    def get_ports_from_devices(self, devices):
+        port_ids_to_devices = dict((self._device_to_port_id(device), device)
+                                   for device in devices)
+        port_ids = port_ids_to_devices.keys()
+        ports = db.get_ports_and_sgs(port_ids)
+        for port in ports:
+            # map back to original requested id
+            port_id = next((port_id for port_id in port_ids
+                           if port['id'].startswith(port_id)), None)
+            port['device'] = port_ids_to_devices.get(port_id)
+
+        return ports
 
     def _device_to_port_id(self, device):
         # REVISIT(rkukura): Consider calling into MechanismDrivers to

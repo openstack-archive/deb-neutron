@@ -612,7 +612,7 @@ class TestN1kvNetworkProfiles(N1kvPluginTestCase):
                                              net_p['network_profile']['id'])
         update_req.environ['neutron.context'] = context.Context('',
                                                                self.tenant_id,
-                                                               is_admin = True)
+                                                               is_admin=True)
         update_res = update_req.get_response(self.ext_api)
         self.assertEqual(200, update_res.status_int)
         db_session = db.get_session()
@@ -623,7 +623,7 @@ class TestN1kvNetworkProfiles(N1kvPluginTestCase):
                                                 net_p['network_profile']['id'])
         self.assertRaises(c_exc.ProfileTenantBindingNotFound,
                           n1kv_db_v2.get_profile_binding,
-                          db_session, 'tenant2',
+                          db_session, 'tenant4',
                           net_p['network_profile']['id'])
         tenant3 = n1kv_db_v2.get_profile_binding(db_session, 'tenant3',
                                                 net_p['network_profile']['id'])
@@ -637,24 +637,39 @@ class TestN1kvNetworkProfiles(N1kvPluginTestCase):
                                              net_p['network_profile']['id'])
         update_req.environ['neutron.context'] = context.Context('',
                                                                self.tenant_id,
-                                                               is_admin = True)
+                                                               is_admin=True)
         update_res = update_req.get_response(self.ext_api)
         self.assertEqual(200, update_res.status_int)
         # current tenant_id should always present
         tenant_id = n1kv_db_v2.get_profile_binding(db_session, self.tenant_id,
                                                 net_p['network_profile']['id'])
+        self.assertIsNotNone(tenant_id)
         self.assertRaises(c_exc.ProfileTenantBindingNotFound,
                           n1kv_db_v2.get_profile_binding,
                           db_session, 'tenant1',
                           net_p['network_profile']['id'])
         self.assertRaises(c_exc.ProfileTenantBindingNotFound,
                           n1kv_db_v2.get_profile_binding,
-                          db_session, 'tenant2',
+                          db_session, 'tenant4',
                           net_p['network_profile']['id'])
         tenant3 = n1kv_db_v2.get_profile_binding(db_session, 'tenant3',
                                                 net_p['network_profile']['id'])
-        self.assertIsNotNone(tenant_id)
         self.assertIsNotNone(tenant3)
+        # Add new tenant4 to network profile and make sure existing tenants
+        # are not deleted.
+        data = {'network_profile': {c_const.ADD_TENANTS:
+                                    ['tenant4']}}
+        update_req = self.new_update_request('network_profiles',
+                                             data,
+                                             net_p['network_profile']['id'])
+        update_req.environ['neutron.context'] = context.Context('',
+                                                               self.tenant_id,
+                                                               is_admin=True)
+        update_res = update_req.get_response(self.ext_api)
+        self.assertEqual(200, update_res.status_int)
+        tenant4 = n1kv_db_v2.get_profile_binding(db_session, 'tenant4',
+                                                net_p['network_profile']['id'])
+        self.assertIsNotNone(tenant4)
 
 
 class TestN1kvBasicGet(test_plugin.TestBasicGet,
@@ -792,6 +807,24 @@ class TestN1kvPorts(test_plugin.TestPortsV2,
             # Explicit stop of failure response mock from controller required
             # for network object clean up to succeed.
             client_patch.stop()
+
+    def test_delete_last_port_vmnetwork_cleanup(self):
+        """Test whether VMNetwork is cleaned up from db on last port delete."""
+        db_session = db.get_session()
+        with self.port() as port:
+            pt = port['port']
+            self.assertIsNotNone(n1kv_db_v2.
+                                 get_vm_network(db_session,
+                                                pt['n1kv:profile_id'],
+                                                pt['network_id']))
+            req = self.new_delete_request('ports', port['port']['id'])
+            req.get_response(self.api)
+            # Verify VMNetwork is cleaned up from the database on port delete.
+            self.assertRaises(c_exc.VMNetworkNotFound,
+                              n1kv_db_v2.get_vm_network,
+                              db_session,
+                              pt['n1kv:profile_id'],
+                              pt['network_id'])
 
 
 class TestN1kvPolicyProfiles(N1kvPluginTestCase):

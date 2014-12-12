@@ -23,6 +23,7 @@ from neutron import context
 from neutron import manager
 from neutron.openstack.common import importutils
 from neutron.openstack.common import jsonutils
+from neutron.plugins.bigswitch.db import consistency_db as cdb
 from neutron.plugins.bigswitch import servermanager
 from neutron.tests.unit.bigswitch import test_restproxy_plugin as test_rp
 
@@ -71,7 +72,8 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
                 pl.servers._get_combined_cert_for_server,
                 *('example.org', 443)
             )
-            sslgetmock.assert_has_calls([mock.call(('example.org', 443))])
+            sslgetmock.assert_has_calls([mock.call(
+                  ('example.org', 443), ssl_version=ssl.PROTOCOL_TLSv1)])
 
     def test_consistency_watchdog_stops_with_0_polling_interval(self):
         pl = manager.NeutronManager.get_plugin()
@@ -410,6 +412,18 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             sleep_call_count = rest_call_count - 1
             tmock.assert_has_calls(sleep_call * sleep_call_count)
 
+    def test_delete_failure_sets_bad_hash(self):
+        pl = manager.NeutronManager.get_plugin()
+        hash_handler = cdb.HashHandler()
+        with mock.patch(
+            SERVERMANAGER + '.ServerProxy.rest_call',
+            return_value=(httplib.INTERNAL_SERVER_ERROR, 0, 0, 0)
+        ):
+            # a failed delete call should put a bad hash in the DB
+            pl.servers.rest_call('DELETE', '/', '', None, [])
+            self.assertEqual('INCONSISTENT,INCONSISTENT',
+                             hash_handler.read_for_update())
+
     def test_conflict_triggers_sync(self):
         pl = manager.NeutronManager.get_plugin()
         with mock.patch(
@@ -444,13 +458,17 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
     def test_floating_calls(self):
         pl = manager.NeutronManager.get_plugin()
         with mock.patch(SERVERMANAGER + '.ServerPool.rest_action') as ramock:
-            pl.servers.rest_create_floatingip('tenant', {'id': 'somefloat'})
-            pl.servers.rest_update_floatingip('tenant', {'name': 'myfl'}, 'id')
+            body1 = {'id': 'somefloat'}
+            body2 = {'name': 'myfl'}
+            pl.servers.rest_create_floatingip('tenant', body1)
+            pl.servers.rest_update_floatingip('tenant', body2, 'id')
             pl.servers.rest_delete_floatingip('tenant', 'oldid')
             ramock.assert_has_calls([
                 mock.call('PUT', '/tenants/tenant/floatingips/somefloat',
+                          body1,
                           errstr=u'Unable to create floating IP: %s'),
                 mock.call('PUT', '/tenants/tenant/floatingips/id',
+                          body2,
                           errstr=u'Unable to update floating IP: %s'),
                 mock.call('DELETE', '/tenants/tenant/floatingips/oldid',
                           errstr=u'Unable to delete floating IP: %s')
@@ -465,7 +483,8 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             ('www.example.org', 443), 90, '127.0.0.1'
         )])
         self.wrap_mock.assert_has_calls([mock.call(
-            self.socket_mock(), None, None, cert_reqs=ssl.CERT_NONE
+            self.socket_mock(), None, None, cert_reqs=ssl.CERT_NONE,
+            ssl_version=ssl.PROTOCOL_TLSv1
         )])
         self.assertEqual(con.sock, self.wrap_mock())
 
@@ -480,7 +499,8 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
         )])
         self.wrap_mock.assert_has_calls([mock.call(
             self.socket_mock(), None, None, ca_certs='SOMECERTS.pem',
-            cert_reqs=ssl.CERT_REQUIRED
+            cert_reqs=ssl.CERT_REQUIRED,
+            ssl_version=ssl.PROTOCOL_TLSv1
         )])
         self.assertEqual(con.sock, self.wrap_mock())
 
@@ -500,7 +520,8 @@ class ServerManagerTests(test_rp.BigSwitchProxyPluginV2TestCase):
             ('www.example.org', 443), 90, '127.0.0.1'
         )])
         self.wrap_mock.assert_has_calls([mock.call(
-            self.socket_mock(), None, None, cert_reqs=ssl.CERT_NONE
+            self.socket_mock(), None, None, cert_reqs=ssl.CERT_NONE,
+            ssl_version=ssl.PROTOCOL_TLSv1
         )])
         # _tunnel() doesn't take any args
         tunnel_mock.assert_has_calls([mock.call()])
