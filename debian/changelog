@@ -1,3 +1,10 @@
+neutron (2014.1.3-8) unstable; urgency=medium
+
+  * Only use dbconfig-common and change the connection directive if the user
+    asked for it (Closes: #770944).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 18 Dec 2014 20:38:09 +0800
+
 neutron (2014.1.3-7) unstable; urgency=high
 
   * Add a patch to not use PROTOCOL_SSLv3 which is gone from Python in Sid.
