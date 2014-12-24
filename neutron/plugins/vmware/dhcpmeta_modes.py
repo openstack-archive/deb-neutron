@@ -16,14 +16,16 @@
 #
 
 from oslo.config import cfg
+from oslo.utils import importutils
 
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.api.rpc.handlers import metadata_rpc
 from neutron.common import constants as const
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.db import agents_db
-from neutron.openstack.common import importutils
+from neutron.i18n import _LW
 from neutron.openstack.common import log as logging
 from neutron.plugins.vmware.common import config
 from neutron.plugins.vmware.common import exceptions as nsx_exc
@@ -73,7 +75,8 @@ class DhcpMetadataAccess(object):
         self.topic = topics.PLUGIN
         self.conn = n_rpc.create_connection(new=True)
         self.endpoints = [dhcp_rpc.DhcpRpcCallback(),
-                          agents_db.AgentExtRpcCallback()]
+                          agents_db.AgentExtRpcCallback(),
+                          metadata_rpc.MetadataRpcCallback()]
         self.conn.create_consumer(self.topic, self.endpoints, fanout=False)
         self.agent_notifiers[const.AGENT_TYPE_DHCP] = (
             notifier or dhcp_rpc_agent_api.DhcpAgentNotifyAPI())
@@ -104,7 +107,7 @@ class DhcpMetadataAccess(object):
             # This becomes ineffective, as all new networks creations
             # are handled by Logical Services Nodes in NSX
             cfg.CONF.set_override('network_auto_schedule', False)
-            LOG.warn(_('network_auto_schedule has been disabled'))
+            LOG.warn(_LW('network_auto_schedule has been disabled'))
             notifier = combined.DhcpAgentNotifyAPI(self.safe_reference,
                                                    lsn_manager)
             self.supported_extension_aliases.append(lsn.EXT_ALIAS)

@@ -16,6 +16,7 @@
 import netaddr
 from oslo.config import cfg
 from oslo.db import exception as db_exc
+from oslo.utils import excutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 
@@ -26,9 +27,7 @@ from neutron.db import l3_dvr_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3_ext_ha_mode as l3_ha
-from neutron.openstack.common import excutils
-from neutron.openstack.common.gettextutils import _LI
-from neutron.openstack.common.gettextutils import _LW
+from neutron.i18n import _LI, _LW
 from neutron.openstack.common import log as logging
 
 VR_ID_RANGE = set(range(1, 255))
@@ -333,18 +332,19 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
             ha = cfg.CONF.l3_ha
         return ha
 
-    def _create_router_db(self, context, router, tenant_id):
-        router['ha'] = self._is_ha(router)
+    def create_router(self, context, router):
+        is_ha = self._is_ha(router['router'])
 
-        if router['ha'] and l3_dvr_db.is_distributed_router(router):
+        if is_ha and l3_dvr_db.is_distributed_router(router['router']):
             raise l3_ha.DistributedHARouterNotSupported()
 
-        with context.session.begin(subtransactions=True):
-            router_db = super(L3_HA_NAT_db_mixin, self)._create_router_db(
-                context, router, tenant_id)
+        router['router']['ha'] = is_ha
+        router_dict = super(L3_HA_NAT_db_mixin,
+                            self).create_router(context, router)
 
-        if router['ha']:
+        if is_ha:
             try:
+                router_db = self._get_router(context, router_dict['id'])
                 ha_network = self.get_ha_network(context,
                                                  router_db.tenant_id)
                 if not ha_network:
@@ -356,9 +356,9 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 self._notify_ha_interfaces_updated(context, router_db.id)
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    self.delete_router(context, router_db.id)
-
-        return router_db
+                    self.delete_router(context, router_dict['id'])
+            router_dict['ha_vr_id'] = router_db.extra_attributes.ha_vr_id
+        return router_dict
 
     def _update_router_db(self, context, router_id, data, gw_info):
         ha = data.pop('ha', None)

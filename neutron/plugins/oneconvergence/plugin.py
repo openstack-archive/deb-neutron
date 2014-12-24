@@ -15,12 +15,16 @@
 """Implementation of OneConvergence Neutron Plugin."""
 
 from oslo.config import cfg
+from oslo import messaging
+from oslo.utils import excutils
+from oslo.utils import importutils
 
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
 from neutron.api.rpc.handlers import l3_rpc
+from neutron.api.rpc.handlers import metadata_rpc
 from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.common import constants as q_const
 from neutron.common import exceptions as nexception
@@ -37,8 +41,7 @@ from neutron.db import portbindings_base
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import portbindings
-from neutron.openstack.common import excutils
-from neutron.openstack.common import importutils
+from neutron.i18n import _LE
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as svc_constants
 import neutron.plugins.oneconvergence.lib.config  # noqa
@@ -60,21 +63,18 @@ class SecurityGroupServerRpcMixin(sg_db_rpc.SecurityGroupServerRpcMixin):
         return port
 
 
-class NVSDPluginV2AgentNotifierApi(n_rpc.RpcProxy,
-                                   sg_rpc.SecurityGroupAgentRpcApiMixin):
-
-    BASE_RPC_API_VERSION = '1.0'
+class NVSDPluginV2AgentNotifierApi(sg_rpc.SecurityGroupAgentRpcApiMixin):
 
     def __init__(self, topic):
-        super(NVSDPluginV2AgentNotifierApi, self).__init__(
-            topic=topic, default_version=self.BASE_RPC_API_VERSION)
+        self.topic = topic
         self.topic_port_update = topics.get_topic_name(topic, topics.PORT,
                                                        topics.UPDATE)
+        target = messaging.Target(topic=topic, version='1.0')
+        self.client = n_rpc.get_client(target)
 
     def port_update(self, context, port):
-        self.fanout_cast(context,
-                         self.make_msg('port_update', port=port),
-                         topic=self.topic_port_update)
+        cctxt = self.client.prepare(topic=self.topic_port_update, fanout=True)
+        cctxt.cast(context, 'port_update', port=port)
 
 
 class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
@@ -158,7 +158,8 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self.endpoints = [securitygroups_rpc.SecurityGroupServerRpcCallback(),
                           dhcp_rpc.DhcpRpcCallback(),
                           l3_rpc.L3RpcCallback(),
-                          agents_db.AgentExtRpcCallback()]
+                          agents_db.AgentExtRpcCallback(),
+                          metadata_rpc.MetadataRpcCallback()]
         for svc_topic in self.service_topics.values():
             self.conn.create_consumer(svc_topic, self.endpoints, fanout=False)
 
@@ -233,8 +234,8 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                 #Log the message and delete the subnet from the neutron
                 super(OneConvergencePluginV2,
                       self).delete_subnet(context, neutron_subnet['id'])
-                LOG.error(_("Failed to create subnet, "
-                          "deleting it from neutron"))
+                LOG.error(_LE("Failed to create subnet, "
+                              "deleting it from neutron"))
 
         return neutron_subnet
 
@@ -297,8 +298,8 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self.nvsdlib.create_port(tenant_id, neutron_port)
         except nvsdexception.NVSDAPIException:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Deleting newly created "
-                          "neutron port %s"), port_id)
+                LOG.error(_LE("Deleting newly created "
+                              "neutron port %s"), port_id)
                 super(OneConvergencePluginV2, self).delete_port(context,
                                                                 port_id)
 
@@ -370,7 +371,7 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self.nvsdlib.create_floatingip(neutron_floatingip)
         except nvsdexception.NVSDAPIException:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Failed to create floatingip"))
+                LOG.error(_LE("Failed to create floatingip"))
                 super(OneConvergencePluginV2,
                       self).delete_floatingip(context,
                                               neutron_floatingip['id'])
@@ -409,7 +410,7 @@ class OneConvergencePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             self.nvsdlib.create_router(neutron_router)
         except nvsdexception.NVSDAPIException:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Failed to create router"))
+                LOG.error(_LE("Failed to create router"))
                 super(OneConvergencePluginV2,
                       self).delete_router(context, neutron_router['id'])
 

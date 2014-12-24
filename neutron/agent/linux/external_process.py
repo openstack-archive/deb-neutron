@@ -19,7 +19,7 @@ from oslo.config import cfg
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
-from neutron.openstack.common.gettextutils import _LE
+from neutron.i18n import _LE
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 
@@ -30,14 +30,12 @@ OPTS = [
     cfg.StrOpt('external_pids',
                default='$state_path/external/pids',
                help=_('Location to store child pid files')),
-    cfg.BoolOpt('check_child_processes', default=False,
-                help=_("Periodically check child processes")),
     cfg.StrOpt('check_child_processes_action', default='respawn',
                choices=['respawn', 'exit'],
                help=_('Action to be executed when a child process dies')),
-    cfg.IntOpt('check_child_processes_interval', default=60,
+    cfg.IntOpt('check_child_processes_interval', default=0,
                help=_('Interval between checks of child process liveness '
-                      '(seconds)')),
+                      '(seconds), use 0 to disable')),
 ]
 
 
@@ -156,7 +154,7 @@ class ProcessMonitor(object):
 
         self._process_managers = {}
 
-        if self._config.check_child_processes:
+        if self._config.check_child_processes_interval:
             self._spawn_checking_thread()
 
     def enable(self, uuid, cmd_callback, namespace=None, service=None,
@@ -222,7 +220,10 @@ class ProcessMonitor(object):
 
     @lockutils.synchronized("_check_child_processes")
     def _check_child_processes(self):
-        for service_id in self._process_managers:
+        # we build the list of keys before iterating in the loop to cover
+        # the case where other threads add or remove items from the
+        # dictionary which otherwise will cause a RuntimeError
+        for service_id in list(self._process_managers):
             pm = self._process_managers.get(service_id)
 
             if pm and not pm.active:

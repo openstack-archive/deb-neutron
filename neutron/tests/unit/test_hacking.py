@@ -17,9 +17,16 @@ from neutron.tests import base
 class HackingTestCase(base.BaseTestCase):
 
     def test_log_translations(self):
-        logs = ['audit', 'error', 'info', 'warn', 'warning', 'critical',
-                'exception']
-        levels = ['_LI', '_LW', '_LE', '_LC']
+        expected_marks = {
+            'audit': '_',
+            'error': '_LE',
+            'info': '_LI',
+            'warn': '_LW',
+            'warning': '_LW',
+            'critical': '_LC',
+            'exception': '_LE',
+        }
+        logs = expected_marks.keys()
         debug = "LOG.debug('OK')"
         self.assertEqual(
             0, len(list(checks.validate_log_translations(debug, debug, 'f'))))
@@ -27,20 +34,25 @@ class HackingTestCase(base.BaseTestCase):
             bad = 'LOG.%s("Bad")' % log
             self.assertEqual(
                 1, len(list(checks.validate_log_translations(bad, bad, 'f'))))
-            ok = "LOG.%s(_('OK'))" % log
-            self.assertEqual(
-                0, len(list(checks.validate_log_translations(ok, ok, 'f'))))
             ok = "LOG.%s('OK')    # noqa" % log
             self.assertEqual(
                 0, len(list(checks.validate_log_translations(ok, ok, 'f'))))
             ok = "LOG.%s(variable)" % log
             self.assertEqual(
                 0, len(list(checks.validate_log_translations(ok, ok, 'f'))))
-            for level in levels:
-                ok = "LOG.%s(%s('OK'))" % (log, level)
+
+            for mark in checks._all_hints:
+                stmt = "LOG.%s(%s('test'))" % (log, mark)
                 self.assertEqual(
-                    0, len(list(checks.validate_log_translations(ok,
-                                                                 ok, 'f'))))
+                    0 if expected_marks[log] == mark else 1,
+                    len(list(checks.validate_log_translations(stmt, stmt,
+                                                              'f'))))
+
+    def test_no_translate_debug_logs(self):
+        for hint in checks._all_hints:
+            bad = "LOG.debug(%s('bad'))" % hint
+            self.assertEqual(
+                1, len(list(checks.no_translate_debug_logs(bad, 'f'))))
 
     def test_use_jsonutils(self):
         def __get_msg(fun):
@@ -79,3 +91,29 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(2, checks.no_author_tags("# author: pele")[0])
         self.assertEqual(2, checks.no_author_tags("# Author: pele")[0])
         self.assertEqual(3, checks.no_author_tags(".. moduleauthor:: pele")[0])
+
+    def test_assert_called_once_with(self):
+        fail_code1 = """
+               mock = Mock()
+               mock.method(1, 2, 3, test='wow')
+               mock.method.assert_called_once()
+               """
+        fail_code2 = """
+               mock = Mock()
+               mock.method(1, 2, 3, test='wow')
+               mock.method.assertCalledOnceWith()
+               """
+        pass_code = """
+               mock = Mock()
+               mock.method(1, 2, 3, test='wow')
+               mock.method.assert_called_once_with()
+               """
+        self.assertEqual(
+            1, len(list(checks.check_assert_called_once_with(fail_code1,
+                                            "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            1, len(list(checks.check_assert_called_once_with(fail_code2,
+                                            "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assert_called_once_with(pass_code,
+                                            "neutron/tests/test_assert.py"))))

@@ -20,14 +20,15 @@ Utility methods for working with WSGI servers redux
 import sys
 
 import netaddr
+from oslo import i18n
 import six
 import webob.dec
 import webob.exc
 
-from neutron.api.v2 import attributes
 from neutron.common import exceptions
-from neutron.openstack.common import gettextutils
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
+from neutron.openstack.common import policy as common_policy
 from neutron import wsgi
 
 
@@ -42,14 +43,9 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
     """Represents an API entity resource and the associated serialization and
     deserialization logic
     """
-    xml_deserializer = wsgi.XMLDeserializer(attributes.get_attr_metadata())
-    default_deserializers = {'application/xml': xml_deserializer,
-                             'application/json': wsgi.JSONDeserializer()}
-    xml_serializer = wsgi.XMLDictSerializer(attributes.get_attr_metadata())
-    default_serializers = {'application/xml': xml_serializer,
-                           'application/json': wsgi.JSONDictSerializer()}
-    format_types = {'xml': 'application/xml',
-                    'json': 'application/json'}
+    default_deserializers = {'application/json': wsgi.JSONDeserializer()}
+    default_serializers = {'application/json': wsgi.JSONDictSerializer()}
+    format_types = {'json': 'application/json'}
     action_status = dict(create=201, delete=204)
 
     default_deserializers.update(deserializers or {})
@@ -86,7 +82,8 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
 
             result = method(request=request, **args)
         except (exceptions.NeutronException,
-                netaddr.AddrFormatError) as e:
+                netaddr.AddrFormatError,
+                common_policy.PolicyNotAuthorized) as e:
             for fault in faults:
                 if isinstance(e, fault):
                     mapped_exc = faults[fault]
@@ -94,10 +91,10 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
             else:
                 mapped_exc = webob.exc.HTTPInternalServerError
             if 400 <= mapped_exc.code < 500:
-                LOG.info(_('%(action)s failed (client error): %(exc)s'),
+                LOG.info(_LI('%(action)s failed (client error): %(exc)s'),
                          {'action': action, 'exc': e})
             else:
-                LOG.exception(_('%s failed'), action)
+                LOG.exception(_LE('%s failed'), action)
             e = translate(e, language)
             body = serializer.serialize(
                 {'NeutronError': get_exception_data(e)})
@@ -105,7 +102,7 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
             raise mapped_exc(**kwargs)
         except webob.exc.HTTPException as e:
             type_, value, tb = sys.exc_info()
-            LOG.exception(_('%s failed'), action)
+            LOG.exception(_LE('%s failed'), action)
             translate(e, language)
             value.body = serializer.serialize(
                 {'NeutronError': get_exception_data(e)})
@@ -125,7 +122,7 @@ def Resource(controller, faults=None, deserializers=None, serializers=None):
             raise webob.exc.HTTPNotImplemented(**kwargs)
         except Exception:
             # NOTE(jkoelker) Everything else is 500
-            LOG.exception(_('%s failed'), action)
+            LOG.exception(_LE('%s failed'), action)
             # Do not expose details of 500 error to clients.
             msg = _('Request Failed: internal server error while '
                     'processing your request.')
@@ -176,7 +173,7 @@ def translate(translatable, locale):
     :returns: the translated object, or the object as-is if it
               was not translated
     """
-    localize = gettextutils.translate
+    localize = i18n.translate
     if isinstance(translatable, exceptions.NeutronException):
         translatable.msg = localize(translatable.msg, locale)
     elif isinstance(translatable, webob.exc.HTTPError):

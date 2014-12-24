@@ -23,6 +23,7 @@ Big Switch core plugin.
 """
 
 from oslo.config import cfg
+from oslo.utils import excutils
 
 from neutron.api import extensions as neutron_extensions
 from neutron.common import exceptions
@@ -30,7 +31,7 @@ from neutron.common import log
 from neutron.common import utils
 from neutron.db import l3_db
 from neutron.extensions import l3
-from neutron.openstack.common import excutils
+from neutron.i18n import _LE
 from neutron.openstack.common import log as logging
 from neutron.plugins.bigswitch import extensions
 from neutron.plugins.bigswitch import plugin as cplugin
@@ -95,7 +96,12 @@ class L3RestProxy(cplugin.NeutronRestProxyV2Base,
             new_router = super(L3RestProxy,
                                self).update_router(context, router_id, router)
             router = self._map_state_and_status(new_router)
-
+            # look up the network on this side to save an expensive query on
+            # the backend controller.
+            if router and router.get('external_gateway_info'):
+                router['external_gateway_info']['network'] = self.get_network(
+                    context.elevated(),
+                    router['external_gateway_info']['network_id'])
             # update router on network controller
             self.servers.rest_update_router(tenant_id, router, router_id)
 
@@ -209,8 +215,8 @@ class L3RestProxy(cplugin.NeutronRestProxyV2Base,
             except servermanager.RemoteRestError as e:
                 with excutils.save_and_reraise_exception():
                     LOG.error(
-                        _("NeutronRestProxyV2: Unable to create remote "
-                          "floating IP: %s"), e)
+                        _LE("NeutronRestProxyV2: Unable to create remote "
+                            "floating IP: %s"), e)
             # return created floating IP
             return new_fl_ip
 
@@ -278,7 +284,7 @@ class L3RestProxy(cplugin.NeutronRestProxyV2Base,
         except exceptions.TooManyExternalNetworks:
             # get_external_network can raise errors when multiple external
             # networks are detected, which isn't supported by the Plugin
-            LOG.error(_("NeutronRestProxyV2: too many external networks"))
+            LOG.error(_LE("NeutronRestProxyV2: too many external networks"))
 
     def _get_tenant_default_router_rules(self, tenant):
         rules = cfg.CONF.ROUTER.tenant_default_router_rule

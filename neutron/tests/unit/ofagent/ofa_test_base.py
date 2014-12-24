@@ -17,8 +17,8 @@
 
 import mock
 from oslo.config import cfg
+from oslo.utils import importutils
 
-from neutron.openstack.common import importutils
 from neutron.tests import base
 from neutron.tests.unit.ofagent import fake_oflib
 
@@ -69,3 +69,4 @@ class OFAAgentTestBase(OFATestBase):
                        help='openflow tcp listen port')
         ])
         cfg.CONF.set_override('root_helper', 'fake_helper', group='AGENT')
+        super(OFATestBase, self).setup_config()

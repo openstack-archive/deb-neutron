@@ -16,8 +16,7 @@ import abc
 
 from neutron.common import exceptions as exc
 from neutron.common import topics
-from neutron.openstack.common.gettextutils import _LI
-from neutron.openstack.common.gettextutils import _LW
+from neutron.i18n import _LI, _LW
 from neutron.openstack.common import log
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.ml2 import driver_api as api
@@ -188,8 +187,7 @@ class TunnelAgentRpcApiMixin(object):
                                      topics.UPDATE)
 
     def tunnel_update(self, context, tunnel_ip, tunnel_type):
-        self.fanout_cast(context,
-                         self.make_msg('tunnel_update',
-                                       tunnel_ip=tunnel_ip,
-                                       tunnel_type=tunnel_type),
-                         topic=self._get_tunnel_update_topic())
+        cctxt = self.client.prepare(topic=self._get_tunnel_update_topic(),
+                                    fanout=True)
+        cctxt.cast(context, 'tunnel_update', tunnel_ip=tunnel_ip,
+                   tunnel_type=tunnel_type)

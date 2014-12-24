@@ -13,10 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo import i18n
 import webob.dec
 
 from neutron.api.views import versions as versions_view
-from neutron.openstack.common import gettextutils
 from neutron.openstack.common import log as logging
 from neutron import wsgi
 
@@ -43,20 +43,13 @@ class Versions(object):
         if req.path != '/':
             language = req.best_match_language()
             msg = _('Unknown API version specified')
-            msg = gettextutils.translate(msg, language)
+            msg = i18n.translate(msg, language)
             return webob.exc.HTTPNotFound(explanation=msg)
 
         builder = versions_view.get_view_builder(req)
         versions = [builder.build(version) for version in version_objs]
         response = dict(versions=versions)
-        metadata = {
-            "application/xml": {
-                "attributes": {
-                    "version": ["status", "id"],
-                    "link": ["rel", "href"],
-                }
-            }
-        }
+        metadata = {}
 
         content_type = req.best_match_content_type()
         body = (wsgi.Serializer(metadata=metadata).

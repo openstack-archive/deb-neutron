@@ -13,8 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import collections
-
 from sqlalchemy import or_
 from sqlalchemy.orm import exc
 
@@ -25,6 +23,7 @@ from neutron.db import api as db_api
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sg_db
 from neutron.extensions import portbindings
+from neutron.i18n import _LE, _LI
 from neutron import manager
 from neutron.openstack.common import log
 from neutron.openstack.common import uuidutils
@@ -45,7 +44,8 @@ def _make_segment_dict(record):
             api.SEGMENTATION_ID: record.segmentation_id}
 
 
-def add_network_segment(session, network_id, segment, is_dynamic=False):
+def add_network_segment(session, network_id, segment, segment_index=0,
+                        is_dynamic=False):
     with session.begin(subtransactions=True):
         record = models.NetworkSegment(
             id=uuidutils.generate_uuid(),
@@ -53,12 +53,13 @@ def add_network_segment(session, network_id, segment, is_dynamic=False):
             network_type=segment.get(api.NETWORK_TYPE),
             physical_network=segment.get(api.PHYSICAL_NETWORK),
             segmentation_id=segment.get(api.SEGMENTATION_ID),
+            segment_index=segment_index,
             is_dynamic=is_dynamic
         )
         session.add(record)
         segment[api.ID] = record.id
-    LOG.info(_("Added segment %(id)s of type %(network_type)s for network"
-               " %(network_id)s"),
+    LOG.info(_LI("Added segment %(id)s of type %(network_type)s for network"
+                 " %(network_id)s"),
              {'id': record.id,
               'network_type': record.network_type,
               'network_id': record.network_id})
@@ -67,7 +68,8 @@ def add_network_segment(session, network_id, segment, is_dynamic=False):
 def get_network_segments(session, network_id, filter_dynamic=False):
     with session.begin(subtransactions=True):
         query = (session.query(models.NetworkSegment).
-                 filter_by(network_id=network_id))
+                 filter_by(network_id=network_id).
+                 order_by(models.NetworkSegment.segment_index))
         if filter_dynamic is not None:
             query = query.filter_by(is_dynamic=filter_dynamic)
         records = query.all()
@@ -200,13 +202,13 @@ def get_port(session, port_id):
         except exc.NoResultFound:
             return
         except exc.MultipleResultsFound:
-            LOG.error(_("Multiple ports have port_id starting with %s"),
+            LOG.error(_LE("Multiple ports have port_id starting with %s"),
                       port_id)
             return
 
 
 def get_port_from_device_mac(device_mac):
-    LOG.debug(_("get_port_from_device_mac() called for mac %s"), device_mac)
+    LOG.debug("get_port_from_device_mac() called for mac %s", device_mac)
     session = db_api.get_session()
     qry = session.query(models_v2.Port).filter_by(mac_address=device_mac)
     return qry.first()
@@ -234,7 +236,7 @@ def get_ports_and_sgs(port_ids):
 
 
 def get_sg_ids_grouped_by_port(port_ids):
-    sg_ids_grouped_by_port = collections.defaultdict(list)
+    sg_ids_grouped_by_port = {}
     session = db_api.get_session()
     sg_binding_port = sg_db.SecurityGroupPortBinding.port_id
 
@@ -256,6 +258,8 @@ def get_sg_ids_grouped_by_port(port_ids):
         query = query.filter(or_(*or_criteria))
 
         for port, sg_id in query:
+            if port not in sg_ids_grouped_by_port:
+                sg_ids_grouped_by_port[port] = []
             if sg_id:
                 sg_ids_grouped_by_port[port].append(sg_id)
     return sg_ids_grouped_by_port
@@ -280,11 +284,11 @@ def get_port_binding_host(port_id):
                      filter(models.PortBinding.port_id.startswith(port_id)).
                      one())
         except exc.NoResultFound:
-            LOG.debug(_("No binding found for port %(port_id)s"),
+            LOG.debug("No binding found for port %(port_id)s",
                       {'port_id': port_id})
             return
         except exc.MultipleResultsFound:
-            LOG.error(_("Multiple ports have port_id starting with %s"),
+            LOG.error(_LE("Multiple ports have port_id starting with %s"),
                       port_id)
             return
     return query.host

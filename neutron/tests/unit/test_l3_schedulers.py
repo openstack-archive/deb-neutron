@@ -19,6 +19,9 @@ import uuid
 
 import mock
 from oslo.config import cfg
+from oslo.db import exception as db_exc
+from oslo.utils import importutils
+from oslo.utils import timeutils
 from sqlalchemy.orm import query
 
 from neutron.common import constants
@@ -33,8 +36,6 @@ from neutron.db import l3_dvrscheduler_db
 from neutron.db import l3_hamode_db
 from neutron.db import l3_hascheduler_db
 from neutron import manager
-from neutron.openstack.common import importutils
-from neutron.openstack.common import timeutils
 from neutron.scheduler import l3_agent_scheduler
 from neutron.tests import base
 from neutron.tests.unit import test_db_plugin
@@ -481,6 +482,12 @@ class L3SchedulerTestBaseMixin(object):
             self.assertEqual(1, flog.call_count)
             args, kwargs = flog.call_args
             self.assertIn('is scheduled', args[0])
+
+    def test_bind_absent_router(self):
+        scheduler = l3_agent_scheduler.ChanceScheduler()
+        # checking that bind_router() is not throwing
+        # when supplied with router_id of non-existing router
+        scheduler.bind_router(self.adminContext, "dummyID", self.agent1)
 
     def test_bind_existing_router(self):
         router = self._make_router(self.fmt,
@@ -964,6 +971,19 @@ class L3DvrSchedulerTestCase(testlib_api.SqlTestCase,
         }
         return agent, router
 
+    def test_schedule_snat_router_duplicate_entry(self):
+        self._prepare_schedule_snat_tests()
+        with contextlib.nested(
+            mock.patch.object(self.dut, 'get_l3_agents'),
+            mock.patch.object(self.dut, 'get_snat_candidates'),
+            mock.patch.object(self.dut, 'bind_snat_servicenode',
+                              side_effect=db_exc.DBDuplicateEntry()),
+            mock.patch.object(self.dut, 'bind_dvr_router_servicenode')
+        ) as (mock_gl3, mock_snat_canidates, mock_bind_snat, mock_bind_dvr):
+            self.dut.schedule_snat_router(self.adminContext, 'foo', 'bar')
+        self.assertTrue(mock_bind_snat.called)
+        self.assertFalse(mock_bind_dvr.called)
+
     def test_schedule_router_unbind_snat_servicenode_negativetest(self):
         router = {
             'id': 'foo_router_id',
@@ -1056,11 +1076,12 @@ class L3HATestCaseMixin(testlib_api.SqlTestCase,
         self._register_l3_agents()
 
     def _create_ha_router(self, ha=True, tenant_id='tenant1'):
+        self.adminContext.tenant_id = tenant_id
         router = {'name': 'router1', 'admin_state_up': True}
         if ha is not None:
             router['ha'] = ha
-        return self.plugin._create_router_db(self.adminContext,
-                                             router, tenant_id)
+        return self.plugin.create_router(self.adminContext,
+                                         {'router': router})
 
 
 class L3_HA_scheduler_db_mixinTestCase(L3HATestCaseMixin):

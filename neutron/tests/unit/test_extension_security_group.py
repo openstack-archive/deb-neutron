@@ -168,10 +168,6 @@ class SecurityGroupsTestCase(test_db_plugin.NeutronDbPluginV2TestCase):
             self.assertEqual(security_group_rule[k], v)
 
 
-class SecurityGroupsTestCaseXML(SecurityGroupsTestCase):
-    fmt = 'xml'
-
-
 class SecurityGroupTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                               securitygroups_db.SecurityGroupDbMixin):
     """Test plugin that implements necessary calls on create/delete port for
@@ -323,6 +319,13 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
             self.assertEqual(res['security_group']['description'],
                              data['security_group']['description'])
 
+    def test_check_default_security_group_description(self):
+        with self.network():
+            res = self.new_list_request('security-groups')
+            sg = self.deserialize(self.fmt, res.get_response(self.ext_api))
+            self.assertEqual('Default security group',
+                             sg['security_groups'][0]['description'])
+
     def test_default_security_group(self):
         with self.network():
             res = self.new_list_request('security-groups')
@@ -331,6 +334,13 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
 
     def test_create_default_security_group_fail(self):
         name = 'default'
+        description = 'my webservers'
+        res = self._create_security_group(self.fmt, name, description)
+        self.deserialize(self.fmt, res)
+        self.assertEqual(res.status_int, webob.exc.HTTPConflict.code)
+
+    def test_create_default_security_group_check_case_insensitive(self):
+        name = 'DEFAULT'
         description = 'my webservers'
         res = self._create_security_group(self.fmt, name, description)
         self.deserialize(self.fmt, res)
@@ -1448,7 +1458,3 @@ class TestConvertProtocol(base.BaseTestCase):
 
     def test_convert_numeric_protocol_to_string(self):
         self.assertIsInstance(ext_sg.convert_protocol(2), str)
-
-
-class TestSecurityGroupsXML(TestSecurityGroups):
-    fmt = 'xml'

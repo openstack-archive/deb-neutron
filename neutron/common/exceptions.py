@@ -17,7 +17,7 @@
 Neutron base exception handling.
 """
 
-from neutron.openstack.common import excutils
+from oslo.utils import excutils
 
 
 class NeutronException(Exception):
@@ -69,10 +69,6 @@ class ServiceUnavailable(NeutronException):
 
 class AdminRequired(NotAuthorized):
     message = _("User does not have admin privileges: %(reason)s")
-
-
-class PolicyNotAuthorized(NotAuthorized):
-    message = _("Policy doesn't allow %(action)s to be performed.")
 
 
 class NetworkNotFound(NotFound):
@@ -305,6 +301,10 @@ class NetworkVlanRangeError(NeutronException):
         super(NetworkVlanRangeError, self).__init__(**kwargs)
 
 
+class PhysicalNetworkNameError(NeutronException):
+    message = _("Empty physical network name.")
+
+
 class NetworkTunnelRangeError(NeutronException):
     message = _("Invalid network Tunnel range: "
                 "'%(tunnel_range)s' - %(error)s")
@@ -335,3 +335,7 @@ class DeviceIDNotOwnedByTenant(Conflict):
 
 class InvalidCIDR(BadRequest):
     message = _("Invalid CIDR %(input)s given as IP prefix")
+
+
+class RouterNotCompatibleWithAgent(NeutronException):
+    message = _("Router '%(router_id)s' is not compatible with this agent")

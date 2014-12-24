@@ -24,6 +24,7 @@ from neutron.db import l3_dvrscheduler_db as l3_dvrsched_db
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
+from neutron.i18n import _LI
 from neutron.openstack.common import log as logging
 
 
@@ -73,14 +74,15 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         """Allow centralized -> distributed state transition only."""
         if (router_db.extra_attributes.distributed and
             router_res.get('distributed') is False):
-            LOG.info(_("Centralizing distributed router %s "
-                       "is not supported"), router_db['id'])
+            LOG.info(_LI("Centralizing distributed router %s "
+                         "is not supported"), router_db['id'])
             raise NotImplementedError()
+        # TODO(Swami): Add a check for Services FWaaS and VPNaaS
 
     def _update_distributed_attr(
         self, context, router_id, router_db, data, gw_info):
         """Update the model to support the dvr case of a router."""
-        if not attributes.is_attr_set(gw_info) and data.get('distributed'):
+        if data.get('distributed'):
             old_owner = l3_const.DEVICE_OWNER_ROUTER_INTF
             new_owner = DEVICE_OWNER_DVR_INTERFACE
             for rp in router_db.attached_ports.filter_by(port_type=old_owner):
@@ -92,15 +94,28 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             router_db = super(
                 L3_NAT_with_dvr_db_mixin, self)._update_router_db(
                     context, router_id, data, gw_info)
+            migrating_to_distributed = (
+                not router_db.extra_attributes.distributed and
+                data.get('distributed') is True)
             self._validate_router_migration(router_db, data)
-            # FIXME(swami): need to add migration status so that the scheduler
-            # can pick the migration request and move stuff over. For now
-            # only the distributed flag and router interface's owner change.
-            # Instead of complaining on _validate_router_migration, let's
-            # succeed here and complete the task in a follow-up patch
             router_db.extra_attributes.update(data)
             self._update_distributed_attr(
                 context, router_id, router_db, data, gw_info)
+            if migrating_to_distributed:
+                if router_db['gw_port_id']:
+                    # If the Legacy router is getting migrated to a DVR
+                    # router, make sure to create corresponding
+                    # snat interface ports that are to be consumed by
+                    # the Service Node.
+                    if not self.create_snat_intf_ports_if_not_exists(
+                        context.elevated(), router_db):
+                        LOG.debug("SNAT interface ports not created: %s",
+                                  router_db['id'])
+                cur_agents = self.list_l3_agents_hosting_router(
+                    context, router_db['id'])['agents']
+                for agent in cur_agents:
+                    self._unbind_router(context, router_db['id'],
+                                        agent['id'])
             return router_db
 
     def _delete_current_gw_port(self, context, router_id, router, new_network):
@@ -115,6 +130,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         super(L3_NAT_with_dvr_db_mixin,
               self)._create_gw_port(context, router_id,
                                     router, new_network)
+        # Make sure that the gateway port exists before creating the
+        # snat interface ports for distributed router.
         if router.extra_attributes.distributed and router.gw_port:
             snat_p_list = self.create_snat_intf_ports_if_not_exists(
                 context.elevated(), router)
@@ -142,19 +159,17 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             )
         )
 
-    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
-        previous_router_id = floatingip_db.router_id
-        port_id, internal_ip_address, router_id = (
-            self._check_and_get_fip_assoc(context, fip, floatingip_db))
+    def update_floatingip(self, context, id, floatingip):
+        res_fip = super(L3_NAT_with_dvr_db_mixin, self).update_floatingip(
+            context, id, floatingip)
         admin_ctx = context.elevated()
-        if (not ('port_id' in fip and fip['port_id'])) and (
-            floatingip_db['fixed_port_id'] is not None):
+        fip = floatingip['floatingip']
+        unused_agent_port = (fip.get('port_id', -1) is None and
+                            res_fip.get('fixed_port_id'))
+        if unused_agent_port:
             self.clear_unused_fip_agent_gw_port(
-                admin_ctx, floatingip_db, fip['id'])
-        floatingip_db.update({'fixed_ip_address': internal_ip_address,
-                              'fixed_port_id': port_id,
-                              'router_id': router_id,
-                              'last_known_router_id': previous_router_id})
+                admin_ctx, floatingip, fip['id'])
+        return res_fip
 
     def clear_unused_fip_agent_gw_port(
             self, context, floatingip_db, fip_id):
@@ -440,8 +455,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             f_port = self.get_agent_gw_ports_exist_for_network(
                 context, network_id, host, l3_agent_db['id'])
             if not f_port:
-                LOG.info(_('Agent Gateway port does not exist,'
-                           ' so create one: %s'), f_port)
+                LOG.info(_LI('Agent Gateway port does not exist,'
+                             ' so create one: %s'), f_port)
                 agent_port = self._core_plugin.create_port(
                     context,
                     {'port': {'tenant_id': '',
@@ -523,8 +538,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 port_type=DEVICE_OWNER_DVR_INTERFACE
             )
         )
-        LOG.info(_('SNAT interface port list does not exist,'
-                   ' so create one: %s'), port_list)
+        LOG.info(_LI('SNAT interface port list does not exist,'
+                     ' so create one: %s'), port_list)
         for intf in int_ports:
             if intf.fixed_ips:
                 # Passing the subnet for the port to make sure the IP's
@@ -538,13 +553,12 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             self._populate_subnet_for_ports(context, port_list)
         return port_list
 
-    def dvr_vmarp_table_update(self, context, port_id, action):
+    def dvr_vmarp_table_update(self, context, port_dict, action):
         """Notify the L3 agent of VM ARP table changes.
 
         Provide the details of the VM ARP to the L3 agent when
         a Nova instance gets created or deleted.
         """
-        port_dict = self._core_plugin._get_port(context, port_id)
         # Check this is a valid VM port
         if ("compute:" not in port_dict['device_owner'] or
             not port_dict['fixed_ips']):
@@ -579,6 +593,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         ports = (
             rp.port.id for rp in
             router.attached_ports.filter_by(port_type=DEVICE_OWNER_DVR_SNAT)
+            if rp.port
         )
 
         c_snat_ports = self._core_plugin.get_ports(

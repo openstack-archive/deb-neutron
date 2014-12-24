@@ -14,61 +14,39 @@
 #    under the License.
 
 import mock
+from oslo.serialization import jsonutils
 import requests
 
-from neutron.openstack.common import jsonutils
 from neutron.plugins.common import constants
 from neutron.plugins.ml2 import config as config
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import mechanism_odl
 from neutron.plugins.ml2 import plugin
 from neutron.tests import base
-from neutron.tests.unit import test_db_plugin as test_plugin
+from neutron.tests.unit.ml2 import test_ml2_plugin as test_plugin
 from neutron.tests.unit import testlib_api
 
 PLUGIN_NAME = 'neutron.plugins.ml2.plugin.Ml2Plugin'
 
 
-class OpenDaylightTestCase(test_plugin.NeutronDbPluginV2TestCase):
+class OpenDaylightTestCase(test_plugin.Ml2PluginV2TestCase):
+    _mechanism_drivers = ['logger', 'opendaylight']
 
     def setUp(self):
-        # Enable the test mechanism driver to ensure that
-        # we can successfully call through to all mechanism
-        # driver apis.
-        config.cfg.CONF.set_override('mechanism_drivers',
-                                     ['logger', 'opendaylight'],
-                                     'ml2')
         # Set URL/user/pass so init doesn't throw a cfg required error.
         # They are not used in these tests since sendjson is overwritten.
         config.cfg.CONF.set_override('url', 'http://127.0.0.1:9999', 'ml2_odl')
         config.cfg.CONF.set_override('username', 'someuser', 'ml2_odl')
         config.cfg.CONF.set_override('password', 'somepass', 'ml2_odl')
 
-        super(OpenDaylightTestCase, self).setUp(PLUGIN_NAME)
+        super(OpenDaylightTestCase, self).setUp()
         self.port_create_status = 'DOWN'
-        self.segment = {'api.NETWORK_TYPE': ""}
         self.mech = mechanism_odl.OpenDaylightMechanismDriver()
         mechanism_odl.OpenDaylightMechanismDriver.sendjson = (
             self.check_sendjson)
 
     def check_sendjson(self, method, urlpath, obj, ignorecodes=[]):
         self.assertFalse(urlpath.startswith("http://"))
-
-    def test_check_segment(self):
-        """Validate the check_segment call."""
-        self.segment[api.NETWORK_TYPE] = constants.TYPE_LOCAL
-        self.assertTrue(self.mech.check_segment(self.segment))
-        self.segment[api.NETWORK_TYPE] = constants.TYPE_FLAT
-        self.assertFalse(self.mech.check_segment(self.segment))
-        self.segment[api.NETWORK_TYPE] = constants.TYPE_VLAN
-        self.assertTrue(self.mech.check_segment(self.segment))
-        self.segment[api.NETWORK_TYPE] = constants.TYPE_GRE
-        self.assertTrue(self.mech.check_segment(self.segment))
-        self.segment[api.NETWORK_TYPE] = constants.TYPE_VXLAN
-        self.assertTrue(self.mech.check_segment(self.segment))
-        # Validate a network type not currently supported
-        self.segment[api.NETWORK_TYPE] = 'mpls'
-        self.assertFalse(self.mech.check_segment(self.segment))
 
 
 class OpenDayLightMechanismConfigTests(testlib_api.SqlTestCase):
@@ -101,22 +79,22 @@ class OpenDayLightMechanismConfigTests(testlib_api.SqlTestCase):
         self._test_missing_config(password=None)
 
 
-class OpenDaylightMechanismTestBasicGet(test_plugin.TestBasicGet,
+class OpenDaylightMechanismTestBasicGet(test_plugin.TestMl2BasicGet,
                                         OpenDaylightTestCase):
     pass
 
 
-class OpenDaylightMechanismTestNetworksV2(test_plugin.TestNetworksV2,
+class OpenDaylightMechanismTestNetworksV2(test_plugin.TestMl2NetworksV2,
                                           OpenDaylightTestCase):
     pass
 
 
-class OpenDaylightMechanismTestSubnetsV2(test_plugin.TestSubnetsV2,
+class OpenDaylightMechanismTestSubnetsV2(test_plugin.TestMl2SubnetsV2,
                                          OpenDaylightTestCase):
     pass
 
 
-class OpenDaylightMechanismTestPortsV2(test_plugin.TestPortsV2,
+class OpenDaylightMechanismTestPortsV2(test_plugin.TestMl2PortsV2,
                                        OpenDaylightTestCase):
     pass
 
@@ -373,3 +351,20 @@ class OpenDaylightMechanismDriverTestCase(base.BaseTestCase):
                             requests.codes.not_implemented):
             self._test_delete_resource_postcommit(
                 'port', status_code, requests.exceptions.HTTPError)
+
+    def test_check_segment(self):
+        """Validate the check_segment call."""
+        segment = {'api.NETWORK_TYPE': ""}
+        segment[api.NETWORK_TYPE] = constants.TYPE_LOCAL
+        self.assertTrue(self.mech.check_segment(segment))
+        segment[api.NETWORK_TYPE] = constants.TYPE_FLAT
+        self.assertFalse(self.mech.check_segment(segment))
+        segment[api.NETWORK_TYPE] = constants.TYPE_VLAN
+        self.assertTrue(self.mech.check_segment(segment))
+        segment[api.NETWORK_TYPE] = constants.TYPE_GRE
+        self.assertTrue(self.mech.check_segment(segment))
+        segment[api.NETWORK_TYPE] = constants.TYPE_VXLAN
+        self.assertTrue(self.mech.check_segment(segment))
+        # Validate a network type not currently supported
+        segment[api.NETWORK_TYPE] = 'mpls'
+        self.assertFalse(self.mech.check_segment(segment))

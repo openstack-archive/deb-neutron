@@ -22,11 +22,15 @@ from sqlalchemy.sql import expression as expr
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
+from neutron.common import topics
 from neutron import context as n_context
+from neutron.db import agents_db
 from neutron.db import extraroute_db
 from neutron.db import l3_db
 from neutron.db import models_v2
+from neutron.db import portbindings_db as p_binding
 from neutron.extensions import providernet as pr_net
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
@@ -175,7 +179,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             port_db = self._get_router_port_db_on_subnet(
                 context, router_id, subnet_db)
         else:
-            msg = "Either subnet_id or port_id must be specified"
+            msg = _("Either subnet_id or port_id must be specified")
             raise n_exc.BadRequest(resource='router', msg=msg)
         routers = [self.get_router(context, router_id)]
         with context.session.begin(subtransactions=True):
@@ -311,7 +315,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         return sync_data
 
     def schedule_router_on_hosting_device(self, context, r_hd_binding):
-        LOG.info(_('Attempting to schedule router %s.'),
+        LOG.info(_LI('Attempting to schedule router %s.'),
                  r_hd_binding['router']['id'])
         result = self._create_csr1kv_vm_hosting_device(context.elevated())
         if result is None:
@@ -323,14 +327,14 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             router = r_hd_binding['router']
             r_hd_binding.hosting_device = result
             self.remove_router_from_backlog(router['id'])
-            LOG.info(_('Successfully scheduled router %(r_id)s to '
+            LOG.info(_LI('Successfully scheduled router %(r_id)s to '
                        'hosting device %(d_id)s'),
                      {'r_id': r_hd_binding['router']['id'],
                       'd_id': result['id']})
         return True
 
     def unschedule_router_from_hosting_device(self, context, r_hd_binding):
-        LOG.info(_('Un-schedule router %s.'),
+        LOG.info(_LI('Un-schedule router %s.'),
                  r_hd_binding['router']['id'])
         hosting_device = r_hd_binding['hosting_device']
         if r_hd_binding['hosting_device'] is None:
@@ -343,14 +347,14 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         if ((router or {}).get('id') is None or
                 router['id'] in self._backlogged_routers):
             return
-        LOG.info(_('Backlogging router %s for renewed scheduling attempt '
+        LOG.info(_LI('Backlogging router %s for renewed scheduling attempt '
                    'later'), router['id'])
         self._backlogged_routers[router['id']] = router
 
     @lockutils.synchronized('routers', 'neutron-')
     def remove_router_from_backlog(self, id):
         self._backlogged_routers.pop(id, None)
-        LOG.info(_('Router %s removed from backlog'), id)
+        LOG.info(_LI('Router %s removed from backlog'), id)
 
     @lockutils.synchronized('routerbacklog', 'neutron-')
     def _process_backlogged_routers(self):
@@ -360,7 +364,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             return
         context = n_context.get_admin_context()
         scheduled_routers = []
-        LOG.info(_('Processing router (scheduling) backlog'))
+        LOG.info(_LI('Processing router (scheduling) backlog'))
         # try to reschedule
         for r_id, router in self._backlogged_routers.items():
             self._add_type_and_hosting_device_info(context, router)
@@ -380,7 +384,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             interval=cfg.CONF.general.backlog_processing_interval)
 
     def _sync_router_backlog(self):
-        LOG.info(_('Synchronizing router (scheduling) backlog'))
+        LOG.info(_LI('Synchronizing router (scheduling) backlog'))
         context = n_context.get_admin_context()
         query = context.session.query(l3_models.RouterHostingDeviceBinding)
         query = query.options(joinedload('router'))
@@ -403,13 +407,13 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
             return query.one()
         except exc.NoResultFound:
             # This should not happen
-            LOG.error(_('DB inconsistency: No type and hosting info associated'
-                        ' with router %s'), id)
+            LOG.error(_LE('DB inconsistency: No type and hosting info '
+                          'associated with router %s'), id)
             raise RouterBindingInfoError(router_id=id)
         except exc.MultipleResultsFound:
             # This should not happen either
-            LOG.error(_('DB inconsistency: Multiple type and hosting info'
-                        ' associated with router %s'), id)
+            LOG.error(_LE('DB inconsistency: Multiple type and hosting info '
+                          'associated with router %s'), id)
             raise RouterBindingInfoError(router_id=id)
 
     def _get_hosting_device_bindings(self, context, id, load_routers=False,
@@ -431,7 +435,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
                 binding_info = self._get_router_binding_info(context,
                                                              router['id'])
         except RouterBindingInfoError:
-            LOG.error(_('DB inconsistency: No hosting info associated with '
+            LOG.error(_LE('DB inconsistency: No hosting info associated with '
                         'router %s'), router['id'])
             router['hosting_device'] = None
             return
@@ -508,7 +512,7 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
         alloc = plugging_driver.allocate_hosting_port(
             context, router_id, port_db, network_type, hosting_device_id)
         if alloc is None:
-            LOG.error(_('Failed to allocate hosting port for port %s'),
+            LOG.error(_LE('Failed to allocate hosting port for port %s'),
                       port_db['id'])
             return
         with context.session.begin(subtransactions=True):
@@ -573,3 +577,53 @@ class L3RouterApplianceDBMixin(extraroute_db.ExtraRoute_dbonly_mixin):
                                           active=True)
         else:
             return []
+
+    def get_active_routers_for_host(self, context, host):
+        query = context.session.query(
+            l3_models.RouterHostingDeviceBinding.router_id)
+        query = query.join(
+            models_v2.Port,
+            l3_models.RouterHostingDeviceBinding.hosting_device_id ==
+            models_v2.Port.device_id)
+        query = query.join(p_binding.PortBindingPort)
+        query = query.filter(p_binding.PortBindingPort.host == host)
+        query = query.filter(models_v2.Port.name == 'mgmt')
+        router_ids = [item[0] for item in query]
+        if router_ids:
+            return self.get_sync_data_ext(context, router_ids=router_ids,
+                                          active=True)
+        else:
+            return []
+
+    @staticmethod
+    def _agent_state_filter(check_active, last_heartbeat):
+        """Filters only active agents, if requested."""
+        if not check_active:
+            return True
+        return not agents_db.AgentDbMixin.is_agent_down(last_heartbeat)
+
+    def get_host_for_router(self, context, router, admin_state_up=None,
+                            check_active=False):
+        query = context.session.query(agents_db.Agent.host,
+                                      agents_db.Agent.heartbeat_timestamp)
+        query = query.join(
+            p_binding.PortBindingPort,
+            p_binding.PortBindingPort.host == agents_db.Agent.host)
+        query = query.join(
+            models_v2.Port,
+            models_v2.Port.id == p_binding.PortBindingPort.port_id)
+        query = query.join(
+            l3_models.RouterHostingDeviceBinding,
+            l3_models.RouterHostingDeviceBinding.hosting_device_id ==
+            models_v2.Port.device_id)
+        query = query.filter(
+            agents_db.Agent.topic == topics.L3_AGENT,
+            l3_models.RouterHostingDeviceBinding.router_id == router)
+        if admin_state_up is not None:
+            query = query.filter(
+                agents_db.Agent.admin_state_up == admin_state_up)
+        entry = query.first()
+        if entry and L3RouterApplianceDBMixin._agent_state_filter(check_active,
+                                                                  entry[1]):
+            return entry[0]
+        return ""

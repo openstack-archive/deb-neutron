@@ -20,14 +20,15 @@ import random
 
 from oslo.config import cfg
 from oslo.messaging import server as rpc_server
+from oslo.utils import excutils
+from oslo.utils import importutils
 
 from neutron.common import config
 from neutron.common import rpc as n_rpc
 from neutron import context
 from neutron.db import api as session
+from neutron.i18n import _LE, _LI
 from neutron import manager
-from neutron.openstack.common import excutils
-from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import service as common_service
@@ -102,8 +103,8 @@ def serve_wsgi(cls):
         service.start()
     except Exception:
         with excutils.save_and_reraise_exception():
-            LOG.exception(_('Unrecoverable error: please check log '
-                            'for details.'))
+            LOG.exception(_LE('Unrecoverable error: please check log '
+                              'for details.'))
 
     return service
 
@@ -129,7 +130,7 @@ class RpcWorker(object):
     def stop(self):
         for server in self._servers:
             if isinstance(server, rpc_server.MessageHandlingServer):
-                server.kill()
+                server.stop()
             self._servers = []
 
 
@@ -141,11 +142,11 @@ def serve_rpc():
     # simpler to check this up front by testing whether the plugin supports
     # multiple RPC workers.
     if not plugin.rpc_workers_supported():
-        LOG.debug(_("Active plugin doesn't implement start_rpc_listeners"))
+        LOG.debug("Active plugin doesn't implement start_rpc_listeners")
         if 0 < cfg.CONF.rpc_workers:
-            msg = _("'rpc_workers = %d' ignored because start_rpc_listeners "
-                    "is not implemented.")
-            LOG.error(msg, cfg.CONF.rpc_workers)
+            LOG.error(_LE("'rpc_workers = %d' ignored because "
+                          "start_rpc_listeners is not implemented."),
+                      cfg.CONF.rpc_workers)
         raise NotImplementedError()
 
     try:
@@ -160,23 +161,22 @@ def serve_rpc():
             return launcher
     except Exception:
         with excutils.save_and_reraise_exception():
-            LOG.exception(_('Unrecoverable error: please check log '
-                            'for details.'))
+            LOG.exception(_LE('Unrecoverable error: please check log for '
+                              'details.'))
 
 
 def _run_wsgi(app_name):
     app = config.load_paste_app(app_name)
     if not app:
-        LOG.error(_('No known API applications configured.'))
+        LOG.error(_LE('No known API applications configured.'))
         return
     server = wsgi.Server("Neutron")
     server.start(app, cfg.CONF.bind_port, cfg.CONF.bind_host,
                  workers=cfg.CONF.api_workers)
     # Dump all option values here after all options are parsed
     cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
-    LOG.info(_("Neutron service started, listening on %(host)s:%(port)s"),
-             {'host': cfg.CONF.bind_host,
-              'port': cfg.CONF.bind_port})
+    LOG.info(_LI("Neutron service started, listening on %(host)s:%(port)s"),
+             {'host': cfg.CONF.bind_host, 'port': cfg.CONF.bind_port})
     return server
 
 
@@ -236,7 +236,7 @@ class Service(n_rpc.Service):
 
         :param host: defaults to CONF.host
         :param binary: defaults to basename of executable
-        :param topic: defaults to bin_name - 'nova-' part
+        :param topic: defaults to bin_name - 'neutron-' part
         :param manager: defaults to CONF.<topic>_manager
         :param report_interval: defaults to CONF.report_interval
         :param periodic_interval: defaults to CONF.periodic_interval
@@ -275,8 +275,7 @@ class Service(n_rpc.Service):
             try:
                 x.stop()
             except Exception:
-                LOG.exception(_("Exception occurs when timer stops"))
-                pass
+                LOG.exception(_LE("Exception occurs when timer stops"))
         self.timers = []
 
     def wait(self):
@@ -285,8 +284,7 @@ class Service(n_rpc.Service):
             try:
                 x.wait()
             except Exception:
-                LOG.exception(_("Exception occurs when waiting for timer"))
-                pass
+                LOG.exception(_LE("Exception occurs when waiting for timer"))
 
     def periodic_tasks(self, raise_on_error=False):
         """Tasks to be run at a periodic interval."""

@@ -12,8 +12,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.openstack.common import excutils
-from neutron.openstack.common import importutils
+from oslo.utils import excutils
+from oslo.utils import importutils
+
+from neutron.i18n import _LE
 from neutron.openstack.common import log as logging
 from neutron.plugins.cisco.cfg_agent import cfg_exceptions
 
@@ -76,7 +78,7 @@ class DeviceDriverManager(object):
             return driver
         except ImportError:
             with excutils.save_and_reraise_exception(reraise=False):
-                LOG.exception(_("Error loading cfg agent driver %(driver)s "
+                LOG.exception(_LE("Error loading cfg agent driver %(driver)s "
                                 "for hosting device template "
                                 "%(t_name)s(%(t_id)s)"),
                               {'driver': driver_class, 't_id': hd_id,

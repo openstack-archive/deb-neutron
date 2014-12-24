@@ -12,7 +12,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.openstack.common import jsonutils
+from oslo.serialization import jsonutils
+
 from neutron.openstack.common import log as logging
 from neutron.plugins.vmware.vshield.common import VcnsApiClient
 
@@ -293,7 +294,9 @@ class Vcns(object):
                         is_attachment=False):
         uri_prefix = "%s/%s/%s" % (URI_PREFIX, edge_id, service)
         if resource:
-            res_path = resource + (resource_id and "/%s" % resource_id or '')
+            res_path = resource
+            if resource_id:
+                res_path += "/%s" % resource_id
             uri_path = "%s/%s" % (uri_prefix, res_path)
         else:
             uri_path = uri_prefix

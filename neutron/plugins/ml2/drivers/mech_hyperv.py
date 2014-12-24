@@ -41,8 +41,8 @@ class HypervMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
 
     def check_segment_for_agent(self, segment, agent):
         mappings = agent['configurations'].get('vswitch_mappings', {})
-        LOG.debug(_("Checking segment: %(segment)s "
-                    "for mappings: %(mappings)s"),
+        LOG.debug("Checking segment: %(segment)s "
+                  "for mappings: %(mappings)s",
                   {'segment': segment, 'mappings': mappings})
         network_type = segment[api.NETWORK_TYPE]
         if network_type == 'local':
@@ -51,7 +51,4 @@ class HypervMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
             for pattern in mappings:
                 if re.match(pattern, segment[api.PHYSICAL_NETWORK]):
                     return True
-            else:
-                return False
-        else:
-            return False
+        return False

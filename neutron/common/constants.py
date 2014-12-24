@@ -70,27 +70,7 @@ MAX_GRE_ID = 2 ** 32 - 1
 MIN_VXLAN_VNI = 1
 MAX_VXLAN_VNI = 2 ** 24 - 1
 
-FLOODING_ENTRY = ['00:00:00:00:00:00', '0.0.0.0']
-
-EXT_NS_COMP = '_backward_comp_e_ns'
-EXT_NS = '_extension_ns'
-XML_NS_V20 = 'http://openstack.org/quantum/api/v2.0'
-XSI_NAMESPACE = "http://www.w3.org/2001/XMLSchema-instance"
-XSI_ATTR = "xsi:nil"
-XSI_NIL_ATTR = "xmlns:xsi"
-ATOM_NAMESPACE = "http://www.w3.org/2005/Atom"
-ATOM_XMLNS = "xmlns:atom"
-ATOM_LINK_NOTATION = "{%s}link" % ATOM_NAMESPACE
-TYPE_XMLNS = "xmlns:quantum"
-TYPE_ATTR = "quantum:type"
-VIRTUAL_ROOT_KEY = "_v_root"
-
-TYPE_BOOL = "bool"
-TYPE_INT = "int"
-TYPE_LONG = "long"
-TYPE_FLOAT = "float"
-TYPE_LIST = "list"
-TYPE_DICT = "dict"
+FLOODING_ENTRY = ('00:00:00:00:00:00', '0.0.0.0')
 
 AGENT_TYPE_DHCP = 'DHCP agent'
 AGENT_TYPE_OVS = 'Open vSwitch agent'
@@ -152,3 +132,8 @@ DEVICE_NAME_MAX_LEN = 15
 TAP_DEVICE_PREFIX = 'tap'
 
 ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
+
+# Maximum value integer can take in MySQL and PostgreSQL
+# In SQLite integer can be stored in 1, 2, 3, 4, 6, or 8 bytes,
+# but here it will be limited by this value for consistency.
+DB_INTEGER_MAX_VALUE = 2 ** 31 - 1

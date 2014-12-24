@@ -18,6 +18,7 @@ import netaddr
 import webob.exc
 
 from oslo.config import cfg
+from oslo.utils import excutils
 
 from neutron.api import api_common
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
@@ -26,8 +27,9 @@ from neutron.api.v2 import resource as wsgi_resource
 from neutron.common import constants as const
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
-from neutron.openstack.common import excutils
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
+from neutron.openstack.common import policy as common_policy
 from neutron import policy
 from neutron import quota
 
@@ -41,6 +43,7 @@ FAULT_MAP = {exceptions.NotFound: webob.exc.HTTPNotFound,
              exceptions.ServiceUnavailable: webob.exc.HTTPServiceUnavailable,
              exceptions.NotAuthorized: webob.exc.HTTPForbidden,
              netaddr.AddrFormatError: webob.exc.HTTPBadRequest,
+             common_policy.PolicyNotAuthorized: webob.exc.HTTPForbidden
              }
 
 
@@ -87,8 +90,8 @@ class Controller(object):
                     _("Native pagination depend on native sorting")
                 )
             if not self._allow_sorting:
-                LOG.info(_("Allow sorting is enabled because native "
-                           "pagination requires native sorting"))
+                LOG.info(_LI("Allow sorting is enabled because native "
+                             "pagination requires native sorting"))
                 self._allow_sorting = True
 
         if parent:
@@ -187,7 +190,7 @@ class Controller(object):
                 # Fetch the resource and verify if the user can access it
                 try:
                     resource = self._item(request, id, True)
-                except exceptions.PolicyNotAuthorized:
+                except common_policy.PolicyNotAuthorized:
                     msg = _('The resource could not be found.')
                     raise webob.exc.HTTPNotFound(msg)
                 body = kwargs.pop('body', None)
@@ -326,7 +329,7 @@ class Controller(object):
                                           field_list=field_list,
                                           parent_id=parent_id),
                                fields_to_strip=added_fields)}
-        except exceptions.PolicyNotAuthorized:
+        except common_policy.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
             msg = _('The resource could not be found.')
@@ -358,8 +361,8 @@ class Controller(object):
                     obj_deleter(request.context, obj['id'], **kwargs)
                 except Exception:
                     # broad catch as our only purpose is to log the exception
-                    LOG.exception(_("Unable to undo add for "
-                                    "%(resource)s %(id)s"),
+                    LOG.exception(_LE("Unable to undo add for "
+                                      "%(resource)s %(id)s"),
                                   {'resource': self._resource,
                                    'id': obj['id']})
             # TODO(salvatore-orlando): The object being processed when the
@@ -466,7 +469,7 @@ class Controller(object):
             policy.enforce(request.context,
                            action,
                            obj)
-        except exceptions.PolicyNotAuthorized:
+        except common_policy.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
             msg = _('The resource could not be found.')
@@ -521,7 +524,7 @@ class Controller(object):
             policy.enforce(request.context,
                            action,
                            orig_obj)
-        except exceptions.PolicyNotAuthorized:
+        except common_policy.PolicyNotAuthorized:
             with excutils.save_and_reraise_exception() as ctxt:
                 # If a tenant is modifying it's own object, it's safe to return
                 # a 403. Otherwise, pretend that it doesn't exist to avoid
@@ -579,7 +582,7 @@ class Controller(object):
         if not body:
             raise webob.exc.HTTPBadRequest(_("Resource body required"))
 
-        LOG.debug(_("Request body: %(body)s"), {'body': body})
+        LOG.debug("Request body: %(body)s", {'body': body})
         if collection in body:
             if not allow_bulk:
                 raise webob.exc.HTTPBadRequest(_("Bulk operation "
@@ -652,7 +655,7 @@ class Controller(object):
     def _validate_network_tenant_ownership(self, request, resource_item):
         # TODO(salvatore-orlando): consider whether this check can be folded
         # in the policy engine
-        if (request.context.is_admin or
+        if (request.context.is_admin or request.context.is_advsvc or
                 self._resource not in ('port', 'subnet')):
             return
         network = self._plugin.get_network(

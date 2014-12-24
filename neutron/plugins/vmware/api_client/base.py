@@ -19,6 +19,9 @@ import httplib
 import six
 import time
 
+from oslo.config import cfg
+
+from neutron.i18n import _LE, _LI, _LW
 from neutron.openstack.common import log as logging
 from neutron.plugins.vmware import api_client
 
@@ -32,8 +35,6 @@ DEFAULT_CONNECT_TIMEOUT = 5
 @six.add_metaclass(abc.ABCMeta)
 class ApiClientBase(object):
     """An abstract baseclass for all API client implementations."""
-
-    CONN_IDLE_TIMEOUT = 60 * 15
 
     def _create_connection(self, host, port, is_ssl):
         if is_ssl:
@@ -100,15 +101,15 @@ class ApiClientBase(object):
                  api_providers are configured.
         '''
         if not self._api_providers:
-            LOG.warn(_("[%d] no API providers currently available."), rid)
+            LOG.warn(_LW("[%d] no API providers currently available."), rid)
             return None
         if self._conn_pool.empty():
-            LOG.debug(_("[%d] Waiting to acquire API client connection."), rid)
+            LOG.debug("[%d] Waiting to acquire API client connection.", rid)
         priority, conn = self._conn_pool.get()
         now = time.time()
-        if getattr(conn, 'last_used', now) < now - self.CONN_IDLE_TIMEOUT:
-            LOG.info(_("[%(rid)d] Connection %(conn)s idle for %(sec)0.2f "
-                       "seconds; reconnecting."),
+        if getattr(conn, 'last_used', now) < now - cfg.CONF.conn_idle_timeout:
+            LOG.info(_LI("[%(rid)d] Connection %(conn)s idle for %(sec)0.2f "
+                         "seconds; reconnecting."),
                      {'rid': rid, 'conn': api_client.ctrl_conn_to_str(conn),
                       'sec': now - conn.last_used})
             conn = self._create_connection(*self._conn_params(conn))
@@ -116,8 +117,8 @@ class ApiClientBase(object):
         conn.last_used = now
         conn.priority = priority  # stash current priority for release
         qsize = self._conn_pool.qsize()
-        LOG.debug(_("[%(rid)d] Acquired connection %(conn)s. %(qsize)d "
-                    "connection(s) available."),
+        LOG.debug("[%(rid)d] Acquired connection %(conn)s. %(qsize)d "
+                  "connection(s) available.",
                   {'rid': rid, 'conn': api_client.ctrl_conn_to_str(conn),
                    'qsize': qsize})
         if auto_login and self.auth_cookie(conn) is None:
@@ -137,23 +138,22 @@ class ApiClientBase(object):
         '''
         conn_params = self._conn_params(http_conn)
         if self._conn_params(http_conn) not in self._api_providers:
-            LOG.debug(_("[%(rid)d] Released connection %(conn)s is not an "
-                        "API provider for the cluster"),
+            LOG.debug("[%(rid)d] Released connection %(conn)s is not an "
+                      "API provider for the cluster",
                       {'rid': rid,
                        'conn': api_client.ctrl_conn_to_str(http_conn)})
             return
         elif hasattr(http_conn, "no_release"):
             return
 
+        priority = http_conn.priority
         if bad_state:
             # Reconnect to provider.
-            LOG.warn(_("[%(rid)d] Connection returned in bad state, "
-                       "reconnecting to %(conn)s"),
+            LOG.warn(_LW("[%(rid)d] Connection returned in bad state, "
+                         "reconnecting to %(conn)s"),
                      {'rid': rid,
                       'conn': api_client.ctrl_conn_to_str(http_conn)})
             http_conn = self._create_connection(*self._conn_params(http_conn))
-            priority = self._next_conn_priority
-            self._next_conn_priority += 1
         elif service_unavail:
             # http_conn returned a service unaviable response, put other
             # connections to the same controller at end of priority queue,
@@ -169,12 +169,10 @@ class ApiClientBase(object):
             # put http_conn at end of queue also
             priority = self._next_conn_priority
             self._next_conn_priority += 1
-        else:
-            priority = http_conn.priority
 
         self._conn_pool.put((priority, http_conn))
-        LOG.debug(_("[%(rid)d] Released connection %(conn)s. %(qsize)d "
-                    "connection(s) available."),
+        LOG.debug("[%(rid)d] Released connection %(conn)s. %(qsize)d "
+                  "connection(s) available.",
                   {'rid': rid, 'conn': api_client.ctrl_conn_to_str(http_conn),
                    'qsize': self._conn_pool.qsize()})
 
@@ -183,7 +181,7 @@ class ApiClientBase(object):
 
         data = self._get_provider_data(conn)
         if data is None:
-            LOG.error(_("Login request for an invalid connection: '%s'"),
+            LOG.error(_LE("Login request for an invalid connection: '%s'"),
                       api_client.ctrl_conn_to_str(conn))
             return
         provider_sem = data[0]
@@ -194,7 +192,7 @@ class ApiClientBase(object):
             finally:
                 provider_sem.release()
         else:
-            LOG.debug(_("Waiting for auth to complete"))
+            LOG.debug("Waiting for auth to complete")
             # Wait until we can acquire then release
             provider_sem.acquire(blocking=True)
             provider_sem.release()
@@ -236,7 +234,7 @@ class ApiClientBase(object):
         """
         if (not isinstance(conn_or_conn_params, tuple) and
             not isinstance(conn_or_conn_params, httplib.HTTPConnection)):
-            LOG.debug(_("Invalid conn_params value: '%s'"),
+            LOG.debug("Invalid conn_params value: '%s'",
                       str(conn_or_conn_params))
             return conn_or_conn_params
         if isinstance(conn_or_conn_params, httplib.HTTPConnection):

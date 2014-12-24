@@ -18,6 +18,7 @@ from oslo.config import cfg
 
 from neutron.common import constants
 from neutron.extensions import portbindings
+from neutron.i18n import _LE, _LW
 from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api as api
@@ -27,7 +28,7 @@ LOG = log.getLogger(__name__)
 
 sriov_opts = [
     cfg.ListOpt('supported_pci_vendor_devs',
-               default=['15b3:1004', '8086:10c9'],
+               default=['15b3:1004', '8086:10ca'],
                help=_("Supported PCI vendor devices, defined by "
                       "vendor_id:product_id according to the PCI ID "
                       "Repository. Default enables support for Intel "
@@ -83,7 +84,7 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
                         cfg.CONF.ml2_sriov.supported_pci_vendor_devs)
             self.agent_required = cfg.CONF.ml2_sriov.agent_required
         except ValueError:
-            LOG.exception(_("Failed to parse supported PCI vendor devices"))
+            LOG.exception(_LE("Failed to parse supported PCI vendor devices"))
             raise cfg.Error(_("Parsing supported pci_vendor_devs failed"))
 
     def bind_port(self, context):
@@ -109,7 +110,7 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
                     if self.try_to_bind(context, agent):
                         return
                 else:
-                    LOG.warning(_("Attempting to bind with dead agent: %s"),
+                    LOG.warning(_LW("Attempting to bind with dead agent: %s"),
                                 agent)
         else:
             self.try_to_bind(context)

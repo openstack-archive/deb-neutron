@@ -17,6 +17,8 @@ import random
 from keystoneclient import exceptions as k_exceptions
 from keystoneclient.v2_0 import client as k_client
 from oslo.config import cfg
+from oslo.utils import importutils
+from oslo.utils import timeutils
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import joinedload
 
@@ -24,10 +26,9 @@ from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron import context as neutron_context
 from neutron.db import agents_db
+from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
-from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import timeutils
 from neutron.openstack.common import uuidutils
 from neutron.plugins.cisco.common import cisco_constants as c_constants
 from neutron.plugins.cisco.db.l3 import l3_models
@@ -119,10 +120,10 @@ class DeviceHandlingMixin(object):
                     name=cfg.CONF.general.l3_admin_tenant)
                 cls._l3_tenant_uuid = tenant.id
             except k_exceptions.NotFound:
-                LOG.error(_('No tenant with a name or ID of %s exists.'),
+                LOG.error(_LE('No tenant with a name or ID of %s exists.'),
                           cfg.CONF.general.l3_admin_tenant)
             except k_exceptions.NoUniqueMatch:
-                LOG.error(_('Multiple tenants matches found for %s'),
+                LOG.error(_LE('Multiple tenants matches found for %s'),
                           cfg.CONF.general.l3_admin_tenant)
         return cls._l3_tenant_uuid
 
@@ -141,21 +142,21 @@ class DeviceHandlingMixin(object):
             if len(net) == 1:
                 num_subnets = len(net[0]['subnets'])
                 if num_subnets == 0:
-                    LOG.error(_('The virtual management network has no '
+                    LOG.error(_LE('The virtual management network has no '
                                 'subnet. Please assign one.'))
                     return
                 elif num_subnets > 1:
-                    LOG.info(_('The virtual management network has %d '
+                    LOG.info(_LI('The virtual management network has %d '
                                'subnets. The first one will be used.'),
                              num_subnets)
                 cls._mgmt_nw_uuid = net[0].get('id')
             elif len(net) > 1:
                 # Management network must have a unique name.
-                LOG.error(_('The virtual management network does not have '
+                LOG.error(_LE('The virtual management network does not have '
                             'unique name. Please ensure that it is.'))
             else:
                 # Management network has not been created.
-                LOG.error(_('There is no virtual management network. Please '
+                LOG.error(_LE('There is no virtual management network. Please '
                             'create one.'))
         return cls._mgmt_nw_uuid
 
@@ -177,40 +178,40 @@ class DeviceHandlingMixin(object):
                 cls._mgmt_sec_grp_id = res[0].get('id')
             elif len(res) > 1:
                 # the mgmt sec group must be unique.
-                LOG.error(_('The security group for the virtual management '
+                LOG.error(_LE('The security group for the virtual management '
                             'network does not have unique name. Please ensure '
                             'that it is.'))
             else:
                 # CSR Mgmt security group is not present.
-                LOG.error(_('There is no security group for the virtual '
+                LOG.error(_LE('There is no security group for the virtual '
                             'management network. Please create one.'))
         return cls._mgmt_sec_grp_id
 
     @classmethod
-    def get_hosting_device_driver(self):
+    def get_hosting_device_driver(cls):
         """Returns device driver."""
-        if self._hosting_device_driver:
-            return self._hosting_device_driver
+        if cls._hosting_device_driver:
+            return cls._hosting_device_driver
         else:
             try:
-                self._hosting_device_driver = importutils.import_object(
+                cls._hosting_device_driver = importutils.import_object(
                     cfg.CONF.hosting_devices.csr1kv_device_driver)
             except (ImportError, TypeError, n_exc.NeutronException):
-                LOG.exception(_('Error loading hosting device driver'))
-            return self._hosting_device_driver
+                LOG.exception(_LE('Error loading hosting device driver'))
+            return cls._hosting_device_driver
 
     @classmethod
-    def get_hosting_device_plugging_driver(self):
+    def get_hosting_device_plugging_driver(cls):
         """Returns  plugging driver."""
-        if self._plugging_driver:
-            return self._plugging_driver
+        if cls._plugging_driver:
+            return cls._plugging_driver
         else:
             try:
-                self._plugging_driver = importutils.import_object(
+                cls._plugging_driver = importutils.import_object(
                     cfg.CONF.hosting_devices.csr1kv_plugging_driver)
             except (ImportError, TypeError, n_exc.NeutronException):
-                LOG.exception(_('Error loading plugging driver'))
-            return self._plugging_driver
+                LOG.exception(_LE('Error loading plugging driver'))
+            return cls._plugging_driver
 
     def get_hosting_devices_qry(self, context, hosting_device_ids,
                                 load_agent=True):
@@ -303,8 +304,8 @@ class DeviceHandlingMixin(object):
             agents = [hosting_device.cfg_agent for hosting_device in query
                       if hosting_device.cfg_agent is not None]
         if active is not None:
-            agents = [agent for agent in agents if not
-                      self.is_agent_down(agent['heartbeat_timestamp'])]
+            agents = [a for a in agents if not
+                      self.is_agent_down(a['heartbeat_timestamp'])]
         return agents
 
     def auto_schedule_hosting_devices(self, context, agent_host):
@@ -325,7 +326,8 @@ class DeviceHandlingMixin(object):
                 return False
             if self.is_agent_down(
                     cfg_agent.heartbeat_timestamp):
-                LOG.warn(_('Cisco cfg agent %s is not alive'), cfg_agent.id)
+                LOG.warning(_LW('Cisco cfg agent %s is not alive'),
+                            cfg_agent.id)
             query = context.session.query(l3_models.HostingDevice)
             query = query.filter_by(cfg_agent_id=None)
             for hd in query:
@@ -362,7 +364,7 @@ class DeviceHandlingMixin(object):
             if self._svc_vm_mgr.nova_services_up():
                 self.__class__._nova_running = True
             else:
-                LOG.info(_('Not all Nova services are up and running. '
+                LOG.info(_LI('Not all Nova services are up and running. '
                            'Skipping this CSR1kv vm create request.'))
                 return
         plugging_drv = self.get_hosting_device_plugging_driver()
@@ -399,7 +401,7 @@ class DeviceHandlingMixin(object):
                 plugging_drv.delete_hosting_device_resources(
                     context, self.l3_tenant_id(), **res)
                 return
-        LOG.info(_('Created a CSR1kv hosting device VM'))
+        LOG.info(_LI('Created a CSR1kv hosting device VM'))
         return hosting_device
 
     def _delete_service_vm_hosting_device(self, context, hosting_device):
@@ -417,7 +419,7 @@ class DeviceHandlingMixin(object):
             self.l3_tenant_id(), self.mgmt_nw_id())
         if not self._svc_vm_mgr.delete_service_vm(context,
                                                   hosting_device['id']):
-            LOG.error(_('Failed to delete hosting device %s service VM. '
+            LOG.error(_LE('Failed to delete hosting device %s service VM. '
                         'Will un-register it anyway.'),
                       hosting_device['id'])
         plugging_drv.delete_hosting_device_resources(
@@ -432,7 +434,7 @@ class DeviceHandlingMixin(object):
         with context.session.begin(subtransactions=True):
             hd_db = l3_models.HostingDevice(
                 id=hd.get('id') or uuidutils.generate_uuid(),
-                complementary_id = hd.get('complementary_id'),
+                complementary_id=hd.get('complementary_id'),
                 tenant_id=tenant_id,
                 device_id=hd.get('device_id'),
                 admin_state_up=hd.get('admin_state_up', True),
@@ -458,7 +460,7 @@ class DeviceHandlingMixin(object):
         with context.session.begin(subtransactions=True):
             active_cfg_agents = self._get_cfg_agents(context, active=True)
             if not active_cfg_agents:
-                LOG.warn(_('There are no active Cisco cfg agents'))
+                LOG.warning(_LW('There are no active Cisco cfg agents'))
                 # No worries, once a Cisco cfg agent is started and
                 # announces itself any "dangling" hosting devices
                 # will be scheduled to it.

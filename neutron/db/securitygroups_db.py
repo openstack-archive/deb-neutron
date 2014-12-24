@@ -18,7 +18,7 @@ from sqlalchemy import orm
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import scoped_session
 
-from neutron.api.v2 import attributes as attr
+from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.db import db_base_plugin_v2
 from neutron.db import model_base
@@ -485,11 +485,11 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
     # Register dict extend functions for ports
     db_base_plugin_v2.NeutronDbPluginV2.register_dict_extend_funcs(
-        attr.PORTS, ['_extend_port_dict_security_group'])
+        attributes.PORTS, ['_extend_port_dict_security_group'])
 
     def _process_port_create_security_group(self, context, port,
                                             security_group_ids):
-        if attr.is_attr_set(security_group_ids):
+        if attributes.is_attr_set(security_group_ids):
             for security_group_id in security_group_ids:
                 self._create_port_security_group_binding(context, port['id'],
                                                          security_group_id)
@@ -507,9 +507,11 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         default_group = self.get_security_groups(context, filters,
                                                  default_sg=True)
         if not default_group:
-            security_group = {'security_group': {'name': 'default',
-                                                 'tenant_id': tenant_id,
-                                                 'description': 'default'}}
+            security_group = {
+                'security_group': {'name': 'default',
+                                   'tenant_id': tenant_id,
+                                   'description': _('Default security group')}
+            }
             ret = self.create_security_group(context, security_group, True)
             return ret['id']
         else:
@@ -521,7 +523,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         :returns: all security groups IDs on port belonging to tenant.
         """
         p = port['port']
-        if not attr.is_attr_set(p.get(ext_sg.SECURITYGROUPS)):
+        if not attributes.is_attr_set(p.get(ext_sg.SECURITYGROUPS)):
             return
         if p.get('device_owner') and p['device_owner'].startswith('network:'):
             return
@@ -550,7 +552,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         tenant_id = self._get_tenant_id_for_create(context,
                                                    port['port'])
         default_sg = self._ensure_default_security_group(context, tenant_id)
-        if attr.is_attr_set(port['port'].get(ext_sg.SECURITYGROUPS)):
+        if attributes.is_attr_set(port['port'].get(ext_sg.SECURITYGROUPS)):
             sgids = port['port'].get(ext_sg.SECURITYGROUPS)
         else:
             sgids = [default_sg]
@@ -561,7 +563,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         is either [] or not is_attr_set, otherwise return False
         """
         if (ext_sg.SECURITYGROUPS in port['port'] and
-            not (attr.is_attr_set(port['port'][ext_sg.SECURITYGROUPS])
+            not (attributes.is_attr_set(port['port'][ext_sg.SECURITYGROUPS])
                  and port['port'][ext_sg.SECURITYGROUPS] != [])):
             return True
         return False
@@ -571,7 +573,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         security_group field is is_attr_set or [].
         """
         if (ext_sg.SECURITYGROUPS in port['port'] and
-            (attr.is_attr_set(port['port'][ext_sg.SECURITYGROUPS]) and
+            (attributes.is_attr_set(port['port'][ext_sg.SECURITYGROUPS]) and
              port['port'][ext_sg.SECURITYGROUPS] != [])):
             return True
         return False

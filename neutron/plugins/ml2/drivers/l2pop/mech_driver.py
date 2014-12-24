@@ -18,6 +18,7 @@ from oslo.config import cfg
 from neutron.common import constants as const
 from neutron import context as n_context
 from neutron.db import api as db_api
+from neutron.i18n import _LW
 from neutron.openstack.common import log as logging
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers.l2pop import config  # noqa
@@ -35,13 +36,14 @@ class L2populationMechanismDriver(api.MechanismDriver,
         self.L2populationAgentNotify = l2pop_rpc.L2populationAgentNotifyAPI()
 
     def initialize(self):
-        LOG.debug(_("Experimental L2 population driver"))
+        LOG.debug("Experimental L2 population driver")
         self.rpc_ctx = n_context.get_admin_context_without_session()
         self.migrated_ports = {}
 
     def _get_port_fdb_entries(self, port):
-        return [[port['mac_address'],
-                 ip['ip_address']] for ip in port['fixed_ips']]
+        return [l2pop_rpc.PortInfo(mac_address=port['mac_address'],
+                                   ip_address=ip['ip_address'])
+                for ip in port['fixed_ips']]
 
     def delete_port_postcommit(self, context):
         port = context.current
@@ -75,8 +77,12 @@ class L2populationMechanismDriver(api.MechanismDriver,
             return
         agent, agent_host, agent_ip, segment, port_fdb_entries = port_infos
 
-        orig_mac_ip = [[port['mac_address'], ip] for ip in orig_ips]
-        port_mac_ip = [[port['mac_address'], ip] for ip in port_ips]
+        orig_mac_ip = [l2pop_rpc.PortInfo(mac_address=port['mac_address'],
+                                          ip_address=ip)
+                       for ip in orig_ips]
+        port_mac_ip = [l2pop_rpc.PortInfo(mac_address=port['mac_address'],
+                                          ip_address=ip)
+                       for ip in port_ips]
 
         upd_fdb_entries = {port['network_id']: {agent_ip: {}}}
 
@@ -146,14 +152,14 @@ class L2populationMechanismDriver(api.MechanismDriver,
 
         agent_ip = self.get_agent_ip(agent)
         if not agent_ip:
-            LOG.warning(_("Unable to retrieve the agent ip, check the agent "
-                          "configuration."))
+            LOG.warning(_LW("Unable to retrieve the agent ip, check the agent "
+                            "configuration."))
             return
 
         segment = context.bound_segment
         if not segment:
-            LOG.warning(_("Port %(port)s updated by agent %(agent)s "
-                          "isn't bound to any segment"),
+            LOG.warning(_LW("Port %(port)s updated by agent %(agent)s "
+                            "isn't bound to any segment"),
                         {'port': port['id'], 'agent': agent})
             return
 
@@ -205,8 +211,8 @@ class L2populationMechanismDriver(api.MechanismDriver,
 
                 ip = self.get_agent_ip(agent)
                 if not ip:
-                    LOG.debug(_("Unable to retrieve the agent ip, check "
-                                "the agent %(agent_host)s configuration."),
+                    LOG.debug("Unable to retrieve the agent ip, check "
+                              "the agent %(agent_host)s configuration.",
                               {'agent_host': agent.host})
                     continue
 

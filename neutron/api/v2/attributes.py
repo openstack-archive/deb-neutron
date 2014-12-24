@@ -143,7 +143,7 @@ def _validate_range(data, valid_values=None):
 
 def _validate_no_whitespace(data):
     """Validates that input has no whitespace."""
-    if len(data.split()) > 1:
+    if re.search('\s', data):
         msg = _("'%s' contains whitespace") % data
         LOG.debug(msg)
         raise n_exc.InvalidInput(error_message=msg)
@@ -151,19 +151,17 @@ def _validate_no_whitespace(data):
 
 
 def _validate_mac_address(data, valid_values=None):
-    valid_mac = False
     try:
         valid_mac = netaddr.valid_mac(_validate_no_whitespace(data))
     except Exception:
-        pass
-    finally:
-        # TODO(arosen): The code in this file should be refactored
-        # so it catches the correct exceptions. _validate_no_whitespace
-        # raises AttributeError if data is None.
-        if valid_mac is False:
-            msg = _("'%s' is not a valid MAC address") % data
-            LOG.debug(msg)
-            return msg
+        valid_mac = False
+    # TODO(arosen): The code in this file should be refactored
+    # so it catches the correct exceptions. _validate_no_whitespace
+    # raises AttributeError if data is None.
+    if not valid_mac:
+        msg = _("'%s' is not a valid MAC address") % data
+        LOG.debug(msg)
+        return msg
 
 
 def _validate_mac_address_or_none(data, valid_values=None):
@@ -805,16 +803,3 @@ PLURALS = {NETWORKS: NETWORK,
            'allocation_pools': 'allocation_pool',
            'fixed_ips': 'fixed_ip',
            'extensions': 'extension'}
-EXT_NSES = {}
-
-# Namespaces to be added for backward compatibility
-# when existing extended resource attributes are
-# provided by other extension than original one.
-EXT_NSES_BC = {}
-
-
-def get_attr_metadata():
-    return {'plurals': PLURALS,
-            'xmlns': constants.XML_NS_V20,
-            constants.EXT_NS: EXT_NSES,
-            constants.EXT_NS_COMP: EXT_NSES_BC}

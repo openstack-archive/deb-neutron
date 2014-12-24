@@ -21,6 +21,7 @@ from oslo.config import cfg
 
 import neutron.common.test_lib as test_lib
 from neutron.plugins.bigswitch import config
+from neutron.plugins.bigswitch.db import consistency_db
 from neutron.tests.unit.bigswitch import fake_server
 
 
@@ -44,6 +45,7 @@ class BigSwitchTestBase(object):
         test_lib.test_config['config_files'] = [os.path.join(etc_path,
                                                 'restproxy.ini.test')]
         self.addCleanup(cfg.CONF.reset)
+        self.addCleanup(consistency_db.clear_db)
         config.register_config()
         # Only try SSL on SSL tests
         cfg.CONF.set_override('server_ssl', False, 'RESTPROXY')
@@ -60,6 +62,10 @@ class BigSwitchTestBase(object):
         self.spawn_p = mock.patch(SPAWN, new=lambda *args, **kwargs: None)
         # prevent the consistency watchdog from starting
         self.watch_p = mock.patch(CWATCH, new=lambda *args, **kwargs: None)
+        # disable exception log to prevent json parse error from showing
+        self.log_exc_p = mock.patch(SERVER_MANAGER + ".LOG.exception",
+                                    new=lambda *args, **kwargs: None)
+        self.log_exc_p.start()
         self.plugin_notifier_p.start()
         self.spawn_p.start()
         self.watch_p.start()
@@ -68,3 +74,7 @@ class BigSwitchTestBase(object):
         self.httpPatch = mock.patch(HTTPCON,
                                     new=fake_server.HTTPConnectionMock)
         self.httpPatch.start()
+
+    def setup_db(self):
+        # setup the db engine and models for the consistency db
+        consistency_db.setup_db()

@@ -28,14 +28,12 @@ from neutron.db import dvr_mac_db  # noqa
 from neutron.db import external_net_db  # noqa
 from neutron.db import extradhcpopt_db  # noqa
 from neutron.db import extraroute_db  # noqa
-from neutron.db.firewall import firewall_db  # noqa
 from neutron.db import l3_agentschedulers_db  # noqa
 from neutron.db import l3_attrs_db  # noqa
 from neutron.db import l3_db  # noqa
 from neutron.db import l3_dvrscheduler_db  # noqa
 from neutron.db import l3_gwmode_db  # noqa
 from neutron.db import l3_hamode_db  # noqa
-from neutron.db.loadbalancer import loadbalancer_db  # noqa
 from neutron.db.metering import metering_db  # noqa
 from neutron.db import model_base
 from neutron.db import models_v2  # noqa
@@ -46,7 +44,6 @@ from neutron.db import routedserviceinsertion_db  # noqa
 from neutron.db import routerservicetype_db  # noqa
 from neutron.db import securitygroups_db  # noqa
 from neutron.db import servicetype_db  # noqa
-from neutron.db.vpn import vpn_db  # noqa
 from neutron.plugins.bigswitch.db import consistency_db  # noqa
 from neutron.plugins.bigswitch import routerrule_db  # noqa
 from neutron.plugins.brocade.db import models as brocade_models  # noqa
@@ -67,23 +64,17 @@ from neutron.plugins.ml2.drivers import type_gre  # noqa
 from neutron.plugins.ml2.drivers import type_vlan  # noqa
 from neutron.plugins.ml2.drivers import type_vxlan  # noqa
 from neutron.plugins.ml2 import models  # noqa
-from neutron.plugins.mlnx.db import mlnx_models_v2  # noqa
 from neutron.plugins.nec.db import models as nec_models  # noqa
 from neutron.plugins.nec.db import packetfilter as nec_packetfilter  # noqa
 from neutron.plugins.nec.db import router  # noqa
 from neutron.plugins.nuage import nuage_models  # noqa
 from neutron.plugins.openvswitch import ovs_models_v2  # noqa
-from neutron.plugins.ryu.db import models_v2 as ryu_models_v2  # noqa
 from neutron.plugins.vmware.dbexts import lsn_db  # noqa
 from neutron.plugins.vmware.dbexts import maclearning  # noqa
 from neutron.plugins.vmware.dbexts import models as vmware_models  # noqa
 from neutron.plugins.vmware.dbexts import networkgw_db  # noqa
 from neutron.plugins.vmware.dbexts import qos_db  # noqa
 from neutron.plugins.vmware.dbexts import vcns_models  # noqa
-from neutron.services.loadbalancer import agent_scheduler  # noqa
-from neutron.services.loadbalancer.drivers.embrane import (  # noqa
-    models as embrane_models)
-from neutron.services.vpn.service_drivers import cisco_csr_db  # noqa
 
 
 def get_metadata():

@@ -15,9 +15,11 @@
 
 import netaddr
 
+from neutron.agent.linux import ip_link_support
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils as agent_utils
 from neutron.common import utils
+from neutron.i18n import _LE
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as const
 from neutron.plugins.openvswitch.common import constants as ovs_const
@@ -66,11 +68,11 @@ def ofctl_arg_supported(root_helper, cmd, **kwargs):
             agent_utils.execute(full_args, root_helper=root_helper)
         except RuntimeError as e:
             LOG.debug("Exception while checking supported feature via "
-                      "command %s. Exception: %s" % (full_args, e))
+                      "command %s. Exception: %s", full_args, e)
             return False
         except Exception:
-            LOG.exception(_("Unexpected exception while checking supported"
-                            " feature via command: %s") % full_args)
+            LOG.exception(_LE("Unexpected exception while checking supported"
+                              " feature via command: %s"), full_args)
             return False
         else:
             return True
@@ -89,3 +91,19 @@ def arp_responder_supported(root_helper):
                                dl_vlan=42,
                                nw_dst='%s' % ip,
                                actions=actions)
+
+
+def vf_management_supported(root_helper):
+    try:
+        vf_section = ip_link_support.IpLinkSupport.get_vf_mgmt_section(
+                        root_helper)
+        if not ip_link_support.IpLinkSupport.vf_mgmt_capability_supported(
+                vf_section,
+                ip_link_support.IpLinkConstants.IP_LINK_CAPABILITY_STATE):
+            LOG.debug("ip link command does not support vf capability")
+            return False
+    except ip_link_support.UnsupportedIpLinkCommand:
+        LOG.exception(_LE("Unexpected exception while checking supported "
+                          "ip link command"))
+        return False
+    return True

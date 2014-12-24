@@ -14,10 +14,12 @@
 
 import contextlib
 import sys
+import time
 
 import mock
 import netaddr
 from oslo.config import cfg
+from oslo import messaging
 import testtools
 
 from neutron.agent.linux import async_process
@@ -27,6 +29,7 @@ from neutron.agent.linux import utils
 from neutron.common import constants as n_const
 from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
+from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
 from neutron.plugins.openvswitch.agent import ovs_neutron_agent
 from neutron.plugins.openvswitch.common import constants
 from neutron.tests import base
@@ -57,17 +60,10 @@ class CreateAgentConfigMap(base.BaseTestCase):
         with testtools.ExpectedException(ValueError):
             ovs_neutron_agent.create_agent_config_map(cfg.CONF)
 
-    def test_create_agent_config_map_enable_tunneling(self):
-        # Verify setting only enable_tunneling will default tunnel_type to GRE
-        cfg.CONF.set_override('tunnel_types', None, group='AGENT')
-        cfg.CONF.set_override('enable_tunneling', True, group='OVS')
-        cfg.CONF.set_override('local_ip', '10.10.10.10', group='OVS')
-        cfgmap = ovs_neutron_agent.create_agent_config_map(cfg.CONF)
-        self.assertEqual(cfgmap['tunnel_types'], [p_const.TYPE_GRE])
-
     def test_create_agent_config_map_fails_no_local_ip(self):
         # An ip address is required for tunneling but there is no default
-        cfg.CONF.set_override('enable_tunneling', True, group='OVS')
+        cfg.CONF.set_override('tunnel_types', [p_const.TYPE_VXLAN],
+                              group='AGENT')
         with testtools.ExpectedException(ValueError):
             ovs_neutron_agent.create_agent_config_map(cfg.CONF)
 
@@ -493,15 +489,10 @@ class TestOvsNeutronAgent(base.BaseTestCase):
     def test_setup_dvr_flows_on_int_br(self):
         self._setup_for_dvr_test()
         with contextlib.nested(
-                mock.patch.object(
-                    self.agent.dvr_agent.plugin_rpc,
-                    'get_dvr_mac_address_by_host',
-                    return_value={'host': 'cn1',
-                                  'mac_address': 'aa:bb:cc:dd:ee:ff'}),
-                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
-                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
                 mock.patch.object(self.agent.dvr_agent.int_br,
                                   'remove_all_flows'),
+                mock.patch.object(self.agent.dvr_agent.int_br, 'add_flow'),
+                mock.patch.object(self.agent.dvr_agent.tun_br, 'add_flow'),
                 mock.patch.object(
                     self.agent.dvr_agent.plugin_rpc,
                     'get_dvr_mac_address_list',
@@ -509,9 +500,76 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                    'mac_address': 'aa:bb:cc:dd:ee:ff'},
                                   {'host': 'cn2',
                                    'mac_address': '11:22:33:44:55:66'}])) as \
-            (get_subnet_fn, get_cphost_fn, get_vif_fn,
-             add_flow_fn, delete_flows_fn):
+            (remove_flows_fn, add_int_flow_fn, add_tun_flow_fn,
+             get_mac_list_fn):
             self.agent.dvr_agent.setup_dvr_flows_on_integ_tun_br()
+            self.assertTrue(self.agent.dvr_agent.in_distributed_mode())
+            self.assertTrue(remove_flows_fn.called)
+            self.assertEqual(add_int_flow_fn.call_count, 5)
+            self.assertEqual(add_tun_flow_fn.call_count, 5)
+
+    def test_get_dvr_mac_address(self):
+        self._setup_for_dvr_test()
+        self.agent.dvr_agent.dvr_mac_address = None
+        with mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                               'get_dvr_mac_address_by_host',
+                               return_value={'host': 'cn1',
+                                  'mac_address': 'aa:22:33:44:55:66'}):
+
+            self.agent.dvr_agent.get_dvr_mac_address()
+            self.assertEqual('aa:22:33:44:55:66',
+                             self.agent.dvr_agent.dvr_mac_address)
+            self.assertTrue(self.agent.dvr_agent.in_distributed_mode())
+
+    def test_get_dvr_mac_address_exception(self):
+        self._setup_for_dvr_test()
+        self.agent.dvr_agent.dvr_mac_address = None
+        with contextlib.nested(
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                               'get_dvr_mac_address_by_host',
+                               side_effect=messaging.RemoteError),
+                mock.patch.object(self.agent.dvr_agent.int_br,
+                                  'add_flow')) as (gd_mac, add_int_flow_fn):
+
+            self.agent.dvr_agent.get_dvr_mac_address()
+            self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
+            self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
+            self.assertEqual(add_int_flow_fn.call_count, 1)
+
+    def test_get_dvr_mac_address_retried(self):
+        valid_entry = {'host': 'cn1', 'mac_address': 'aa:22:33:44:55:66'}
+        raise_timeout = messaging.MessagingTimeout()
+        # Raise a timeout the first 2 times it calls get_dvr_mac_address()
+        self._setup_for_dvr_test()
+        self.agent.dvr_agent.dvr_mac_address = None
+        with mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                               'get_dvr_mac_address_by_host',
+                               side_effect=(raise_timeout, raise_timeout,
+                                            valid_entry)):
+
+            self.agent.dvr_agent.get_dvr_mac_address()
+            self.assertEqual('aa:22:33:44:55:66',
+                             self.agent.dvr_agent.dvr_mac_address)
+            self.assertTrue(self.agent.dvr_agent.in_distributed_mode())
+            self.assertEqual(self.agent.dvr_agent.plugin_rpc.
+                             get_dvr_mac_address_by_host.call_count, 3)
+
+    def test_get_dvr_mac_address_retried_max(self):
+        raise_timeout = messaging.MessagingTimeout()
+        # Raise a timeout every time until we give up, currently 5 tries
+        self._setup_for_dvr_test()
+        self.agent.dvr_agent.dvr_mac_address = None
+        with contextlib.nested(
+                mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                                 'get_dvr_mac_address_by_host',
+                                 side_effect=raise_timeout),
+                mock.patch.object(utils, "execute"),
+        ) as (rpc_mock, execute_mock):
+            self.agent.dvr_agent.get_dvr_mac_address()
+            self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
+            self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
+            self.assertEqual(self.agent.dvr_agent.plugin_rpc.
+                             get_dvr_mac_address_by_host.call_count, 5)
 
     def _test_port_dead(self, cur_tag=None):
         port = mock.Mock()
@@ -918,7 +976,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             get_br_fn.return_value = ["br-eth"]
             self.agent.setup_physical_bridges({"physnet1": "br-eth"})
             expected_calls = [mock.call.link_delete(),
-                              mock.call.utils_execute(['/sbin/udevadm',
+                              mock.call.utils_execute(['udevadm',
                                                        'settle',
                                                        '--timeout=10']),
                               mock.call.add_veth('int-br-eth',
@@ -954,7 +1012,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(sys, "exit")
         ) as (intbr_patch_fn, tunbr_patch_fn, remove_all_fn,
               add_flow_fn, ovs_br_fn, reset_br_fn, exit_fn):
-            self.agent.setup_tunnel_br(None)
+            self.agent.reset_tunnel_br(None)
+            self.agent.setup_tunnel_br()
             self.assertTrue(intbr_patch_fn.called)
 
     def test_setup_tunnel_port(self):
@@ -1030,7 +1089,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                       'segment_id': 'tun2',
                       'ports':
                       {'agent_ip':
-                       [[FAKE_MAC, FAKE_IP1],
+                       [l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP1),
                         n_const.FLOODING_ENTRY]}}}
         with mock.patch.object(self.agent.tun_br,
                                "deferred") as defer_fn:
@@ -1047,8 +1106,22 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                       'segment_id': 'tun1',
                       'ports':
                       {'2.2.2.2':
-                       [[FAKE_MAC, FAKE_IP1],
+                       [l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP1),
                         n_const.FLOODING_ENTRY]}}}
+
+        class ActionMatcher(object):
+            def __init__(self, action_str):
+                self.ordered = self.order_ports(action_str)
+
+            def order_ports(self, action_str):
+                halves = action_str.split('output:')
+                ports = sorted(halves.pop().split(','))
+                halves.append(','.join(ports))
+                return 'output:'.join(halves)
+
+            def __eq__(self, other):
+                return self.ordered == self.order_ports(other)
+
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'deferred'),
             mock.patch.object(self.agent.tun_br, 'do_action_flows'),
@@ -1076,8 +1149,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                                        'set_tunnel:seg1,output:2')]),
                 mock.call('mod', [dict(table=constants.FLOOD_TO_TUN,
                                        dl_vlan='vlan1',
-                                       actions='strip_vlan,'
-                                       'set_tunnel:seg1,output:1,2')]),
+                                       actions=ActionMatcher('strip_vlan,'
+                                       'set_tunnel:seg1,output:1,2'))]),
             ]
             do_action_flows_fn.assert_has_calls(expected_calls)
 
@@ -1088,7 +1161,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                       'segment_id': 'tun2',
                       'ports':
                       {'2.2.2.2':
-                       [[FAKE_MAC, FAKE_IP1],
+                       [l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP1),
                         n_const.FLOODING_ENTRY]}}}
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'deferred'),
@@ -1118,7 +1191,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         fdb_entry = {'net1':
                      {'network_type': 'gre',
                       'segment_id': 'tun1',
-                      'ports': {'1.1.1.1': [[FAKE_MAC, FAKE_IP1]]}}}
+                      'ports': {'1.1.1.1': [l2pop_rpc.PortInfo(FAKE_MAC,
+                                                               FAKE_IP1)]}}}
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'deferred'),
             mock.patch.object(self.agent.tun_br, 'do_action_flows'),
@@ -1128,7 +1202,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             deferred_fn.return_value = deferred_br
             self.agent.fdb_add(None, fdb_entry)
             self.assertFalse(add_tun_fn.called)
-            fdb_entry['net1']['ports']['10.10.10.10'] = [[FAKE_MAC, FAKE_IP1]]
+            fdb_entry['net1']['ports']['10.10.10.10'] = [
+                l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP1)]
             self.agent.fdb_add(None, fdb_entry)
             add_tun_fn.assert_called_with(
                 deferred_br, 'gre-0a0a0a0a', '10.10.10.10', 'gre')
@@ -1154,8 +1229,8 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         fdb_entries = {'chg_ip':
                        {'net1':
                         {'agent_ip':
-                         {'before': [[FAKE_MAC, FAKE_IP1]],
-                          'after': [[FAKE_MAC, FAKE_IP2]]}}}}
+                         {'before': [l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP1)],
+                          'after': [l2pop_rpc.PortInfo(FAKE_MAC, FAKE_IP2)]}}}}
         with contextlib.nested(
             mock.patch.object(self.agent.tun_br, 'deferred'),
             mock.patch.object(self.agent.tun_br, 'do_action_flows'),
@@ -1348,7 +1423,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.call(self.agent.tun_br, 'gre-0a0a0a0a', '10.10.10.10', 'gre')]
         self.agent._setup_tunnel_port.assert_has_calls(expected_calls)
 
-    def test_ovs_restart(self):
+    def test_ovs_status(self):
         reply2 = {'current': set(['tap0']),
                   'added': set(['tap2']),
                   'removed': set([])}
@@ -1365,21 +1440,24 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
                               'process_network_ports'),
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
-                              'check_ovs_restart'),
+                              'check_ovs_status'),
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
                               'setup_integration_br'),
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
-                              'setup_physical_bridges')
+                              'setup_physical_bridges'),
+            mock.patch.object(time, 'sleep')
         ) as (spawn_fn, log_exception, scan_ports, process_network_ports,
-              check_ovs_restart, setup_int_br, setup_phys_br):
+              check_ovs_status, setup_int_br, setup_phys_br, time_sleep):
             log_exception.side_effect = Exception(
                 'Fake exception to get out of the loop')
             scan_ports.side_effect = [reply2, reply3]
             process_network_ports.side_effect = [
                 False, Exception('Fake exception to get out of the loop')]
-            check_ovs_restart.side_effect = [False, True]
+            check_ovs_status.side_effect = [constants.OVS_NORMAL,
+                                            constants.OVS_DEAD,
+                                            constants.OVS_RESTARTED]
 
-            # This will exit after the second loop
+            # This will exit after the third loop
             try:
                 self.agent.daemon_loop()
             except Exception:

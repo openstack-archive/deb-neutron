@@ -28,6 +28,7 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import external_net
 from neutron.extensions import l3
+from neutron.i18n import _LI
 from neutron import manager
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
@@ -319,6 +320,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                 router.gw_port = None
                 context.session.add(router)
                 context.session.expire(gw_port)
+                vpnservice = manager.NeutronManager.get_service_plugins().get(
+                    constants.VPN)
+                if vpnservice:
+                    vpnservice.check_router_in_use(context, router_id)
             self._core_plugin.delete_port(
                 admin_ctx, gw_port['id'], l3_port_check=False)
 
@@ -470,11 +475,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                                           subnet['network_id'],
                                           subnet_id,
                                           subnet['cidr'])
-        if subnet['gateway_ip']:
-            fixed_ip = {'ip_address': subnet['gateway_ip'],
-                        'subnet_id': subnet['id']}
-        else:
-            fixed_ip = {'subnet_id': subnet['id']}
+        fixed_ip = {'ip_address': subnet['gateway_ip'],
+                    'subnet_id': subnet['id']}
 
         return self._core_plugin.create_port(context, {
             'port':
@@ -526,6 +528,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         subnet_db = self._core_plugin._get_subnet(context, subnet_id)
         subnet_cidr = netaddr.IPNetwork(subnet_db['cidr'])
         fip_qry = context.session.query(FloatingIP)
+        vpnservice = manager.NeutronManager.get_service_plugins().get(
+            constants.VPN)
+        if vpnservice:
+            vpnservice.check_subnet_in_use(context, subnet_id)
         for fip_db in fip_qry.filter_by(router_id=router_id):
             if netaddr.IPAddress(fip_db['fixed_ip_address']) in subnet_cidr:
                 raise l3.RouterInterfaceInUseByFloatingIP(
@@ -895,8 +901,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                 raise l3.L3PortInUse(port_id=port_id,
                                      device_owner=port_db['device_owner'])
             else:
-                LOG.debug(_("Port %(port_id)s has owner %(port_owner)s, but "
-                            "no IP address, so it can be deleted"),
+                LOG.debug("Port %(port_id)s has owner %(port_owner)s, but "
+                          "no IP address, so it can be deleted",
                           {'port_id': port_db['id'],
                            'port_owner': port_db['device_owner']})
 
@@ -1010,13 +1016,14 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             for port in ports:
                 fixed_ips = port.get('fixed_ips', [])
                 if len(fixed_ips) > 1:
-                    LOG.info(_("Ignoring multiple IPs on router port %s"),
+                    LOG.info(_LI("Ignoring multiple IPs on router port %s"),
                              port['id'])
                     continue
                 elif not fixed_ips:
                     # Skip ports without IPs, which can occur if a subnet
                     # attached to a router is deleted
-                    LOG.info(_("Skipping port %s as no IP is configure on it"),
+                    LOG.info(_LI("Skipping port %s as no IP is configure on "
+                                 "it"),
                              port['id'])
                     continue
                 yield (port, fixed_ips[0])
@@ -1096,10 +1103,10 @@ class L3RpcNotifierMixin(object):
         self._l3_rpc_notifier = value
 
     def notify_router_updated(self, context, router_id,
-                              operation=None, data=None):
+                              operation=None):
         if router_id:
             self.l3_rpc_notifier.routers_updated(
-                context, [router_id], operation, data)
+                context, [router_id], operation)
 
     def notify_routers_updated(self, context, router_ids,
                                operation=None, data=None):
@@ -1115,13 +1122,9 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
     """Mixin class to add rpc notifier methods to db_base_plugin_v2."""
 
     def update_router(self, context, id, router):
-        r = router['router']
-        payload = {'gw_exists':
-                   r.get(EXTERNAL_GW_INFO, attributes.ATTR_NOT_SPECIFIED) !=
-                   attributes.ATTR_NOT_SPECIFIED}
         router_dict = super(L3_NAT_db_mixin, self).update_router(context,
                                                                  id, router)
-        self.notify_router_updated(context, router_dict['id'], None, payload)
+        self.notify_router_updated(context, router_dict['id'], None)
         return router_dict
 
     def delete_router(self, context, id):
@@ -1162,7 +1165,7 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
         floatingip_dict = super(L3_NAT_db_mixin, self).create_floatingip(
             context, floatingip, initial_status)
         router_id = floatingip_dict['router_id']
-        self.notify_router_updated(context, router_id, 'create_floatingip', {})
+        self.notify_router_updated(context, router_id, 'create_floatingip')
         return floatingip_dict
 
     def update_floatingip(self, context, id, floatingip):
@@ -1176,7 +1179,7 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
 
     def delete_floatingip(self, context, id):
         router_id = self._delete_floatingip(context, id)
-        self.notify_router_updated(context, router_id, 'delete_floatingip', {})
+        self.notify_router_updated(context, router_id, 'delete_floatingip')
 
     def disassociate_floatingips(self, context, port_id, do_notify=True):
         """Disassociate all floating IPs linked to specific port.

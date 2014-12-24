@@ -22,6 +22,7 @@ from neutron.common import constants
 from neutron.common import exceptions as n_exc
 import neutron.db.api as db
 from neutron.db import models_v2
+from neutron.i18n import _LW
 from neutron.openstack.common import log as logging
 from neutron.plugins.cisco.common import cisco_constants as c_const
 from neutron.plugins.cisco.common import cisco_exceptions as c_exc
@@ -322,7 +323,7 @@ def get_segment_range(network_profile):
     # Sort the range to ensure min, max is in order
     seg_min, seg_max = sorted(
         int(i) for i in network_profile.segment_range.split('-'))
-    LOG.debug(_("seg_min %(seg_min)s, seg_max %(seg_max)s"),
+    LOG.debug("seg_min %(seg_min)s, seg_max %(seg_max)s",
               {'seg_min': seg_min, 'seg_max': seg_max})
     return seg_min, seg_max
 
@@ -515,7 +516,7 @@ def reserve_vxlan(db_session, network_profile):
         raise n_exc.NoNetworkAvailable()
 
 
-def alloc_network(db_session, network_profile_id):
+def alloc_network(db_session, network_profile_id, tenant_id):
     """
     Allocate network using first available free segment ID in segment range.
 
@@ -524,7 +525,7 @@ def alloc_network(db_session, network_profile_id):
     """
     with db_session.begin(subtransactions=True):
         network_profile = get_network_profile(db_session,
-                                              network_profile_id)
+                                              network_profile_id, tenant_id)
         if network_profile.segment_type == c_const.NETWORK_TYPE_VLAN:
             return reserve_vlan(db_session, network_profile)
         if network_profile.segment_type == c_const.NETWORK_TYPE_OVERLAY:
@@ -553,8 +554,8 @@ def reserve_specific_vlan(db_session, physical_network, vlan_id):
                 else:
                     raise n_exc.VlanIdInUse(vlan_id=vlan_id,
                                             physical_network=physical_network)
-            LOG.debug(_("Reserving specific vlan %(vlan)s on physical "
-                        "network %(network)s from pool"),
+            LOG.debug("Reserving specific vlan %(vlan)s on physical network "
+                      "%(network)s from pool",
                       {"vlan": vlan_id, "network": physical_network})
             alloc.allocated = True
             db_session.add(alloc)
@@ -578,7 +579,7 @@ def release_vlan(db_session, physical_network, vlan_id):
                      one())
             alloc.allocated = False
         except exc.NoResultFound:
-            LOG.warning(_("vlan_id %(vlan)s on physical network %(network)s "
+            LOG.warning(_LW("vlan_id %(vlan)s on physical network %(network)s "
                           "not found"),
                         {"vlan": vlan_id, "network": physical_network})
 
@@ -634,7 +635,7 @@ def reserve_specific_vxlan(db_session, vxlan_id):
                      one())
             if alloc.allocated:
                 raise c_exc.VxlanIDInUse(vxlan_id=vxlan_id)
-            LOG.debug(_("Reserving specific vxlan %s from pool"), vxlan_id)
+            LOG.debug("Reserving specific vxlan %s from pool", vxlan_id)
             alloc.allocated = True
             db_session.add(alloc)
         except exc.NoResultFound:
@@ -655,7 +656,7 @@ def release_vxlan(db_session, vxlan_id):
                      one())
             alloc.allocated = False
         except exc.NoResultFound:
-            LOG.warning(_("vxlan_id %s not found"), vxlan_id)
+            LOG.warning(_LW("vxlan_id %s not found"), vxlan_id)
 
 
 def set_port_status(port_id, status):
@@ -764,7 +765,7 @@ def delete_vm_network(db_session, policy_profile_id, network_id):
 
 def create_network_profile(db_session, network_profile):
     """Create a network profile."""
-    LOG.debug(_("create_network_profile()"))
+    LOG.debug("create_network_profile()")
     with db_session.begin(subtransactions=True):
         kwargs = {"name": network_profile["name"],
                   "segment_type": network_profile["segment_type"]}
@@ -784,12 +785,12 @@ def create_network_profile(db_session, network_profile):
         return net_profile
 
 
-def delete_network_profile(db_session, id):
+def delete_network_profile(db_session, id, tenant_id=None):
     """Delete Network Profile."""
-    LOG.debug(_("delete_network_profile()"))
+    LOG.debug("delete_network_profile()")
     with db_session.begin(subtransactions=True):
         try:
-            network_profile = get_network_profile(db_session, id)
+            network_profile = get_network_profile(db_session, id, tenant_id)
             db_session.delete(network_profile)
             (db_session.query(n1kv_models_v2.ProfileBinding).
              filter_by(profile_id=id).delete())
@@ -798,21 +799,27 @@ def delete_network_profile(db_session, id):
             raise c_exc.ProfileTenantBindingNotFound(profile_id=id)
 
 
-def update_network_profile(db_session, id, network_profile):
+def update_network_profile(db_session, id, network_profile, tenant_id=None):
     """Update Network Profile."""
-    LOG.debug(_("update_network_profile()"))
+    LOG.debug("update_network_profile()")
     with db_session.begin(subtransactions=True):
-        profile = get_network_profile(db_session, id)
+        profile = get_network_profile(db_session, id, tenant_id)
         profile.update(network_profile)
         return profile
 
 
-def get_network_profile(db_session, id):
+def get_network_profile(db_session, id, tenant_id=None):
     """Get Network Profile."""
-    LOG.debug(_("get_network_profile()"))
+    LOG.debug("get_network_profile()")
+    if tenant_id and c_conf.CISCO_N1K.restrict_network_profiles:
+        if _profile_binding_exists(db_session=db_session,
+                                   tenant_id=tenant_id,
+                                   profile_id=id,
+                                   profile_type=c_const.NETWORK) is None:
+            raise c_exc.ProfileTenantBindingNotFound(profile_id=id)
     try:
-        return db_session.query(
-            n1kv_models_v2.NetworkProfile).filter_by(id=id).one()
+        return db_session.query(n1kv_models_v2.NetworkProfile).filter_by(
+                   id=id).one()
     except exc.NoResultFound:
         raise c_exc.NetworkProfileNotFound(profile=id)
 
@@ -834,7 +841,7 @@ def _get_network_profiles(db_session=None, physical_network=None):
 
 def create_policy_profile(policy_profile):
     """Create Policy Profile."""
-    LOG.debug(_("create_policy_profile()"))
+    LOG.debug("create_policy_profile()")
     db_session = db.get_session()
     with db_session.begin(subtransactions=True):
         p_profile = n1kv_models_v2.PolicyProfile(id=policy_profile["id"],
@@ -845,7 +852,7 @@ def create_policy_profile(policy_profile):
 
 def delete_policy_profile(id):
     """Delete Policy Profile."""
-    LOG.debug(_("delete_policy_profile()"))
+    LOG.debug("delete_policy_profile()")
     db_session = db.get_session()
     with db_session.begin(subtransactions=True):
         policy_profile = get_policy_profile(db_session, id)
@@ -854,7 +861,7 @@ def delete_policy_profile(id):
 
 def update_policy_profile(db_session, id, policy_profile):
     """Update a policy profile."""
-    LOG.debug(_("update_policy_profile()"))
+    LOG.debug("update_policy_profile()")
     with db_session.begin(subtransactions=True):
         _profile = get_policy_profile(db_session, id)
         _profile.update(policy_profile)
@@ -863,7 +870,7 @@ def update_policy_profile(db_session, id, policy_profile):
 
 def get_policy_profile(db_session, id):
     """Get Policy Profile."""
-    LOG.debug(_("get_policy_profile()"))
+    LOG.debug("get_policy_profile()")
     try:
         return db_session.query(
             n1kv_models_v2.PolicyProfile).filter_by(id=id).one()
@@ -900,7 +907,7 @@ def create_profile_binding(db_session, tenant_id, profile_id, profile_type):
 
 def _profile_binding_exists(db_session, tenant_id, profile_id, profile_type):
     """Check if the profile-tenant binding exists."""
-    LOG.debug(_("_profile_binding_exists()"))
+    LOG.debug("_profile_binding_exists()")
     db_session = db_session or db.get_session()
     return (db_session.query(n1kv_models_v2.ProfileBinding).
             filter_by(tenant_id=tenant_id, profile_id=profile_id,
@@ -909,7 +916,7 @@ def _profile_binding_exists(db_session, tenant_id, profile_id, profile_type):
 
 def get_profile_binding(db_session, tenant_id, profile_id):
     """Get Network/Policy Profile - Tenant binding."""
-    LOG.debug(_("get_profile_binding()"))
+    LOG.debug("get_profile_binding()")
     try:
         return (db_session.query(n1kv_models_v2.ProfileBinding).filter_by(
             tenant_id=tenant_id, profile_id=profile_id).one())
@@ -919,15 +926,15 @@ def get_profile_binding(db_session, tenant_id, profile_id):
 
 def delete_profile_binding(db_session, tenant_id, profile_id):
     """Delete Policy Binding."""
-    LOG.debug(_("delete_profile_binding()"))
+    LOG.debug("delete_profile_binding()")
     db_session = db_session or db.get_session()
     try:
         binding = get_profile_binding(db_session, tenant_id, profile_id)
         with db_session.begin(subtransactions=True):
             db_session.delete(binding)
     except c_exc.ProfileTenantBindingNotFound:
-        LOG.debug(_("Profile-Tenant binding missing for profile ID "
-                    "%(profile_id)s and tenant ID %(tenant_id)s"),
+        LOG.debug("Profile-Tenant binding missing for profile ID "
+                  "%(profile_id)s and tenant ID %(tenant_id)s",
                   {"profile_id": profile_id, "tenant_id": tenant_id})
         return
 
@@ -943,9 +950,9 @@ def update_profile_binding(db_session, profile_id, tenants, profile_type):
             profile_id=profile_id, profile_type=profile_type).delete()
         new_tenants_set = set(tenants)
         for tenant_id in new_tenants_set:
-            tenant = n1kv_models_v2.ProfileBinding(profile_type = profile_type,
-                                                   tenant_id = tenant_id,
-                                                   profile_id = profile_id)
+            tenant = n1kv_models_v2.ProfileBinding(profile_type=profile_type,
+                                                   tenant_id=tenant_id,
+                                                   profile_id=profile_id)
             db_session.add(tenant)
 
 
@@ -1084,10 +1091,12 @@ class NetworkProfile_db_mixin(object):
         """
         # Check whether the network profile is in use.
         if self._segment_in_use(context.session,
-                                get_network_profile(context.session, id)):
+                                get_network_profile(context.session, id,
+                                                    context.tenant_id)):
             raise c_exc.NetworkProfileInUse(profile=id)
         # Delete and return the network profile if it is not in use.
-        _profile = delete_network_profile(context.session, id)
+        _profile = delete_network_profile(context.session, id,
+                                          context.tenant_id)
         return self._make_network_profile_dict(_profile)
 
     def update_network_profile(self, context, id, network_profile):
@@ -1104,7 +1113,8 @@ class NetworkProfile_db_mixin(object):
         # Flag to check whether network profile is updated or not.
         is_updated = False
         p = network_profile["network_profile"]
-        original_net_p = get_network_profile(context.session, id)
+        original_net_p = get_network_profile(context.session, id,
+                                             context.tenant_id)
         # Update network profile to tenant id binding.
         if context.is_admin and c_const.ADD_TENANTS in p:
             profile_bindings = _get_profile_bindings_by_uuid(context.session,
@@ -1137,7 +1147,8 @@ class NetworkProfile_db_mixin(object):
             p.get("segment_range") != original_net_p.segment_range):
             if not self._segment_in_use(context.session, original_net_p):
                 delete_segment_allocations(context.session, original_net_p)
-                updated_net_p = update_network_profile(context.session, id, p)
+                updated_net_p = update_network_profile(context.session, id, p,
+                                                       context.tenant_id)
                 self._validate_segment_range_uniqueness(context,
                                                         updated_net_p, id)
                 if original_net_p.segment_type == c_const.NETWORK_TYPE_VLAN:
@@ -1162,7 +1173,8 @@ class NetworkProfile_db_mixin(object):
         # Return network profile if it is successfully updated.
         if is_updated:
             return self._make_network_profile_dict(
-                update_network_profile(context.session, id, p))
+                update_network_profile(context.session, id, p,
+                                       context.tenant_id))
 
     def get_network_profile(self, context, id, fields=None):
         """
@@ -1174,7 +1186,7 @@ class NetworkProfile_db_mixin(object):
                         profile dictionary. Only these fields will be returned
         :returns: network profile dictionary
         """
-        profile = get_network_profile(context.session, id)
+        profile = get_network_profile(context.session, id, context.tenant_id)
         return self._make_network_profile_dict(profile, fields)
 
     def get_network_profiles(self, context, filters=None, fields=None):
@@ -1229,7 +1241,7 @@ class NetworkProfile_db_mixin(object):
         :returns: true if network profile exist else False
         """
         try:
-            get_network_profile(context.session, id)
+            get_network_profile(context.session, id, context.tenant_id)
             return True
         except c_exc.NetworkProfileNotFound(profile=id):
             return False
@@ -1599,8 +1611,11 @@ class PolicyProfile_db_mixin(object):
         """
         db_session = db.get_session()
         with db_session.begin(subtransactions=True):
-            return (db_session.query(n1kv_models_v2.PolicyProfile).
-                    filter_by(name=name).one())
+            try:
+                return (db_session.query(n1kv_models_v2.PolicyProfile).
+                        filter_by(name=name).one())
+            except exc.NoResultFound:
+                raise c_exc.PolicyProfileNameNotFound(profile_name=name)
 
     def _remove_all_fake_policy_profiles(self):
         """

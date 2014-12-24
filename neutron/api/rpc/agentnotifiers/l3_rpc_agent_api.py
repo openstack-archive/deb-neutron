@@ -15,10 +15,13 @@
 
 import random
 
+from oslo import messaging
+
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
+from neutron.i18n import _LE
 from neutron import manager
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as service_constants
@@ -27,28 +30,25 @@ from neutron.plugins.common import constants as service_constants
 LOG = logging.getLogger(__name__)
 
 
-class L3AgentNotifyAPI(n_rpc.RpcProxy):
+class L3AgentNotifyAPI(object):
     """API for plugin to notify L3 agent."""
-    BASE_RPC_API_VERSION = '1.0'
 
     def __init__(self, topic=topics.L3_AGENT):
-        super(L3AgentNotifyAPI, self).__init__(
-            topic=topic, default_version=self.BASE_RPC_API_VERSION)
+        target = messaging.Target(topic=topic, version='1.0')
+        self.client = n_rpc.get_client(target)
 
     def _notification_host(self, context, method, payload, host):
         """Notify the agent that is hosting the router."""
-        LOG.debug(_('Nofity agent at %(host)s the message '
-                    '%(method)s'), {'host': host,
-                                    'method': method})
-        self.cast(
-            context, self.make_msg(method,
-                                   payload=payload),
-            topic='%s.%s' % (topics.L3_AGENT, host))
+        LOG.debug('Nofity agent at %(host)s the message '
+                  '%(method)s', {'host': host,
+                                 'method': method})
+        cctxt = self.client.prepare(server=host)
+        cctxt.cast(context, method, payload=payload)
 
     def _agent_notification(self, context, method, router_ids, operation,
                             shuffle_agents):
         """Notify changed routers to hosting l3 agents."""
-        adminContext = context.is_admin and context or context.elevated()
+        adminContext = context if context.is_admin else context.elevated()
         plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
         for router_id in router_ids:
@@ -59,16 +59,15 @@ class L3AgentNotifyAPI(n_rpc.RpcProxy):
             if shuffle_agents:
                 random.shuffle(l3_agents)
             for l3_agent in l3_agents:
-                LOG.debug(_('Notify agent at %(topic)s.%(host)s the message '
-                            '%(method)s'),
+                LOG.debug('Notify agent at %(topic)s.%(host)s the message '
+                          '%(method)s',
                           {'topic': l3_agent.topic,
                            'host': l3_agent.host,
                            'method': method})
-                self.cast(
-                    context, self.make_msg(method,
-                                           routers=[router_id]),
-                    topic='%s.%s' % (l3_agent.topic, l3_agent.host),
-                    version='1.1')
+                cctxt = self.client.prepare(topic=l3_agent.topic,
+                                            server=l3_agent.host,
+                                            version='1.1')
+                cctxt.cast(context, method, routers=[router_id])
 
     def _agent_notification_arp(self, context, method, router_id,
                                 operation, data):
@@ -87,14 +86,15 @@ class L3AgentNotifyAPI(n_rpc.RpcProxy):
         # TODO(murali): replace cast with fanout to avoid performance
         # issues at greater scale.
         for l3_agent in l3_agents:
-            topic = '%s.%s' % (l3_agent.topic, l3_agent.host)
+            log_topic = '%s.%s' % (l3_agent.topic, l3_agent.host)
             LOG.debug('Casting message %(method)s with topic %(topic)s',
-                      {'topic': topic, 'method': method})
+                      {'topic': log_topic, 'method': method})
             dvr_arptable = {'router_id': router_id,
                             'arp_table': data}
-            self.cast(context,
-                      self.make_msg(method, payload=dvr_arptable),
-                      topic=topic, version='1.2')
+            cctxt = self.client.prepare(topic=l3_agent.topic,
+                                        server=l3_agent.host,
+                                        version='1.2')
+            cctxt.cast(context, method, payload=dvr_arptable)
 
     def _notification(self, context, method, router_ids, operation,
                       shuffle_agents):
@@ -102,8 +102,8 @@ class L3AgentNotifyAPI(n_rpc.RpcProxy):
         plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
         if not plugin:
-            LOG.error(_('No plugin for L3 routing registered. Cannot notify '
-                        'agents with the message %s'), method)
+            LOG.error(_LE('No plugin for L3 routing registered. Cannot notify '
+                          'agents with the message %s'), method)
             return
         if utils.is_extension_supported(
                 plugin, constants.L3_AGENT_SCHEDULER_EXT_ALIAS):
@@ -113,22 +113,18 @@ class L3AgentNotifyAPI(n_rpc.RpcProxy):
             self._agent_notification(
                 context, method, router_ids, operation, shuffle_agents)
         else:
-            self.fanout_cast(
-                context, self.make_msg(method,
-                                       routers=router_ids),
-                topic=topics.L3_AGENT)
+            cctxt = self.client.prepare(fanout=True)
+            cctxt.cast(context, method, routers=router_ids)
 
     def _notification_fanout(self, context, method, router_id):
         """Fanout the deleted router to all L3 agents."""
-        LOG.debug(_('Fanout notify agent at %(topic)s the message '
-                    '%(method)s on router %(router_id)s'),
+        LOG.debug('Fanout notify agent at %(topic)s the message '
+                  '%(method)s on router %(router_id)s',
                   {'topic': topics.L3_AGENT,
                    'method': method,
                    'router_id': router_id})
-        self.fanout_cast(
-            context, self.make_msg(method,
-                                   router_id=router_id),
-            topic=topics.L3_AGENT)
+        cctxt = self.client.prepare(fanout=True)
+        cctxt.cast(context, method, router_id=router_id)
 
     def agent_updated(self, context, admin_state_up, host):
         self._notification_host(context, 'agent_updated',

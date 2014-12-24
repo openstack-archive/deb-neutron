@@ -17,6 +17,7 @@ import copy
 import time
 
 from oslo.config import cfg
+from oslo.utils import timeutils
 from webob import exc
 
 from neutron.api.v2 import attributes
@@ -27,7 +28,6 @@ from neutron.db import agents_db
 from neutron.db import db_base_plugin_v2
 from neutron.extensions import agent
 from neutron.openstack.common import log as logging
-from neutron.openstack.common import timeutils
 from neutron.openstack.common import uuidutils
 from neutron.tests.unit import test_api_v2
 from neutron.tests.unit import test_db_plugin
@@ -184,7 +184,6 @@ class AgentDBTestCase(AgentDBTestMixIn,
     fmt = 'json'
 
     def setUp(self):
-        self.adminContext = context.get_admin_context()
         plugin = 'neutron.tests.unit.test_agent_ext_plugin.TestAgentPlugin'
         # for these tests we need to enable overlapping ips
         cfg.CONF.set_default('allow_overlapping_ips', True)
@@ -195,6 +194,7 @@ class AgentDBTestCase(AgentDBTestMixIn,
         ext_mgr = AgentTestExtensionManager()
         self.addCleanup(self.restore_resource_attribute_map)
         super(AgentDBTestCase, self).setUp(plugin=plugin, ext_mgr=ext_mgr)
+        self.adminContext = context.get_admin_context()
 
     def restore_resource_attribute_map(self):
         # Restore the originak RESOURCE_ATTRIBUTE_MAP
@@ -211,12 +211,12 @@ class AgentDBTestCase(AgentDBTestMixIn,
     def test_list_agent(self):
         agents = self._register_agent_states()
         res = self._list('agents')
-        for agent in res['agents']:
-            if (agent['host'] == DHCP_HOSTA and
-                agent['agent_type'] == constants.AGENT_TYPE_DHCP):
+        for agt in res['agents']:
+            if (agt['host'] == DHCP_HOSTA and
+                agt['agent_type'] == constants.AGENT_TYPE_DHCP):
                 self.assertEqual(
                     'dhcp_driver',
-                    agent['configurations']['dhcp_driver'])
+                    agt['configurations']['dhcp_driver'])
                 break
         self.assertEqual(len(agents), len(res['agents']))
 
@@ -251,7 +251,3 @@ class AgentDBTestCase(AgentDBTestMixIn,
         agents = self._list_agents(
             query_string='binary=neutron-l3-agent&host=' + L3_HOSTB)
         self.assertFalse(agents['agents'][0]['alive'])
-
-
-class AgentDBTestCaseXML(AgentDBTestCase):
-    fmt = 'xml'

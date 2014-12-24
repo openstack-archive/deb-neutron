@@ -17,7 +17,6 @@ import contextlib
 import copy
 import os
 
-import contextlib
 import mock
 import netaddr
 from oslo.config import cfg
@@ -41,7 +40,6 @@ from neutron.tests.unit import test_db_plugin
 from neutron.tests.unit import test_extension_extraroute as extraroute_test
 from neutron.tests.unit import test_extension_security_group as test_sg
 from neutron.tests.unit import test_extensions
-from neutron.tests.unit import test_l3_plugin
 
 
 API_EXT_PATH = os.path.dirname(extensions.__file__)
@@ -383,88 +381,6 @@ class TestNuagePluginPortBinding(NuagePluginV2TestCase,
                 self._check_response_no_portbindings(non_admin_port)
 
 
-class TestNuageL3NatTestCase(NuagePluginV2TestCase,
-                             test_l3_plugin.L3NatDBIntTestCase):
-
-    def test_update_port_with_assoc_floatingip(self):
-        with self.subnet(cidr='200.0.0.0/24') as public_sub:
-            self._set_net_external(public_sub['subnet']['network_id'])
-            with self.port() as port:
-                p_id = port['port']['id']
-                with self.floatingip_with_assoc(port_id=p_id):
-                    # Update the port with dummy vm info
-                    port_dict = {
-                        'device_id': uuidutils.generate_uuid(),
-                        'device_owner': 'compute:Nova'
-                    }
-                    port = self._update('ports', port['port']['id'],
-                                        {'port': port_dict})
-                    self.assertEqual(port_dict['device_id'],
-                                     port['port']['device_id'])
-
-    def test_disassociated_floatingip_delete(self):
-        with self.subnet(cidr='200.0.0.0/24') as public_sub:
-            self._set_net_external(public_sub['subnet']['network_id'])
-            with self.port() as port:
-                p_id = port['port']['id']
-                with self.floatingip_with_assoc(port_id=p_id) as fip:
-
-                    # Disassociate fip from the port
-                    fip = self._update('floatingips', fip['floatingip']['id'],
-                                       {'floatingip': {'port_id': None}})
-                    self.assertIsNone(fip['floatingip']['router_id'])
-
-    def test_network_update_external_failure(self):
-        self._test_network_update_external_failure()
-
-    def test_floatingip_create_different_fixed_ip_same_port(self):
-        self._test_floatingip_create_different_fixed_ip_same_port()
-
-    def test_floatingip_update_different_router(self):
-        self._test_floatingip_update_different_router()
-
-    def test_floatingip_update_different_fixed_ip_same_port(self):
-        self._test_floatingip_update_different_fixed_ip_same_port()
-
-
-class NuageRouterTestExtensionManager(object):
-
-    def get_resources(self):
-        l3.RESOURCE_ATTRIBUTE_MAP['routers'].update(
-            nuage_router.EXTENDED_ATTRIBUTES_2_0['routers'])
-        return l3.L3.get_resources()
-
-    def get_actions(self):
-        return []
-
-    def get_request_extensions(self):
-        return []
-
-
-class TestNuageRouterExtTestCase(NuagePluginV2TestCase):
-
-    def setUp(self):
-        self._l3_attribute_map_bk = copy.deepcopy(l3.RESOURCE_ATTRIBUTE_MAP)
-        ext_mgr = NuageRouterTestExtensionManager()
-        super(TestNuageRouterExtTestCase, self).setUp(plugin=_plugin_name,
-                                                      ext_mgr=ext_mgr)
-        self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
-        self.addCleanup(self.restore_l3_attribute_map)
-
-    def restore_l3_attribute_map(self):
-        l3.RESOURCE_ATTRIBUTE_MAP = self._l3_attribute_map_bk
-
-    def test_router_create_with_nuage_rtr_template(self):
-        nuage_rtr_template = uuidutils.generate_uuid()
-        data = {'router': {'tenant_id': uuidutils.generate_uuid()}}
-        data['router']['name'] = 'router1'
-        data['router']['admin_state_up'] = True
-        data['router']['nuage_router_template'] = nuage_rtr_template
-        router_req = self.new_create_request('routers', data, 'json')
-        router_res = router_req.get_response(self.ext_api)
-        self.assertEqual(exc.HTTPCreated.code, router_res.status_int)
-
-
 class TestNuageExtrarouteTestCase(NuagePluginV2TestCase,
                                   extraroute_test.ExtraRouteDBIntTestCase):
 
@@ -542,6 +458,72 @@ class TestNuageExtrarouteTestCase(NuagePluginV2TestCase,
 
     def test_network_update_external_failure(self):
         self._test_network_update_external_failure()
+
+    def test_update_port_with_assoc_floatingip(self):
+        with self.subnet(cidr='200.0.0.0/24') as public_sub:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            with self.port() as port:
+                p_id = port['port']['id']
+                with self.floatingip_with_assoc(port_id=p_id):
+                    # Update the port with dummy vm info
+                    port_dict = {
+                        'device_id': uuidutils.generate_uuid(),
+                        'device_owner': 'compute:Nova'
+                    }
+                    port = self._update('ports', port['port']['id'],
+                                        {'port': port_dict})
+                    self.assertEqual(port_dict['device_id'],
+                                     port['port']['device_id'])
+
+    def test_disassociated_floatingip_delete(self):
+        with self.subnet(cidr='200.0.0.0/24') as public_sub:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            with self.port() as port:
+                p_id = port['port']['id']
+                with self.floatingip_with_assoc(port_id=p_id) as fip:
+
+                    # Disassociate fip from the port
+                    fip = self._update('floatingips', fip['floatingip']['id'],
+                                       {'floatingip': {'port_id': None}})
+                    self.assertIsNone(fip['floatingip']['router_id'])
+
+
+class NuageRouterTestExtensionManager(object):
+
+    def get_resources(self):
+        l3.RESOURCE_ATTRIBUTE_MAP['routers'].update(
+            nuage_router.EXTENDED_ATTRIBUTES_2_0['routers'])
+        return l3.L3.get_resources()
+
+    def get_actions(self):
+        return []
+
+    def get_request_extensions(self):
+        return []
+
+
+class TestNuageRouterExtTestCase(NuagePluginV2TestCase):
+
+    def setUp(self):
+        self._l3_attribute_map_bk = copy.deepcopy(l3.RESOURCE_ATTRIBUTE_MAP)
+        ext_mgr = NuageRouterTestExtensionManager()
+        super(TestNuageRouterExtTestCase, self).setUp(plugin=_plugin_name,
+                                                      ext_mgr=ext_mgr)
+        self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
+        self.addCleanup(self.restore_l3_attribute_map)
+
+    def restore_l3_attribute_map(self):
+        l3.RESOURCE_ATTRIBUTE_MAP = self._l3_attribute_map_bk
+
+    def test_router_create_with_nuage_rtr_template(self):
+        nuage_rtr_template = uuidutils.generate_uuid()
+        data = {'router': {'tenant_id': uuidutils.generate_uuid()}}
+        data['router']['name'] = 'router1'
+        data['router']['admin_state_up'] = True
+        data['router']['nuage_router_template'] = nuage_rtr_template
+        router_req = self.new_create_request('routers', data, 'json')
+        router_res = router_req.get_response(self.ext_api)
+        self.assertEqual(exc.HTTPCreated.code, router_res.status_int)
 
 
 class TestNuageProviderNetTestCase(NuagePluginV2TestCase):

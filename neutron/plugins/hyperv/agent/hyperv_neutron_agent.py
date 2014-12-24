@@ -23,15 +23,16 @@ import eventlet
 eventlet.monkey_patch()
 
 from oslo.config import cfg
+from oslo import messaging
 
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as common_config
 from neutron.common import constants as n_const
-from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.common import constants as p_const
@@ -77,10 +78,9 @@ CONF.register_opts(agent_opts, "AGENT")
 config.register_agent_state_opts_helper(cfg.CONF)
 
 
-class HyperVSecurityAgent(n_rpc.RpcCallback,
-                          sg_rpc.SecurityGroupAgentRpcMixin):
-    # Set RPC API version to 1.1 by default.
-    RPC_API_VERSION = '1.1'
+class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpcMixin):
+
+    target = messaging.Target(version='1.1')
 
     def __init__(self, context, plugin_rpc):
         super(HyperVSecurityAgent, self).__init__()
@@ -101,10 +101,9 @@ class HyperVSecurityAgent(n_rpc.RpcCallback,
                                                      consumers)
 
 
-class HyperVSecurityCallbackMixin(n_rpc.RpcCallback,
-                                  sg_rpc.SecurityGroupAgentRpcCallbackMixin):
-    # Set RPC API version to 1.1 by default.
-    RPC_API_VERSION = '1.1'
+class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+
+    target = messaging.Target(version='1.1')
 
     def __init__(self, sg_agent):
         super(HyperVSecurityCallbackMixin, self).__init__()
@@ -116,9 +115,9 @@ class HyperVPluginApi(agent_rpc.PluginApi,
     pass
 
 
-class HyperVNeutronAgent(n_rpc.RpcCallback):
+class HyperVNeutronAgent(object):
     # Set RPC API version to 1.1 by default.
-    RPC_API_VERSION = '1.1'
+    target = messaging.Target(version='1.1')
 
     def __init__(self):
         super(HyperVNeutronAgent, self).__init__()
@@ -145,8 +144,8 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
             self.state_rpc.report_state(self.context,
                                         self.agent_state)
             self.agent_state.pop('start_flag', None)
-        except Exception as ex:
-            LOG.exception(_("Failed reporting state! %s"), ex)
+        except Exception:
+            LOG.exception(_LE("Failed reporting state!"))
 
     def _setup_rpc(self):
         self.agent_id = 'hyperv_%s' % platform.node()
@@ -181,7 +180,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
         for mapping in CONF.AGENT.physical_network_vswitch_mappings:
             parts = mapping.split(':')
             if len(parts) != 2:
-                LOG.debug(_('Invalid physical network mapping: %s'), mapping)
+                LOG.debug('Invalid physical network mapping: %s', mapping)
             else:
                 pattern = re.escape(parts[0].strip()).replace('\\*', '.*')
                 vswitch = parts[1].strip()
@@ -202,21 +201,21 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
                 return (network_id, map)
 
     def network_delete(self, context, network_id=None):
-        LOG.debug(_("network_delete received. "
-                    "Deleting network %s"), network_id)
+        LOG.debug("network_delete received. "
+                  "Deleting network %s", network_id)
         # The network may not be defined on this agent
         if network_id in self._network_vswitch_map:
             self._reclaim_local_network(network_id)
         else:
-            LOG.debug(_("Network %s not defined on agent."), network_id)
+            LOG.debug("Network %s not defined on agent.", network_id)
 
     def port_delete(self, context, port_id=None):
-        LOG.debug(_("port_delete received"))
+        LOG.debug("port_delete received")
         self._port_unbound(port_id)
 
     def port_update(self, context, port=None, network_type=None,
                     segmentation_id=None, physical_network=None):
-        LOG.debug(_("port_update received"))
+        LOG.debug("port_update received")
         if CONF.SECURITYGROUP.enable_security_group:
             if 'security_groups' in port:
                 self.sec_groups_agent.refresh_firewall()
@@ -238,7 +237,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
                            net_uuid, network_type,
                            physical_network,
                            segmentation_id):
-        LOG.info(_("Provisioning network %s"), net_uuid)
+        LOG.info(_LI("Provisioning network %s"), net_uuid)
 
         vswitch_name = self._get_vswitch_name(network_type, physical_network)
 
@@ -263,7 +262,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
         self._network_vswitch_map[net_uuid] = map
 
     def _reclaim_local_network(self, net_uuid):
-        LOG.info(_("Reclaiming local network %s"), net_uuid)
+        LOG.info(_LI("Reclaiming local network %s"), net_uuid)
         del self._network_vswitch_map[net_uuid]
 
     def _port_bound(self, port_id,
@@ -271,7 +270,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
                     network_type,
                     physical_network,
                     segmentation_id):
-        LOG.debug(_("Binding port %s"), port_id)
+        LOG.debug("Binding port %s", port_id)
 
         if net_uuid not in self._network_vswitch_map:
             self._provision_network(
@@ -284,8 +283,8 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
         self._utils.connect_vnic_to_vswitch(map['vswitch_name'], port_id)
 
         if network_type == p_const.TYPE_VLAN:
-            LOG.info(_('Binding VLAN ID %(segmentation_id)s '
-                       'to switch port %(port_id)s'),
+            LOG.info(_LI('Binding VLAN ID %(segmentation_id)s '
+                         'to switch port %(port_id)s'),
                      dict(segmentation_id=segmentation_id, port_id=port_id))
             self._utils.set_vswitch_port_vlan_id(
                 segmentation_id,
@@ -297,7 +296,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
             #Nothing to do
             pass
         else:
-            LOG.error(_('Unsupported network type %s'), network_type)
+            LOG.error(_LE('Unsupported network type %s'), network_type)
 
         if CONF.AGENT.enable_metrics_collection:
             self._utils.enable_port_metrics_collection(port_id)
@@ -306,11 +305,11 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
     def _port_unbound(self, port_id):
         (net_uuid, map) = self._get_network_vswitch_map_by_port_id(port_id)
         if net_uuid not in self._network_vswitch_map:
-            LOG.info(_('Network %s is not avalailable on this agent'),
+            LOG.info(_LI('Network %s is not avalailable on this agent'),
                      net_uuid)
             return
 
-        LOG.debug(_("Unbinding port %s"), port_id)
+        LOG.debug("Unbinding port %s", port_id)
         self._utils.disconnect_switch_port(map['vswitch_name'], port_id, True)
 
         if not map['ports']:
@@ -323,11 +322,12 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
         for port_id in self._port_metric_retries.keys():
             if self._utils.can_enable_control_metrics(port_id):
                 self._utils.enable_control_metrics(port_id)
-                LOG.info(_('Port metrics enabled for port: %s'), port_id)
+                LOG.info(_LI('Port metrics enabled for port: %s'), port_id)
                 del self._port_metric_retries[port_id]
             elif self._port_metric_retries[port_id] < 1:
                 self._utils.enable_control_metrics(port_id)
-                LOG.error(_('Port metrics raw enabling for port: %s'), port_id)
+                LOG.error(_LE('Port metrics raw enabling for port: %s'),
+                          port_id)
                 del self._port_metric_retries[port_id]
             else:
                 self._port_metric_retries[port_id] -= 1
@@ -352,7 +352,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
             else:
                 self._port_unbound(port_id)
         else:
-            LOG.debug(_("No port %s defined on agent."), port_id)
+            LOG.debug("No port %s defined on agent.", port_id)
 
     def _treat_devices_added(self, devices):
         try:
@@ -369,11 +369,11 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
 
         for device_details in devices_details_list:
             device = device_details['device']
-            LOG.info(_("Adding port %s"), device)
+            LOG.info(_LI("Adding port %s"), device)
             if 'port_id' in device_details:
-                LOG.info(
-                    _("Port %(device)s updated. Details: %(device_details)s"),
-                    {'device': device, 'device_details': device_details})
+                LOG.info(_LI("Port %(device)s updated. Details: "
+                             "%(device_details)s"),
+                         {'device': device, 'device_details': device_details})
                 self._treat_vif_port(
                     device_details['port_id'],
                     device_details['network_id'],
@@ -398,16 +398,15 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
     def _treat_devices_removed(self, devices):
         resync = False
         for device in devices:
-            LOG.info(_("Removing port %s"), device)
+            LOG.info(_LI("Removing port %s"), device)
             try:
                 self.plugin_rpc.update_device_down(self.context,
                                                    device,
                                                    self.agent_id,
                                                    cfg.CONF.host)
             except Exception as e:
-                LOG.debug(
-                    _("Removing port failed for device %(device)s: %(e)s"),
-                    dict(device=device, e=e))
+                LOG.debug("Removing port failed for device %(device)s: %(e)s",
+                          dict(device=device, e=e))
                 resync = True
                 continue
             self._port_unbound(device)
@@ -431,7 +430,7 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
             try:
                 start = time.time()
                 if sync:
-                    LOG.info(_("Agent out of sync with plugin!"))
+                    LOG.info(_LI("Agent out of sync with plugin!"))
                     ports.clear()
                     sync = False
 
@@ -439,14 +438,14 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
 
                 # notify plugin about port deltas
                 if port_info:
-                    LOG.debug(_("Agent loop has new devices!"))
+                    LOG.debug("Agent loop has new devices!")
                     # If treat devices fails - must resync with plugin
                     sync = self._process_network_ports(port_info)
                     ports = port_info['current']
 
                 self._port_enable_control_metrics()
-            except Exception as e:
-                LOG.exception(_("Error in agent event loop: %s"), e)
+            except Exception:
+                LOG.exception(_LE("Error in agent event loop"))
                 sync = True
 
             # sleep till end of polling interval
@@ -454,8 +453,8 @@ class HyperVNeutronAgent(n_rpc.RpcCallback):
             if (elapsed < self._polling_interval):
                 time.sleep(self._polling_interval - elapsed)
             else:
-                LOG.debug(_("Loop iteration exceeded interval "
-                            "(%(polling_interval)s vs. %(elapsed)s)"),
+                LOG.debug("Loop iteration exceeded interval "
+                          "(%(polling_interval)s vs. %(elapsed)s)",
                           {'polling_interval': self._polling_interval,
                            'elapsed': elapsed})
 
@@ -467,5 +466,5 @@ def main():
     plugin = HyperVNeutronAgent()
 
     # Start everything.
-    LOG.info(_("Agent initialized successfully, now running... "))
+    LOG.info(_LI("Agent initialized successfully, now running... "))
     plugin.daemon_loop()

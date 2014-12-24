@@ -16,12 +16,12 @@
 import collections
 
 from oslo.config import cfg
+from oslo.utils import importutils
 
 from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import utils
-from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.tests.functional.agent.linux import base
 
@@ -37,8 +37,6 @@ class IpLibTestFramework(base.BaseLinuxTestCase):
 
     def _configure(self):
         config.setup_logging()
-        config.register_root_helper(cfg.CONF)
-        cfg.CONF.set_override('root_helper', self.root_helper, group='AGENT')
         config.register_interface_driver_opts_helper(cfg.CONF)
         cfg.CONF.set_override(
             'interface_driver',
@@ -49,11 +47,11 @@ class IpLibTestFramework(base.BaseLinuxTestCase):
 
     def generate_device_details(self, name=None, ip_cidr=None,
                                 mac_address=None, namespace=None):
-        return Device(name or self.get_rand_name(),
+        return Device(name or base.get_rand_name(),
                       ip_cidr or '240.0.0.1/24',
                       mac_address or
                       utils.get_random_mac('fa:16:3e:00:00:00'.split(':')),
-                      namespace or self.get_rand_name())
+                      namespace or base.get_rand_name())
 
     def _safe_delete_device(self, device):
         try:

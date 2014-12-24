@@ -19,6 +19,9 @@ import sys
 import time
 
 from oslo.config import cfg
+from oslo import messaging
+from oslo.utils import importutils
+from oslo.utils import timeutils
 
 from neutron.agent.common import config
 from neutron.agent.linux import external_process
@@ -28,14 +31,13 @@ from neutron.common import config as common_config
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
+from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
-from neutron.openstack.common import importutils
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import periodic_task
 from neutron.openstack.common import service
-from neutron.openstack.common import timeutils
 from neutron.plugins.cisco.cfg_agent import device_status
 from neutron.plugins.cisco.common import cisco_constants as c_constants
 from neutron import service as neutron_service
@@ -47,15 +49,13 @@ REGISTRATION_RETRY_DELAY = 2
 MAX_REGISTRATION_ATTEMPTS = 30
 
 
-class CiscoDeviceManagementApi(n_rpc.RpcProxy):
+class CiscoDeviceManagementApi(object):
     """Agent side of the device manager RPC API."""
 
-    BASE_RPC_API_VERSION = '1.0'
-
     def __init__(self, topic, host):
-        super(CiscoDeviceManagementApi, self).__init__(
-            topic=topic, default_version=self.BASE_RPC_API_VERSION)
         self.host = host
+        target = messaging.Target(topic=topic, version='1.0')
+        self.client = n_rpc.get_client(target)
 
     def report_dead_hosting_devices(self, context, hd_ids=None):
         """Report that a hosting device cannot be contacted (presumed dead).
@@ -64,19 +64,14 @@ class CiscoDeviceManagementApi(n_rpc.RpcProxy):
         :param: hosting_device_ids: list of non-responding hosting devices
         :return: None
         """
-        # Cast since we don't expect a return value.
-        self.cast(context,
-                  self.make_msg('report_non_responding_hosting_devices',
-                                host=self.host,
-                                hosting_device_ids=hd_ids),
-                  topic=self.topic)
+        cctxt = self.client.prepare()
+        cctxt.cast(context, 'report_non_responding_hosting_devices',
+                   host=self.host, hosting_device_ids=hd_ids)
 
     def register_for_duty(self, context):
         """Report that a config agent is ready for duty."""
-        return self.call(context,
-                         self.make_msg('register_for_duty',
-                                       host=self.host),
-                         topic=self.topic)
+        cctxt = self.client.prepare()
+        return cctxt.call(context, 'register_for_duty', host=self.host)
 
 
 class CiscoCfgAgent(manager.Manager):
@@ -99,7 +94,7 @@ class CiscoCfgAgent(manager.Manager):
     The main entry points in this class are the `process_services()` and
     `_backlog_task()` .
     """
-    RPC_API_VERSION = '1.1'
+    target = messaging.Target(version='1.1')
 
     OPTS = [
         cfg.IntOpt('rpc_loop_interval', default=10,
@@ -132,7 +127,7 @@ class CiscoCfgAgent(manager.Manager):
             self.routing_service_helper = importutils.import_object(
                 svc_helper_class, host, self.conf, self)
         except ImportError as e:
-            LOG.warn(_("Error in loading routing service helper. Class "
+            LOG.warning(_LW("Error in loading routing service helper. Class "
                        "specified is %(class)s. Reason:%(reason)s"),
                      {'class': self.conf.cfg_agent.routing_svc_helper_class,
                       'reason': e})
@@ -143,7 +138,7 @@ class CiscoCfgAgent(manager.Manager):
         self.loop.start(interval=self.conf.cfg_agent.rpc_loop_interval)
 
     def after_start(self):
-        LOG.info(_("Cisco cfg agent started"))
+        LOG.info(_LI("Cisco cfg agent started"))
 
     def get_routing_service_helper(self):
         return self.routing_service_helper
@@ -203,7 +198,7 @@ class CiscoCfgAgent(manager.Manager):
             self.routing_service_helper.process_service(device_ids,
                                                         removed_devices_info)
         else:
-            LOG.warn(_("No routing service helper loaded"))
+            LOG.warning(_LW("No routing service helper loaded"))
         LOG.debug("Processing services completed")
 
     def _process_backlogged_hosting_devices(self, context):
@@ -232,8 +227,8 @@ class CiscoCfgAgent(manager.Manager):
                 if payload['hosting_data'].keys():
                     self.process_services(removed_devices_info=payload)
         except KeyError as e:
-            LOG.error(_("Invalid payload format for received RPC message "
-                        "`hosting_devices_removed`. Error is %{error}s. "
+            LOG.error(_LE("Invalid payload format for received RPC message "
+                        "`hosting_devices_removed`. Error is %(error)s. "
                         "Payload is %(payload)s"),
                       {'error': e, 'payload': payload})
 
@@ -276,20 +271,20 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
             self.send_agent_report(self.agent_state, context)
             res = self.devmgr_rpc.register_for_duty(context)
             if res is True:
-                LOG.info(_("[Agent registration] Agent successfully "
+                LOG.info(_LI("[Agent registration] Agent successfully "
                            "registered"))
                 return
             elif res is False:
-                LOG.warn(_("[Agent registration] Neutron server said that "
-                           "device manager was not ready. Retrying in %0.2f "
-                           "seconds "), REGISTRATION_RETRY_DELAY)
+                LOG.warning(_LW("[Agent registration] Neutron server said "
+                                "that device manager was not ready. Retrying "
+                                "in %0.2f seconds "), REGISTRATION_RETRY_DELAY)
                 time.sleep(REGISTRATION_RETRY_DELAY)
             elif res is None:
-                LOG.error(_("[Agent registration] Neutron server said that no "
-                            "device manager was found. Cannot "
-                            "continue. Exiting!"))
+                LOG.error(_LE("[Agent registration] Neutron server said that "
+                              "no device manager was found. Cannot continue. "
+                              "Exiting!"))
                 raise SystemExit("Cfg Agent exiting")
-        LOG.error(_("[Agent registration] %d unsuccessful registration "
+        LOG.error(_LE("[Agent registration] %d unsuccessful registration "
                     "attempts. Exiting!"), MAX_REGISTRATION_ATTEMPTS)
         raise SystemExit("Cfg Agent exiting")
 
@@ -323,12 +318,12 @@ class CiscoCfgAgentWithStateReport(CiscoCfgAgent):
             LOG.debug("Send agent report successfully completed")
         except AttributeError:
             # This means the server does not support report_state
-            LOG.warn(_("Neutron server does not support state report. "
+            LOG.warning(_LW("Neutron server does not support state report. "
                        "State report for this agent will be disabled."))
             self.heartbeat.stop()
             return
         except Exception:
-            LOG.exception(_("Failed sending agent report!"))
+            LOG.exception(_LE("Failed sending agent report!"))
 
 
 def main(manager='neutron.plugins.cisco.cfg_agent.'

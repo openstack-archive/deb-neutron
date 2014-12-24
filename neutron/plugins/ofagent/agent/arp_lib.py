@@ -23,7 +23,7 @@ from ryu.lib.packet import packet
 from ryu.lib.packet import vlan
 
 from neutron.common import log
-from neutron.openstack.common.gettextutils import _LI
+from neutron.i18n import _LI
 from neutron.openstack.common import log as logging
 import neutron.plugins.ofagent.agent.metadata as meta
 
@@ -120,7 +120,12 @@ class ArpLib(object):
 
     @log.log
     def del_arp_table_entry(self, network, ip):
-        del self._arp_tbl[network][ip]
+        if network not in self._arp_tbl:
+            LOG.debug("removal of unknown network %s", network)
+            return
+        if self._arp_tbl[network].pop(ip, None) is None:
+            LOG.debug("removal of unknown ip %s", ip)
+            return
         if not self._arp_tbl[network]:
             del self._arp_tbl[network]
 
@@ -143,10 +148,16 @@ class ArpLib(object):
         ofp = datapath.ofproto
         port = msg.match['in_port']
         metadata = msg.match.get('metadata')
-        pkt = packet.Packet(msg.data)
-        LOG.info(_LI("packet-in dpid %(dpid)s in_port %(port)s pkt %(pkt)s"),
-                 {'dpid': dpid_lib.dpid_to_str(datapath.id),
-                 'port': port, 'pkt': pkt})
+        # NOTE(yamamoto): Ryu packet library can raise various exceptions
+        # on a corrupted packet.
+        try:
+            pkt = packet.Packet(msg.data)
+        except Exception as e:
+            LOG.debug("Unparsable packet: got exception %s", e)
+            return
+        LOG.debug("packet-in dpid %(dpid)s in_port %(port)s pkt %(pkt)s",
+                  {'dpid': dpid_lib.dpid_to_str(datapath.id),
+                  'port': port, 'pkt': pkt})
 
         if metadata is None:
             LOG.info(_LI("drop non tenant packet"))
@@ -154,12 +165,12 @@ class ArpLib(object):
         network = metadata & meta.NETWORK_MASK
         pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
         if not pkt_ethernet:
-            LOG.info(_LI("drop non-ethernet packet"))
+            LOG.debug("drop non-ethernet packet")
             return
         pkt_vlan = pkt.get_protocol(vlan.vlan)
         pkt_arp = pkt.get_protocol(arp.arp)
         if not pkt_arp:
-            LOG.info(_LI("drop non-arp packet"))
+            LOG.debug("drop non-arp packet")
             return
 
         arptbl = self._arp_tbl.get(network)

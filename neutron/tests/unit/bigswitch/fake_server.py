@@ -12,7 +12,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.openstack.common import jsonutils
+from oslo.serialization import jsonutils
+
 from neutron.openstack.common import log as logging
 from neutron.plugins.bigswitch import servermanager
 
@@ -66,8 +67,8 @@ class HTTPConnectionMock(object):
             self.response = HTTPResponseMock500(None, errmsg=errmsg)
 
     def request(self, action, uri, body, headers):
-        LOG.debug(_("Request: action=%(action)s, uri=%(uri)r, "
-                    "body=%(body)s, headers=%(headers)s"),
+        LOG.debug("Request: action=%(action)s, uri=%(uri)r, "
+                  "body=%(body)s, headers=%(headers)s",
                   {'action': action, 'uri': uri,
                    'body': body, 'headers': headers})
         if self.broken and "ExceptOnBadServer" in uri:

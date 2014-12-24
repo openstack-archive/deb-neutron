@@ -16,12 +16,11 @@
 from neutronclient.v2_0 import client
 from oslo.config import cfg
 
-""" Freescale CRD Server Configuration used by ML2 Mechanism Driver.
-
-The following configuration is used by Freescale Drivers/Plugin
-like, FWaaS Plugin, VPNaaS Plugin etc.. which connect to Cloud Resource
-Discovery Service (CRD).
-"""
+# Freescale CRD Server Configuration used by ML2 Mechanism Driver.
+#
+# The following configuration is used by Freescale Drivers/Plugin
+# like, FWaaS Plugin, VPNaaS Plugin etc.. which connect to Cloud Resource
+# Discovery Service (CRD).
 
 # CRD service options required for FSL SDN OS Mech Driver
 ml2_fslsdn_opts = [
@@ -68,7 +67,7 @@ SERVICE_TYPE = 'crd'
 
 
 def get_crdclient():
-    """ Using the CRD configuration, get and return CRD Client instance."""
+    """Using the CRD configuration, get and return CRD Client instance."""
     crd_client_params = {
         'username': FSLCONF.crd_user_name,
         'tenant_name': FSLCONF.crd_tenant_name,

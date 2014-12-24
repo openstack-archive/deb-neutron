@@ -19,6 +19,7 @@ import itertools
 
 import mock
 from oslo.config import cfg
+from oslo.utils import importutils
 from testtools import matchers
 import webob.exc
 
@@ -36,7 +37,6 @@ from neutron import context
 from neutron.db import db_base_plugin_v2
 from neutron.db import models_v2
 from neutron import manager
-from neutron.openstack.common import importutils
 from neutron.tests import base
 from neutron.tests.unit import test_extensions
 from neutron.tests.unit import testlib_api
@@ -155,7 +155,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase,
         # If test_config specifies some config-file, use it, as well
         for config_file in test_lib.test_config.get('config_files', []):
             args.extend(['--config-file', config_file])
-        self.config_parse(args=args)
+        super(NeutronDbPluginV2TestCase, self).setup_config(args=args)
 
     def _req(self, method, resource, data=None, fmt=None, id=None, params=None,
              action=None, subresource=None, sub_id=None, context=None):
@@ -353,7 +353,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase,
         if ('device_owner' in kwargs and
             kwargs['device_owner'] == constants.DEVICE_OWNER_DHCP and
             'host' in kwargs and
-            not 'device_id' in kwargs):
+            'device_id' not in kwargs):
             device_id = utils.get_dhcp_agent_device_id(net_id, kwargs['host'])
             data['port']['device_id'] = device_id
         port_req = self.new_create_request('ports', data, fmt)
@@ -2678,10 +2678,14 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
         res = self._create_network(fmt=self.fmt, name='net',
                                    admin_state_up=True)
         network = self.deserialize(self.fmt, res)
-        self._make_subnet(self.fmt, network, gateway_ip, cidr, ip_version=4)
+        subnet = self._make_subnet(self.fmt, network, gateway_ip, cidr,
+                                   ip_version=4)
         req = self.new_delete_request('networks', network['network']['id'])
         res = req.get_response(self.api)
         self.assertEqual(res.status_int, webob.exc.HTTPNoContent.code)
+        req = self.new_show_request('subnets', subnet['subnet']['id'])
+        res = req.get_response(self.api)
+        self.assertEqual(webob.exc.HTTPNotFound.code, res.status_int)
 
     def test_create_subnet_bad_tenant(self):
         with self.network() as network:
@@ -2900,8 +2904,8 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
                                  cidr=cidr, ip_version=6,
                                  ipv6_ra_mode=constants.DHCPV6_STATEFUL,
                                  ipv6_address_mode=constants.DHCPV6_STATEFUL)
-        # Gateway not specified for IPv6 SLAAC subnet
-        expected = {'gateway_ip': None,
+        # If gateway_ip is not specified, allocate first IP from the subnet
+        expected = {'gateway_ip': gateway,
                     'cidr': cidr}
         self._test_create_subnet(expected=expected,
                                  cidr=cidr, ip_version=6,
@@ -3486,7 +3490,7 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
             self.assertEqual(res.status_int,
                              webob.exc.HTTPClientError.code)
 
-    def test_update_subnet_ipv6_ra_mode_fails(self):
+    def test_update_subnet_ipv6_address_mode_fails(self):
         with self.subnet(ip_version=6, cidr='fe80::/64',
                          ipv6_address_mode=constants.IPV6_SLAAC) as subnet:
             data = {'subnet': {'ipv6_address_mode': constants.DHCPV6_STATEFUL}}
@@ -4139,23 +4143,3 @@ class NeutronDbPluginV2AsMixinTestCase(testlib_api.SqlTestCase):
         self.net_data['network']['status'] = 'BUILD'
         net = self.plugin.create_network(self.context, self.net_data)
         self.assertEqual(net['status'], 'BUILD')
-
-
-class TestBasicGetXML(TestBasicGet):
-    fmt = 'xml'
-
-
-class TestNetworksV2XML(TestNetworksV2):
-    fmt = 'xml'
-
-
-class TestPortsV2XML(TestPortsV2):
-    fmt = 'xml'
-
-
-class TestSubnetsV2XML(TestSubnetsV2):
-    fmt = 'xml'
-
-
-class TestV2HTTPResponseXML(TestV2HTTPResponse):
-    fmt = 'xml'

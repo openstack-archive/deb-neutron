@@ -12,7 +12,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.openstack.common import importutils
+from oslo.utils import importutils
+
+from neutron.i18n import _LI
 from neutron.openstack.common import log as logging
 
 
@@ -32,6 +34,6 @@ DRIVER_LIST = {
 
 
 def get_driver(driver_name):
-    LOG.info(_("Loading OFC driver: %s"), driver_name)
+    LOG.info(_LI("Loading OFC driver: %s"), driver_name)
     driver_klass = DRIVER_LIST.get(driver_name) or driver_name
     return importutils.import_class(driver_klass)

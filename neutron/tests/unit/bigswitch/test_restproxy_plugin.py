@@ -48,6 +48,7 @@ class BigSwitchProxyPluginV2TestCase(test_base.BigSwitchTestBase,
         service_plugins = {'L3_ROUTER_NAT': self._l3_plugin_name}
         super(BigSwitchProxyPluginV2TestCase,
               self).setUp(self._plugin_name, service_plugins=service_plugins)
+        self.setup_db()
         self.port_create_status = 'BUILD'
         self.startHttpPatch()
 
@@ -155,9 +156,10 @@ class TestBigSwitchProxyPortsV2(test_plugin.TestPortsV2,
                 # stop normal patch
                 self.httpPatch.stop()
                 with patch(HTTPCON, new=fake_server.HTTPConnectionMock500):
-                    self._delete('ports', port['port']['id'],
-                                 expected_code=
-                                 webob.exc.HTTPInternalServerError.code)
+                    self._delete(
+                        'ports',
+                        port['port']['id'],
+                        expected_code=webob.exc.HTTPInternalServerError.code)
                 self.httpPatch.start()
                 port = self._get_ports(n['network']['id'])[0]
                 self.assertEqual('BUILD', port['status'])
@@ -292,6 +294,20 @@ class TestBigSwitchProxyNetworksV2(test_plugin.TestNetworksV2,
             self.assertEqual(n['network']['id'],
                              self._get_networks(n['network']['tenant_id']
                                                 )[0]['id'])
+
+    def test_notify_on_security_group_change(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with self.port() as p:
+            with contextlib.nested(
+                mock.patch.object(plugin, 'notifier'),
+                mock.patch.object(plugin, 'is_security_group_member_updated',
+                                  return_value=True)
+            ) as (n_mock, s_mock):
+                # any port update should trigger a notification due to s_mock
+                data = {'port': {'name': 'aNewName'}}
+                self.new_update_request(
+                    'ports', data, p['port']['id']).get_response(self.api)
+                self.assertTrue(n_mock.port_update.called)
 
 
 class TestBigSwitchProxySubnetsV2(test_plugin.TestSubnetsV2,

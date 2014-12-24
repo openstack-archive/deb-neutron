@@ -20,6 +20,7 @@ import copy
 import mock
 import netaddr
 from oslo.config import cfg
+from oslo.utils import importutils
 from webob import exc
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -39,7 +40,6 @@ from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron import manager
-from neutron.openstack.common import importutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
@@ -212,10 +212,6 @@ class L3NatExtensionTestCase(test_api_v2_extension.ExtensionTestCase):
         self.assertIn('port_id', res)
         self.assertEqual(res['port_id'], port_id)
         self.assertEqual(res['subnet_id'], subnet_id)
-
-
-class L3NatExtensionTestCaseXML(L3NatExtensionTestCase):
-    fmt = 'xml'
 
 
 # This base plugin class is for tests.
@@ -477,7 +473,7 @@ class L3NatTestCaseMixin(object):
                         public_sub['subnet']['network_id'],
                         port_id=private_port['port']['id'],
                         fixed_ip=fixed_ip,
-                        set_context=False)
+                        set_context=set_context)
                     yield floatingip
 
                     if floatingip:
@@ -768,6 +764,17 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                         # tolerate subnet tenant deliberately to '' in the
                         # nsx metadata access case
                         self.assertIn(payload['tenant_id'], [stid, ''])
+
+    def test_router_add_interface_ipv6_subnet_without_gateway_ip(self):
+        with self.router() as r:
+            with self.subnet(ip_version=6, cidr='fe80::/64',
+                             gateway_ip=None) as s:
+                error_code = exc.HTTPBadRequest.code
+                self._router_interface_action('add',
+                                              r['router']['id'],
+                                              s['subnet']['id'],
+                                              None,
+                                              expected_code=error_code)
 
     def test_router_add_interface_subnet_with_bad_tenant_returns_404(self):
         with mock.patch('neutron.context.Context.to_dict') as tdict:
@@ -2144,11 +2151,3 @@ class L3NatDBSepTestCase(L3BaseForSepTests, L3NatTestCaseBase):
 
     """Unit tests for a separate L3 routing service plugin."""
     pass
-
-
-class L3NatDBIntTestCaseXML(L3NatDBIntTestCase):
-    fmt = 'xml'
-
-
-class L3NatDBSepTestCaseXML(L3NatDBSepTestCase):
-    fmt = 'xml'

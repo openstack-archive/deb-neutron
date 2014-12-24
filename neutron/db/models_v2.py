@@ -63,6 +63,13 @@ class IPAvailabilityRange(model_base.BASEV2):
                                    primary_key=True)
     first_ip = sa.Column(sa.String(64), nullable=False, primary_key=True)
     last_ip = sa.Column(sa.String(64), nullable=False, primary_key=True)
+    __table_args__ = (
+        sa.UniqueConstraint(
+            first_ip, allocation_pool_id,
+            name='uniq_ipavailabilityranges0first_ip0allocation_pool_id'),
+        sa.UniqueConstraint(
+            last_ip, allocation_pool_id,
+            name='uniq_ipavailabilityranges0last_ip0allocation_pool_id'))
 
     def __repr__(self):
         return "%s - %s" % (self.first_ip, self.last_ip)
@@ -177,10 +184,12 @@ class Subnet(model_base.BASEV2, HasId, HasTenant):
     enable_dhcp = sa.Column(sa.Boolean())
     dns_nameservers = orm.relationship(DNSNameServer,
                                        backref='subnet',
-                                       cascade='all, delete, delete-orphan')
+                                       cascade='all, delete, delete-orphan',
+                                       lazy='joined')
     routes = orm.relationship(SubnetRoute,
                               backref='subnet',
-                              cascade='all, delete, delete-orphan')
+                              cascade='all, delete, delete-orphan',
+                              lazy='joined')
     shared = sa.Column(sa.Boolean)
     ipv6_ra_mode = sa.Column(sa.Enum(constants.IPV6_SLAAC,
                                      constants.DHCPV6_STATEFUL,

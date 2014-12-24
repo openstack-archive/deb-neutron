@@ -18,13 +18,18 @@
 
 """Implements iptables rules using linux utilities."""
 
-import inspect
 import os
 import re
+import sys
 
+from oslo.config import cfg
+from oslo.utils import excutils
+
+from neutron.agent.common import config
+from neutron.agent.linux import iptables_comments as ic
 from neutron.agent.linux import utils as linux_utils
 from neutron.common import utils
-from neutron.openstack.common import excutils
+from neutron.i18n import _LE, _LW
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 
@@ -37,7 +42,7 @@ LOG = logging.getLogger(__name__)
 #             (max_chain_name_length - len('-POSTROUTING') == 16)
 def get_binary_name():
     """Grab the name of the binary we're running in."""
-    return os.path.basename(inspect.stack()[-1][1])[:16]
+    return os.path.basename(sys.argv[0])[:16]
 
 binary_name = get_binary_name()
 
@@ -49,6 +54,12 @@ MAX_CHAIN_LEN_NOWRAP = 28
 # Number of iptables rules to print before and after a rule that causes a
 # a failure during iptables-restore
 IPTABLES_ERROR_LINES_OF_CONTEXT = 5
+
+
+def comment_rule(rule, comment):
+    if not cfg.CONF.AGENT.comment_iptables_rules or not comment:
+        return rule
+    return '%s -m comment --comment "%s"' % (rule, comment)
 
 
 def get_chain_name(chain_name, wrap=True):
@@ -67,13 +78,14 @@ class IptablesRule(object):
     """
 
     def __init__(self, chain, rule, wrap=True, top=False,
-                 binary_name=binary_name, tag=None):
+                 binary_name=binary_name, tag=None, comment=None):
         self.chain = get_chain_name(chain, wrap)
         self.rule = rule
         self.wrap = wrap
         self.top = top
         self.wrap_name = binary_name[:16]
         self.tag = tag
+        self.comment = comment
 
     def __eq__(self, other):
         return ((self.chain == other.chain) and
@@ -89,7 +101,7 @@ class IptablesRule(object):
             chain = '%s-%s' % (self.wrap_name, self.chain)
         else:
             chain = self.chain
-        return '-A %s %s' % (chain, self.rule)
+        return comment_rule('-A %s %s' % (chain, self.rule), self.comment)
 
 
 class IptablesTable(object):
@@ -111,8 +123,8 @@ class IptablesTable(object):
         named chains without interfering with one another.
 
         At the moment, its wrapped name is <binary name>-<chain name>,
-        so if nova-compute creates a chain named 'OUTPUT', it'll actually
-        end up named 'nova-compute-OUTPUT'.
+        so if neutron-openvswitch-agent creates a chain named 'OUTPUT',
+        it'll actually end up being named 'neutron-openvswi-OUTPUT'.
 
         """
         name = get_chain_name(name, wrap)
@@ -127,19 +139,6 @@ class IptablesTable(object):
         else:
             return self.unwrapped_chains
 
-    def ensure_remove_chain(self, name, wrap=True):
-        """Ensure the chain is removed.
-
-        This removal "cascades". All rule in the chain are removed, as are
-        all rules in other chains that jump to it.
-        """
-        name = get_chain_name(name, wrap)
-        chain_set = self._select_chain_set(wrap)
-        if name not in chain_set:
-            return
-
-        self.remove_chain(name, wrap)
-
     def remove_chain(self, name, wrap=True):
         """Remove named chain.
 
@@ -153,7 +152,7 @@ class IptablesTable(object):
         chain_set = self._select_chain_set(wrap)
 
         if name not in chain_set:
-            LOG.warn(_('Attempted to remove chain %s which does not exist'),
+            LOG.warn(_LW('Attempted to remove chain %s which does not exist'),
                      name)
             return
 
@@ -182,7 +181,8 @@ class IptablesTable(object):
         self.rules = [r for r in self.rules
                       if jump_snippet not in r.rule]
 
-    def add_rule(self, chain, rule, wrap=True, top=False, tag=None):
+    def add_rule(self, chain, rule, wrap=True, top=False, tag=None,
+                 comment=None):
         """Add a rule to the table.
 
         This is just like what you'd feed to iptables, just without
@@ -202,7 +202,7 @@ class IptablesTable(object):
                 self._wrap_target_chain(e, wrap) for e in rule.split(' '))
 
         self.rules.append(IptablesRule(chain, rule, wrap, top, self.wrap_name,
-                                       tag))
+                                       tag, comment))
 
     def _wrap_target_chain(self, s, wrap):
         if s.startswith('$'):
@@ -210,7 +210,7 @@ class IptablesTable(object):
 
         return s
 
-    def remove_rule(self, chain, rule, wrap=True, top=False):
+    def remove_rule(self, chain, rule, wrap=True, top=False, comment=None):
         """Remove a rule from a chain.
 
         Note: The rule must be exactly identical to the one that was added.
@@ -225,13 +225,15 @@ class IptablesTable(object):
                     self._wrap_target_chain(e, wrap) for e in rule.split(' '))
 
             self.rules.remove(IptablesRule(chain, rule, wrap, top,
-                                           self.wrap_name))
+                                           self.wrap_name,
+                                           comment=comment))
             if not wrap:
                 self.remove_rules.append(IptablesRule(chain, rule, wrap, top,
-                                                      self.wrap_name))
+                                                      self.wrap_name,
+                                                      comment=comment))
         except ValueError:
-            LOG.warn(_('Tried to remove rule that was not there:'
-                       ' %(chain)r %(rule)r %(wrap)r %(top)r'),
+            LOG.warn(_LW('Tried to remove rule that was not there:'
+                         ' %(chain)r %(rule)r %(wrap)r %(top)r'),
                      {'chain': chain, 'rule': rule,
                       'top': top, 'wrap': wrap})
 
@@ -264,10 +266,10 @@ class IptablesManager(object):
 
     A number of chains are set up to begin with.
 
-    First, neutron-filter-top. It's added at the top of FORWARD and OUTPUT. Its
-    name is not wrapped, so it's shared between the various nova workers. It's
-    intended for rules that need to live at the top of the FORWARD and OUTPUT
-    chains. It's in both the ipv4 and ipv6 set of tables.
+    First, neutron-filter-top. It's added at the top of FORWARD and OUTPUT.
+    Its name is not wrapped, so it's shared between the various neutron
+    workers. It's intended for rules that need to live at the top of the
+    FORWARD and OUTPUT chains. It's in both the ipv4 and ipv6 set of tables.
 
     For ipv4 and ipv6, the built-in INPUT, OUTPUT, and FORWARD filter chains
     are wrapped, meaning that the "real" INPUT chain has a rule that jumps to
@@ -288,6 +290,7 @@ class IptablesManager(object):
         else:
             self.execute = linux_utils.execute
 
+        config.register_iptables_opts(cfg.CONF)
         self.use_ipv6 = use_ipv6
         self.root_helper = root_helper
         self.namespace = namespace
@@ -298,7 +301,7 @@ class IptablesManager(object):
         self.ipv6 = {'filter': IptablesTable(binary_name=self.wrap_name)}
 
         # Add a neutron-filter-top chain. It's intended to be shared
-        # among the various nova components. It sits at the very top
+        # among the various neutron components. It sits at the very top
         # of FORWARD and OUTPUT.
         for tables in [self.ipv4, self.ipv6]:
             tables['filter'].add_chain('neutron-filter-top', wrap=False)
@@ -339,8 +342,8 @@ class IptablesManager(object):
 
         if not state_less:
             # Add a neutron-postrouting-bottom chain. It's intended to be
-            # shared among the various nova components. We set it as the last
-            # chain of POSTROUTING chain.
+            # shared among the various neutron components. We set it as the
+            # last chain of POSTROUTING chain.
             self.ipv4['nat'].add_chain('neutron-postrouting-bottom',
                                        wrap=False)
             self.ipv4['nat'].add_rule('POSTROUTING',
@@ -351,7 +354,8 @@ class IptablesManager(object):
             # chain so that it's applied last.
             self.ipv4['nat'].add_chain('snat')
             self.ipv4['nat'].add_rule('neutron-postrouting-bottom',
-                                      '-j $snat', wrap=False)
+                                      '-j $snat', wrap=False,
+                                      comment=ic.SNAT_OUT)
 
             # And then we add a float-snat chain and jump to first thing in
             # the snat chain.
@@ -385,10 +389,10 @@ class IptablesManager(object):
 
         try:
             with lockutils.lock(lock_name, utils.SYNCHRONIZED_PREFIX, True):
-                LOG.debug(_('Got semaphore / lock "%s"'), lock_name)
+                LOG.debug('Got semaphore / lock "%s"', lock_name)
                 return self._apply_synchronized()
         finally:
-            LOG.debug(_('Semaphore / lock released "%s"'), lock_name)
+            LOG.debug('Semaphore / lock released "%s"', lock_name)
 
     def _apply_synchronized(self):
         """Apply the current in-memory set of iptables rules.
@@ -439,10 +443,10 @@ class IptablesManager(object):
                                      all_lines[log_start:log_end],
                                      log_start + 1)
                                  )
-                    LOG.error(_("IPTablesManager.apply failed to apply the "
-                                "following set of iptables rules:\n%s"),
+                    LOG.error(_LE("IPTablesManager.apply failed to apply the "
+                                  "following set of iptables rules:\n%s"),
                               '\n'.join(log_lines))
-        LOG.debug(_("IPTablesManager.apply completed with success"))
+        LOG.debug("IPTablesManager.apply completed with success")
 
     def _find_table(self, lines, table_name):
         if len(lines) < 3:
@@ -452,7 +456,7 @@ class IptablesManager(object):
             start = lines.index('*%s' % table_name) - 1
         except ValueError:
             # Couldn't find table_name
-            LOG.debug(_('Unable to find table %s'), table_name)
+            LOG.debug('Unable to find table %s', table_name)
             return (0, 0)
         end = lines[start:].index('COMMIT') + start + 2
         return (start, end)
@@ -656,8 +660,8 @@ class IptablesManager(object):
         """Return the sum of the traffic counters of all rules of a chain."""
         cmd_tables = self._get_traffic_counters_cmd_tables(chain, wrap)
         if not cmd_tables:
-            LOG.warn(_('Attempted to get traffic counters of chain %s which '
-                       'does not exist'), chain)
+            LOG.warn(_LW('Attempted to get traffic counters of chain %s which '
+                         'does not exist'), chain)
             return
 
         name = get_chain_name(chain, wrap)

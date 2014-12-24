@@ -16,11 +16,11 @@
 """Context: context for security/db session."""
 
 import copy
-
 import datetime
 
+from oslo_context import context as oslo_context
+
 from neutron.db import api as db_api
-from neutron.openstack.common import context as common_context
 from neutron.openstack.common import local
 from neutron.openstack.common import log as logging
 from neutron import policy
@@ -29,7 +29,7 @@ from neutron import policy
 LOG = logging.getLogger(__name__)
 
 
-class ContextBase(common_context.RequestContext):
+class ContextBase(oslo_context.RequestContext):
     """Security context and request information.
 
     Represents the user taking a given action within the system.
@@ -65,6 +65,7 @@ class ContextBase(common_context.RequestContext):
         self.timestamp = timestamp
         self._session = None
         self.roles = roles or []
+        self.is_advsvc = policy.check_is_advsvc(self)
         if self.is_admin is None:
             self.is_admin = policy.check_is_admin(self)
         elif self.is_admin and load_admin_roles:
@@ -79,8 +80,7 @@ class ContextBase(common_context.RequestContext):
         # Log only once the context has been configured to prevent
         # format errors.
         if kwargs:
-            LOG.debug(_('Arguments dropped when creating '
-                        'context: %s'), kwargs)
+            LOG.debug('Arguments dropped when creating context: %s', kwargs)
 
     @property
     def project_id(self):

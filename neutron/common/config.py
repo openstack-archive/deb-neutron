@@ -18,6 +18,7 @@ Routines for configuring Neutron
 """
 
 import os
+import sys
 
 from oslo.config import cfg
 from oslo.db import options as db_options
@@ -26,6 +27,7 @@ from paste import deploy
 
 from neutron.api.v2 import attributes
 from neutron.common import utils
+from neutron.i18n import _LI
 from neutron.openstack.common import log as logging
 from neutron import version
 
@@ -41,8 +43,6 @@ core_opts = [
                help=_("The API paste config file to use")),
     cfg.StrOpt('api_extensions_path', default="",
                help=_("The path for API extensions")),
-    cfg.StrOpt('policy_file', default="policy.json",
-               help=_("The policy file to use")),
     cfg.StrOpt('auth_strategy', default='keystone',
                help=_("The type of authentication to use")),
     cfg.StrOpt('core_plugin',
@@ -101,6 +101,8 @@ core_opts = [
                secret=True),
     cfg.StrOpt('nova_admin_tenant_id',
                help=_('The uuid of the admin nova tenant')),
+    cfg.StrOpt('nova_admin_tenant_name',
+               help=_('The name of the admin nova tenant')),
     cfg.StrOpt('nova_admin_auth_url',
                default='http://localhost:5000/v2.0',
                help=_('Authorization URL for connecting to nova in admin '
@@ -141,7 +143,7 @@ db_options.set_defaults(cfg.CONF,
 
 def init(args, **kwargs):
     cfg.CONF(args=args, project='neutron',
-             version='%%prog %s' % version.version_info.release_string(),
+             version='%%(prog)s %s' % version.version_info.release_string(),
              **kwargs)
 
     # FIXME(ihrachys): if import is put in global, circular import
@@ -161,7 +163,11 @@ def setup_logging():
     """Sets up the logging options for a log with supplied name."""
     product_name = "neutron"
     logging.setup(product_name)
-    LOG.info(_("Logging enabled!"))
+    LOG.info(_LI("Logging enabled!"))
+    LOG.info(_LI("%(prog)s version %(version)s"),
+             {'prog': sys.argv[0],
+              'version': version.version_info.release_string()})
+    LOG.debug("command line: %s" % " ".join(sys.argv))
 
 
 def load_paste_app(app_name):
@@ -177,7 +183,7 @@ def load_paste_app(app_name):
         raise cfg.ConfigFilesNotFoundError(
             config_files=[cfg.CONF.api_paste_config])
     config_path = os.path.abspath(config_path)
-    LOG.info(_("Config paste file: %s"), config_path)
+    LOG.info(_LI("Config paste file: %s"), config_path)
 
     try:
         app = deploy.loadapp("config:%s" % config_path, name=app_name)

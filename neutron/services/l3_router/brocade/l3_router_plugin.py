@@ -18,9 +18,10 @@
 """Implentation of Brocade SVI service Plugin."""
 
 from oslo.config import cfg
+from oslo.utils import excutils
 
 from neutron.common import constants as l3_constants
-from neutron.openstack.common import excutils
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2.drivers.brocade.db import models as brocade_db
@@ -70,10 +71,10 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
                         'rbridge_id': cfg.CONF.ml2_brocade.rbridge_id
                         }
         self._driver = driver.NOSdriver()
-        LOG.info(_("rbridge id %s"), self._switch['rbridge_id'])
+        LOG.info(_LI("rbridge id %s"), self._switch['rbridge_id'])
 
     def create_router(self, context, router):
-        """ creates a vrf on NOS device."""
+        """Creates a vrf on NOS device."""
         LOG.debug("BrocadeSVIPlugin.create_router called: ")
         with context.session.begin(subtransactions=True):
             new_router = super(BrocadeSVIPlugin, self).create_router(context,
@@ -98,18 +99,16 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
         return new_router
 
     def delete_router(self, context, router_id):
-        """ delete a vrf on NOS device."""
+        """Delete a vrf on NOS device."""
         router = super(BrocadeSVIPlugin, self).get_router(context, router_id)
         super(BrocadeSVIPlugin, self).delete_router(context, router_id)
-        try:
-            switch = self._switch
-            self._driver.delete_router(switch['address'],
-                                       switch['username'],
-                                       switch['password'],
-                                       switch['rbridge_id'],
-                                       str(router['id']))
-        except Exception:
-            excutils.save_and_reraise_exception()
+
+        switch = self._switch
+        self._driver.delete_router(switch['address'],
+                                   switch['username'],
+                                   switch['password'],
+                                   switch['rbridge_id'],
+                                   str(router['id']))
 
     def add_router_interface(self, context, router_id, interface_info):
         """creates svi on NOS device and assigns ip addres to SVI."""
@@ -151,7 +150,8 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
                             'device_owner': [DEVICE_OWNER_ROUTER_INTF]}
             port_count = self._core_plugin.get_ports_count(context,
                                                            port_filters)
-            LOG.info(_("BrocadeSVIPlugin.add_router_interface ports_count %d"),
+            LOG.info(_LI("BrocadeSVIPlugin.add_router_interface ports_count "
+                         "%d"),
                      port_count)
 
             # port count is checked against 2 since the current port is already
@@ -159,10 +159,10 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
             if port_count == 2:
                 # This subnet is already part of some router
                 # (this is not supported in this version of brocade svi plugin)
-                LOG.error(_("BrocadeSVIPlugin: adding redundant router "
-                            "interface is not supported"))
-                raise Exception(_("BrocadeSVIPlugin:adding redundant router "
-                                  "interface is not supported"))
+                msg = _("BrocadeSVIPlugin: adding redundant router interface "
+                        "is not supported")
+                LOG.error(msg)
+                raise Exception(msg)
 
         try:
             switch = self._switch
@@ -174,8 +174,8 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
                                     gateway_ip_cidr,
                                     str(router_id))
         except Exception:
-            LOG.error(_("Failed to create Brocade resources to add router "
-                        "interface. info=%(info)s, router_id=%(router_id)s"),
+            LOG.error(_LE("Failed to create Brocade resources to add router "
+                          "interface. info=%(info)s, router_id=%(router_id)s"),
                       {"info": info, "router_id": router_id})
             with excutils.save_and_reraise_exception():
                 with context.session.begin(subtransactions=True):
@@ -220,10 +220,10 @@ class BrocadeSVIPlugin(router.L3RouterPlugin):
                                         str(router_id))
             except Exception:
                 with excutils.save_and_reraise_exception():
-                    LOG.error(_("Fail remove of interface from brocade router "
-                                "interface. info=%(info)s, "
-                                "router_id=%(router_id)s") %
-                              ({"info": info, "router_id": router_id}))
+                    LOG.error(_LE("Fail remove of interface from brocade "
+                                  "router interface. info=%(info)s, "
+                                  "router_id=%(router_id)s"),
+                              {"info": info, "router_id": router_id})
         return True
 
     @staticmethod

@@ -16,25 +16,38 @@ import re
 
 import pep8
 
-"""
-Guidelines for writing new hacking checks
+# Guidelines for writing new hacking checks
+#
+#  - Use only for Neutron specific tests. OpenStack general tests
+#    should be submitted to the common 'hacking' module.
+#  - Pick numbers in the range N3xx. Find the current test with
+#    the highest allocated number and then pick the next value.
+#  - Keep the test method code in the source file ordered based
+#    on the N3xx value.
+#  - List the new rule in the top level HACKING.rst file
+#  - Add test cases for each new rule to
+#    neutron/tests/unit/test_hacking.py
 
- - Use only for Neutron specific tests. OpenStack general tests
-   should be submitted to the common 'hacking' module.
- - Pick numbers in the range N3xx. Find the current test with
-   the highest allocated number and then pick the next value.
- - Keep the test method code in the source file ordered based
-   on the N3xx value.
- - List the new rule in the top level HACKING.rst file
- - Add test cases for each new rule to
-   neutron/tests/unit/test_hacking.py
-
-"""
-
-log_translation = re.compile(
-    r"(.)*LOG\.(audit|error|info|warn|warning|critical|exception)\(\s*('|\")")
 author_tag_re = (re.compile("^\s*#\s*@?(a|A)uthor"),
                  re.compile("^\.\.\s+moduleauthor::"))
+_all_hints = set(['_', '_LI', '_LE', '_LW', '_LC'])
+_all_log_levels = {
+    # NOTE(yamamoto): Following nova which uses _() for audit.
+    'audit': '_',
+    'error': '_LE',
+    'info': '_LI',
+    'warn': '_LW',
+    'warning': '_LW',
+    'critical': '_LC',
+    'exception': '_LE',
+}
+log_translation_hints = []
+for level, hint in _all_log_levels.iteritems():
+    r = "(.)*LOG\.%(level)s\(\s*((%(wrong_hints)s)\(|'|\")" % {
+        'level': level,
+        'wrong_hints': '|'.join(_all_hints - set([hint])),
+    }
+    log_translation_hints.append(re.compile(r))
 
 
 def validate_log_translations(logical_line, physical_line, filename):
@@ -43,9 +56,11 @@ def validate_log_translations(logical_line, physical_line, filename):
         return
     if pep8.noqa(physical_line):
         return
-    msg = "N320: Log messages require translations!"
-    if log_translation.match(logical_line):
-        yield (0, msg)
+
+    msg = "N320: Log messages require translation hints!"
+    for log_translation_hint in log_translation_hints:
+        if log_translation_hint.match(logical_line):
+            yield (0, msg)
 
 
 def use_jsonutils(logical_line, filename):
@@ -79,7 +94,37 @@ def no_author_tags(physical_line):
             return pos, "N322: Don't use author tags"
 
 
+def no_translate_debug_logs(logical_line, filename):
+    """Check for 'LOG.debug(_(' and 'LOG.debug(_Lx('
+
+    As per our translation policy,
+    https://wiki.openstack.org/wiki/LoggingStandards#Log_Translation
+    we shouldn't translate debug level logs.
+
+    * This check assumes that 'LOG' is a logger.
+    N319
+    """
+    for hint in _all_hints:
+        if logical_line.startswith("LOG.debug(%s(" % hint):
+            yield(0, "N319 Don't translate debug level logs")
+
+
+def check_assert_called_once_with(logical_line, filename):
+    # Try to detect unintended calls of nonexistent mock methods like:
+    #    assert_called_once
+    #    assertCalledOnceWith
+    if 'neutron/tests/' in filename:
+        if '.assert_called_once_with(' in logical_line:
+            return
+        if '.assertcalledonce' in logical_line.lower().replace('_', ''):
+            msg = ("N323: Possible use of no-op mock method. "
+                   "please use assert_called_once_with.")
+            yield (0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
     register(no_author_tags)
+    register(check_assert_called_once_with)
+    register(no_translate_debug_logs)

@@ -17,12 +17,13 @@ import itertools
 import operator
 
 from oslo.config import cfg
+from oslo.serialization import jsonutils
+from oslo.utils import excutils
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import exceptions
-from neutron.openstack.common import excutils
-from neutron.openstack.common import jsonutils
+from neutron.i18n import _LE, _LI, _LW
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 
@@ -69,8 +70,8 @@ class BaseOVS(object):
             return utils.execute(full_args, root_helper=self.root_helper)
         except Exception as e:
             with excutils.save_and_reraise_exception() as ctxt:
-                LOG.error(_("Unable to execute %(cmd)s. "
-                            "Exception: %(exception)s"),
+                LOG.error(_LE("Unable to execute %(cmd)s. "
+                              "Exception: %(exception)s"),
                           {'cmd': full_args, 'exception': e})
                 if not check_error:
                     ctxt.reraise = False
@@ -149,6 +150,15 @@ class OVSBridge(BaseOVS):
                         port_name])
         return self.get_port_ofport(port_name)
 
+    def replace_port(self, port_name, *interface_attr_tuples):
+        """Replace existing port or create it, and configure port interface."""
+        cmd = ['--', '--if-exists', 'del-port', port_name,
+               '--', 'add-port', self.br_name, port_name]
+        if interface_attr_tuples:
+            cmd += ['--', 'set', 'Interface', port_name]
+            cmd += ['%s=%s' % kv for kv in interface_attr_tuples]
+        self.run_vsctl(cmd)
+
     def delete_port(self, port_name):
         self.run_vsctl(["--", "--if-exists", "del-port", self.br_name,
                         port_name])
@@ -167,7 +177,8 @@ class OVSBridge(BaseOVS):
             return utils.execute(full_args, root_helper=self.root_helper,
                                  process_input=process_input)
         except Exception as e:
-            LOG.error(_("Unable to execute %(cmd)s. Exception: %(exception)s"),
+            LOG.error(_LE("Unable to execute %(cmd)s. Exception: "
+                          "%(exception)s"),
                       {'cmd': full_args, 'exception': e})
 
     def count_flows(self):
@@ -238,9 +249,9 @@ class OVSBridge(BaseOVS):
         ofport = self.get_port_ofport(port_name)
         if (tunnel_type == constants.TYPE_VXLAN and
                 ofport == INVALID_OFPORT):
-            LOG.error(_('Unable to create VXLAN tunnel port. Please ensure '
-                        'that an openvswitch version that supports VXLAN is '
-                        'installed.'))
+            LOG.error(_LE('Unable to create VXLAN tunnel port. Please ensure '
+                          'that an openvswitch version that supports VXLAN is '
+                          'installed.'))
         return ofport
 
     def add_patch_port(self, local_name, remote_name):
@@ -287,8 +298,8 @@ class OVSBridge(BaseOVS):
             return utils.execute(args, root_helper=self.root_helper).strip()
         except Exception as e:
             with excutils.save_and_reraise_exception():
-                LOG.error(_("Unable to execute %(cmd)s. "
-                            "Exception: %(exception)s"),
+                LOG.error(_LE("Unable to execute %(cmd)s. "
+                              "Exception: %(exception)s"),
                           {'cmd': args, 'exception': e})
 
     # returns a VIF object for each VIF port
@@ -335,7 +346,7 @@ class OVSBridge(BaseOVS):
             try:
                 int_ofport = int(ofport)
             except (ValueError, TypeError):
-                LOG.warn(_("Found not yet ready openvswitch port: %s"), row)
+                LOG.warn(_LW("Found not yet ready openvswitch port: %s"), row)
             else:
                 if int_ofport > 0:
                     if ("iface-id" in external_ids and
@@ -350,7 +361,7 @@ class OVSBridge(BaseOVS):
                             external_ids["xs-vif-uuid"])
                         edge_ports.add(iface_id)
                 else:
-                    LOG.warn(_("Found failed openvswitch port: %s"), row)
+                    LOG.warn(_LW("Found failed openvswitch port: %s"), row)
         return edge_ports
 
     def get_port_tag_dict(self):
@@ -401,29 +412,28 @@ class OVSBridge(BaseOVS):
             # an exeception which will be captured in this block.
             # We won't deal with the possibility of ovs-vsctl return multiple
             # rows since the interface identifier is unique
-            data = json_result['data'][0]
-            port_name = data[name_idx]
-            switch = get_bridge_for_iface(self.root_helper, port_name)
-            if switch != self.br_name:
-                LOG.info(_("Port: %(port_name)s is on %(switch)s,"
-                           " not on %(br_name)s"), {'port_name': port_name,
-                                                    'switch': switch,
-                                                    'br_name': self.br_name})
-                return
-            ofport = data[ofport_idx]
-            # ofport must be integer otherwise return None
-            if not isinstance(ofport, int) or ofport == -1:
-                LOG.warn(_("ofport: %(ofport)s for VIF: %(vif)s is not a "
-                           "positive integer"), {'ofport': ofport,
-                                                 'vif': port_id})
-                return
-            # Find VIF's mac address in external ids
-            ext_id_dict = dict((item[0], item[1]) for item in
-                               data[ext_ids_idx][1])
-            vif_mac = ext_id_dict['attached-mac']
-            return VifPort(port_name, ofport, port_id, vif_mac, self)
-        except Exception as e:
-            LOG.warn(_("Unable to parse interface details. Exception: %s"), e)
+            for data in json_result['data']:
+                port_name = data[name_idx]
+                switch = get_bridge_for_iface(self.root_helper, port_name)
+                if switch != self.br_name:
+                    continue
+                ofport = data[ofport_idx]
+                # ofport must be integer otherwise return None
+                if not isinstance(ofport, int) or ofport == -1:
+                    LOG.warn(_LW("ofport: %(ofport)s for VIF: %(vif)s is not a"
+                                 " positive integer"), {'ofport': ofport,
+                                                        'vif': port_id})
+                    return
+                # Find VIF's mac address in external ids
+                ext_id_dict = dict((item[0], item[1]) for item in
+                                   data[ext_ids_idx][1])
+                vif_mac = ext_id_dict['attached-mac']
+                return VifPort(port_name, ofport, port_id, vif_mac, self)
+            LOG.info(_LI("Port %(port_id)s not present in bridge %(br_name)s"),
+                     {'port_id': port_id, 'br_name': self.br_name})
+        except Exception as error:
+            LOG.warn(_LW("Unable to parse interface details. Exception: %s"),
+                     error)
             return
 
     def delete_ports(self, all_ports=False):
@@ -519,7 +529,7 @@ class DeferredOVSBridge(object):
         if exc_type is None:
             self.apply_flows()
         else:
-            LOG.exception(_("OVS flows could not be applied on bridge %s"),
+            LOG.exception(_LE("OVS flows could not be applied on bridge %s"),
                           self.br.br_name)
 
 
@@ -529,7 +539,7 @@ def get_bridge_for_iface(root_helper, iface):
     try:
         return utils.execute(args, root_helper=root_helper).strip()
     except Exception:
-        LOG.exception(_("Interface %s not found."), iface)
+        LOG.exception(_LE("Interface %s not found."), iface)
         return None
 
 
@@ -540,7 +550,7 @@ def get_bridges(root_helper):
         return utils.execute(args, root_helper=root_helper).strip().split("\n")
     except Exception as e:
         with excutils.save_and_reraise_exception():
-            LOG.exception(_("Unable to retrieve bridges. Exception: %s"), e)
+            LOG.exception(_LE("Unable to retrieve bridges. Exception: %s"), e)
 
 
 def get_bridge_external_bridge_id(root_helper, bridge):
@@ -549,7 +559,7 @@ def get_bridge_external_bridge_id(root_helper, bridge):
     try:
         return utils.execute(args, root_helper=root_helper).strip()
     except Exception:
-        LOG.exception(_("Bridge %s not found."), bridge)
+        LOG.exception(_LE("Bridge %s not found."), bridge)
         return None
 
 

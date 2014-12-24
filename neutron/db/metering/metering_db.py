@@ -148,7 +148,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                        direction, excluded):
         r_ips = self.get_metering_label_rules(context,
                                               filters={'metering_label_id':
-                                                       label_id,
+                                                       [label_id],
                                                        'direction':
                                                        [direction],
                                                        'excluded':
@@ -158,8 +158,8 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         cidrs = [r['remote_ip_prefix'] for r in r_ips]
         new_cidr_ipset = netaddr.IPSet([remote_ip_prefix])
         if (netaddr.IPSet(cidrs) & new_cidr_ipset):
-            raise metering.MeteringLabelRuleOverlaps(remote_ip_prefix=
-                                                     remote_ip_prefix)
+            raise metering.MeteringLabelRuleOverlaps(
+                remote_ip_prefix=remote_ip_prefix)
 
     def create_metering_label_rule(self, context, metering_label_rule):
         m = metering_label_rule['metering_label_rule']

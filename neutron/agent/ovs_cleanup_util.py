@@ -16,11 +16,12 @@
 from oslo.config import cfg
 
 from neutron.agent.common import config as agent_config
-from neutron.agent import l3_agent
+from neutron.agent.l3 import agent
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.common import config
+from neutron.i18n import _LI
 from neutron.openstack.common import log as logging
 
 
@@ -44,7 +45,7 @@ def setup_conf():
 
     conf = cfg.CONF
     conf.register_cli_opts(opts)
-    conf.register_opts(l3_agent.L3NATAgent.OPTS)
+    conf.register_opts(agent.L3NATAgent.OPTS)
     conf.register_opts(interface.OPTS)
     agent_config.register_interface_driver_opts_helper(conf)
     agent_config.register_use_namespaces_opts_helper(conf)
@@ -70,7 +71,7 @@ def delete_neutron_ports(ports, root_helper):
         if ip_lib.device_exists(port):
             device = ip_lib.IPDevice(port, root_helper)
             device.link.delete()
-            LOG.info(_("Delete %s"), port)
+            LOG.info(_LI("Deleting port: %s"), port)
 
 
 def main():
@@ -100,11 +101,11 @@ def main():
                                   conf.AGENT.root_helper)
 
     for bridge in bridges:
-        LOG.info(_("Cleaning %s"), bridge)
+        LOG.info(_LI("Cleaning bridge: %s"), bridge)
         ovs = ovs_lib.OVSBridge(bridge, conf.AGENT.root_helper)
         ovs.delete_ports(all_ports=conf.ovs_all_ports)
 
     # Remove remaining ports created by Neutron (usually veth pair)
     delete_neutron_ports(ports, conf.AGENT.root_helper)
 
-    LOG.info(_("OVS cleanup completed successfully"))
+    LOG.info(_LI("OVS cleanup completed successfully"))

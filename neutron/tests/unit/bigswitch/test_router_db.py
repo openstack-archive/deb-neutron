@@ -61,6 +61,7 @@ class DHCPOptsTestCase(test_base.BigSwitchTestBase,
         self.setup_config_files()
         super(test_extradhcp.ExtraDhcpOptDBTestCase,
               self).setUp(plugin=self._plugin_name)
+        self.setup_db()
         self.startHttpPatch()
 
 
@@ -78,6 +79,7 @@ class RouterDBTestBase(test_base.BigSwitchTestBase,
         super(RouterDBTestBase, self).setUp(plugin=self._plugin_name,
                                             ext_mgr=ext_mgr,
                                             service_plugins=service_plugins)
+        self.setup_db()
         cfg.CONF.set_default('allow_overlapping_ips', False)
         self.plugin_obj = manager.NeutronManager.get_service_plugins().get(
             'L3_ROUTER_NAT')
@@ -134,6 +136,23 @@ class RouterDBTestCase(RouterDBTestBase,
                                                   p['port']['id'])
                     # remove extra port created
                     self._delete('ports', p2['port']['id'])
+
+    def test_add_network_to_ext_gw_backend_body(self):
+        plugin_obj = manager.NeutronManager.get_plugin()
+        with contextlib.nested(
+            self.network(), self.router()
+        ) as (n1, r1):
+            with self.subnet(network=n1, cidr='10.10.10.10/24') as s1:
+                self._set_net_external(s1['subnet']['network_id'])
+                with mock.patch.object(plugin_obj.servers,
+                                       'rest_update_router') as upmock:
+                    self._add_external_gateway_to_router(r1['router']['id'],
+                                                         n1['network']['id'])
+        router_body = upmock.mock_calls[0][1][1]
+        self.assertEqual(
+            plugin_obj.get_network(context.get_admin_context(),
+                                   n1['network']['id']),
+            router_body['external_gateway_info']['network'])
 
     def test_multi_tenant_flip_alllocation(self):
         tenant1_id = _uuid()

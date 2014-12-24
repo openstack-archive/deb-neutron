@@ -14,6 +14,7 @@
 
 import mock
 from oslo.config import cfg
+from oslo.utils import timeutils
 from webob import exc
 
 import neutron
@@ -23,7 +24,6 @@ from neutron.db import agents_db
 from neutron.db import common_db_mixin
 from neutron.extensions import providernet as pnet
 from neutron import manager
-from neutron.openstack.common import timeutils
 from neutron.plugins.cisco.common import cisco_constants as c_constants
 from neutron.plugins.cisco.db.l3 import device_handling_db
 from neutron.plugins.cisco.db.l3 import l3_router_appliance_db
@@ -203,10 +203,6 @@ class L3RouterApplianceVMTestCase(
             'neutron.db.l3_db.L3_NAT_dbonly_mixin._check_and_get_fip_assoc')
 
 
-class L3RouterApplianceVMTestCaseXML(L3RouterApplianceVMTestCase):
-    fmt = 'xml'
-
-
 class CfgAgentRouterApplianceVMTestCase(L3RouterApplianceTestCaseBase,
                                         test_l3_plugin.L3AgentDbTestCaseBase):
 
@@ -326,7 +322,7 @@ class RouterSchedulingTestCase(L3RouterApplianceTestCaseBase,
                 self.assertIsNotNone(hosting_device_1)
                 cfg_dh_rpc.report_non_responding_hosting_devices(
                     self.adminContext,
-                    host = None,
+                    host=None,
                     hosting_device_ids=[hosting_device_1['id']])
             self.assertEqual(1, mock_notify.call_count)
             mock_notify.assert_called_with(

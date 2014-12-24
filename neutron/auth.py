@@ -13,12 +13,12 @@
 #    under the License.
 
 from oslo.config import cfg
+from oslo.middleware import request_id
 import webob.dec
 import webob.exc
 
 from neutron import context
 from neutron.openstack.common import log as logging
-from neutron.openstack.common.middleware import request_id
 from neutron import wsgi
 
 LOG = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class NeutronKeystoneContext(wsgi.Middleware):
         # Determine the user ID
         user_id = req.headers.get('X_USER_ID')
         if not user_id:
-            LOG.debug(_("X_USER_ID is not found in request"))
+            LOG.debug("X_USER_ID is not found in request")
             return webob.exc.HTTPUnauthorized()
 
         # Determine the tenant

@@ -19,6 +19,9 @@ import datetime
 
 import mock
 from oslo.config import cfg
+from oslo.db import exception as db_exc
+from oslo import messaging
+from oslo.utils import timeutils
 from webob import exc
 
 from neutron.api import extensions
@@ -34,7 +37,6 @@ from neutron.extensions import agent
 from neutron.extensions import dhcpagentscheduler
 from neutron.extensions import l3agentscheduler
 from neutron import manager
-from neutron.openstack.common import timeutils
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
 from neutron.tests import fake_notifier
@@ -233,9 +235,10 @@ class OvsAgentSchedulerTestCaseBase(test_l3_plugin.L3NatTestCaseMixin,
         self.l3_notify_p = mock.patch(
             'neutron.extensions.l3agentscheduler.notify')
         self.patched_l3_notify = self.l3_notify_p.start()
-        self.l3_periodic_p = mock.patch('neutron.db.L3AgentSchedulerDbMixin.'
+        self.l3_periodic_p = mock.patch('neutron.db.l3_agentschedulers_db.'
+                                        'L3AgentSchedulerDbMixin.'
                                         'start_periodic_agent_status_check')
-        self.patched_l3_periodic = self.l3_notify_p.start()
+        self.patched_l3_periodic = self.l3_periodic_p.start()
         self.dhcp_notify_p = mock.patch(
             'neutron.extensions.dhcpagentscheduler.notify')
         self.patched_dhcp_notify = self.dhcp_notify_p.start()
@@ -647,6 +650,53 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
         agt_db = query.filter_by(host=host).first()
         agt_db.admin_state_up = state
         self.adminContext.session.commit()
+
+    def test_router_rescheduler_catches_rpc_db_and_reschedule_exceptions(self):
+        with self.router():
+            l3_rpc_cb = l3_rpc.L3RpcCallback()
+            self._register_agent_states()
+            # schedule the router to host A
+            l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA)
+
+            plugin = manager.NeutronManager.get_service_plugins().get(
+                service_constants.L3_ROUTER_NAT)
+            mock.patch.object(
+                plugin, 'reschedule_router',
+                side_effect=[
+                    db_exc.DBError(), messaging.RemoteError(),
+                    l3agentscheduler.RouterReschedulingFailed(router_id='f',
+                                                              agent_id='f'),
+                    ValueError('this raises')
+                ]).start()
+            # these first three should not raise any errors
+            self._take_down_agent_and_run_reschedule(L3_HOSTA)  # DBError
+            self._take_down_agent_and_run_reschedule(L3_HOSTA)  # RemoteError
+            self._take_down_agent_and_run_reschedule(L3_HOSTA)  # schedule err
+
+            # ValueError is not caught so it should raise
+            self.assertRaises(ValueError,
+                              self._take_down_agent_and_run_reschedule,
+                              L3_HOSTA)
+
+    def test_router_rescheduler_iterates_after_reschedule_failure(self):
+        plugin = manager.NeutronManager.get_service_plugins().get(
+            service_constants.L3_ROUTER_NAT)
+        l3_rpc_cb = l3_rpc.L3RpcCallback()
+        self._register_agent_states()
+        with contextlib.nested(self.router(), self.router()) as (r1, r2):
+            # schedule the routers to host A
+            l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA)
+
+            rs_mock = mock.patch.object(
+                plugin, 'reschedule_router',
+                side_effect=l3agentscheduler.RouterReschedulingFailed(
+                    router_id='f', agent_id='f'),
+            ).start()
+            self._take_down_agent_and_run_reschedule(L3_HOSTA)
+            # make sure both had a reschedule attempt even though first failed
+            rs_mock.assert_has_calls([mock.call(mock.ANY, r1['router']['id']),
+                                      mock.call(mock.ANY, r2['router']['id'])],
+                                     any_order=True)
 
     def test_router_is_not_rescheduled_from_alive_agent(self):
         with self.router():
@@ -1113,11 +1163,10 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
             self.saved_attr_map[resource] = attrs.copy()
         super(OvsDhcpAgentNotifierTestCase, self).setUp(self.plugin_str)
-        # the notifier is used to get access to make_msg() method only
         self.dhcp_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         self.dhcp_notifier_cast = mock.patch(
             'neutron.api.rpc.agentnotifiers.dhcp_rpc_agent_api.'
-            'DhcpAgentNotifyAPI.cast').start()
+            'DhcpAgentNotifyAPI._cast_message').start()
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
         self.adminContext = context.get_admin_context()
@@ -1143,11 +1192,8 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
             self._add_network_to_dhcp_agent(hosta_id,
                                             network_id)
         self.dhcp_notifier_cast.assert_called_with(
-            mock.ANY,
-            self.dhcp_notifier.make_msg(
-                'network_create_end',
-                payload={'network': {'id': network_id}}),
-            topic='dhcp_agent.' + DHCP_HOSTA)
+                mock.ANY, 'network_create_end',
+                {'network': {'id': network_id}}, DHCP_HOSTA)
         notifications = fake_notifier.NOTIFICATIONS
         expected_event_type = 'dhcp_agent.network.add'
         self._assert_notify(notifications, expected_event_type)
@@ -1164,11 +1210,8 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         self._remove_network_from_dhcp_agent(hosta_id,
                                              network_id)
         self.dhcp_notifier_cast.assert_called_with(
-            mock.ANY,
-            self.dhcp_notifier.make_msg(
-                'network_delete_end',
-                payload={'network_id': network_id}),
-            topic='dhcp_agent.' + DHCP_HOSTA)
+                mock.ANY, 'network_delete_end',
+                {'network_id': network_id}, DHCP_HOSTA)
         notifications = fake_notifier.NOTIFICATIONS
         expected_event_type = 'dhcp_agent.network.remove'
         self._assert_notify(notifications, expected_event_type)
@@ -1180,10 +1223,8 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         self._disable_agent(hosta_id, admin_state_up=False)
 
         self.dhcp_notifier_cast.assert_called_with(
-            mock.ANY, self.dhcp_notifier.make_msg(
-                'agent_updated',
-                payload={'admin_state_up': False}),
-            topic='dhcp_agent.' + DHCP_HOSTA)
+                mock.ANY, 'agent_updated',
+                {'admin_state_up': False}, DHCP_HOSTA)
 
     def _network_port_create(
         self, hosts, gateway=attributes.ATTR_NOT_SPECIFIED, owner=None):
@@ -1212,16 +1253,14 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
             expected_calls = [
                 mock.call(
                     mock.ANY,
-                    self.dhcp_notifier.make_msg(
-                        'network_create_end',
-                        payload={'network': {'id': net['network']['id']}}),
-                    topic='dhcp_agent.' + host),
+                    'network_create_end',
+                    {'network': {'id': net['network']['id']}},
+                    host),
                 mock.call(
                     mock.ANY,
-                    self.dhcp_notifier.make_msg(
-                        'port_create_end',
-                        payload={'port': port['port']}),
-                    topic='dhcp_agent.' + host)]
+                    'port_create_end',
+                    {'port': port['port']},
+                    host, 'dhcp_agent')]
             host_calls[host] = expected_calls
         return host_calls
 
@@ -1311,20 +1350,23 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         l3_plugin = (manager.NeutronManager.get_service_plugins()
                      [service_constants.L3_ROUTER_NAT])
         l3_notifier = l3_plugin.agent_notifiers[constants.AGENT_TYPE_L3]
-        with mock.patch.object(l3_notifier, 'cast') as mock_l3:
-            with self.router() as router1:
-                self._register_agent_states()
-                hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
-                                              L3_HOSTA)
-                self._add_router_to_l3_agent(hosta_id,
-                                             router1['router']['id'])
-                routers = [router1['router']['id']]
-            mock_l3.assert_called_with(
-                mock.ANY,
-                l3_notifier.make_msg(
-                    'router_added_to_agent',
-                    payload=routers),
-                topic='l3_agent.hosta')
+        with contextlib.nested(
+            mock.patch.object(l3_notifier.client, 'prepare',
+                              return_value=l3_notifier.client),
+            mock.patch.object(l3_notifier.client, 'cast'),
+            self.router(),
+        ) as (
+            mock_prepare, mock_cast, router1
+        ):
+            self._register_agent_states()
+            hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
+                                          L3_HOSTA)
+            self._add_router_to_l3_agent(hosta_id,
+                                         router1['router']['id'])
+            routers = [router1['router']['id']]
+            mock_prepare.assert_called_with(server='hosta')
+            mock_cast.assert_called_with(
+                mock.ANY, 'router_added_to_agent', payload=routers)
             notifications = fake_notifier.NOTIFICATIONS
             expected_event_type = 'l3_agent.router.add'
             self._assert_notify(notifications, expected_event_type)
@@ -1333,20 +1375,25 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         l3_plugin = (manager.NeutronManager.get_service_plugins()
                      [service_constants.L3_ROUTER_NAT])
         l3_notifier = l3_plugin.agent_notifiers[constants.AGENT_TYPE_L3]
-        with mock.patch.object(l3_notifier, 'cast') as mock_l3:
-            with self.router() as router1:
-                self._register_agent_states()
-                hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
-                                              L3_HOSTA)
-                self._add_router_to_l3_agent(hosta_id,
-                                             router1['router']['id'])
-                self._remove_router_from_l3_agent(hosta_id,
-                                                  router1['router']['id'])
-            mock_l3.assert_called_with(
-                mock.ANY, l3_notifier.make_msg(
-                    'router_removed_from_agent',
-                    payload={'router_id': router1['router']['id']}),
-                topic='l3_agent.hosta')
+        with contextlib.nested(
+            mock.patch.object(l3_notifier.client, 'prepare',
+                              return_value=l3_notifier.client),
+            mock.patch.object(l3_notifier.client, 'cast'),
+            self.router(),
+        ) as (
+            mock_prepare, mock_cast, router1
+        ):
+            self._register_agent_states()
+            hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
+                                          L3_HOSTA)
+            self._add_router_to_l3_agent(hosta_id,
+                                         router1['router']['id'])
+            self._remove_router_from_l3_agent(hosta_id,
+                                              router1['router']['id'])
+            mock_prepare.assert_called_with(server='hosta')
+            mock_cast.assert_called_with(
+                    mock.ANY, 'router_removed_from_agent',
+                    payload={'router_id': router1['router']['id']})
             notifications = fake_notifier.NOTIFICATIONS
             expected_event_type = 'l3_agent.router.remove'
             self._assert_notify(notifications, expected_event_type)
@@ -1355,16 +1402,19 @@ class OvsL3AgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
         l3_plugin = (manager.NeutronManager.get_service_plugins()
                      [service_constants.L3_ROUTER_NAT])
         l3_notifier = l3_plugin.agent_notifiers[constants.AGENT_TYPE_L3]
-        with mock.patch.object(l3_notifier, 'cast') as mock_l3:
+        with contextlib.nested(
+            mock.patch.object(l3_notifier.client, 'prepare',
+                              return_value=l3_notifier.client),
+            mock.patch.object(l3_notifier.client, 'cast'),
+        ) as (
+            mock_prepare, mock_cast
+        ):
             self._register_agent_states()
             hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3,
                                           L3_HOSTA)
             self._disable_agent(hosta_id, admin_state_up=False)
-            mock_l3.assert_called_with(
-                mock.ANY, l3_notifier.make_msg(
-                    'agent_updated', payload={'admin_state_up': False}),
-                topic='l3_agent.hosta')
 
+            mock_prepare.assert_called_with(server='hosta')
 
-class OvsAgentSchedulerTestCaseXML(OvsAgentSchedulerTestCase):
-    fmt = 'xml'
+            mock_cast.assert_called_with(
+                mock.ANY, 'agent_updated', payload={'admin_state_up': False})

@@ -27,8 +27,6 @@ DEFAULT_TUNNEL_TYPES = []
 ovs_opts = [
     cfg.StrOpt('integration_bridge', default='br-int',
                help=_("Integration bridge to use.")),
-    cfg.BoolOpt('enable_tunneling', default=False,
-                help=_("Enable tunneling support.")),
     cfg.StrOpt('tunnel_bridge', default='br-tun',
                help=_("Tunnel bridge to use.")),
     cfg.StrOpt('int_peer_patch_port', default='patch-tun',
@@ -37,25 +35,12 @@ ovs_opts = [
     cfg.StrOpt('tun_peer_patch_port', default='patch-int',
                help=_("Peer patch port in tunnel bridge for integration "
                       "bridge.")),
-    cfg.StrOpt('local_ip', default='',
-               help=_("Local IP address of GRE tunnel endpoints.")),
+    cfg.IPOpt('local_ip', version=4,
+              help=_("Local IP address of tunnel endpoint.")),
     cfg.ListOpt('bridge_mappings',
                 default=DEFAULT_BRIDGE_MAPPINGS,
                 help=_("List of <physical_network>:<bridge>. "
                        "Deprecated for ofagent.")),
-    cfg.StrOpt('tenant_network_type', default='local',
-               help=_("Network type for tenant networks "
-                      "(local, vlan, gre, vxlan, or none).")),
-    cfg.ListOpt('network_vlan_ranges',
-                default=DEFAULT_VLAN_RANGES,
-                help=_("List of <physical_network>:<vlan_min>:<vlan_max> "
-                       "or <physical_network>.")),
-    cfg.ListOpt('tunnel_id_ranges',
-                default=DEFAULT_TUNNEL_RANGES,
-                help=_("List of <tun_min>:<tun_max>.")),
-    cfg.StrOpt('tunnel_type', default='',
-               help=_("The type of tunnels to use when utilizing tunnels, "
-                      "either 'gre' or 'vxlan'.")),
     cfg.BoolOpt('use_veth_interconnection', default=False,
                 help=_("Use veths instead of patch ports to interconnect the "
                        "integration bridge to physical bridges.")),

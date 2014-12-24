@@ -21,6 +21,8 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
+from oslo import messaging
+
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
@@ -29,15 +31,16 @@ from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
 from neutron.extensions import securitygroup as ext_sg
+from neutron.i18n import _LE, _LI
 from neutron.openstack.common import log as logging
 from neutron.plugins.oneconvergence.lib import config
 
 LOG = logging.getLogger(__name__)
 
 
-class NVSDAgentRpcCallback(n_rpc.RpcCallback):
+class NVSDAgentRpcCallback(object):
 
-    RPC_API_VERSION = '1.0'
+    target = messaging.Target(version='1.0')
 
     def __init__(self, context, agent, sg_agent):
         super(NVSDAgentRpcCallback, self).__init__()
@@ -46,7 +49,7 @@ class NVSDAgentRpcCallback(n_rpc.RpcCallback):
         self.sg_agent = sg_agent
 
     def port_update(self, context, **kwargs):
-        LOG.debug(_("port_update received: %s"), kwargs)
+        LOG.debug("port_update received: %s", kwargs)
         port = kwargs.get('port')
         # Validate that port is on OVS
         vif_port = self.agent.int_br.get_vif_port_by_id(port['id'])
@@ -57,18 +60,17 @@ class NVSDAgentRpcCallback(n_rpc.RpcCallback):
             self.sg_agent.refresh_firewall()
 
 
-class SecurityGroupServerRpcApi(n_rpc.RpcProxy,
-                                sg_rpc.SecurityGroupServerRpcApiMixin):
+class SecurityGroupServerRpcApi(sg_rpc.SecurityGroupServerRpcApiMixin):
+
     def __init__(self, topic):
-        super(SecurityGroupServerRpcApi, self).__init__(
-            topic=topic, default_version=sg_rpc.SG_RPC_VERSION)
+        self.topic = topic
+        target = messaging.Target(topic=topic, version=sg_rpc.SG_RPC_VERSION)
+        self.client = n_rpc.get_client(target)
 
 
-class SecurityGroupAgentRpcCallback(
-    n_rpc.RpcCallback,
-    sg_rpc.SecurityGroupAgentRpcCallbackMixin):
+class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
-    RPC_API_VERSION = sg_rpc.SG_RPC_VERSION
+    target = messaging.Target(version=sg_rpc.SG_RPC_VERSION)
 
     def __init__(self, context, sg_agent):
         super(SecurityGroupAgentRpcCallback, self).__init__()
@@ -86,11 +88,11 @@ class SecurityGroupAgentRpc(sg_rpc.SecurityGroupAgentRpcMixin):
         self.init_firewall()
 
 
-class NVSDNeutronAgent(n_rpc.RpcCallback):
+class NVSDNeutronAgent(object):
     # history
     #   1.0 Initial version
     #   1.1 Support Security Group RPC
-    RPC_API_VERSION = '1.1'
+    target = messaging.Target(version='1.1')
 
     def __init__(self, integ_br, root_helper, polling_interval):
         super(NVSDNeutronAgent, self).__init__()
@@ -104,7 +106,7 @@ class NVSDNeutronAgent(n_rpc.RpcCallback):
 
         self.host = socket.gethostname()
         self.agent_id = 'nvsd-q-agent.%s' % self.host
-        LOG.info(_("RPC agent_id: %s"), self.agent_id)
+        LOG.info(_LI("RPC agent_id: %s"), self.agent_id)
 
         self.topic = topics.AGENT
         self.context = n_context.get_admin_context_without_session()
@@ -149,14 +151,14 @@ class NVSDNeutronAgent(n_rpc.RpcCallback):
             try:
                 port_info = self._update_ports(ports)
                 if port_info:
-                    LOG.debug(_("Port list is updated"))
+                    LOG.debug("Port list is updated")
                     self._process_devices_filter(port_info)
                     ports = port_info['current']
                     self.ports = ports
             except Exception:
-                LOG.exception(_("Error in agent event loop"))
+                LOG.exception(_LE("Error in agent event loop"))
 
-            LOG.debug(_("AGENT looping....."))
+            LOG.debug("AGENT looping.....")
             time.sleep(self.polling_interval)
 
 
@@ -168,7 +170,7 @@ def main():
     root_helper = config.AGENT.root_helper
     polling_interval = config.AGENT.polling_interval
     agent = NVSDNeutronAgent(integ_br, root_helper, polling_interval)
-    LOG.info(_("NVSD Agent initialized successfully, now running... "))
+    LOG.info(_LI("NVSD Agent initialized successfully, now running... "))
 
     # Start everything.
     agent.daemon_loop()

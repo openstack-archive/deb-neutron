@@ -15,22 +15,17 @@
 import collections
 import mock
 from oslo.config import cfg
+from oslo.serialization import jsonutils
 import testtools
 
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
 from neutron.common import exceptions
-from neutron.openstack.common import jsonutils
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests import base
 from neutron.tests import tools
 
-try:
-    OrderedDict = collections.OrderedDict
-except AttributeError:
-    import ordereddict
-    OrderedDict = ordereddict.OrderedDict
 
 OVS_LINUX_KERN_VERS_WITHOUT_VXLAN = "3.12.0"
 
@@ -218,6 +213,27 @@ class OVS_Lib_Test(base.BaseTestCase):
     def _build_timeout_opt(self, exp_timeout):
         return "--timeout=%d" % exp_timeout if exp_timeout else self.TO
 
+    def test_replace_port(self):
+        pname = "tap5"
+        self.br.replace_port(pname)
+        self.execute.assert_called_once_with(
+            ["ovs-vsctl", self.TO,
+             "--", "--if-exists", "del-port", pname,
+             "--", "add-port", self.BR_NAME, pname],
+            root_helper=self.root_helper)
+
+    def test_replace_port_with_attrs(self):
+        pname = "tap5"
+        self.br.replace_port(pname, ('type', 'internal'),
+                             ('external-ids:iface-status', 'active'))
+        self.execute.assert_called_once_with(
+            ["ovs-vsctl", self.TO,
+             "--", "--if-exists", "del-port", pname,
+             "--", "add-port", self.BR_NAME, pname,
+             "--", "set", "Interface", pname,
+             "type=internal", "external-ids:iface-status=active"],
+            root_helper=self.root_helper)
+
     def _test_delete_port(self, exp_timeout=None):
         exp_timeout_str = self._build_timeout_opt(exp_timeout)
         pname = "tap5"
@@ -244,26 +260,30 @@ class OVS_Lib_Test(base.BaseTestCase):
         lsw_id = 18
         cidr = '192.168.1.0/24'
 
-        flow_dict_1 = OrderedDict([('priority', 2),
-                                   ('dl_src', 'ca:fe:de:ad:be:ef'),
-                                   ('actions', 'strip_vlan,output:0')])
-        flow_dict_2 = OrderedDict([('priority', 1),
-                                   ('actions', 'normal')])
-        flow_dict_3 = OrderedDict([('priority', 2),
-                                   ('actions', 'drop')])
-        flow_dict_4 = OrderedDict([('priority', 2),
-                                   ('in_port', ofport),
-                                   ('actions', 'drop')])
-        flow_dict_5 = OrderedDict([
+        flow_dict_1 = collections.OrderedDict([
+            ('priority', 2),
+            ('dl_src', 'ca:fe:de:ad:be:ef'),
+            ('actions', 'strip_vlan,output:0')])
+        flow_dict_2 = collections.OrderedDict([
+            ('priority', 1),
+            ('actions', 'normal')])
+        flow_dict_3 = collections.OrderedDict([
+            ('priority', 2),
+            ('actions', 'drop')])
+        flow_dict_4 = collections.OrderedDict([
+            ('priority', 2),
+            ('in_port', ofport),
+            ('actions', 'drop')])
+        flow_dict_5 = collections.OrderedDict([
             ('priority', 4),
             ('in_port', ofport),
             ('dl_vlan', vid),
             ('actions', "strip_vlan,set_tunnel:%s,normal" % (lsw_id))])
-        flow_dict_6 = OrderedDict([
+        flow_dict_6 = collections.OrderedDict([
             ('priority', 3),
             ('tun_id', lsw_id),
             ('actions', "mod_vlan_vid:%s,output:%s" % (vid, ofport))])
-        flow_dict_7 = OrderedDict([
+        flow_dict_7 = collections.OrderedDict([
             ('priority', 4),
             ('nw_src', cidr),
             ('proto', 'arp'),
@@ -320,10 +340,11 @@ class OVS_Lib_Test(base.BaseTestCase):
         self.execute.assert_has_calls(expected_calls)
 
     def test_add_flow_timeout_set(self):
-        flow_dict = OrderedDict([('priority', 1),
-                                 ('hard_timeout', 1000),
-                                 ('idle_timeout', 2000),
-                                 ('actions', 'normal')])
+        flow_dict = collections.OrderedDict([
+            ('priority', 1),
+            ('hard_timeout', 1000),
+            ('idle_timeout', 2000),
+            ('actions', 'normal')])
 
         self.br.add_flow(**flow_dict)
         self.execute.assert_called_once_with(
@@ -333,7 +354,7 @@ class OVS_Lib_Test(base.BaseTestCase):
             root_helper=self.root_helper)
 
     def test_add_flow_default_priority(self):
-        flow_dict = OrderedDict([('actions', 'normal')])
+        flow_dict = collections.OrderedDict([('actions', 'normal')])
 
         self.br.add_flow(**flow_dict)
         self.execute.assert_called_once_with(
@@ -822,8 +843,10 @@ class OVS_Lib_Test(base.BaseTestCase):
             with testtools.ExpectedException(Exception):
                 self.br.get_local_port_mac()
 
-    def _test_get_vif_port_by_id(self, iface_id, data, br_name=None):
+    def _test_get_vif_port_by_id(self, iface_id, data, br_name=None,
+                                 extra_calls_and_values=None):
         headings = ['external_ids', 'name', 'ofport']
+
         # Each element is a tuple of (expected mock call, return_value)
         expected_calls_and_values = [
             (mock.call(["ovs-vsctl", self.TO, "--format=json",
@@ -836,9 +859,15 @@ class OVS_Lib_Test(base.BaseTestCase):
             if not br_name:
                 br_name = self.BR_NAME
 
+            # Only the last information list in 'data' is used, so if more
+            # than one vif is described in data, the rest must be declared
+            # in the argument 'expected_calls_and_values'.
+            if extra_calls_and_values:
+                expected_calls_and_values.extend(extra_calls_and_values)
+
             expected_calls_and_values.append(
                 (mock.call(["ovs-vsctl", self.TO,
-                            "iface-to-br", data[0][headings.index('name')]],
+                            "iface-to-br", data[-1][headings.index('name')]],
                            root_helper=self.root_helper),
                  br_name))
         tools.setup_mock_calls(self.execute, expected_calls_and_values)
@@ -846,6 +875,15 @@ class OVS_Lib_Test(base.BaseTestCase):
 
         tools.verify_mock_calls(self.execute, expected_calls_and_values)
         return vif_port
+
+    def _assert_vif_port(self, vif_port, ofport=None, mac=None):
+        if not ofport or ofport == -1 or not mac:
+            self.assertIsNone(vif_port)
+            return
+        self.assertEqual('tap99id', vif_port.vif_id)
+        self.assertEqual(mac, vif_port.vif_mac)
+        self.assertEqual('tap99', vif_port.port_name)
+        self.assertEqual(ofport, vif_port.ofport)
 
     def _test_get_vif_port_by_id_with_data(self, ofport=None, mac=None):
         external_ids = [["iface-id", "tap99id"],
@@ -855,13 +893,7 @@ class OVS_Lib_Test(base.BaseTestCase):
         data = [[["map", external_ids], "tap99",
                  ofport if ofport else '["set",[]]']]
         vif_port = self._test_get_vif_port_by_id('tap99id', data)
-        if not ofport or ofport == -1 or not mac:
-            self.assertIsNone(vif_port)
-            return
-        self.assertEqual(vif_port.vif_id, 'tap99id')
-        self.assertEqual(vif_port.vif_mac, 'aa:bb:cc:dd:ee:ff')
-        self.assertEqual(vif_port.port_name, 'tap99')
-        self.assertEqual(vif_port.ofport, ofport)
+        self._assert_vif_port(vif_port, ofport, mac)
 
     def test_get_vif_by_port_id_with_ofport(self):
         self._test_get_vif_port_by_id_with_data(
@@ -886,6 +918,22 @@ class OVS_Lib_Test(base.BaseTestCase):
         data = [[["map", external_ids], "tap99", 1]]
         self.assertIsNone(self._test_get_vif_port_by_id('tap99id', data,
                                                         "br-ext"))
+
+    def test_get_vif_by_port_id_multiple_vifs(self):
+        external_ids = [["iface-id", "tap99id"],
+                        ["iface-status", "active"],
+                        ["attached-mac", "de:ad:be:ef:13:37"]]
+        data = [[["map", external_ids], "dummytap", 1],
+                [["map", external_ids], "tap99", 1337]]
+        extra_calls_and_values = [
+                (mock.call(["ovs-vsctl", self.TO,
+                            "iface-to-br", "dummytap"],
+                           root_helper=self.root_helper),
+                 "br-ext")]
+
+        vif_port = self._test_get_vif_port_by_id(
+                'tap99id', data, extra_calls_and_values=extra_calls_and_values)
+        self._assert_vif_port(vif_port, ofport=1337, mac="de:ad:be:ef:13:37")
 
 
 class TestDeferredOVSBridge(base.BaseTestCase):

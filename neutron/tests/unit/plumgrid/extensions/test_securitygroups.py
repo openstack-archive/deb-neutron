@@ -18,8 +18,8 @@ PLUMgrid plugin security group extension unit tests
 """
 
 import mock
+from oslo.utils import importutils
 
-from neutron.openstack.common import importutils
 from neutron.plugins.plumgrid.plumgrid_plugin import plumgrid_plugin
 from neutron.tests.unit import test_extension_security_group as ext_sg
 
@@ -60,8 +60,3 @@ class SecurityGroupsTestCase(ext_sg.SecurityGroupDBTestCase):
 class TestSecurityGroups(ext_sg.TestSecurityGroups, SecurityGroupsTestCase):
 
     pass
-
-
-class TestSecurityGroupsXML(TestSecurityGroups):
-
-    fmt = 'xml'

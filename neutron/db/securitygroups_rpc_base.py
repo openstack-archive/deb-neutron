@@ -14,6 +14,7 @@
 #    under the License.
 
 import netaddr
+from sqlalchemy import or_
 from sqlalchemy.orm import exc
 
 from neutron.common import constants as q_const
@@ -23,6 +24,7 @@ from neutron.db import allowedaddresspairs_db as addr_pair
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sg_db
 from neutron.extensions import securitygroup as ext_sg
+from neutron.i18n import _LW
 from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
@@ -344,21 +346,22 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         return ips
 
     def _get_lla_gateway_ip_for_subnet(self, context, subnet):
-        query = context.session.query(models_v2.Port)
+        query = context.session.query(models_v2.Port.mac_address)
         query = query.join(models_v2.IPAllocation)
         query = query.filter(
             models_v2.IPAllocation.subnet_id == subnet['id'])
         query = query.filter(
             models_v2.IPAllocation.ip_address == subnet['gateway_ip'])
-        query = query.filter(models_v2.Port.device_owner ==
-                             q_const.DEVICE_OWNER_ROUTER_INTF)
+        query = query.filter(or_(models_v2.Port.device_owner ==
+                             q_const.DEVICE_OWNER_ROUTER_INTF,
+                                 models_v2.Port.device_owner ==
+                             q_const.DEVICE_OWNER_DVR_INTERFACE))
         try:
-            gateway_port = query.one()
+            mac_address = query.one()[0]
         except (exc.NoResultFound, exc.MultipleResultsFound):
-            LOG.warn(_('No valid gateway port on subnet %s is '
-                       'found for IPv6 RA'), subnet['id'])
+            LOG.warn(_LW('No valid gateway port on subnet %s is '
+                         'found for IPv6 RA'), subnet['id'])
             return
-        mac_address = gateway_port['mac_address']
         lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
             q_const.IPV6_LLA_PREFIX,
             mac_address))

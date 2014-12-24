@@ -368,18 +368,20 @@ class APIv2TestCase(APIv2TestBase):
         calls = []
         instance = self.plugin.return_value
         instance.get_networks.return_value = []
+
         self.api.get(_get_path('networks'),
                      {'page_reverse': 'True'})
         kwargs = self._get_collection_kwargs(page_reverse=True)
         calls.append(mock.call.get_networks(mock.ANY, **kwargs))
         instance.get_networks.assert_called_once_with(mock.ANY, **kwargs)
 
-        instance = self.plugin.return_value
-        instance.get_networks.return_value = []
+        instance.get_networks.reset_mock()
+
         self.api.get(_get_path('networks'),
                      {'page_reverse': 'False'})
         kwargs = self._get_collection_kwargs(page_reverse=False)
         calls.append(mock.call.get_networks(mock.ANY, **kwargs))
+        instance.get_networks.assert_called_once_with(mock.ANY, **kwargs)
 
     def test_page_reverse_with_non_bool(self):
         instance = self.plugin.return_value
@@ -1026,14 +1028,13 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         tenant_id = _uuid()
         # Inject rule in policy engine
         policy.init()
-        common_policy._rules['get_network:name'] = common_policy.parse_rule(
-            "rule:admin_only")
+        self.addCleanup(policy.reset)
+        rules = {'get_network:name': common_policy.parse_rule(
+            "rule:admin_only")}
+        policy.set_rules(rules, overwrite=False)
         res = self._test_get(tenant_id, tenant_id, 200)
         res = self.deserialize(res)
-        try:
-            self.assertNotIn('name', res['network'])
-        finally:
-            del common_policy._rules['get_network:name']
+        self.assertNotIn('name', res['network'])
 
     def _test_update(self, req_tenant_id, real_tenant_id, expected_code,
                      expect_errors=False):
@@ -1196,10 +1197,6 @@ class SubresourceTest(base.BaseTestCase, testlib_plugin.PluginSetupHelper):
 
 # Note: since all resources use the same controller and validation
 # logic, we actually get really good coverage from testing just networks.
-class XMLV2TestCase(JSONV2TestCase):
-    fmt = 'xml'
-
-
 class V2Views(base.BaseTestCase):
     def _view(self, keys, collection, resource):
         data = dict((key, 'value') for key in keys)
