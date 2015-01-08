@@ -7,28 +7,28 @@
 # Even minor modifications require translation updates and such
 # changes should be coordinated with translators and reviewers.
 
-Template: neutron/auth-host
+Template: neutron-metadata/auth-host
 Type: string
 Default: 127.0.0.1
 _Description: Auth server hostname:
  Please specify the URL of your Neutron authentication server. Typically
  this is also the URL of your OpenStack Identity Service (Keystone).
 
-Template: neutron/admin-tenant-name
+Template: neutron-metadata/admin-tenant-name
 Type: string
 Default: admin
 _Description: Auth server tenant name:
 
-Template: neutron/admin-user
+Template: neutron-metadata/admin-user
 Type: string
 Default: admin
 _Description: Auth server username:
 
-Template: neutron/admin-password
+Template: neutron-metadata/admin-password
 Type: password
 _Description: Auth server password:
 
-Template: neutron/region-name
+Template: neutron-metadata/region-name
 Type: string
 Default: regionOne
 _Description: Name of the region to be used by the metadata server:
