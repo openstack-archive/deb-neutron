@@ -1,6 +1,8 @@
 neutron (2014.1.3-11) unstable; urgency=medium
 
   * Use separate debconf variables for the metadata server (Closes: #774792).
+  * Rebuilding with openstack-pkg-tools (>= 22~) to make sure daemons are
+    started automatically at first install.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 08 Jan 2015 14:16:37 +0000
 
