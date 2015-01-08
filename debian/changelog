@@ -1,6 +1,6 @@
 neutron (2014.1.3-11) unstable; urgency=medium
 
-  * Use separate debconf variables for the metadata server (Closes: #774792).
+  * Use separate debconf variables for the metadata server (Closes: #774788).
   * Rebuilding with openstack-pkg-tools (>= 22~) to make sure daemons are
     started automatically at first install.
 
@@ -8,7 +8,7 @@ neutron (2014.1.3-11) unstable; urgency=medium
 
 neutron (2014.1.3-10) unstable; urgency=medium
 
-  * Sets neutron/configure_db default value to false (Closes: #770944).
+  * Sets neutron/configure_db default value to false (Closes: #774792).
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 08 Jan 2015 00:05:56 +0100
 
