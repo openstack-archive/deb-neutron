@@ -7,7 +7,7 @@ CONF_FILE=/etc/neutron/metadata_agent.ini
 #PKGOS-INCLUDE#
 
 manage_metadata_region () {
-	db_get neutron/region-name
+	db_get neutron-metadata/region-name
 	if [ -n "${RET}" ] ; then
 		pkgos_inifile set ${CONF_FILE} DEFAULT auth_region ${RET}
 	fi
@@ -21,7 +21,7 @@ if [ "${1}" = "configure" ] ; then
 	if [ ! -e ${CONF_FILE} ] ; then
 		install -D -m 0640 -o neutron -g neutron /usr/share/neutron-metadata-agent/metadata_agent.ini ${CONF_FILE}
 	fi
-	pkgos_write_admin_creds ${CONF_FILE} DEFAULT neutron
+	pkgos_write_admin_creds ${CONF_FILE} DEFAULT neutron-metadata
 	manage_metadata_region
 	db_stop
 fi
