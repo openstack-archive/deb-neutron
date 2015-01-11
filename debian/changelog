@@ -1,3 +1,9 @@
+neutron (2014.1.3-12) unstable; urgency=medium
+
+  * Added conntrack as dependency of neutron-l3-agent (Closes: #775133).
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 11 Jan 2015 23:56:26 +0100
+
 neutron (2014.1.3-11) unstable; urgency=medium
 
   * Use separate debconf variables for the metadata server (Closes: #774788).
