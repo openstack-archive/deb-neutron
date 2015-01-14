@@ -81,11 +81,11 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	# Set the keystone_authtoken directive
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
 
-	# Set the sql_connection directive
-        pkgos_dbc_postinst --suite neutron ${N_CONF} database connection neutron $@
 
 	db_get neutron/configure_db
 	if [ "$RET" = "true" ] ; then
+		# Set the sql_connection directive
+	        pkgos_dbc_postinst --suite neutron ${N_CONF} database connection neutron $@
 		# Migrating to latest release of the db
 		neutron-db-manage --config-file /etc/neutron/neutron.conf upgrade head
 	fi
