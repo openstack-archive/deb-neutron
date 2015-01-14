@@ -1,6 +1,7 @@
 neutron (2014.2.1-2) experimental; urgency=medium
 
   * Rename the used template for neutron-metadata-agent.
+  * neutron/configure_db set to false by default.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 15 Jan 2015 00:34:03 +0100
 
