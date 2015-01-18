@@ -1,0 +1,377 @@
+Description: Better config defaults
+ This patch makes the default config closer to the install-guide, in order to
+ minimize the efforts needed to be done by newbies.
+Author: Thomas Goirand <zigo@debian.org>
+Forwarded: not-needed
+Last-Update: 2014-01-18
+
+--- neutron-2014.2.1.orig/etc/l3_agent.ini
++++ neutron-2014.2.1/etc/l3_agent.ini
+@@ -4,11 +4,10 @@
+ 
+ # L3 requires that an interface driver be set. Choose the one that best
+ # matches your plugin.
+-# interface_driver =
+ 
+ # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
+ # that supports L3 agent
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
+@@ -20,7 +19,7 @@
+ 
+ # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
+ # iproute2 package that supports namespaces).
+-# use_namespaces = True
++use_namespaces = True
+ 
+ # If use_namespaces is set as False then the agent can only configure one router.
+ 
+@@ -43,7 +42,7 @@
+ # Name of bridge used for external network traffic. This should be set to
+ # empty value for the linux bridge. when this parameter is set, each L3 agent
+ # can be associated with no more than one external network.
+-# external_network_bridge = br-ex
++external_network_bridge = br-ex
+ 
+ # TCP Port used by Neutron metadata server
+ # metadata_port = 9697
+--- neutron-2014.2.1.orig/etc/dhcp_agent.ini
++++ neutron-2014.2.1/etc/dhcp_agent.ini
+@@ -9,11 +9,10 @@
+ 
+ # The DHCP agent requires an interface driver be set. Choose the one that best
+ # matches your plugin.
+-# interface_driver =
+ 
+ # Example of interface_driver option for OVS based plugins(OVS, Ryu, NEC, NVP,
+ # BigSwitch/Floodlight)
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Name of Open vSwitch bridge to use
+ # ovs_integration_bridge = br-int
+@@ -28,11 +27,11 @@
+ 
+ # The agent can use other DHCP drivers.  Dnsmasq is the simplest and requires
+ # no additional setup of the DHCP server.
+-# dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
++dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
+ 
+ # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
+ # iproute2 package that supports namespaces).
+-# use_namespaces = True
++use_namespaces = True
+ 
+ # The DHCP server can assist with providing metadata support on isolated
+ # networks. Setting this value to True will cause the DHCP server to append
+@@ -60,7 +59,7 @@
+ # dhcp_domain = openstacklocal
+ 
+ # Override the default dnsmasq settings with this file
+-# dnsmasq_config_file =
++dnsmasq_config_file = /etc/neutron/dnsmasq-neutron.conf
+ 
+ # Comma-separated list of DNS servers which will be used by dnsmasq
+ # as forwarders.
+--- neutron-2014.2.1.orig/etc/neutron.conf
++++ neutron-2014.2.1/etc/neutron.conf
+@@ -60,8 +60,8 @@ lock_path = $state_path/lock
+ # previous versions, the class name of a plugin can be specified instead of its
+ # entrypoint name.
+ #
+-# core_plugin =
+ # Example: core_plugin = ml2
++core_plugin = neutron.plugins.ml2.plugin.Ml2Plugin
+ 
+ # (ListOpt) List of service plugin entrypoints to be loaded from the
+ # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of
+@@ -69,15 +69,15 @@ lock_path = $state_path/lock
+ # with previous versions, the class name of a plugin can be specified instead
+ # of its entrypoint name.
+ #
+-# service_plugins =
+ # Example: service_plugins = router,firewall,lbaas,vpnaas,metering
++service_plugins = neutron.services.loadbalancer.plugin.LoadBalancerPlugin,neutron.services.metering.metering_plugin.MeteringPlugin,neutron.services.l3_router.l3_router_plugin.L3RouterPlugin
+ 
+ # Paste configuration file
+ # api_paste_config = api-paste.ini
+ 
+ # The strategy to be used for auth.
+ # Supported values are 'keystone'(default), 'noauth'.
+-# auth_strategy = keystone
++auth_strategy = keystone
+ 
+ # Base MAC address. The first 3 octets will remain unchanged. If the
+ # 4h octet is not 00, it will also be used. The others will be
+@@ -114,7 +114,7 @@ lock_path = $state_path/lock
+ # Enable or disable overlapping IPs for subnets
+ # Attention: the following parameter MUST be set to False if Neutron is
+ # being used in conjunction with nova security groups
+-# allow_overlapping_ips = False
++allow_overlapping_ips = True
+ # Ensure that configured gateway is on subnet. For IPv6, validate only if
+ # gateway is not a link local address. Deprecated, to be removed during the
+ # K release, at which point the check will be mandatory.
+@@ -233,20 +233,20 @@ lock_path = $state_path/lock
+ 
+ # ======== neutron nova interactions ==========
+ # Send notification to nova when port status is active.
+-# notify_nova_on_port_status_changes = True
++notify_nova_on_port_status_changes = True
+ 
+ # Send notifications to nova when port data (fixed_ips/floatingips) change
+ # so nova can update it's cache.
+-# notify_nova_on_port_data_changes = True
++notify_nova_on_port_data_changes = True
+ 
+ # URL for connection to nova (Only supports one nova region currently).
+ # nova_url = http://127.0.0.1:8774/v2
+ 
+ # Name of nova region to use. Useful if keystone manages more than one region
+-# nova_region_name =
++nova_region_name = regionOne
+ 
+ # Username for connection to nova in admin context
+-# nova_admin_username =
++nova_admin_username = admin
+ 
+ # The uuid of the admin nova tenant
+ # nova_admin_tenant_id =
+@@ -340,7 +340,7 @@ lock_path = $state_path/lock
+ 
+ # The RabbitMQ broker address where a single node is used.
+ # (string value)
+-#rabbit_host=localhost
++rabbit_host=localhost
+ 
+ # The RabbitMQ broker port where a single node is used.
+ # (integer value)
+@@ -353,10 +353,10 @@ lock_path = $state_path/lock
+ #rabbit_use_ssl=false
+ 
+ # The RabbitMQ userid. (string value)
+-#rabbit_userid=guest
++rabbit_userid=guest
+ 
+ # The RabbitMQ password. (string value)
+-#rabbit_password=guest
++rabbit_password=guest
+ 
+ # the RabbitMQ login method (string value)
+ #rabbit_login_method=AMQPLAIN
+@@ -441,7 +441,7 @@ lock_path = $state_path/lock
+ 
+ # The messaging driver to use, defaults to rabbit. Other
+ # drivers include qpid and zmq. (string value)
+-#rpc_backend=rabbit
++rpc_backend=rabbit
+ 
+ # The default exchange under which topics are scoped. May be
+ # overridden by an exchange name specified in the
+@@ -543,7 +543,7 @@ lock_path = $state_path/lock
+ # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
+ # root filter facility.
+ # Change to "sudo" to skip the filtering and just run the comand directly
+-# root_helper = sudo
++root_helper = sudo neutron-rootwrap /etc/neutron/rootwrap.conf
+ 
+ # =========== items for agent management extension =============
+ # seconds between nodes reporting state to server; should be less than
+@@ -563,14 +563,13 @@ admin_password = %SERVICE_PASSWORD%
+ [database]
+ # This line MUST be changed to actually run the plugin.
+ # Example:
+-# connection = mysql://root:pass@127.0.0.1:3306/neutron
+ # Replace 127.0.0.1 above with the IP address of the database used by the
+ # main neutron server. (Leave it as is if the database runs on this host.)
+-# connection = sqlite://
+ # NOTE: In deployment the [database] section and its connection attribute may
+ # be set in the corresponding core plugin '.ini' file. However, it is suggested
+ # to put the [database] section and its connection attribute in this
+ # configuration file.
++connection = sqlite:///var/lib/neutron/neutrondb
+ 
+ # Database engine for which script will be generated when using offline
+ # migration
+--- neutron-2014.2.1.orig/etc/lbaas_agent.ini
++++ neutron-2014.2.1/etc/lbaas_agent.ini
+@@ -9,11 +9,10 @@
+ 
+ # LBaas requires an interface driver be set. Choose the one that best
+ # matches your plugin.
+-# interface_driver =
+ 
+ # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC, NVP,
+ # BigSwitch/Floodlight)
+-# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
+--- neutron-2014.2.1.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2014.2.1/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+@@ -30,7 +30,7 @@
+ #          point setting tunnel_type below will be required to enable
+ #          tunneling.
+ #
+-# enable_tunneling = False
++enable_tunneling = True
+ 
+ # (StrOpt) The type of tunnel network, if any, supported by the plugin. If
+ # this is set, it will cause tunneling to be enabled. If this is not set and
+@@ -53,7 +53,7 @@
+ # attached to this bridge and then "patched" according to their network
+ # connectivity.
+ #
+-# integration_bridge = br-int
++integration_bridge = br-int
+ 
+ # Only used for the agent if tunnel_id_ranges (above) is not empty for
+ # the server.  In most cases, the default value should be fine.
+@@ -80,8 +80,8 @@
+ # port. All physical networks listed in network_vlan_ranges on the
+ # server should have mappings to appropriate bridges on each agent.
+ #
+-# bridge_mappings =
+ # Example: bridge_mappings = physnet1:br-eth1
++bridge_mappings = ext-net:br-ex
+ 
+ # (BoolOpt) Use veths instead of patch ports to interconnect the integration
+ # bridge to physical networks. Support kernel without ovs patch port support
+@@ -90,7 +90,7 @@
+ 
+ [agent]
+ # Agent's polling interval in seconds
+-# polling_interval = 2
++polling_interval = 15
+ 
+ # Minimize polling by monitoring ovsdb for interface changes
+ # minimize_polling = True
+@@ -107,10 +107,10 @@
+ # When running the agent with ML2, you can specify as many values here as
+ # your compute hosts supports.
+ #
+-# tunnel_types =
+ # Example: tunnel_types = gre
+ # Example: tunnel_types = vxlan
+ # Example: tunnel_types = vxlan, gre
++tunnel_types = gre
+ 
+ # (IntOpt) The port number to utilize if tunnel_types includes 'vxlan'. By
+ # default, this will make use of the Open vSwitch default value of '4789' if
+@@ -132,12 +132,12 @@
+ # RPC calbbacks instead of tunnel_sync/update) on OVS agents in order to
+ # optimize tunnel management.
+ #
+-# l2_population = False
++l2_population = True
+ 
+ # Enable local ARP responder. Requires OVS 2.1. This is only used by the l2
+ # population ML2 MechanismDriver.
+ #
+-# arp_responder = False
++arp_responder = False
+ 
+ # (BoolOpt) Set or un-set the don't fragment (DF) bit on outgoing IP packet
+ # carrying GRE/VXLAN tunnel. The default value is True.
+@@ -147,44 +147,14 @@
+ # (BoolOpt) Set to True on L2 agents to enable support
+ # for distributed virtual routing.
+ #
+-# enable_distributed_routing = False
++enable_distributed_routing = False
+ 
+ [securitygroup]
+ # Firewall driver for realizing neutron security group function.
+ # firewall_driver = neutron.agent.firewall.NoopFirewallDriver
+ # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++firewall_driver=neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ 
+ # Controls if neutron security group is enabled or not.
+ # It should be false when you use nova security group.
+ # enable_security_group = True
+-
+-#-----------------------------------------------------------------------------
+-# Sample Configurations.
+-#-----------------------------------------------------------------------------
+-#
+-# 1. With VLANs on eth1.
+-# [ovs]
+-# network_vlan_ranges = default:2000:3999
+-# tunnel_id_ranges =
+-# integration_bridge = br-int
+-# bridge_mappings = default:br-eth1
+-#
+-# 2. With GRE tunneling.
+-# [ovs]
+-# network_vlan_ranges =
+-# tunnel_id_ranges = 1:1000
+-# integration_bridge = br-int
+-# tunnel_bridge = br-tun
+-# local_ip = 10.0.0.3
+-#
+-# 3. With VXLAN tunneling.
+-# [ovs]
+-# network_vlan_ranges =
+-# tenant_network_type = vxlan
+-# tunnel_type = vxlan
+-# tunnel_id_ranges = 1:1000
+-# integration_bridge = br-int
+-# tunnel_bridge = br-tun
+-# local_ip = 10.0.0.3
+-# [agent]
+-# tunnel_types = vxlan
+--- neutron-2014.2.1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-2014.2.1/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -2,24 +2,24 @@
+ # (ListOpt) List of network type driver entrypoints to be loaded from
+ # the neutron.ml2.type_drivers namespace.
+ #
+-# type_drivers = local,flat,vlan,gre,vxlan
+-# Example: type_drivers = flat,vlan,gre,vxlan
++# Example: type_drivers = local,flat,vlan,gre,vxlan
++type_drivers = gre
+ 
+ # (ListOpt) Ordered list of network_types to allocate as tenant
+ # networks. The default value 'local' is useful for single-box testing
+ # but provides no connectivity between hosts.
+ #
+-# tenant_network_types = local
+ # Example: tenant_network_types = vlan,gre,vxlan
++tenant_network_types = gre
+ 
+ # (ListOpt) Ordered list of networking mechanism driver entrypoints
+ # to be loaded from the neutron.ml2.mechanism_drivers namespace.
+-# mechanism_drivers =
+ # Example: mechanism_drivers = openvswitch,mlnx
+ # Example: mechanism_drivers = arista
+ # Example: mechanism_drivers = cisco,logger
+ # Example: mechanism_drivers = openvswitch,brocade
+ # Example: mechanism_drivers = linuxbridge,brocade
++mechanism_drivers = openvswitch,l2population
+ 
+ # (ListOpt) Ordered list of extension driver entrypoints
+ # to be loaded from the neutron.ml2.extension_drivers namespace.
+@@ -46,7 +46,7 @@
+ 
+ [ml2_type_gre]
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
+-# tunnel_id_ranges =
++tunnel_id_ranges = 1:1000
+ 
+ [ml2_type_vxlan]
+ # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
+@@ -64,8 +64,8 @@
+ [securitygroup]
+ # Controls if neutron security group is enabled or not.
+ # It should be false when you use nova security group.
+-# enable_security_group = True
++enable_security_group = True
+ 
+ # Use ipset to speed-up the iptables security groups. Enabling ipset support
+ # requires that ipset is installed on L2 agent node.
+-# enable_ipset = True
++enable_ipset = True
