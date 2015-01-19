@@ -237,7 +237,7 @@ Last-Update: 2014-01-18
  #
 -# bridge_mappings =
  # Example: bridge_mappings = physnet1:br-eth1
-+bridge_mappings = ext-net:br-ex
++bridge_mappings = external:br-ex
  
  # (BoolOpt) Use veths instead of patch ports to interconnect the integration
  # bridge to physical networks. Support kernel without ovs patch port support
