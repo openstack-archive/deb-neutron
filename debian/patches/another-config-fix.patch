@@ -32,7 +32,7 @@ Last-Update: <YYYY-MM-DD>
 -# flat_networks =
  # Example:flat_networks = physnet1,physnet2
  # Example:flat_networks = *
-+flat_networks = ext-net
++flat_networks = external
  
  [ml2_type_vlan]
  # (ListOpt) List of <physical_network>[:<vlan_min>:<vlan_max>] tuples
