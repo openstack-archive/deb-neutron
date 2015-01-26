@@ -3,8 +3,19 @@ Description: Better config defaults
  minimize the efforts needed to be done by newbies.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
-Last-Update: 2014-01-18
+Last-Update: 2014-01-26
 
+--- neutron-2014.2.1.orig/etc/metadata_agent.ini
++++ neutron-2014.2.1/etc/metadata_agent.ini
+@@ -23,7 +23,7 @@ admin_password = %SERVICE_PASSWORD%
+ # nova_metadata_port = 8775
+ 
+ # Which protocol to use for requests to Nova metadata server, http or https
+-# nova_metadata_protocol = http
++nova_metadata_protocol = http
+ 
+ # Whether insecure SSL connection should be accepted for Nova metadata server
+ # requests
 --- neutron-2014.2.1.orig/etc/l3_agent.ini
 +++ neutron-2014.2.1/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
@@ -29,7 +40,13 @@ Last-Update: 2014-01-18
  
  # If use_namespaces is set as False then the agent can only configure one router.
  
-@@ -43,7 +42,7 @@
+@@ -38,12 +37,12 @@
+ # an external network gateway configured.  This option should be True only
+ # for a single agent in a Neutron deployment, and may be False for all agents
+ # if all routers must have an external network gateway
+-# handle_internal_only_routers = True
++handle_internal_only_routers = True
+ 
  # Name of bridge used for external network traffic. This should be set to
  # empty value for the linux bridge. when this parameter is set, each L3 agent
  # can be associated with no more than one external network.
@@ -38,9 +55,42 @@ Last-Update: 2014-01-18
  
  # TCP Port used by Neutron metadata server
  # metadata_port = 9697
+@@ -61,7 +60,7 @@
+ 
+ # enable_metadata_proxy, which is true by default, can be set to False
+ # if the Nova metadata server is not available
+-# enable_metadata_proxy = True
++enable_metadata_proxy = True
+ 
+ # Location of Metadata Proxy UNIX domain socket
+ # metadata_proxy_socket = $state_path/metadata_proxy
+@@ -72,7 +71,7 @@
+ # utility mentioned in https://bugs.launchpad.net/neutron/+bug/1052535 and
+ # you are sure that your version of iproute does not suffer from the problem.
+ # If True, namespaces will be deleted when a router is destroyed.
+-# router_delete_namespaces = False
++router_delete_namespaces = False
+ 
+ # Timeout for ovs-vsctl commands.
+ # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
+@@ -87,7 +86,7 @@
+ # - dvr_snat: this enables centralized SNAT support in conjunction with
+ #   DVR. This mode must be used for an L3 agent running on a centralized
+ #   node (or in single-host deployments, e.g. devstack).
+-# agent_mode = legacy
++agent_mode = legacy
+ 
+ # Location to store keepalived and all HA configurations
+ # ha_confs_path = $state_path/ha_confs
+@@ -100,3 +99,5 @@
+ 
+ # The advertisement interval in seconds
+ # ha_vrrp_advert_int = 2
++
++allow_automatic_l3agent_failover=False
 --- neutron-2014.2.1.orig/etc/dhcp_agent.ini
 +++ neutron-2014.2.1/etc/dhcp_agent.ini
-@@ -9,11 +9,10 @@
+@@ -9,14 +9,13 @@
  
  # The DHCP agent requires an interface driver be set. Choose the one that best
  # matches your plugin.
@@ -52,8 +102,12 @@ Last-Update: 2014-01-18
 +interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
  
  # Name of Open vSwitch bridge to use
- # ovs_integration_bridge = br-int
-@@ -28,11 +27,11 @@
+-# ovs_integration_bridge = br-int
++ovs_integration_bridge = br-int
+ 
+ # Use veth for an OVS interface or not.
+ # Support kernels with limited namespace support
+@@ -28,18 +27,18 @@
  
  # The agent can use other DHCP drivers.  Dnsmasq is the simplest and requires
  # no additional setup of the DHCP server.
@@ -67,6 +121,23 @@ Last-Update: 2014-01-18
  
  # The DHCP server can assist with providing metadata support on isolated
  # networks. Setting this value to True will cause the DHCP server to append
+ # specific host routes to the DHCP request. The metadata service will only
+ # be activated when the subnet does not contain any router port. The guest
+ # instance must be configured to request host routes via DHCP (Option 121).
+-# enable_isolated_metadata = False
++enable_isolated_metadata = False
+ 
+ # Allows for serving metadata requests coming from a dedicated metadata
+ # access network whose cidr is 169.254.169.254/16 (or larger prefix), and
+@@ -47,7 +46,7 @@
+ # request. In this case DHCP Option 121 will not be injected in VMs, as
+ # they will be able to reach 169.254.169.254 through a router.
+ # This option requires enable_isolated_metadata = True
+-# enable_metadata_network = False
++enable_metadata_network = False
+ 
+ # Number of threads to use during sync process. Should not exceed connection
+ # pool size configured on server.
 @@ -60,7 +59,7 @@
  # dhcp_domain = openstacklocal
  
@@ -355,6 +426,17 @@ Last-Update: 2014-01-18
  
  # (ListOpt) Ordered list of extension driver entrypoints
  # to be loaded from the neutron.ml2.extension_drivers namespace.
+@@ -31,9 +31,9 @@
+ # can be created. Use * to allow flat networks with arbitrary
+ # physical_network names.
+ #
+-# flat_networks =
+ # Example:flat_networks = physnet1,physnet2
+ # Example:flat_networks = *
++flat_networks = external
+ 
+ [ml2_type_vlan]
+ # (ListOpt) List of <physical_network>[:<vlan_min>:<vlan_max>] tuples
 @@ -46,7 +46,7 @@
  
  [ml2_type_gre]

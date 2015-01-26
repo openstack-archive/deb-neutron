@@ -1,4 +1,3 @@
 0001-Add-parameter-and-iptables-rules-to-protect-dnsmasq-.patch
 fix-alembic-migrations-with-sqlite.patch
 better-config-defaults.patch
-another-config-fix.patch
