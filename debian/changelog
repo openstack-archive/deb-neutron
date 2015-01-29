@@ -1,3 +1,10 @@
+neutron (2014.2.1-4) experimental; urgency=medium
+
+  * Added CVE-2014-8153 fix from upstream:
+    radvd_pass_-m_syslog_to_avoid_thread_lock_for_radvd_2.0.patch
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 29 Jan 2015 16:02:06 +0100
+
 neutron (2014.2.1-3) experimental; urgency=medium
 
   * Reworked the default config patch.

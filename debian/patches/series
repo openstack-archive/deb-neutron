@@ -1,3 +1,4 @@
 0001-Add-parameter-and-iptables-rules-to-protect-dnsmasq-.patch
 fix-alembic-migrations-with-sqlite.patch
 better-config-defaults.patch
+CVE-2014-8153_radvd_pass_-m_syslog_to_avoid_thread_lock_for_radvd_2.0.patch
