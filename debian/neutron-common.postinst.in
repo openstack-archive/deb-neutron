@@ -57,6 +57,19 @@ neutron_core_plugin_class () {
 	esac
 }
 
+write_nova_admin_credentials () {
+        db_get neutron/nova_url
+	pkgos_inifile set ${N_CONF} DEFAULT nova_url ${RET}
+	db_get neutron/nova_region
+	pkgos_inifile set ${N_CONF} DEFAULT nova_region_name ${RET}
+	db_get neutron/nova_admin_tenant_id
+	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_tenant_id ${RET}
+	db_get neutron/nova_admin_username
+	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_username ${RET}
+	db_get neutron/nova_admin_password
+	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_password ${RET}
+}
+
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	. /usr/share/debconf/confmodule
 
@@ -108,6 +121,8 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 		db_get neutron/local_ip
 		pkgos_inifile set ${OVS_CONF} OVS local_ip "${RET}"
 	fi
+
+	write_nova_admin_credentials
 	db_stop
 
 	chown -R neutron:adm /var/log/neutron/

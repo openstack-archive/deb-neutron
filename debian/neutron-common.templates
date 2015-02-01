@@ -126,3 +126,35 @@ Template: neutron/local_ip
 Type: string
 _Description: Local IP address of this hypervisor:
  Please enter the local IP address for this hypervisor.
+
+Template: neutron/nova_url
+Type: string
+Default: http://127.0.0.1:8774/v2
+_Description: Nova server URL:
+ Please enter the URL of the Nova server.
+
+Template: neutron/nova_region
+Type: string
+Default: regionOne
+_Description: Nova server region name:
+ Please enter the region of the Nova server.
+
+Template: neutron/nova_admin_tenant_id
+Type: string
+Default: admin
+_Description: Nova admin tenant ID:
+ Neutron needs to be able to communicate with Nova through Keystone. Therefore
+ Neutron needs to know the Nova admin tenant ID, username and password.
+ .
+ Please enter the ID of the admin tenant for Nova.
+
+Template: neutron/nova_admin_username
+Type: string
+Default: admin
+_Description: Neutron administrator username:
+ Please enter the username of the Nova administrator.
+
+Template: neutron/nova_admin_password
+Type: password
+_Description: Nova administrator password:
+ Please enter the password of the Nova administrator.

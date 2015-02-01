@@ -84,12 +84,22 @@ db_go
 db_get neutron/plugin-select
 NEUTRON_PLUGIN_NAME=${RET}
 
+read_nova_admin_credentials () {
+	pkgos_read_config -p high ${N_CONF} DEFAULT nova_url neutron/nova_url
+	pkgos_read_config -p high ${N_CONF} DEFAULT nova_region_name neutron/nova_region
+	pkgos_read_config -p medium ${N_CONF} DEFAULT nova_admin_tenant_id neutron/nova_admin_tenant_id
+	pkgos_read_config -p medium ${N_CONF} DEFAULT nova_admin_username neutron/nova_admin_username
+	pkgos_read_config -p high ${N_CONF} DEFAULT nova_admin_password neutron/nova_admin_password
+}
+
 # OVS specific configurations (if that's the one selected)
 if [ "${NEUTRON_PLUGIN_NAME}" = "OpenVSwitch" ] ; then
 	# Various network config...
 	pkgos_read_config ${OVS_CONF} OVS tenant_network_type   neutron/tenant_network_type
 	pkgos_read_config ${OVS_CONF} OVS enable_tunneling      neutron/enable_tunneling
 	pkgos_read_config ${OVS_CONF} OVS tunnel_id_ranges      neutron/tunnel_id_ranges
+
+	read_nova_admin_credentials
 
 	# Guess values to put in the local_ip directive
 	IF=`LC_ALL=C route | grep default |awk -- '{ print $8 }'`
