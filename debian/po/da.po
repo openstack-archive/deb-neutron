@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2013-10-13 04:48+0000\n"
+"POT-Creation-Date: 2015-02-02 01:45+0100\n"
 "PO-Revision-Date: 2014-10-18 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
@@ -29,8 +29,8 @@ msgid ""
 "Please specify the hostname of your Neutron authentication server. Typically "
 "this is also the hostname of your OpenStack Identity Service (Keystone)."
 msgstr ""
-"Angiv venligst værtsnavnet for din Neutron-godkendelseserver. Dette er typisk "
-"også værtsnavnet for din OpenStack Identity Service (Keystone)."
+"Angiv venligst værtsnavnet for din Neutron-godkendelseserver. Dette er "
+"typisk også værtsnavnet for din OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -56,8 +56,7 @@ msgstr "Brugernavn for godkendelsesserveren:"
 #. Description
 #: ../neutron-common.templates:4001
 msgid "Please specify the username to use with the authentication server."
-msgstr ""
-"Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
+msgstr "Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
 
 #. Type: password
 #. Description
@@ -69,8 +68,7 @@ msgstr "Adgangskode for godkendelsesserveren:"
 #. Description
 #: ../neutron-common.templates:5001
 msgid "Please specify the password to use with the authentication server."
-msgstr ""
-"Angiv venligst adgangskoden for brug med godkendelsesserveren."
+msgstr "Angiv venligst adgangskoden for brug med godkendelsesserveren."
 
 #. Type: select
 #. Choices
@@ -135,12 +133,6 @@ msgstr "RYU"
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "ml2/ml2_conf.ini"
-msgstr "ml2/ml2_conf.ini"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "MetaPlugin"
 msgstr "MetaPlugin"
 
@@ -178,11 +170,11 @@ msgid ""
 "starting the neutron-server daemon. Also, the core_plugin directive needs to "
 "match. Please select which plugin to use."
 msgstr ""
-"Neutron anvender en arkitektur med udvidelsesmoduler til at håndtere netværk. "
-"Når du starter Neutrons serverdæmon, skal konfigurationsfilen, der svarer til "
-"udvidelsesmodulet, du ønsker at bruge, indlæses ved at give det en parameter når "
-"neturon-server-dæmonen startes. Direktivet core_plugin skal også matche. Vælg "
-"venligst hvilket udvidelsesmodul du ønsker at bruge."
+"Neutron anvender en arkitektur med udvidelsesmoduler til at håndtere "
+"netværk. Når du starter Neutrons serverdæmon, skal konfigurationsfilen, der "
+"svarer til udvidelsesmodulet, du ønsker at bruge, indlæses ved at give det "
+"en parameter når neturon-server-dæmonen startes. Direktivet core_plugin skal "
+"også matche. Vælg venligst hvilket udvidelsesmodul du ønsker at bruge."
 
 #. Type: boolean
 #. Description
@@ -197,8 +189,8 @@ msgid ""
 "No database has been set up for Neutron to use. Before continuing, you "
 "should make sure you have the following information:"
 msgstr ""
-"Ingen database er blevet opsat for Neutron. Før du fortsætter skal du "
-"sikre dig, at du har den følgende information:"
+"Ingen database er blevet opsat for Neutron. Før du fortsætter skal du sikre "
+"dig, at du har den følgende information:"
 
 #. Type: boolean
 #. Description
@@ -285,7 +277,8 @@ msgstr "Adgangskode for forbindelsen til RabbitMQ-serveren:"
 #. Description
 #: ../neutron-common.templates:10001
 msgid "Please specify the password used to connect to the RabbitMQ server."
-msgstr "Angiv venligst adgangskoden brugt til at forbinde til RabbitMQ-serveren:"
+msgstr ""
+"Angiv venligst adgangskoden brugt til at forbinde til RabbitMQ-serveren:"
 
 #. Type: select
 #. Choices
@@ -341,11 +334,11 @@ msgid ""
 "choose \"gre\" and then configure \"tunnel_id_ranges\". Choose \"none\" to "
 "disable creation of tenant networks."
 msgstr ""
-"Værdien »lokal« er kun nyttig for single-box-test. For at tenant-netværk kan"
-"tilbyde forbindelse mellem værter, er det nødvendigt at vælge enten »vlan« og "
-"så konfigurere »network_vlan_ranges« eller at vælge »gre« og så konfigurere "
-"»tunnel_id_ranges«. Vælg »ingen« for at deaktivere oprettelsen af tenant-"
-"netværk."
+"Værdien »lokal« er kun nyttig for single-box-test. For at tenant-netværk "
+"kantilbyde forbindelse mellem værter, er det nødvendigt at vælge enten "
+"»vlan« og så konfigurere »network_vlan_ranges« eller at vælge »gre« og så "
+"konfigurere »tunnel_id_ranges«. Vælg »ingen« for at deaktivere oprettelsen "
+"af tenant-netværk."
 
 #. Type: boolean
 #. Description
@@ -362,8 +355,8 @@ msgid ""
 "tunneling."
 msgstr ""
 "Angiv venligst om understøttelse skal aktiveres for GRE-netværk på serveren "
-"og agenterne. Dette kræver kerneunderstøttelse for OVS-rettelsesporte og "
-"GRE-tunnelstøtte."
+"og agenterne. Dette kræver kerneunderstøttelse for OVS-rettelsesporte og GRE-"
+"tunnelstøtte."
 
 #. Type: string
 #. Description
@@ -379,9 +372,9 @@ msgid ""
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
 "allocation if tenant_network_type is \"gre\"."
 msgstr ""
-"Angiv en kommaadskilt liste med <tun_min>:<tun_max>-tupleroptællingsintervaller "
-"for GRE-tunnel-id'er som er tilgængelige for tenant-netværksallokering hvis "
-"tenant_network_type er »gre«."
+"Angiv en kommaadskilt liste med <tun_min>:<tun_max>-"
+"tupleroptællingsintervaller for GRE-tunnel-id'er som er tilgængelige for "
+"tenant-netværksallokering hvis tenant_network_type er »gre«."
 
 #. Type: string
 #. Description
@@ -394,6 +387,87 @@ msgstr "Lokal IP-adresse for denne hypervisor:"
 #: ../neutron-common.templates:14001
 msgid "Please enter the local IP address for this hypervisor."
 msgstr "Angiv den lokale IP-adresse for denne hypervisor."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:15001
+msgid "Nova server URL:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:15001
+#, fuzzy
+#| msgid "Please specify the IP address of that server."
+msgid "Please enter the URL of the Nova server."
+msgstr "Angiv venligst IP-adressen for den server."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:16001
+#, fuzzy
+#| msgid "Auth server tenant name:"
+msgid "Nova server region name:"
+msgstr "»Tenant«-navn for godkendelseserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:16001
+#, fuzzy
+#| msgid "Please specify the IP address of that server."
+msgid "Please enter the region of the Nova server."
+msgstr "Angiv venligst IP-adressen for den server."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid "Nova admin tenant ID:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid ""
+"Neutron needs to be able to communicate with Nova through Keystone. "
+"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"password."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid "Please enter the ID of the admin tenant for Nova."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:18001
+#, fuzzy
+#| msgid "Auth server username:"
+msgid "Neutron administrator username:"
+msgstr "Brugernavn for godkendelsesserver:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:18001
+#, fuzzy
+#| msgid "Please specify the username to use with the authentication server."
+msgid "Please enter the username of the Nova administrator."
+msgstr "Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:19001
+msgid "Nova administrator password:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:19001
+#, fuzzy
+#| msgid "Please specify the password to use with the authentication server."
+msgid "Please enter the password of the Nova administrator."
+msgstr "Angiv venligst adgangskoden for brug med godkendelsesserveren."
 
 #. Type: boolean
 #. Description
@@ -476,8 +550,8 @@ msgid ""
 "address."
 msgstr ""
 "Denne IP-adresse skal være tilgængelig fra klienterne, som vil bruge denne "
-"tjeneste, så hvis du installerer en offentlig sky, skal dette være en offentlig "
-"IP-adresse."
+"tjeneste, så hvis du installerer en offentlig sky, skal dette være en "
+"offentlig IP-adresse."
 
 #. Type: string
 #. Description
@@ -493,8 +567,9 @@ msgid ""
 "location. Please enter the zone that you wish to use when registering the "
 "endpoint."
 msgstr ""
-"OpenStack understøtter tilgængelighedszoner, hvor hver regioner repræsenterer "
-"et sted. Indtast venligst zonen du øsnker at bruge når slutpunktet registreres."
+"OpenStack understøtter tilgængelighedszoner, hvor hver regioner "
+"repræsenterer et sted. Indtast venligst zonen du øsnker at bruge når "
+"slutpunktet registreres."
 
 #. Type: string
 #. Description
@@ -509,8 +584,8 @@ msgid ""
 "Please specify the URL of your Neutron authentication server. Typically this "
 "is also the URL of your OpenStack Identity Service (Keystone)."
 msgstr ""
-"Angiv venligst adressen for din Neutron-godkendelsesserver. Typisk er "
-"dette også adressen for din OpenStack identity Service (Keystone)."
+"Angiv venligst adressen for din Neutron-godkendelsesserver. Typisk er dette "
+"også adressen for din OpenStack identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -546,3 +621,30 @@ msgid ""
 msgstr ""
 "OpenStack kan anvendes af tilgængeligehedszoner. Hver region repræsenterer "
 "en plads. Indtast venligst zonen som metadataserveren skal bruge."
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid "Metadata proxy shared secret:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid ""
+"VM instances using Neutron to handle networking retrieve their metadata "
+"through the Neutron metadata agent, which serves as a proxy to the Nova "
+"metadata REST API server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid ""
+"Please enter the password that should be used to protect communications "
+"between the Neutron metadata proxy agent and the Nova metadata server. The "
+"same shared password should be used when setting up the nova-common package."
+msgstr ""
+
+#~ msgid "ml2/ml2_conf.ini"
+#~ msgstr "ml2/ml2_conf.ini"

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2013.2-4\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2014-10-10 07:34+0000\n"
+"POT-Creation-Date: 2015-02-02 01:45+0100\n"
 "PO-Revision-Date: 2013-11-18 23:23+0000\n"
 "Last-Translator: Américo Monteiro <a_monteiro@gmx.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
@@ -395,6 +395,90 @@ msgstr "Endereço IP local deste hypervisor:"
 msgid "Please enter the local IP address for this hypervisor."
 msgstr "Por favor indique o endereço IP local deste hypervisor."
 
+#. Type: string
+#. Description
+#: ../neutron-common.templates:15001
+msgid "Nova server URL:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:15001
+#, fuzzy
+#| msgid "Please specify the IP address of that server."
+msgid "Please enter the URL of the Nova server."
+msgstr "Por favor especifique o endereço IP desse servidor."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:16001
+#, fuzzy
+#| msgid "Auth server tenant name:"
+msgid "Nova server region name:"
+msgstr "Nome \"tenant\" do servidor de autenticação:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:16001
+#, fuzzy
+#| msgid "Please specify the IP address of that server."
+msgid "Please enter the region of the Nova server."
+msgstr "Por favor especifique o endereço IP desse servidor."
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid "Nova admin tenant ID:"
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid ""
+"Neutron needs to be able to communicate with Nova through Keystone. "
+"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"password."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:17001
+msgid "Please enter the ID of the admin tenant for Nova."
+msgstr ""
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:18001
+#, fuzzy
+#| msgid "Auth server username:"
+msgid "Neutron administrator username:"
+msgstr "Nome de utilizador do servidor de autenticação:"
+
+#. Type: string
+#. Description
+#: ../neutron-common.templates:18001
+#, fuzzy
+#| msgid "Please specify the username to use with the authentication server."
+msgid "Please enter the username of the Nova administrator."
+msgstr ""
+"Por favor especifique o nome de utilizador a usar com o servidor de "
+"autenticação."
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:19001
+msgid "Nova administrator password:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-common.templates:19001
+#, fuzzy
+#| msgid "Please specify the password to use with the authentication server."
+msgid "Please enter the password of the Nova administrator."
+msgstr ""
+"Por favor especifique a palavra passe a usar com o servidor de autenticação."
+
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
@@ -551,6 +635,30 @@ msgstr ""
 "O Openstack pode ser usado utilizando zonas de disponibilidade, com cada "
 "região a representar um local. Por favor indique a zona que o servidor de "
 "meta-dados deverá usar."
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid "Metadata proxy shared secret:"
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid ""
+"VM instances using Neutron to handle networking retrieve their metadata "
+"through the Neutron metadata agent, which serves as a proxy to the Nova "
+"metadata REST API server."
+msgstr ""
+
+#. Type: password
+#. Description
+#: ../neutron-metadata-agent.templates:7001
+msgid ""
+"Please enter the password that should be used to protect communications "
+"between the Neutron metadata proxy agent and the Nova metadata server. The "
+"same shared password should be used when setting up the nova-common package."
+msgstr ""
 
 #~ msgid "ml2/ml2_conf.ini"
 #~ msgstr "ml2/ml2_conf.ini"

@@ -12,5 +12,6 @@ pkgos_var_user_group neutron
 chmod 755 /var/lib/neutron
 pkgos_read_admin_creds ${META_AGNT_CONF} DEFAULT neutron-metadata
 pkgos_read_config ${META_AGNT_CONF} DEFAULT auth_region neutron-metadata/region-name
+pkgos_read_config -p high ${META_AGNT_CONF} DEFAULT metadata_proxy_shared_secret neutron-metadata/metadata_secret
 
 exit 0
