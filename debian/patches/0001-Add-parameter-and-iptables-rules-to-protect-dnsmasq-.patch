@@ -17,10 +17,8 @@ Last-Update: 2014-06-30
  neutron/tests/unit/test_linux_dhcp.py |  259 ++++++++++++++++++++++++++++++++-
  3 files changed, 421 insertions(+), 2 deletions(-)
 
-Index: neutron/etc/dhcp_agent.ini
-===================================================================
---- neutron.orig/etc/dhcp_agent.ini	2014-09-19 18:00:01.000000000 +0800
-+++ neutron/etc/dhcp_agent.ini	2014-09-19 18:10:15.000000000 +0800
+--- a/etc/dhcp_agent.ini
++++ b/etc/dhcp_agent.ini
 @@ -86,3 +86,8 @@
  # Timeout for ovs-vsctl commands.
  # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
@@ -30,10 +28,8 @@ Index: neutron/etc/dhcp_agent.ini
 +# Useful when a subnet is routed to another one or in the case of an
 +# external network.
 +# isolate_dns_requests = False
-Index: neutron/neutron/agent/linux/dhcp.py
-===================================================================
---- neutron.orig/neutron/agent/linux/dhcp.py	2014-09-19 18:09:42.000000000 +0800
-+++ neutron/neutron/agent/linux/dhcp.py	2014-09-19 18:10:15.000000000 +0800
+--- a/neutron/agent/linux/dhcp.py
++++ b/neutron/agent/linux/dhcp.py
 @@ -26,6 +26,7 @@
  import six
  
@@ -60,7 +56,7 @@ Index: neutron/neutron/agent/linux/dhcp.py
  
  
  class DictModel(dict):
-@@ -775,7 +780,67 @@
+@@ -807,7 +812,67 @@
              sock.close()
  
  
@@ -128,7 +124,7 @@ Index: neutron/neutron/agent/linux/dhcp.py
  
      def __init__(self, conf, root_helper, plugin):
          self.conf = conf
-@@ -924,6 +989,87 @@
+@@ -956,6 +1021,87 @@
  
          return dhcp_port
  
@@ -216,7 +212,7 @@ Index: neutron/neutron/agent/linux/dhcp.py
      def setup(self, network):
          """Create and initialize a device for network's DHCP on this host."""
          port = self.setup_dhcp_port(network)
-@@ -962,6 +1108,9 @@
+@@ -994,6 +1140,9 @@
          if self.conf.use_namespaces:
              self._set_default_route(network, interface_name)
  
@@ -226,7 +222,7 @@ Index: neutron/neutron/agent/linux/dhcp.py
          return interface_name
  
      def update(self, network, device_name):
-@@ -969,9 +1118,17 @@
+@@ -1001,9 +1150,17 @@
          if self.conf.use_namespaces:
              self._set_default_route(network, device_name)
  
