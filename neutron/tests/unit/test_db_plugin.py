@@ -1492,6 +1492,34 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                                                          port_mac))
         self.assertEqual(port['port']['fixed_ips'][0]['ip_address'], eui_addr)
 
+    def test_ip_allocation_for_ipv6_2_subnet_slaac_mode(self):
+        res = self._create_network(fmt=self.fmt, name='net',
+                                   admin_state_up=True)
+        network = self.deserialize(self.fmt, res)
+        v6_subnet_1 = self._make_subnet(self.fmt, network,
+                                        gateway='2001:100::1',
+                                        cidr='2001:100::0/64',
+                                        ip_version=6,
+                                        ipv6_ra_mode=constants.IPV6_SLAAC)
+        v6_subnet_2 = self._make_subnet(self.fmt, network,
+                                        gateway='2001:200::1',
+                                        cidr='2001:200::0/64',
+                                        ip_version=6,
+                                        ipv6_ra_mode=constants.IPV6_SLAAC)
+        port = self._make_port(self.fmt, network['network']['id'])
+        self.assertEqual(len(port['port']['fixed_ips']), 2)
+        port_mac = port['port']['mac_address']
+        cidr_1 = v6_subnet_1['subnet']['cidr']
+        cidr_2 = v6_subnet_2['subnet']['cidr']
+        eui_addr_1 = str(ipv6_utils.get_ipv6_addr_by_EUI64(cidr_1,
+                                                           port_mac))
+        eui_addr_2 = str(ipv6_utils.get_ipv6_addr_by_EUI64(cidr_2,
+                                                           port_mac))
+        self.assertEqual(port['port']['fixed_ips'][0]['ip_address'],
+                         eui_addr_1)
+        self.assertEqual(port['port']['fixed_ips'][1]['ip_address'],
+                         eui_addr_2)
+
     def test_range_allocation(self):
         with self.subnet(gateway_ip='10.0.0.3',
                          cidr='10.0.0.0/29') as subnet:
@@ -2900,8 +2928,8 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
                                  cidr=cidr, ip_version=6,
                                  ipv6_ra_mode=constants.DHCPV6_STATEFUL,
                                  ipv6_address_mode=constants.DHCPV6_STATEFUL)
-        # Gateway not specified for IPv6 SLAAC subnet
-        expected = {'gateway_ip': None,
+        # If gateway_ip is not specified, allocate first IP from the subnet
+        expected = {'gateway_ip': gateway,
                     'cidr': cidr}
         self._test_create_subnet(expected=expected,
                                  cidr=cidr, ip_version=6,
@@ -3188,7 +3216,9 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
         ctx = context.get_admin_context(load_admin_roles=False)
         new_subnet = {'ip_version': 6,
                       'cidr': 'fe80::/64',
-                      'enable_dhcp': True}
+                      'enable_dhcp': True,
+                      'ipv6_address_mode': None,
+                      'ipv6_ra_mode': None}
         for mode, value in modes.items():
             new_subnet[mode] = value
         if expect_success:
@@ -4058,22 +4088,8 @@ class TestNeutronDbPluginV2(base.BaseTestCase):
         self.assertEqual(2, generate.call_count)
         rebuild.assert_called_once_with('c', 's')
 
-    def test_rebuild_availability_ranges(self):
-        pools = [{'id': 'a',
-                  'first_ip': '192.168.1.3',
-                  'last_ip': '192.168.1.10'},
-                 {'id': 'b',
-                  'first_ip': '192.168.1.100',
-                  'last_ip': '192.168.1.120'}]
-
-        allocations = [{'ip_address': '192.168.1.3'},
-                       {'ip_address': '192.168.1.78'},
-                       {'ip_address': '192.168.1.7'},
-                       {'ip_address': '192.168.1.110'},
-                       {'ip_address': '192.168.1.11'},
-                       {'ip_address': '192.168.1.4'},
-                       {'ip_address': '192.168.1.111'}]
-
+    def _validate_rebuild_availability_ranges(self, pools, allocations,
+                                              expected):
         ip_qry = mock.Mock()
         ip_qry.with_lockmode.return_value = ip_qry
         ip_qry.filter_by.return_value = allocations
@@ -4099,11 +4115,103 @@ class TestNeutronDbPluginV2(base.BaseTestCase):
         actual = [[args[0].allocation_pool_id,
                    args[0].first_ip, args[0].last_ip]
                   for _name, args, _kwargs in context.session.add.mock_calls]
+        self.assertEqual(expected, actual)
 
-        self.assertEqual([['a', '192.168.1.5', '192.168.1.6'],
-                          ['a', '192.168.1.8', '192.168.1.10'],
-                          ['b', '192.168.1.100', '192.168.1.109'],
-                          ['b', '192.168.1.112', '192.168.1.120']], actual)
+    def test_rebuild_availability_ranges(self):
+        pools = [{'id': 'a',
+                  'first_ip': '192.168.1.3',
+                  'last_ip': '192.168.1.10'},
+                 {'id': 'b',
+                  'first_ip': '192.168.1.100',
+                  'last_ip': '192.168.1.120'}]
+
+        allocations = [{'ip_address': '192.168.1.3'},
+                       {'ip_address': '192.168.1.78'},
+                       {'ip_address': '192.168.1.7'},
+                       {'ip_address': '192.168.1.110'},
+                       {'ip_address': '192.168.1.11'},
+                       {'ip_address': '192.168.1.4'},
+                       {'ip_address': '192.168.1.111'}]
+
+        expected = [['a', '192.168.1.5', '192.168.1.6'],
+                    ['a', '192.168.1.8', '192.168.1.10'],
+                    ['b', '192.168.1.100', '192.168.1.109'],
+                    ['b', '192.168.1.112', '192.168.1.120']]
+
+        self._validate_rebuild_availability_ranges(pools, allocations,
+                                                   expected)
+
+    def test_rebuild_ipv6_availability_ranges(self):
+        pools = [{'id': 'a',
+                  'first_ip': '2001::1',
+                  'last_ip': '2001::50'},
+                 {'id': 'b',
+                  'first_ip': '2001::100',
+                  'last_ip': '2001::ffff:ffff:ffff:fffe'}]
+
+        allocations = [{'ip_address': '2001::10'},
+                       {'ip_address': '2001::45'},
+                       {'ip_address': '2001::60'},
+                       {'ip_address': '2001::111'},
+                       {'ip_address': '2001::200'},
+                       {'ip_address': '2001::ffff:ffff:ffff:ff10'},
+                       {'ip_address': '2001::ffff:ffff:ffff:f2f0'}]
+
+        expected = [['a', '2001::1', '2001::f'],
+                    ['a', '2001::11', '2001::44'],
+                    ['a', '2001::46', '2001::50'],
+                    ['b', '2001::100', '2001::110'],
+                    ['b', '2001::112', '2001::1ff'],
+                    ['b', '2001::201', '2001::ffff:ffff:ffff:f2ef'],
+                    ['b', '2001::ffff:ffff:ffff:f2f1',
+                     '2001::ffff:ffff:ffff:ff0f'],
+                    ['b', '2001::ffff:ffff:ffff:ff11',
+                     '2001::ffff:ffff:ffff:fffe']]
+
+        self._validate_rebuild_availability_ranges(pools, allocations,
+                                                   expected)
+
+    def _test__allocate_ips_for_port(self, subnets, port, expected):
+        plugin = db_base_plugin_v2.NeutronDbPluginV2()
+        with mock.patch.object(db_base_plugin_v2.NeutronDbPluginV2,
+                               'get_subnets') as get_subnets:
+            with mock.patch.object(db_base_plugin_v2.NeutronDbPluginV2,
+                                   '_check_unique_ip') as check_unique:
+                context = mock.Mock()
+                get_subnets.return_value = subnets
+                check_unique.return_value = True
+                actual = plugin._allocate_ips_for_port(context, port)
+                self.assertEqual(expected, actual)
+
+    def test__allocate_ips_for_port_2_slaac_subnets(self):
+        subnets = [
+            {
+                'cidr': u'2001:100::/64',
+                'enable_dhcp': True,
+                'gateway_ip': u'2001:100::1',
+                'id': u'd1a28edd-bd83-480a-bd40-93d036c89f13',
+                'ip_version': 6,
+                'ipv6_address_mode': None,
+                'ipv6_ra_mode': u'slaac'},
+            {
+                'cidr': u'2001:200::/64',
+                'enable_dhcp': True,
+                'gateway_ip': u'2001:200::1',
+                'id': u'dc813d3d-ed66-4184-8570-7325c8195e28',
+                'ip_version': 6,
+                'ipv6_address_mode': None,
+                'ipv6_ra_mode': u'slaac'}]
+        port = {'port': {
+            'network_id': 'fbb9b578-95eb-4b79-a116-78e5c4927176',
+            'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
+            'mac_address': '12:34:56:78:44:ab'}}
+        expected = []
+        for subnet in subnets:
+            addr = str(ipv6_utils.get_ipv6_addr_by_EUI64(
+                            subnet['cidr'], port['port']['mac_address']))
+            expected.append({'ip_address': addr, 'subnet_id': subnet['id']})
+
+        self._test__allocate_ips_for_port(subnets, port, expected)
 
 
 class NeutronDbPluginV2AsMixinTestCase(testlib_api.SqlTestCase):

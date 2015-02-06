@@ -313,6 +313,7 @@ class Dnsmasq(DhcpLocalProcess):
     NEUTRON_NETWORK_ID_KEY = 'NEUTRON_NETWORK_ID'
     NEUTRON_RELAY_SOCKET_PATH_KEY = 'NEUTRON_RELAY_SOCKET_PATH'
     MINIMUM_VERSION = 2.63
+    MINIMUM_IPV6_VERSION = 2.67
 
     @classmethod
     def check_version(cls):
@@ -328,6 +329,13 @@ class Dnsmasq(DhcpLocalProcess):
                             'Please ensure that its version is %s '
                             'or above!'), cls.MINIMUM_VERSION)
                 raise SystemExit(1)
+            is_valid_version = float(ver) >= cls.MINIMUM_IPV6_VERSION
+            if not is_valid_version:
+                LOG.warning(_('FAILED VERSION REQUIREMENT FOR DNSMASQ. '
+                              'DHCP AGENT MAY NOT RUN CORRECTLY WHEN '
+                              'SERVING IPV6 STATEFUL SUBNETS! '
+                              'Please ensure that its version is %s '
+                              'or above!'), cls.MINIMUM_IPV6_VERSION)
         except (OSError, RuntimeError, IndexError, ValueError):
             LOG.error(_('Unable to determine dnsmasq version. '
                         'Please ensure that its version is %s '
@@ -395,9 +403,15 @@ class Dnsmasq(DhcpLocalProcess):
 
             # mode is optional and is not set - skip it
             if mode:
-                cmd.append('--dhcp-range=%s%s,%s,%s,%s' %
-                           ('set:', self._TAG_PREFIX % i,
-                            cidr.network, mode, lease))
+                if subnet.ip_version == 4:
+                    cmd.append('--dhcp-range=%s%s,%s,%s,%s' %
+                               ('set:', self._TAG_PREFIX % i,
+                                cidr.network, mode, lease))
+                else:
+                    cmd.append('--dhcp-range=%s%s,%s,%s,%d,%s' %
+                               ('set:', self._TAG_PREFIX % i,
+                                cidr.network, mode,
+                                cidr.prefixlen, lease))
                 possible_leases += cidr.size
 
         # Cap the limit because creating lots of subnets can inflate
@@ -730,7 +744,8 @@ class Dnsmasq(DhcpLocalProcess):
         subnets = dict((subnet.id, subnet) for subnet in network.subnets)
 
         for port in network.ports:
-            if port.device_owner != constants.DEVICE_OWNER_ROUTER_INTF:
+            if port.device_owner not in (constants.DEVICE_OWNER_ROUTER_INTF,
+                                         constants.DEVICE_OWNER_DVR_INTERFACE):
                 continue
             for alloc in port.fixed_ips:
                 if subnets[alloc.subnet_id].gateway_ip == alloc.ip_address:
@@ -740,8 +755,25 @@ class Dnsmasq(DhcpLocalProcess):
 
     @classmethod
     def should_enable_metadata(cls, conf, network):
-        """True if there exists a subnet for which a metadata proxy is needed
+        """Determine whether the metadata proxy is needed for a network
+
+        This method returns True for truly isolated networks (ie: not attached
+        to a router), when the enable_isolated_metadata flag is True.
+
+        This method also returns True when enable_metadata_network is True,
+        and the network passed as a parameter has a subnet in the link-local
+        CIDR, thus characterizing it as a "metadata" network. The metadata
+        network is used by solutions which do not leverage the l3 agent for
+        providing access to the metadata service via logical routers built
+        with 3rd party backends.
         """
+        if conf.enable_metadata_network and conf.enable_isolated_metadata:
+            # check if the network has a metadata subnet
+            meta_cidr = netaddr.IPNetwork(METADATA_DEFAULT_CIDR)
+            if any(netaddr.IPNetwork(s.cidr) in meta_cidr
+                   for s in network.subnets):
+                return True
+
         if not conf.use_namespaces or not conf.enable_isolated_metadata:
             return False
 

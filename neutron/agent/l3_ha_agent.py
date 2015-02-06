@@ -113,9 +113,11 @@ class AgentMixin(object):
         config = ri.keepalived_manager.config
 
         interface_name = self.get_ha_device_name(ri.ha_port['id'])
+        ha_port_cidr = ri.ha_port['subnet']['cidr']
         instance = keepalived.KeepalivedInstance(
-            'BACKUP', interface_name, ri.ha_vr_id, nopreempt=True,
-            advert_int=self.conf.ha_vrrp_advert_int, priority=ri.ha_priority)
+            'BACKUP', interface_name, ri.ha_vr_id, ha_port_cidr,
+            nopreempt=True, advert_int=self.conf.ha_vrrp_advert_int,
+            priority=ri.ha_priority)
         instance.track_interfaces.append(interface_name)
 
         if self.conf.ha_vrrp_auth_password:
@@ -176,6 +178,10 @@ class AgentMixin(object):
     def _clear_vips(self, ri, interface):
         instance = ri.keepalived_manager.config.get_instance(ri.ha_vr_id)
         instance.remove_vips_vroutes_by_interface(interface)
+
+    def _ha_get_existing_cidrs(self, ri, interface_name):
+        instance = ri.keepalived_manager.config.get_instance(ri.ha_vr_id)
+        return instance.get_existing_vip_ip_addresses(interface_name)
 
     def _add_keepalived_notifiers(self, ri):
         callback = self._get_metadata_proxy_callback(ri.router_id)

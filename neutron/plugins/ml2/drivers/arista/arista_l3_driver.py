@@ -21,6 +21,7 @@ from oslo.config import cfg
 
 from neutron import context as nctx
 from neutron.db import db_base_plugin_v2
+from neutron.openstack.common.gettextutils import _LE
 from neutron.openstack.common import log as logging
 from neutron.plugins.ml2.drivers.arista import exceptions as arista_exc
 
@@ -130,11 +131,6 @@ class AristaL3Driver(object):
             LOG.error(msg)
             raise arista_exc.AristaSevicePluginConfigError(msg=msg)
         if cfg.CONF.l3_arista.get('mlag_config'):
-            if cfg.CONF.l3_arista.get('use_vrf'):
-                #This is invalid/unsupported configuration
-                msg = _('VRFs are not supported MLAG config mode')
-                LOG.error(msg)
-                raise arista_exc.AristaSevicePluginConfigError(msg=msg)
             if cfg.CONF.l3_arista.get('secondary_l3_host') == '':
                 msg = _('Required option secondary_l3_host is not set')
                 LOG.error(msg)
@@ -247,16 +243,38 @@ class AristaL3Driver(object):
 
             rdm = str(int(hashlib.sha256(router_name).hexdigest(),
                     16) % 6553)
+            mlag_peer_failed = False
             for s in self._servers:
-                self.create_router_on_eos(router_name, rdm, s)
+                try:
+                    self.create_router_on_eos(router_name, rdm, s)
+                    mlag_peer_failed = False
+                except Exception:
+                    if self.mlag_configured and not mlag_peer_failed:
+                        mlag_peer_failed = True
+                    else:
+                        msg = (_('Failed to create router %s on EOS') %
+                               router_name)
+                        LOG.exception(msg)
+                        raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def delete_router(self, context, tenant_id, router_id, router):
         """Deletes a router from Arista Switch."""
 
         if router:
+            router_name = self._arista_router_name(tenant_id, router['name'])
+            mlag_peer_failed = False
             for s in self._servers:
-                self.delete_router_from_eos(self._arista_router_name(
-                                               tenant_id, router['name']), s)
+                try:
+                    self.delete_router_from_eos(router_name, s)
+                    mlag_peer_failed = False
+                except Exception:
+                    if self.mlag_configured and not mlag_peer_failed:
+                        mlag_peer_failed = True
+                    else:
+                        msg = (_LE('Failed to delete router %s from EOS') %
+                               router_name)
+                        LOG.exception(msg)
+                        raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def update_router(self, context, router_id, original_router, new_router):
         """Updates a router which is already created on Arista Switch.
@@ -279,15 +297,27 @@ class AristaL3Driver(object):
             if self.mlag_configured:
                 # For MLAG, we send a specific IP address as opposed to cidr
                 # For now, we are using x.x.x.253 and x.x.x.254 as virtual IP
+                mlag_peer_failed = False
                 for i, server in enumerate(self._servers):
                     #get appropriate virtual IP address for this router
                     router_ip = self._get_router_ip(cidr, i,
                                                     router_info['ip_version'])
-                    self.add_interface_to_router(router_info['seg_id'],
-                                                 router_name,
-                                                 router_info['gip'],
-                                                 router_ip, subnet_mask,
-                                                 server)
+                    try:
+                        self.add_interface_to_router(router_info['seg_id'],
+                                                     router_name,
+                                                     router_info['gip'],
+                                                     router_ip, subnet_mask,
+                                                     server)
+                        mlag_peer_failed = False
+                    except Exception:
+                        if not mlag_peer_failed:
+                            mlag_peer_failed = True
+                        else:
+                            msg = (_('Failed to add interface to router '
+                                     '%s on EOS') % router_name)
+                            LOG.exception(msg)
+                            raise arista_exc.AristaServicePluginRpcError(
+                                msg=msg)
 
             else:
                 for s in self._servers:
@@ -304,9 +334,21 @@ class AristaL3Driver(object):
         if router_info:
             router_name = self._arista_router_name(router_info['tenant_id'],
                                                    router_info['name'])
+            mlag_peer_failed = False
             for s in self._servers:
-                self.delete_interface_from_router(router_info['seg_id'],
-                                                  router_name, s)
+                try:
+                    self.delete_interface_from_router(router_info['seg_id'],
+                                                      router_name, s)
+                    if self.mlag_configured:
+                        mlag_peer_failed = False
+                except Exception:
+                    if self.mlag_configured and not mlag_peer_failed:
+                        mlag_peer_failed = True
+                    else:
+                        msg = (_LE('Failed to remove interface from router '
+                               '%s on EOS') % router_name)
+                        LOG.exception(msg)
+                        raise arista_exc.AristaServicePluginRpcError(msg=msg)
 
     def _run_openstack_l3_cmds(self, commands, server):
         """Execute/sends a CAPI (Command API) command to EOS.
@@ -330,8 +372,8 @@ class AristaL3Driver(object):
             LOG.info(_('Results of execution on Arista EOS: %s'), ret)
 
         except Exception:
-            msg = (_('Error occured while trying to execute '
-                     'commands %(cmd)s on EOS %(host)s') %
+            msg = (_LE("Error occured while trying to execute "
+                     "commands %(cmd)s on EOS %(host)s"),
                    {'cmd': full_command, 'host': server})
             LOG.exception(msg)
             raise arista_exc.AristaServicePluginRpcError(msg=msg)

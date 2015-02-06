@@ -267,8 +267,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
 
             for pool in pool_qry.filter_by(subnet_id=subnet['id']):
                 # Create a set of all addresses in the pool
-                poolset = netaddr.IPSet(netaddr.iter_iprange(pool['first_ip'],
-                                                             pool['last_ip']))
+                poolset = netaddr.IPSet(netaddr.IPRange(pool['first_ip'],
+                                                        pool['last_ip']))
 
                 # Use set difference to find free addresses in the pool
                 available = poolset - allocations
@@ -444,15 +444,15 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                     msg = _('IP address %s is not a valid IP for the defined '
                             'subnet') % fixed['ip_address']
                     raise n_exc.InvalidInput(error_message=msg)
-                if (ipv6_utils.is_slaac_subnet(subnet) and device_owner not in
+                if (ipv6_utils.is_auto_address_subnet(subnet) and
+                    device_owner not in
                     (constants.DEVICE_OWNER_ROUTER_INTF,
                      constants.DEVICE_OWNER_DVR_INTERFACE)):
                     msg = (_("IPv6 address %(address)s can not be directly "
-                            "assigned to a port on subnet %(id)s with "
-                            "%(mode)s address mode") %
+                            "assigned to a port on subnet %(id)s since the "
+                            "subnet is configured for automatic addresses") %
                            {'address': fixed['ip_address'],
-                            'id': subnet_id,
-                            'mode': subnet['ipv6_address_mode']})
+                            'id': subnet_id})
                     raise n_exc.InvalidInput(error_message=msg)
                 fixed_ip_set.append({'subnet_id': subnet_id,
                                      'ip_address': fixed['ip_address']})
@@ -478,7 +478,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
             else:
                 subnet = self._get_subnet(context, fixed['subnet_id'])
                 if (subnet['ip_version'] == 6 and
-                        ipv6_utils.is_slaac_subnet(subnet)):
+                        ipv6_utils.is_auto_address_subnet(subnet)):
                     prefix = subnet['cidr']
                     ip_address = ipv6_utils.get_ipv6_addr_by_EUI64(
                         prefix, mac_address)
@@ -552,32 +552,30 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
             subnets = self.get_subnets(context, filters=filter)
             # Split into v4 and v6 subnets
             v4 = []
-            v6 = []
+            v6_stateful = []
+            v6_stateless = []
             for subnet in subnets:
                 if subnet['ip_version'] == 4:
                     v4.append(subnet)
                 else:
-                    v6.append(subnet)
-            for subnet in v6:
-                if ipv6_utils.is_slaac_subnet(subnet):
-                    #(dzyu) If true, calculate an IPv6 address
-                    # by mac address and prefix, then remove this
-                    # subnet from the array of subnets that will be passed
-                    # to the _generate_ip() function call, since we just
-                    # generated an IP.
-                    prefix = subnet['cidr']
-                    ip_address = ipv6_utils.get_ipv6_addr_by_EUI64(
-                        prefix, p['mac_address'])
-                    if not self._check_unique_ip(
-                        context, p['network_id'],
-                        subnet['id'], ip_address.format()):
-                        raise n_exc.IpAddressInUse(
-                            net_id=p['network_id'],
-                            ip_address=ip_address.format())
-                    ips.append({'ip_address': ip_address.format(),
-                                'subnet_id': subnet['id']})
-                    v6.remove(subnet)
-            version_subnets = [v4, v6]
+                    if ipv6_utils.is_auto_address_subnet(subnet):
+                        v6_stateless.append(subnet)
+                    else:
+                        v6_stateful.append(subnet)
+
+            for subnet in v6_stateless:
+                prefix = subnet['cidr']
+                ip_address = ipv6_utils.get_ipv6_addr_by_EUI64(
+                    prefix, p['mac_address'])
+                if not self._check_unique_ip(
+                    context, p['network_id'],
+                    subnet['id'], ip_address.format()):
+                    raise n_exc.IpAddressInUse(
+                        net_id=p['network_id'],
+                        ip_address=ip_address.format())
+                ips.append({'ip_address': ip_address.format(),
+                            'subnet_id': subnet['id']})
+            version_subnets = [v4, v6_stateful]
             for subnets in version_subnets:
                 if subnets:
                     result = NeutronDbPluginV2._generate_ip(context, subnets)
@@ -767,7 +765,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
         if ra_mode_set and address_mode_set:
             self._validate_ipv6_combination(subnet['ipv6_ra_mode'],
                                             subnet['ipv6_address_mode'])
-        if address_mode_set:
+        if address_mode_set or ra_mode_set:
             self._validate_eui64_applicable(subnet)
 
     def _validate_eui64_applicable(self, subnet):
@@ -775,7 +773,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
         # id together should be equal to 128. Currently neutron supports
         # EUI64 interface id only, thus limiting the prefix
         # length to be 64 only.
-        if ipv6_utils.is_slaac_subnet(subnet):
+        if ipv6_utils.is_auto_address_subnet(subnet):
             if netaddr.IPNetwork(subnet['cidr']).prefixlen != 64:
                 msg = _('Invalid CIDR %s for IPv6 address mode. '
                         'OpenStack uses the EUI-64 address format, '
@@ -1083,10 +1081,7 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
         s = subnet['subnet']
 
         if s['gateway_ip'] is attributes.ATTR_NOT_SPECIFIED:
-            if s['ip_version'] == 6 and ipv6_utils.is_slaac_subnet(s):
-                s['gateway_ip'] = None
-            else:
-                s['gateway_ip'] = str(netaddr.IPAddress(net.first + 1))
+            s['gateway_ip'] = str(netaddr.IPAddress(net.first + 1))
 
         if s['allocation_pools'] == attributes.ATTR_NOT_SPECIFIED:
             s['allocation_pools'] = self._allocate_pools_for_subnet(context, s)
@@ -1279,9 +1274,9 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
             # Remove network owned ports, and delete IP allocations
             # for IPv6 addresses which were automatically generated
             # via SLAAC
-            is_ipv6_slaac_subnet = ipv6_utils.is_slaac_subnet(subnet)
+            is_auto_addr_subnet = ipv6_utils.is_auto_address_subnet(subnet)
             for a in allocated:
-                if (is_ipv6_slaac_subnet or
+                if (is_auto_addr_subnet or
                     a.ports.device_owner in AUTO_DELETE_PORT_OWNERS):
                     NeutronDbPluginV2._delete_ip_allocation(
                         context, subnet.network_id, id, a.ip_address)

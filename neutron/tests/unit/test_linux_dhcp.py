@@ -126,12 +126,14 @@ class FakeRouterPort:
     id = 'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr'
     admin_state_up = True
     device_owner = constants.DEVICE_OWNER_ROUTER_INTF
-    fixed_ips = [FakeIPAllocation('192.168.0.1',
-                                  'dddddddd-dddd-dddd-dddd-dddddddddddd')]
     mac_address = '00:00:0f:rr:rr:rr'
 
-    def __init__(self):
+    def __init__(self, dev_owner=constants.DEVICE_OWNER_ROUTER_INTF,
+                 ip_address='192.168.0.1'):
         self.extra_dhcp_opts = []
+        self.device_owner = dev_owner
+        self.fixed_ips = [FakeIPAllocation(
+            ip_address, 'dddddddd-dddd-dddd-dddd-dddddddddddd')]
 
 
 class FakePortMultipleAgents1:
@@ -181,6 +183,16 @@ class FakeV4Subnet:
     enable_dhcp = True
     host_routes = [FakeV4HostRoute]
     dns_nameservers = ['8.8.8.8']
+
+
+class FakeV4MetadataSubnet:
+    id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    ip_version = 4
+    cidr = '169.254.169.254/30'
+    gateway_ip = '169.254.169.253'
+    enable_dhcp = True
+    host_routes = []
+    dns_nameservers = []
 
 
 class FakeV4SubnetGatewayRoute:
@@ -341,6 +353,19 @@ class FakeV4NetworkNoRouter:
     ports = [FakePort1()]
 
 
+class FakeV4MetadataNetwork:
+    id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+    subnets = [FakeV4MetadataSubnet()]
+    ports = [FakeRouterPort(ip_address='169.254.169.253')]
+
+
+class FakeV4NetworkDistRouter:
+    id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+    subnets = [FakeV4Subnet()]
+    ports = [FakePort1(),
+             FakeRouterPort(dev_owner=constants.DEVICE_OWNER_DVR_INTERFACE)]
+
+
 class FakeDualV4Pxe3Ports:
     id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
     subnets = [FakeV4Subnet(), FakeV4SubnetNoDHCP()]
@@ -469,13 +494,15 @@ class TestBase(base.BaseTestCase):
         self.conf.register_opts(base_config.core_opts)
         self.conf.register_opts(dhcp.OPTS)
         config.register_interface_driver_opts_helper(self.conf)
+        config.register_use_namespaces_opts_helper(self.conf)
         instance = mock.patch("neutron.agent.linux.dhcp.DeviceManager")
         self.mock_mgr = instance.start()
         self.conf.register_opt(cfg.BoolOpt('enable_isolated_metadata',
                                            default=True))
+        self.conf.register_opt(cfg.BoolOpt('enable_metadata_network',
+                                           default=False))
         self.config_parse(self.conf)
         self.conf.set_override('state_path', '')
-        self.conf.use_namespaces = True
 
         self.replace_p = mock.patch('neutron.agent.linux.utils.replace_file')
         self.execute_p = mock.patch('neutron.agent.linux.utils.execute')
@@ -762,14 +789,21 @@ class TestDnsmasq(TestBase):
             seconds = 's'
         if has_static:
             prefix = '--dhcp-range=set:tag%d,%s,static,%s%s'
+            prefix6 = '--dhcp-range=set:tag%d,%s,static,%s,%s%s'
         else:
             prefix = '--dhcp-range=set:tag%d,%s,%s%s'
+            prefix6 = '--dhcp-range=set:tag%d,%s,%s,%s%s'
         possible_leases = 0
         for i, s in enumerate(network.subnets):
             if (s.ip_version != 6
                 or s.ipv6_address_mode == constants.DHCPV6_STATEFUL):
-                expected.extend([prefix % (
-                    i, s.cidr.split('/')[0], lease_duration, seconds)])
+                if s.ip_version == 4:
+                    expected.extend([prefix % (
+                        i, s.cidr.split('/')[0], lease_duration, seconds)])
+                else:
+                    expected.extend([prefix6 % (
+                        i, s.cidr.split('/')[0], s.cidr.split('/')[1],
+                        lease_duration, seconds)])
                 possible_leases += netaddr.IPNetwork(s.cidr).size
 
         expected.append('--dhcp-lease-max=%d' % min(
@@ -956,6 +990,26 @@ tag:tag0,option:router""".lstrip()
                               version=dhcp.Dnsmasq.MINIMUM_VERSION)
             with mock.patch.object(dm, '_make_subnet_interface_ip_map') as ipm:
                 ipm.return_value = {FakeV4SubnetNoRouter.id: '192.168.1.2'}
+
+                dm._output_opts_file()
+                self.assertTrue(ipm.called)
+
+        self.safe.assert_called_once_with('/foo/opts', expected)
+
+    def test_output_opts_file_dist_neutron_router_on_subnet(self):
+        expected = (
+            'tag:tag0,option:dns-server,8.8.8.8\n'
+            'tag:tag0,option:classless-static-route,20.0.0.1/24,20.0.0.1,'
+            '0.0.0.0/0,192.168.0.1\n'
+            'tag:tag0,249,20.0.0.1/24,20.0.0.1,0.0.0.0/0,192.168.0.1\n'
+            'tag:tag0,option:router,192.168.0.1').lstrip()
+
+        with mock.patch.object(dhcp.Dnsmasq, 'get_conf_file_name') as conf_fn:
+            conf_fn.return_value = '/foo/opts'
+            dm = dhcp.Dnsmasq(self.conf, FakeV4NetworkDistRouter(),
+                              version=dhcp.Dnsmasq.MINIMUM_VERSION)
+            with mock.patch.object(dm, '_make_subnet_interface_ip_map') as ipm:
+                ipm.return_value = {FakeV4Subnet.id: '192.168.0.1'}
 
                 dm._output_opts_file()
                 self.assertTrue(ipm.called)
@@ -1325,6 +1379,18 @@ tag:tag0,option:router""".lstrip()
         with testtools.ExpectedException(SystemExit):
             self._check_version('Error while executing command', 0)
 
+    def test_check_version_ipv6_succeed(self):
+        with mock.patch('neutron.agent.linux.dhcp.LOG.warning') as warning:
+            self._check_version('Dnsmasq version 2.69 Copyright (c)...',
+                                float(2.69))
+            self.assertFalse(warning.called)
+
+    def test_check_version_ipv6_fail(self):
+        with mock.patch('neutron.agent.linux.dhcp.LOG.warning') as warning:
+            self._check_version('Dnsmasq version 2.66 Copyright (c)...',
+                                float(2.66))
+            self.assertTrue(warning.called)
+
     def test_only_populates_dhcp_enabled_subnets(self):
         exp_host_name = '/dhcp/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee/host'
         exp_host_data = ('00:00:80:aa:bb:cc,host-192-168-0-2.openstacklocal,'
@@ -1338,3 +1404,26 @@ tag:tag0,option:router""".lstrip()
         dm._output_hosts_file()
         self.safe.assert_has_calls([mock.call(exp_host_name,
                                               exp_host_data)])
+
+    def test_should_enable_metadata_namespaces_disabled_returns_false(self):
+        self.conf.set_override('use_namespaces', False)
+        self.assertFalse(dhcp.Dnsmasq.should_enable_metadata(self.conf,
+                                                             mock.ANY))
+
+    def test_should_enable_metadata_isolated_network_returns_true(self):
+        self.assertTrue(dhcp.Dnsmasq.should_enable_metadata(
+            self.conf, FakeV4NetworkNoRouter()))
+
+    def test_should_enable_metadata_non_isolated_network_returns_false(self):
+        self.assertFalse(dhcp.Dnsmasq.should_enable_metadata(
+            self.conf, FakeV4NetworkDistRouter()))
+
+    def test_should_enable_metadata_isolated_meta_disabled_returns_false(self):
+        self.conf.set_override('enable_isolated_metadata', False)
+        self.assertFalse(dhcp.Dnsmasq.should_enable_metadata(self.conf,
+                                                             mock.ANY))
+
+    def test_should_enable_metadata_with_metadata_network_returns_true(self):
+        self.conf.set_override('enable_metadata_network', True)
+        self.assertTrue(dhcp.Dnsmasq.should_enable_metadata(
+            self.conf, FakeV4MetadataNetwork()))
