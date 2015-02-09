@@ -13,15 +13,22 @@
 #    under the License.
 
 import os
+import six
 
 from alembic import command as alembic_command
 from alembic import config as alembic_config
+from alembic import environment
 from alembic import script as alembic_script
 from alembic import util as alembic_util
 from oslo.config import cfg
+from oslo.utils import importutils
 
+from neutron.common import repos
 
 HEAD_FILENAME = 'HEAD'
+
+mods = repos.NeutronModules()
+VALID_SERVICES = map(lambda x: mods.alembic_name(x), mods.installed_list())
 
 
 _core_opts = [
@@ -31,6 +38,10 @@ _core_opts = [
     cfg.ListOpt('service_plugins',
                 default=[],
                 help=_("The service plugins Neutron will use")),
+    cfg.StrOpt('service',
+               choices=VALID_SERVICES,
+               help=_("The advanced service to execute the command against. "
+                      "Can be one of '%s'.") % "', '".join(VALID_SERVICES))
 ]
 
 _quota_opts = [
@@ -60,7 +71,7 @@ def do_alembic_command(config, cmd, *args, **kwargs):
     try:
         getattr(alembic_command, cmd)(config, *args, **kwargs)
     except alembic_util.CommandError as e:
-        alembic_util.err(str(e))
+        alembic_util.err(six.text_type(e))
 
 
 def do_check_migration(config, cmd):
@@ -79,7 +90,8 @@ def do_upgrade_downgrade(config, cmd):
         revision = sign + str(CONF.command.delta)
     else:
         revision = CONF.command.revision
-
+    if CONF.command.name == 'upgrade' and not CONF.command.sql:
+        run_sanity_checks(config, revision)
     do_alembic_command(config, cmd, revision, sql=CONF.command.sql)
 
 
@@ -159,19 +171,48 @@ command_opt = cfg.SubCommandOpt('command',
 CONF.register_cli_opt(command_opt)
 
 
+def validate_service_installed(service):
+    if not importutils.try_import('neutron_%s' % service):
+        alembic_util.err(_('Package neutron-%s not installed') % service)
+
+
+def get_script_location(neutron_config):
+    location = '%s.db.migration:alembic_migrations'
+    if neutron_config.service:
+        validate_service_installed(neutron_config.service)
+        base = "neutron_%s" % neutron_config.service
+    else:
+        base = "neutron"
+    return location % base
+
+
 def get_alembic_config():
     config = alembic_config.Config(os.path.join(os.path.dirname(__file__),
                                                 'alembic.ini'))
-    config.set_main_option('script_location',
-                           'neutron.db.migration:alembic_migrations')
+    config.set_main_option('script_location', get_script_location(CONF))
     return config
 
 
+def run_sanity_checks(config, revision):
+    script_dir = alembic_script.ScriptDirectory.from_config(config)
+
+    def check_sanity(rev, context):
+        for script in script_dir.iterate_revisions(revision, rev):
+            if hasattr(script.module, 'check_sanity'):
+                script.module.check_sanity(context.connection)
+        return []
+
+    with environment.EnvironmentContext(config, script_dir,
+                                        fn=check_sanity,
+                                        starting_rev=None,
+                                        destination_rev=revision):
+        script_dir.run_env()
+
+
 def main():
+    CONF(project='neutron')
     config = get_alembic_config()
-    # attach the Neutron conf to the Alembic conf
     config.neutron_config = CONF
 
-    CONF(project='neutron')
     #TODO(gongysh) enable logging
     CONF.command.func(config, CONF.command.name)

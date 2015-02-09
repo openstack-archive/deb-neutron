@@ -12,10 +12,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import random
-
 import netaddr
+from oslo.config import cfg
 
+from neutron.agent.common import config
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
@@ -23,18 +23,22 @@ from neutron.common import constants as n_const
 from neutron.openstack.common import uuidutils
 from neutron.tests.functional.agent.linux import helpers
 from neutron.tests.functional import base as functional_base
+from neutron.tests import sub_base
 
 
 BR_PREFIX = 'test-br'
 PORT_PREFIX = 'test-port'
+MARK_VALUE = '0x1'
+MARK_MASK = '0xffffffff'
+ICMP_MARK_RULE = ('-j MARK --set-xmark %(value)s/%(mask)s'
+                  % {'value': MARK_VALUE, 'mask': MARK_MASK})
+MARKED_BLOCK_RULE = '-m mark --mark %s -j DROP' % MARK_VALUE
 ICMP_BLOCK_RULE = '-p icmp -j DROP'
 VETH_PREFIX = 'tst-vth'
 
 
 #TODO(jschwarz): Move these two functions to neutron/tests/common/
-def get_rand_name(max_length=None, prefix='test'):
-    name = prefix + str(random.randint(1, 0x7fffffff))
-    return name[:max_length] if max_length is not None else name
+get_rand_name = sub_base.get_rand_name
 
 
 def get_rand_veth_name():
@@ -42,7 +46,16 @@ def get_rand_veth_name():
                          prefix=VETH_PREFIX)
 
 
+def get_rand_port_name():
+    return get_rand_name(prefix=PORT_PREFIX,
+                         max_length=n_const.DEVICE_NAME_MAX_LEN)
+
+
 class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
+
+    def setUp(self):
+        super(BaseLinuxTestCase, self).setUp()
+        config.register_root_helper(cfg.CONF)
 
     def check_command(self, cmd, error_text, skip_msg, root_helper=None):
         try:
@@ -117,9 +130,8 @@ class BaseOVSLinuxTestCase(BaseLinuxTestCase):
 
     def create_ovs_port_in_ns(self, br, ns):
         def create_port(name):
-            br.add_port(name)
+            br.replace_port(name, ('type', 'internal'))
             self.addCleanup(br.delete_port, name)
-            br.set_db_attribute('Interface', name, 'type', 'internal')
             return name
         port_name = self.create_resource(PORT_PREFIX, create_port)
         port_dev = self.ip.device(port_name)

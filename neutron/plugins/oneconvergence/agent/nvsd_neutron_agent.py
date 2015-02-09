@@ -27,7 +27,6 @@ from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as common_config
-from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
 from neutron.extensions import securitygroup as ext_sg
@@ -60,14 +59,6 @@ class NVSDAgentRpcCallback(object):
             self.sg_agent.refresh_firewall()
 
 
-class SecurityGroupServerRpcApi(sg_rpc.SecurityGroupServerRpcApiMixin):
-
-    def __init__(self, topic):
-        self.topic = topic
-        target = messaging.Target(topic=topic, version=sg_rpc.SG_RPC_VERSION)
-        self.client = n_rpc.get_client(target)
-
-
 class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     target = messaging.Target(version=sg_rpc.SG_RPC_VERSION)
@@ -76,16 +67,6 @@ class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         super(SecurityGroupAgentRpcCallback, self).__init__()
         self.context = context
         self.sg_agent = sg_agent
-
-
-class SecurityGroupAgentRpc(sg_rpc.SecurityGroupAgentRpcMixin):
-
-    def __init__(self, context, root_helper):
-        self.context = context
-
-        self.plugin_rpc = SecurityGroupServerRpcApi(topics.PLUGIN)
-        self.root_helper = root_helper
-        self.init_firewall()
 
 
 class NVSDNeutronAgent(object):
@@ -110,8 +91,10 @@ class NVSDNeutronAgent(object):
 
         self.topic = topics.AGENT
         self.context = n_context.get_admin_context_without_session()
-        self.sg_agent = SecurityGroupAgentRpc(self.context,
-                                              self.root_helper)
+        self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
+        self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
+                                                     self.sg_plugin_rpc,
+                                                     self.root_helper)
 
         # RPC network init
         # Handle updates from service

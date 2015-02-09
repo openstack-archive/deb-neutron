@@ -28,9 +28,6 @@ import pep8
 #  - Add test cases for each new rule to
 #    neutron/tests/unit/test_hacking.py
 
-author_tag_re = (re.compile("^\s*#\s*@?(a|A)uthor"),
-                 re.compile("^\.\.\s+moduleauthor::"))
-_all_hints = set(['_', '_LI', '_LE', '_LW', '_LC'])
 _all_log_levels = {
     # NOTE(yamamoto): Following nova which uses _() for audit.
     'audit': '_',
@@ -41,13 +38,19 @@ _all_log_levels = {
     'critical': '_LC',
     'exception': '_LE',
 }
-log_translation_hints = []
-for level, hint in _all_log_levels.iteritems():
-    r = "(.)*LOG\.%(level)s\(\s*((%(wrong_hints)s)\(|'|\")" % {
+_all_hints = set(_all_log_levels.values())
+
+
+def _regex_for_level(level, hint):
+    return r".*LOG\.%(level)s\(\s*((%(wrong_hints)s)\(|'|\")" % {
         'level': level,
         'wrong_hints': '|'.join(_all_hints - set([hint])),
     }
-    log_translation_hints.append(re.compile(r))
+
+
+log_translation_hint = re.compile(
+    '|'.join('(?:%s)' % _regex_for_level(level, hint)
+             for level, hint in _all_log_levels.iteritems()))
 
 
 def validate_log_translations(logical_line, physical_line, filename):
@@ -58,9 +61,8 @@ def validate_log_translations(logical_line, physical_line, filename):
         return
 
     msg = "N320: Log messages require translation hints!"
-    for log_translation_hint in log_translation_hints:
-        if log_translation_hint.match(logical_line):
-            yield (0, msg)
+    if log_translation_hint.match(logical_line):
+        yield (0, msg)
 
 
 def use_jsonutils(logical_line, filename):
@@ -82,16 +84,6 @@ def use_jsonutils(logical_line, filename):
             pos = logical_line.find('json.%s' % f)
             if pos != -1:
                 yield (pos, msg % {'fun': f[:-1]})
-
-
-def no_author_tags(physical_line):
-    for regex in author_tag_re:
-        if regex.match(physical_line):
-            physical_line = physical_line.lower()
-            pos = physical_line.find('moduleauthor')
-            if pos < 0:
-                pos = physical_line.find('author')
-            return pos, "N322: Don't use author tags"
 
 
 def no_translate_debug_logs(logical_line, filename):
@@ -117,7 +109,7 @@ def check_assert_called_once_with(logical_line, filename):
         if '.assert_called_once_with(' in logical_line:
             return
         if '.assertcalledonce' in logical_line.lower().replace('_', ''):
-            msg = ("N323: Possible use of no-op mock method. "
+            msg = ("N322: Possible use of no-op mock method. "
                    "please use assert_called_once_with.")
             yield (0, msg)
 
@@ -125,6 +117,5 @@ def check_assert_called_once_with(logical_line, filename):
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
-    register(no_author_tags)
     register(check_assert_called_once_with)
     register(no_translate_debug_logs)

@@ -22,6 +22,7 @@ import contextlib
 
 import mock
 from oslo_context import context as oslo_context
+from sqlalchemy.orm import exc
 
 from neutron.agent import rpc as agent_rpc
 from neutron.common import constants
@@ -87,7 +88,7 @@ class RpcCallbacksTestCase(base.BaseTestCase):
                                               device='fake_device'))
 
     def test_get_device_details_port_context_without_bounded_segment(self):
-        self.plugin.get_bound_port_context().bound_segment = None
+        self.plugin.get_bound_port_context().bottom_bound_segment = None
         self.assertEqual(
             {'device': 'fake_device'},
             self.callbacks.get_device_details('fake_context',
@@ -161,6 +162,12 @@ class RpcCallbacksTestCase(base.BaseTestCase):
         self.plugin.update_port_status.assert_called_once_with(
             'fake_context', 'fake_port_id', constants.PORT_STATUS_DOWN,
             'fake_host')
+
+    def test_update_device_down_call_update_port_status_failed(self):
+        self.plugin.update_port_status.side_effect = exc.StaleDataError
+        self.assertEqual({'device': 'fake_device', 'exists': False},
+                         self.callbacks.update_device_down(
+                             'fake_context', device='fake_device'))
 
 
 class RpcApiTestCase(base.BaseTestCase):

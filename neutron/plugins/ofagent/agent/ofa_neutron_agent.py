@@ -60,7 +60,7 @@ cfg.CONF.import_group('AGENT', 'neutron.plugins.ofagent.common.config')
 
 # A class to represent a VIF (i.e., a port that has 'iface-id' and 'vif-mac'
 # attributes set).
-class LocalVLANMapping:
+class LocalVLANMapping(object):
     def __init__(self, vlan, network_type, physical_network, segmentation_id,
                  vif_ports=None):
         assert(isinstance(vlan, (int, long)))
@@ -121,19 +121,6 @@ class Bridge(flows.OFAgentIntegrationBridge, ovs_lib.OVSBridge):
             raise SystemExit(1)
         self.find_datapath_id()
         self.get_datapath(retry_max)
-
-
-class OFAPluginApi(agent_rpc.PluginApi,
-                   sg_rpc.SecurityGroupServerRpcApiMixin):
-    pass
-
-
-class OFASecurityGroupAgent(sg_rpc.SecurityGroupAgentRpcMixin):
-    def __init__(self, context, plugin_rpc, root_helper):
-        self.context = context
-        self.plugin_rpc = plugin_rpc
-        self.root_helper = root_helper
-        self.init_firewall(defer_refresh_firewall=True)
 
 
 class OFANeutronAgentRyuApp(app_manager.RyuApp):
@@ -258,9 +245,9 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         self.dont_fragment = cfg.CONF.AGENT.dont_fragment
 
         # Security group agent support
-        self.sg_agent = OFASecurityGroupAgent(self.context,
-                                              self.plugin_rpc,
-                                              self.root_helper)
+        self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
+                self.sg_plugin_rpc, self.root_helper,
+                defer_refresh_firewall=True)
         # Initialize iteration counter
         self.iter_num = 0
 
@@ -287,7 +274,8 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         mac = self.int_br.get_local_port_mac()
         self.agent_id = '%s%s' % ('ovs', (mac.replace(":", "")))
         self.topic = topics.AGENT
-        self.plugin_rpc = OFAPluginApi(topics.PLUGIN)
+        self.plugin_rpc = agent_rpc.PluginApi(topics.PLUGIN)
+        self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
 
         # RPC network init
@@ -648,23 +636,17 @@ class OFANeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             LOG.debug("No VIF port for port %s defined on agent.", port_id)
 
     def _setup_tunnel_port(self, br, port_name, remote_ip, tunnel_type):
-        ofport_str = br.add_tunnel_port(port_name,
-                                        remote_ip,
-                                        self.local_ip,
-                                        tunnel_type,
-                                        self.vxlan_udp_port,
-                                        self.dont_fragment)
-        ofport = -1
-        try:
-            ofport = int(ofport_str)
-        except (TypeError, ValueError):
-            LOG.exception(_LE("ofport should have a value that can be "
-                              "interpreted as an integer"))
-        if ofport < 0:
+        ofport = br.add_tunnel_port(port_name,
+                                    remote_ip,
+                                    self.local_ip,
+                                    tunnel_type,
+                                    self.vxlan_udp_port,
+                                    self.dont_fragment)
+        if ofport == ovs_lib.INVALID_OFPORT:
             LOG.error(_LE("Failed to set-up %(type)s tunnel port to %(ip)s"),
                       {'type': tunnel_type, 'ip': remote_ip})
             return 0
-
+        ofport = int(ofport)
         self.tun_ofports[tunnel_type][remote_ip] = ofport
         br.check_in_port_add_tunnel_port(tunnel_type, ofport)
         return ofport

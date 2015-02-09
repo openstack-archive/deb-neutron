@@ -96,8 +96,7 @@ class L3AgentsHostingRouterController(wsgi.Controller):
         return plugin
 
     def index(self, request, **kwargs):
-        plugin = manager.NeutronManager.get_service_plugins().get(
-            service_constants.L3_ROUTER_NAT)
+        plugin = self.get_plugin()
         policy.enforce(request.context,
                        "get_%s" % L3_AGENTS,
                        {})
@@ -181,6 +180,12 @@ class RouterNotHostedByL3Agent(exceptions.Conflict):
 class RouterL3AgentMismatch(exceptions.Conflict):
     message = _("Cannot host %(router_type)s router %(router_id)s "
                 "on %(agent_mode)s L3 agent %(agent_id)s.")
+
+
+class DVRL3CannotAssignToDvrAgent(exceptions.Conflict):
+    message = _("Not allowed to manually assign a %(router_type)s "
+                "router %(router_id)s from an existing DVR node "
+                "to another L3 agent %(agent_id)s.")
 
 
 class L3AgentSchedulerPluginBase(object):

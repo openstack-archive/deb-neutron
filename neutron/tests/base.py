@@ -29,6 +29,7 @@ import os.path
 import fixtures
 from oslo.config import cfg
 from oslo.messaging import conffixture as messaging_conffixture
+from oslo_concurrency.fixture import lockutils
 
 from neutron.common import config
 from neutron.common import rpc as n_rpc
@@ -85,8 +86,9 @@ class BaseTestCase(sub_base.SubBaseTestCase):
                 nuke_handlers=capture_logs,
             ))
 
-        self.temp_dir = self.useFixture(fixtures.TempDir()).path
-        cfg.CONF.set_override('state_path', self.temp_dir)
+        self.useFixture(lockutils.ExternalLockFixture())
+
+        cfg.CONF.set_override('state_path', self.get_default_temp_dir().path)
 
         self.addCleanup(CONF.reset)
 
@@ -96,6 +98,42 @@ class BaseTestCase(sub_base.SubBaseTestCase):
 
         self.setup_rpc_mocks()
         self.setup_config()
+
+    def get_new_temp_dir(self):
+        """Create a new temporary directory.
+
+        :returns fixtures.TempDir
+        """
+        return self.useFixture(fixtures.TempDir())
+
+    def get_default_temp_dir(self):
+        """Create a default temporary directory.
+
+        Returns the same directory during the whole test case.
+
+        :returns fixtures.TempDir
+        """
+        if not hasattr(self, '_temp_dir'):
+            self._temp_dir = self.get_new_temp_dir()
+        return self._temp_dir
+
+    def get_temp_file_path(self, filename, root=None):
+        """Returns an absolute path for a temporary file.
+
+        If root is None, the file is created in default temporary directory. It
+        also creates the directory if it's not initialized yet.
+
+        If root is not None, the file is created inside the directory passed as
+        root= argument.
+
+        :param filename: filename
+        :type filename: string
+        :param root: temporary directory to create a new file in
+        :type root: fixtures.TempDir
+        :returns absolute file path string
+        """
+        root = root or self.get_default_temp_dir()
+        return root.join(filename)
 
     def setup_rpc_mocks(self):
         # don't actually start RPC listeners when testing

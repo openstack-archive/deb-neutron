@@ -237,7 +237,7 @@ class OvsAgentSchedulerTestCaseBase(test_l3_plugin.L3NatTestCaseMixin,
         self.patched_l3_notify = self.l3_notify_p.start()
         self.l3_periodic_p = mock.patch('neutron.db.l3_agentschedulers_db.'
                                         'L3AgentSchedulerDbMixin.'
-                                        'start_periodic_agent_status_check')
+                                        'start_periodic_l3_agent_status_check')
         self.patched_l3_periodic = self.l3_periodic_p.start()
         self.dhcp_notify_p = mock.patch(
             'neutron.extensions.dhcpagentscheduler.notify')
@@ -816,10 +816,10 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                     constants.AGENT_TYPE_L3,
                     L3_HOSTB)
                 hostb_routers = self._list_routers_hosted_by_l3_agent(hostb_id)
-                num_hostc_routers = len(hostb_routers['routers'])
+                num_hostb_routers = len(hostb_routers['routers'])
 
         self.assertEqual(1, num_hosta_routers)
-        self.assertEqual(1, num_hostc_routers)
+        self.assertEqual(1, num_hostb_routers)
         self.assertEqual(1, len(l3_agents_1['agents']))
         self.assertEqual(1, len(l3_agents_2['agents']))
         self.assertEqual(L3_HOSTA, l3_agents_1['agents'][0]['host'])

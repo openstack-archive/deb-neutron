@@ -21,6 +21,8 @@ from oslo import messaging
 from oslo.utils import importutils
 
 from neutron.agent import firewall
+from neutron.common import constants
+from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.i18n import _LI, _LW
 from neutron.openstack.common import log as logging
@@ -83,8 +85,20 @@ def disable_security_group_extension_by_config(aliases):
         _disable_extension('allowed-address-pairs', aliases)
 
 
-class SecurityGroupServerRpcApiMixin(object):
-    """A mix-in that enable SecurityGroup support in plugin rpc."""
+class SecurityGroupServerRpcApi(object):
+    """RPC client for security group methods in the plugin.
+
+    This class implements the client side of an rpc interface.  This interface
+    is used by agents to call security group related methods implemented on the
+    plugin side.  The other side of this interface can be found in
+    neutron.api.rpc.handlers.SecurityGroupServerRpcCallback.  For more
+    information about changing rpc interfaces, see
+    doc/source/devref/rpc_api.rst.
+    """
+    def __init__(self, topic):
+        target = messaging.Target(topic=topic, version='1.0',
+                                  namespace=constants.RPC_NAMESPACE_SECGROUP)
+        self.client = n_rpc.get_client(target)
 
     def security_group_rules_for_devices(self, context, devices):
         LOG.debug("Get security group rules "
@@ -145,10 +159,15 @@ class SecurityGroupAgentRpcCallbackMixin(object):
         self.sg_agent.security_groups_provider_updated()
 
 
-class SecurityGroupAgentRpcMixin(object):
-    """A mix-in that enable SecurityGroup agent
-    support in agent implementations.
-    """
+class SecurityGroupAgentRpc(object):
+    """Enables SecurityGroup agent support in agent implementations."""
+
+    def __init__(self, context, plugin_rpc, root_helper,
+                 defer_refresh_firewall=False):
+        self.context = context
+        self.plugin_rpc = plugin_rpc
+        self.root_helper = root_helper
+        self.init_firewall(defer_refresh_firewall)
 
     def init_firewall(self, defer_refresh_firewall=False):
         firewall_driver = cfg.CONF.SECURITYGROUP.firewall_driver
@@ -197,7 +216,8 @@ class SecurityGroupAgentRpcMixin(object):
                          "or configured as NoopFirewallDriver."),
                          func.__name__)
             else:
-                return func(self, *args, **kwargs)
+                return func(self,  # pylint: disable=not-callable
+                            *args, **kwargs)
         return decorated_function
 
     @skip_if_noopfirewall_or_firewall_disabled
@@ -388,4 +408,4 @@ class SecurityGroupAgentRpcApiMixin(object):
         cctxt = self.client.prepare(version=SG_RPC_VERSION,
                                     topic=self._get_security_group_topic(),
                                     fanout=True)
-        cctxt.cast(context, 'security_groups_member_updated')
+        cctxt.cast(context, 'security_groups_provider_updated')

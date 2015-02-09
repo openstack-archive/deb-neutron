@@ -58,11 +58,13 @@ class L3HATestFramework(testlib_api.SqlTestCase,
             'agent_type': constants.AGENT_TYPE_L3,
             'binary': 'neutron-l3-agent',
             'host': 'l3host',
-            'topic': 'N/A'
+            'topic': 'N/A',
+            'configurations': {'agent_mode': 'legacy'}
         }
 
         self.plugin.create_or_update_agent(self.admin_ctx, agent_status)
         agent_status['host'] = 'l3host_2'
+        agent_status['configurations'] = {'agent_mode': 'dvr_snat'}
         self.plugin.create_or_update_agent(self.admin_ctx, agent_status)
         self.agent1, self.agent2 = self.plugin.get_agents(self.admin_ctx)
 
@@ -114,11 +116,23 @@ class L3HATestCase(L3HATestFramework):
             l3_ext_ha_mode.HANetworkCIDRNotValid,
             self.plugin._verify_configuration)
 
-    def test_verify_conifguration_min_l3_agents_per_router_below_minimum(self):
+    def test_verify_configuration_min_l3_agents_per_router_below_minimum(self):
         cfg.CONF.set_override('min_l3_agents_per_router', 0)
         self.assertRaises(
             l3_ext_ha_mode.HAMinimumAgentsNumberNotValid,
-            self.plugin._verify_configuration)
+            self.plugin._check_num_agents_per_router)
+
+    def test_verify_configuration_max_l3_agents_below_min_l3_agents(self):
+        cfg.CONF.set_override('max_l3_agents_per_router', 3)
+        cfg.CONF.set_override('min_l3_agents_per_router', 4)
+        self.assertRaises(
+            l3_ext_ha_mode.HAMaximumAgentsNumberNotValid,
+            self.plugin._check_num_agents_per_router)
+
+    def test_verify_configuration_max_l3_agents_unlimited(self):
+        cfg.CONF.set_override('max_l3_agents_per_router',
+                              l3_hamode_db.UNLIMITED_AGENTS_PER_ROUTER)
+        self.plugin._check_num_agents_per_router()
 
     def test_ha_router_create(self):
         router = self._create_router()
@@ -387,6 +401,27 @@ class L3HATestCase(L3HATestFramework):
 
         routers_after = self.plugin.get_routers(self.admin_ctx)
         self.assertEqual(routers_before, routers_after)
+
+    def test_exclude_dvr_agents_for_ha_candidates(self):
+        """Test dvr agents are not counted in the ha candidates.
+
+        This test case tests that when get_number_of_agents_for_scheduling
+        is called, it doesn't count dvr agents.
+        """
+        # Test setup registers two l3 agents.
+        # Register another l3 agent with dvr mode and assert that
+        # get_number_of_ha_agent_candidates return 2.
+        dvr_agent_status = {
+            'agent_type': constants.AGENT_TYPE_L3,
+            'binary': 'neutron-l3-agent',
+            'host': 'l3host_3',
+            'topic': 'N/A',
+            'configurations': {'agent_mode': 'dvr'}
+        }
+        self.plugin.create_or_update_agent(self.admin_ctx, dvr_agent_status)
+        num_ha_candidates = self.plugin.get_number_of_agents_for_scheduling(
+            self.admin_ctx)
+        self.assertEqual(2, num_ha_candidates)
 
 
 class L3HAUserTestCase(L3HATestFramework):

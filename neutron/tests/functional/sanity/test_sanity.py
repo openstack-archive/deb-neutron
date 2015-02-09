@@ -32,6 +32,9 @@ class SanityTestCase(base.BaseTestCase):
     def test_nova_notify_runs(self):
         checks.nova_notify_supported()
 
+    def test_dnsmasq_version(self):
+        checks.dnsmasq_version_supported()
+
 
 class SanityTestCaseRoot(functional_base.BaseSudoTestCase):
     """Sanity checks that require root access.
@@ -45,7 +48,10 @@ class SanityTestCaseRoot(functional_base.BaseSudoTestCase):
         self.check_sudo_enabled()
 
     def test_ovs_vxlan_support_runs(self):
-        checks.vxlan_supported(self.root_helper)
+        checks.ovs_vxlan_supported(self.root_helper)
+
+    def test_iproute2_vxlan_support_runs(self):
+        checks.iproute2_vxlan_supported(self.root_helper)
 
     def test_ovs_patch_support_runs(self):
         checks.patch_supported(self.root_helper)
@@ -55,3 +61,6 @@ class SanityTestCaseRoot(functional_base.BaseSudoTestCase):
 
     def test_vf_management_runs(self):
         checks.vf_management_supported(self.root_helper)
+
+    def test_namespace_root_read_detection_runs(self):
+        checks.netns_read_requires_helper(self.root_helper)

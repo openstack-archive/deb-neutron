@@ -16,21 +16,23 @@
 import copy
 import functools
 
-import fixtures
 import mock
+import netaddr
 from oslo.config import cfg
 import webob
 import webob.dec
 import webob.exc
 
 from neutron.agent.common import config as agent_config
-from neutron.agent.l3 import agent as l3_agent
+from neutron.agent.l3 import agent as neutron_l3_agent
+from neutron.agent import l3_agent as l3_agent_main
 from neutron.agent.linux import dhcp
 from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
 from neutron.agent.metadata import agent as metadata_agent
 from neutron.common import config as common_config
 from neutron.common import constants as l3_constants
+from neutron.common import utils as common_utils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.services import advanced_service as adv_svc
@@ -60,11 +62,12 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
         config.register_cli_opts(logging.logging_cli_opts)
         config.register_opts(logging.generic_log_opts)
         config.register_opts(logging.log_opts)
+        agent_config.register_process_monitor_opts(config)
         return config
 
     def _configure_agent(self, host):
         conf = self._get_config_opts()
-        l3_agent._register_opts(conf)
+        l3_agent_main.register_opts(conf)
         cfg.CONF.set_override('debug', False)
         agent_config.setup_logging()
         conf.set_override(
@@ -78,24 +81,27 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
         conf.set_override('ovs_integration_bridge', br_int.br_name)
         conf.set_override('external_network_bridge', br_ex.br_name)
 
-        temp_dir = self.useFixture(fixtures.TempDir()).path
-        conf.set_override('state_path', temp_dir)
+        temp_dir = self.get_new_temp_dir()
+        get_temp_file_path = functools.partial(self.get_temp_file_path,
+                                               root=temp_dir)
+        conf.set_override('state_path', temp_dir.path)
         conf.set_override('metadata_proxy_socket',
-                          '%s/metadata_proxy' % temp_dir)
+                          get_temp_file_path('metadata_proxy'))
         conf.set_override('ha_confs_path',
-                          '%s/ha_confs' % temp_dir)
+                          get_temp_file_path('ha_confs'))
         conf.set_override('external_pids',
-                          '%s/external/pids' % temp_dir)
+                          get_temp_file_path('external/pids'))
         conf.set_override('host', host)
         agent = l3_test_agent.TestL3NATAgent(host, conf)
-        mock.patch.object(agent, '_arping').start()
+        mock.patch.object(ip_lib, 'send_gratuitous_arp').start()
 
         return agent
 
     def generate_router_info(self, enable_ha):
         return test_l3_agent.prepare_router_data(enable_snat=True,
                                                  enable_floating_ip=True,
-                                                 enable_ha=enable_ha)
+                                                 enable_ha=enable_ha,
+                                                 extra_routes=True)
 
     def manage_router(self, agent, router):
         self.addCleanup(self._delete_router, agent, router['id'])
@@ -116,9 +122,9 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
                'fixed_ip_address': fixed_address}
         router.router[l3_constants.FLOATINGIP_KEY].append(fip)
 
-    def _namespace_exists(self, router):
-        ip = ip_lib.IPWrapper(self.root_helper, router.ns_name)
-        return ip.netns.exists(router.ns_name)
+    def _namespace_exists(self, namespace):
+        ip = ip_lib.IPWrapper(self.root_helper, namespace)
+        return ip.netns.exists(namespace)
 
     def _metadata_proxy_exists(self, conf, router):
         pm = external_process.ProcessManager(
@@ -139,19 +145,22 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
     def get_expected_keepalive_configuration(self, router):
         ha_confs_path = self.agent.conf.ha_confs_path
         router_id = router.router_id
-        ha_device_name = self.agent.get_ha_device_name(router.ha_port['id'])
+        ha_device_name = router.get_ha_device_name(router.ha_port['id'])
         ha_device_cidr = router.ha_port['ip_cidr']
         external_port = self.agent._get_ex_gw_port(router)
+        ex_port_ipv6 = router._get_ipv6_lladdr(
+            external_port['mac_address'])
         external_device_name = self.agent.get_external_device_name(
             external_port['id'])
         external_device_cidr = external_port['ip_cidr']
         internal_port = router.router[l3_constants.INTERFACE_KEY][0]
+        int_port_ipv6 = router._get_ipv6_lladdr(
+            internal_port['mac_address'])
         internal_device_name = self.agent.get_internal_device_name(
             internal_port['id'])
         internal_device_cidr = internal_port['ip_cidr']
-        floating_ip_cidr = (
-            self.agent.get_floating_ips(router)[0]
-            ['floating_ip_address'] + l3_agent.FLOATING_IP_CIDR_SUFFIX)
+        floating_ip_cidr = common_utils.ip_to_cidr(
+            self.agent.get_floating_ips(router)[0]['floating_ip_address'])
         default_gateway_ip = external_port['subnet'].get('gateway_ip')
 
         return """vrrp_sync_group VG_1 {
@@ -173,14 +182,18 @@ vrrp_instance VR_1 {
         %(ha_device_name)s
     }
     virtual_ipaddress {
-        %(floating_ip_cidr)s dev %(external_device_name)s
+        169.254.0.1/24 dev %(ha_device_name)s
     }
     virtual_ipaddress_excluded {
+        %(floating_ip_cidr)s dev %(external_device_name)s
         %(external_device_cidr)s dev %(external_device_name)s
         %(internal_device_cidr)s dev %(internal_device_name)s
+        %(ex_port_ipv6)s dev %(external_device_name)s scope link
+        %(int_port_ipv6)s dev %(internal_device_name)s scope link
     }
     virtual_routes {
         0.0.0.0/0 via %(default_gateway_ip)s dev %(external_device_name)s
+        8.8.8.0/24 via 19.4.4.4
     }
 }""" % {
             'ha_confs_path': ha_confs_path,
@@ -192,8 +205,59 @@ vrrp_instance VR_1 {
             'internal_device_name': internal_device_name,
             'internal_device_cidr': internal_device_cidr,
             'floating_ip_cidr': floating_ip_cidr,
-            'default_gateway_ip': default_gateway_ip
+            'default_gateway_ip': default_gateway_ip,
+            'int_port_ipv6': int_port_ipv6,
+            'ex_port_ipv6': ex_port_ipv6
         }
+
+    def _get_rule(self, iptables_manager, table, chain, predicate):
+        rules = iptables_manager.get_chain(table, chain)
+        result = next(rule for rule in rules if predicate(rule))
+        return result
+
+    def _assert_router_does_not_exist(self, router):
+        # If the namespace assertion succeeds
+        # then the devices and iptable rules have also been deleted,
+        # so there's no need to check that explicitly.
+        self.assertFalse(self._namespace_exists(router.ns_name))
+        self.assertFalse(self._metadata_proxy_exists(self.agent.conf, router))
+
+    def _assert_snat_chains(self, router):
+        self.assertFalse(router.iptables_manager.is_chain_empty(
+            'nat', 'snat'))
+        self.assertFalse(router.iptables_manager.is_chain_empty(
+            'nat', 'POSTROUTING'))
+
+    def _assert_floating_ip_chains(self, router):
+        self.assertFalse(router.iptables_manager.is_chain_empty(
+            'nat', 'float-snat'))
+
+    def _assert_metadata_chains(self, router):
+        metadata_port_filter = lambda rule: (
+            str(self.agent.conf.metadata_port) in rule.rule)
+        self.assertTrue(self._get_rule(router.iptables_manager,
+                                       'nat',
+                                       'PREROUTING',
+                                       metadata_port_filter))
+        self.assertTrue(self._get_rule(router.iptables_manager,
+                                       'filter',
+                                       'INPUT',
+                                       metadata_port_filter))
+
+    def _assert_internal_devices(self, router):
+        internal_devices = router.router[l3_constants.INTERFACE_KEY]
+        self.assertTrue(len(internal_devices))
+        for device in internal_devices:
+            self.assertTrue(self.device_exists_with_ip_mac(
+                device, self.agent.get_internal_device_name, router.ns_name))
+
+    def _assert_extra_routes(self, router):
+        routes = ip_lib.get_routing_table(self.root_helper, router.ns_name)
+        routes = [{'nexthop': route['nexthop'],
+                   'destination': route['destination']} for route in routes]
+
+        for extra_route in router.router['routes']:
+            self.assertIn(extra_route, routes)
 
 
 class L3AgentTestCase(L3AgentTestFramework):
@@ -257,14 +321,24 @@ class L3AgentTestCase(L3AgentTestFramework):
         self.assertIn(new_fip, new_config)
         self.assertNotIn(old_gw, new_config)
         self.assertIn(new_gw, new_config)
-        self.assertNotIn(old_external_device_ip, new_config)
-        self.assertIn(new_external_device_ip, new_config)
+        external_port = self.agent._get_ex_gw_port(router)
+        external_device_name = self.agent.get_external_device_name(
+            external_port['id'])
+        self.assertNotIn('%s/24 dev %s' %
+                         (old_external_device_ip, external_device_name),
+                         new_config)
+        self.assertIn('%s/24 dev %s' %
+                      (new_external_device_ip, external_device_name),
+                      new_config)
 
     def _router_lifecycle(self, enable_ha):
         router_info = self.generate_router_info(enable_ha)
         router = self.manage_router(self.agent, router_info)
 
         if enable_ha:
+            port = self.agent._get_ex_gw_port(router)
+            interface_name = self.agent.get_external_device_name(port['id'])
+            self._assert_no_ip_addresses_on_interface(router, interface_name)
             helpers.wait_until_true(lambda: router.ha_state == 'master')
 
             # Keepalived notifies of a state transition when it starts,
@@ -279,7 +353,7 @@ class L3AgentTestCase(L3AgentTestFramework):
                 router.ns_name)
             helpers.wait_until_true(device_exists)
 
-        self.assertTrue(self._namespace_exists(router))
+        self.assertTrue(self._namespace_exists(router.ns_name))
         self.assertTrue(self._metadata_proxy_exists(self.agent.conf, router))
         self._assert_internal_devices(router)
         self._assert_external_device(router)
@@ -287,6 +361,8 @@ class L3AgentTestCase(L3AgentTestFramework):
         self._assert_floating_ips(router)
         self._assert_snat_chains(router)
         self._assert_floating_ip_chains(router)
+        self._assert_metadata_chains(router)
+        self._assert_extra_routes(router)
 
         if enable_ha:
             self._assert_ha_device(router)
@@ -297,13 +373,6 @@ class L3AgentTestCase(L3AgentTestFramework):
         self._assert_router_does_not_exist(router)
         if enable_ha:
             self.assertFalse(router.keepalived_manager.process.active)
-
-    def _assert_internal_devices(self, router):
-        internal_devices = router.router[l3_constants.INTERFACE_KEY]
-        self.assertTrue(len(internal_devices))
-        for device in internal_devices:
-            self.assertTrue(self.device_exists_with_ip_mac(
-                device, self.agent.get_internal_device_name, router.ns_name))
 
     def _assert_external_device(self, router):
         external_port = self.agent._get_ex_gw_port(router)
@@ -334,27 +403,14 @@ class L3AgentTestCase(L3AgentTestFramework):
                 external_port['mac_address'],
                 router.ns_name, self.root_helper))
 
-    def _assert_snat_chains(self, router):
-        self.assertFalse(router.iptables_manager.is_chain_empty(
-            'nat', 'snat'))
-        self.assertFalse(router.iptables_manager.is_chain_empty(
-            'nat', 'POSTROUTING'))
-
-    def _assert_floating_ip_chains(self, router):
-        self.assertFalse(router.iptables_manager.is_chain_empty(
-            'nat', 'float-snat'))
-
-    def _assert_router_does_not_exist(self, router):
-        # If the namespace assertion succeeds
-        # then the devices and iptable rules have also been deleted,
-        # so there's no need to check that explicitly.
-        self.assertFalse(self._namespace_exists(router))
-        self.assertFalse(self._metadata_proxy_exists(self.agent.conf, router))
-
     def _assert_ha_device(self, router):
         self.assertTrue(self.device_exists_with_ip_mac(
             router.router[l3_constants.HA_INTERFACE_KEY],
-            self.agent.get_ha_device_name, router.ns_name))
+            router.get_ha_device_name, router.ns_name))
+
+    def _assert_no_ip_addresses_on_interface(self, router, interface):
+        device = ip_lib.IPDevice(interface, self.root_helper, router.ns_name)
+        self.assertEqual([], device.addr.list())
 
 
 class L3HATestFramework(L3AgentTestFramework):
@@ -377,7 +433,7 @@ class L3HATestFramework(L3AgentTestFramework):
 
         router_info_2 = copy.deepcopy(router_info)
         router_info_2[l3_constants.HA_INTERFACE_KEY] = (
-            test_l3_agent.get_ha_interface(ip='169.254.0.3',
+            test_l3_agent.get_ha_interface(ip='169.254.192.2',
                                            mac='22:22:22:22:22:22'))
 
         router2 = self.manage_router(self.failover_agent, router_info_2)
@@ -385,7 +441,7 @@ class L3HATestFramework(L3AgentTestFramework):
         helpers.wait_until_true(lambda: router1.ha_state == 'master')
         helpers.wait_until_true(lambda: router2.ha_state == 'backup')
 
-        device_name = self.agent.get_ha_device_name(
+        device_name = router1.get_ha_device_name(
             router1.router[l3_constants.HA_INTERFACE_KEY]['id'])
         ha_device = ip_lib.IPDevice(device_name, self.root_helper,
                                     router1.ns_name)
@@ -454,3 +510,194 @@ class MetadataL3AgentTestCase(L3AgentTestFramework):
         # Check status code
         firstline = raw_headers.splitlines()[0]
         self.assertIn(str(webob.exc.HTTPOk.code), firstline.split())
+
+
+class TestDvrRouter(L3AgentTestFramework):
+    def test_dvr_router_lifecycle_without_ha_without_snat_with_fips(self):
+        self._dvr_router_lifecycle(enable_ha=False, enable_snat=False)
+
+    def test_dvr_router_lifecycle_without_ha_with_snat_with_fips(self):
+        self._dvr_router_lifecycle(enable_ha=False, enable_snat=True)
+
+    def _dvr_router_lifecycle(self, enable_ha=False, enable_snat=False):
+        '''Test dvr router lifecycle
+
+        :param enable_ha: sets the ha value for the router.
+        :param enable_snat:  the value of enable_snat is used
+        to  set the  agent_mode.
+        '''
+
+        # The value of agent_mode can be dvr, dvr_snat, or legacy.
+        # Since by definition this is a dvr (distributed = true)
+        # only dvr and dvr_snat are applicable
+        self.agent.conf.agent_mode = 'dvr_snat' if enable_snat else 'dvr'
+
+        # We get the router info particular to a dvr router
+        router_info = self.generate_dvr_router_info(
+            enable_ha, enable_snat)
+
+        # We need to mock the get_agent_gateway_port return value
+        # because the whole L3PluginApi is mocked and we need the port
+        # gateway_port information before the l3_agent will create it.
+        # The port returned needs to have the same information as
+        # router_info['gw_port']
+        mocked_gw_port = (
+            neutron_l3_agent.L3PluginApi.return_value.get_agent_gateway_port)
+        mocked_gw_port.return_value = router_info['gw_port']
+
+        # We also need to mock the get_external_network_id method to
+        # get the correct fip namespace.
+        mocked_ext_net_id = (
+            neutron_l3_agent.L3PluginApi.return_value.get_external_network_id)
+        mocked_ext_net_id.return_value = (
+            router_info['_floatingips'][0]['floating_network_id'])
+
+        # With all that set we can now ask the l3_agent to
+        # manage the router (create it, create namespaces,
+        # attach interfaces, etc...)
+        router = self.manage_router(self.agent, router_info)
+
+        self.assertTrue(self._namespace_exists(router.ns_name))
+        self.assertTrue(self._metadata_proxy_exists(self.agent.conf, router))
+        self._assert_internal_devices(router)
+        self._assert_dvr_external_device(router)
+        self._assert_dvr_gateway(router)
+        self._assert_dvr_floating_ips(router)
+        self._assert_snat_chains(router)
+        self._assert_floating_ip_chains(router)
+        self._assert_metadata_chains(router)
+        self._assert_extra_routes(router)
+
+        self._delete_router(self.agent, router.router_id)
+        self._assert_router_does_not_exist(router)
+
+    def generate_dvr_router_info(self, enable_ha=False, enable_snat=False):
+        router = test_l3_agent.prepare_router_data(
+            enable_snat=enable_snat,
+            enable_floating_ip=True,
+            enable_ha=enable_ha)
+        internal_ports = router.get(l3_constants.INTERFACE_KEY, [])
+        router['distributed'] = True
+        router['gw_port_host'] = self.agent.conf.host
+        router['gw_port']['binding:host_id'] = self.agent.conf.host
+        floating_ip = router['_floatingips'][0]
+        floating_ip['floating_network_id'] = router['gw_port']['network_id']
+        floating_ip['host'] = self.agent.conf.host
+        floating_ip['port_id'] = internal_ports[0]['id']
+        floating_ip['status'] = 'ACTIVE'
+
+        if not enable_snat:
+            return router
+
+        self._add_snat_port_info_to_router(router, internal_ports)
+        return router
+
+    def _add_snat_port_info_to_router(self, router, internal_ports):
+        # Add snat port information to the router
+        snat_port_list = router.get(l3_constants.SNAT_ROUTER_INTF_KEY, [])
+        if not snat_port_list and internal_ports:
+            # Get values from internal port
+            port = internal_ports[0]
+            fixed_ip = port['fixed_ips'][0]
+            snat_subnet = port['subnet']
+            port_ip = fixed_ip['ip_address']
+            # Pick an ip address which is not the same as port_ip
+            snat_ip = str(netaddr.IPAddress(port_ip) + 5)
+            # Add the info to router as the first snat port
+            # in the list of snat ports
+            router[l3_constants.SNAT_ROUTER_INTF_KEY] = [
+                {'subnet':
+                    {'cidr': snat_subnet['cidr'],
+                        'gateway_ip': snat_subnet['gateway_ip'],
+                        'id': fixed_ip['subnet_id']},
+                    'network_id': port['network_id'],
+                    'device_owner': 'network:router_centralized_snat',
+                    'mac_address': 'fa:16:3e:80:8d:89',
+                    'fixed_ips': [{'subnet_id': fixed_ip['subnet_id'],
+                                    'ip_address': snat_ip}],
+                    'id': _uuid(),
+                    'device_id': _uuid()}
+            ]
+
+    def _assert_dvr_external_device(self, router):
+        external_port = self.agent._get_ex_gw_port(router)
+        snat_ns_name = self.agent.get_snat_ns_name(router.router_id)
+
+        # if the agent is in dvr_snat mode, then we have to check
+        # that the correct ports and ip addresses exist in the
+        # snat_ns_name namespace
+        if self.agent.conf.agent_mode == 'dvr_snat':
+            self.assertTrue(self.device_exists_with_ip_mac(
+                external_port, self.agent.get_external_device_name,
+                snat_ns_name))
+        # if the agent is in dvr mode then the snat_ns_name namespace
+        # should not be present at all:
+        elif self.agent.conf.agent_mode == 'dvr':
+            self.assertFalse(
+                self._namespace_exists(snat_ns_name),
+                "namespace %s was found but agent is in dvr mode not dvr_snat"
+                % (str(snat_ns_name))
+            )
+        # if the agent is anything else the test is misconfigured
+        # we force a test failure with message
+        else:
+            self.assertTrue(False, " agent not configured for dvr or dvr_snat")
+
+    def _assert_dvr_gateway(self, router):
+        gateway_expected_in_snat_namespace = (
+            self.agent.conf.agent_mode == 'dvr_snat'
+        )
+        if gateway_expected_in_snat_namespace:
+            self._assert_dvr_snat_gateway(router)
+
+        snat_namespace_should_not_exist = (
+            self.agent.conf.agent_mode == 'dvr'
+        )
+        if snat_namespace_should_not_exist:
+            self._assert_snat_namespace_does_not_exist(router)
+
+    def _assert_dvr_snat_gateway(self, router):
+        namespace = self.agent.get_snat_ns_name(router.router_id)
+        external_port = self.agent._get_ex_gw_port(router)
+        external_device_name = self.agent.get_external_device_name(
+            external_port['id'])
+        external_device = ip_lib.IPDevice(external_device_name,
+                                          self.root_helper,
+                                          namespace)
+        existing_gateway = (
+            external_device.route.get_gateway().get('gateway'))
+        expected_gateway = external_port['subnet']['gateway_ip']
+        self.assertEqual(expected_gateway, existing_gateway)
+
+    def _assert_snat_namespace_does_not_exist(self, router):
+        namespace = self.agent.get_snat_ns_name(router.router_id)
+        self.assertFalse(self._namespace_exists(namespace))
+
+    def _assert_dvr_floating_ips(self, router):
+        # in the fip namespace:
+        # Check that the fg-<port-id> (floatingip_agent_gateway)
+        # is created with the ip address of the external gateway port
+        floating_ips = router.router[l3_constants.FLOATINGIP_KEY]
+        self.assertTrue(floating_ips)
+
+        external_port = self.agent._get_ex_gw_port(router)
+        fip_ns = self.agent.get_fip_ns(floating_ips[0]['floating_network_id'])
+        fip_ns_name = fip_ns.get_name()
+        fg_port_created_succesfully = ip_lib.device_exists_with_ip_mac(
+            fip_ns.get_ext_device_name(external_port['id']),
+            external_port['ip_cidr'],
+            external_port['mac_address'],
+            fip_ns_name, self.root_helper)
+        self.assertTrue(fg_port_created_succesfully)
+        # Check fpr-router device has been created
+        device_name = fip_ns.get_int_device_name(router.router_id)
+        fpr_router_device_created_succesfully = ip_lib.device_exists(
+            device_name, self.root_helper, fip_ns_name)
+        self.assertTrue(fpr_router_device_created_succesfully)
+
+        # In the router namespace
+        # Check rfp-<router-id> is created correctly
+        for fip in floating_ips:
+            device_name = fip_ns.get_rtr_ext_device_name(router.router_id)
+            self.assertTrue(ip_lib.device_exists(
+                device_name, self.root_helper, router.ns_name))

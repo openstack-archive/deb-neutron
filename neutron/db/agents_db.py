@@ -19,12 +19,12 @@ from oslo.config import cfg
 from oslo.db import exception as db_exc
 from oslo import messaging
 from oslo.serialization import jsonutils
-from oslo.utils import excutils
 from oslo.utils import timeutils
 import sqlalchemy as sa
 from sqlalchemy.orm import exc
 from sqlalchemy import sql
 
+from neutron.api.v2 import attributes
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import agent as ext_agent
@@ -46,6 +46,7 @@ class Agent(model_base.BASEV2, models_v2.HasId):
     __table_args__ = (
         sa.UniqueConstraint('agent_type', 'host',
                             name='uniq_agents0agent_type0host'),
+        model_base.BASEV2.__table_args__
     )
 
     # L3 agent, DHCP agent, OVS agent, LinuxBridge
@@ -93,7 +94,7 @@ class AgentDbMixin(ext_agent.AgentPluginBase):
             agent = query.one()
         except exc.NoResultFound:
             LOG.debug('No enabled %(agent_type)s agent on host '
-                      '%(host)s' % {'agent_type': agent_type, 'host': host})
+                      '%(host)s', {'agent_type': agent_type, 'host': host})
             return
         if self.is_agent_down(agent.heartbeat_timestamp):
             LOG.warn(_LW('%(agent_type)s agent %(agent_id)s is not active'),
@@ -143,9 +144,15 @@ class AgentDbMixin(ext_agent.AgentPluginBase):
         return query.all()
 
     def get_agents(self, context, filters=None, fields=None):
-        return self._get_collection(context, Agent,
-                                    self._make_agent_dict,
-                                    filters=filters, fields=fields)
+        agents = self._get_collection(context, Agent,
+                                      self._make_agent_dict,
+                                      filters=filters, fields=fields)
+        alive = filters and filters.get('alive', None)
+        if alive:
+            # alive filter will be a list
+            alive = attributes.convert_to_boolean(alive[0])
+            agents = [agent for agent in agents if agent['alive'] == alive]
+        return agents
 
     def _get_agent_by_type_and_host(self, context, agent_type, host):
         query = self._model_query(context, Agent)
@@ -196,23 +203,20 @@ class AgentDbMixin(ext_agent.AgentPluginBase):
 
         try:
             return self._create_or_update_agent(context, agent)
-        except db_exc.DBDuplicateEntry as e:
-            with excutils.save_and_reraise_exception() as ctxt:
-                if e.columns == ['agent_type', 'host']:
-                    # It might happen that two or more concurrent transactions
-                    # are trying to insert new rows having the same value of
-                    # (agent_type, host) pair at the same time (if there has
-                    # been no such entry in the table and multiple agent status
-                    # updates are being processed at the moment). In this case
-                    # having a unique constraint on (agent_type, host) columns
-                    # guarantees that only one transaction will succeed and
-                    # insert a new agent entry, others will fail and be rolled
-                    # back. That means we must retry them one more time: no
-                    # INSERTs will be issued, because
-                    # _get_agent_by_type_and_host() will return the existing
-                    # agent entry, which will be updated multiple times
-                    ctxt.reraise = False
-                    return self._create_or_update_agent(context, agent)
+        except db_exc.DBDuplicateEntry:
+            # It might happen that two or more concurrent transactions
+            # are trying to insert new rows having the same value of
+            # (agent_type, host) pair at the same time (if there has
+            # been no such entry in the table and multiple agent status
+            # updates are being processed at the moment). In this case
+            # having a unique constraint on (agent_type, host) columns
+            # guarantees that only one transaction will succeed and
+            # insert a new agent entry, others will fail and be rolled
+            # back. That means we must retry them one more time: no
+            # INSERTs will be issued, because
+            # _get_agent_by_type_and_host() will return the existing
+            # agent entry, which will be updated multiple times
+            return self._create_or_update_agent(context, agent)
 
 
 class AgentExtRpcCallback(object):

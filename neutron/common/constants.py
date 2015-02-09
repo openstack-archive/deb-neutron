@@ -39,6 +39,11 @@ DEVICE_OWNER_AGENT_GW = "network:floatingip_agent_gateway"
 DEVICE_OWNER_ROUTER_SNAT = "network:router_centralized_snat"
 DEVICE_OWNER_LOADBALANCER = "neutron:LOADBALANCER"
 
+# Collection used to identify devices owned by router interfaces.
+# DEVICE_OWNER_ROUTER_HA_INTF is a special case and so is not included.
+ROUTER_INTERFACE_OWNERS = (DEVICE_OWNER_ROUTER_INTF,
+                           DEVICE_OWNER_DVR_INTERFACE)
+
 DEVICE_ID_RESERVED_DHCP_PORT = "reserved_dhcp_port"
 
 FLOATINGIP_KEY = '_floatingips'
@@ -56,6 +61,8 @@ MINIMUM_AGENTS_FOR_HA = 2
 
 IPv4 = 'IPv4'
 IPv6 = 'IPv6'
+IPv4_BITS = 32
+IPv6_BITS = 128
 
 DHCP_RESPONSE_PORT = 68
 
@@ -137,3 +144,10 @@ ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
 # In SQLite integer can be stored in 1, 2, 3, 4, 6, or 8 bytes,
 # but here it will be limited by this value for consistency.
 DB_INTEGER_MAX_VALUE = 2 ** 31 - 1
+
+# RPC Interface for agents to call DHCP API implemented on the plugin side
+RPC_NAMESPACE_DHCP_PLUGIN = 'dhcp'
+# RPC interface for the metadata service to get info from the plugin side
+RPC_NAMESPACE_METADATA = 'metadata'
+# RPC interface for plugin to agent security group API
+RPC_NAMESPACE_SECGROUP = 'secgroup'

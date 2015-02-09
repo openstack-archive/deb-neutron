@@ -60,14 +60,14 @@ BRIDGE_PORT_FS_FOR_DEVICE = BRIDGE_FS + DEVICE_NAME_PLACEHOLDER + "/brport"
 VXLAN_INTERFACE_PREFIX = "vxlan-"
 
 
-class NetworkSegment:
+class NetworkSegment(object):
     def __init__(self, network_type, physical_network, segmentation_id):
         self.network_type = network_type
         self.physical_network = physical_network
         self.segmentation_id = segmentation_id
 
 
-class LinuxBridgeManager:
+class LinuxBridgeManager(object):
     def __init__(self, interface_mappings, root_helper):
         self.interface_mappings = interface_mappings
         self.root_helper = root_helper
@@ -518,7 +518,7 @@ class LinuxBridgeManager:
         if not ip_lib.iproute_arg_supported(
                 ['bridge', 'fdb'], 'append', self.root_helper):
             LOG.warning(_LW('Option "%(option)s" must be supported by command '
-                            '"%(command)s" to enable %(mode)s mode') %
+                            '"%(command)s" to enable %(mode)s mode'),
                         {'option': 'append',
                          'command': 'bridge fdb',
                          'mode': 'VXLAN UCAST'})
@@ -554,7 +554,7 @@ class LinuxBridgeManager:
                 ['ip', 'link', 'add', 'type', 'vxlan'],
                 'proxy', self.root_helper):
             LOG.warning(_LW('Option "%(option)s" must be supported by command '
-                            '"%(command)s" to enable %(mode)s mode') %
+                            '"%(command)s" to enable %(mode)s mode'),
                         {'option': 'proxy',
                          'command': 'ip link add type vxlan',
                          'mode': 'VXLAN MCAST'})
@@ -562,19 +562,8 @@ class LinuxBridgeManager:
             return False
         return True
 
-    def vxlan_module_supported(self):
-        try:
-            utils.execute(cmd=['modinfo', 'vxlan'], log_fail_as_error=False)
-            return True
-        except RuntimeError:
-            return False
-
     def check_vxlan_support(self):
         self.vxlan_mode = lconst.VXLAN_NONE
-        if not self.vxlan_module_supported():
-            LOG.error(_LE('Linux kernel vxlan module and iproute2 3.8 or '
-                          'above are required to enable VXLAN.'))
-            raise exceptions.VxlanNetworkUnsupported()
 
         if self.vxlan_ucast_supported():
             self.vxlan_mode = lconst.VXLAN_UCAST
@@ -651,11 +640,11 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
     #   1.1 Support Security Group RPC
     target = messaging.Target(version='1.1')
 
-    def __init__(self, context, agent):
+    def __init__(self, context, agent, sg_agent):
         super(LinuxBridgeRpcCallbacks, self).__init__()
         self.context = context
         self.agent = agent
-        self.sg_agent = agent
+        self.sg_agent = sg_agent
 
     def network_delete(self, context, **kwargs):
         LOG.debug("network_delete received")
@@ -753,12 +742,7 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             getattr(self, method)(context, values)
 
 
-class LinuxBridgePluginApi(agent_rpc.PluginApi,
-                           sg_rpc.SecurityGroupServerRpcApiMixin):
-    pass
-
-
-class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
+class LinuxBridgeNeutronAgentRPC(object):
 
     def __init__(self, interface_mappings, polling_interval,
                  root_helper):
@@ -780,8 +764,12 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
 
         # stores received port_updates for processing by the main loop
         self.updated_devices = set()
+        self.context = context.get_admin_context_without_session()
+        self.plugin_rpc = agent_rpc.PluginApi(topics.PLUGIN)
+        self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
+        self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
+                self.sg_plugin_rpc, self.root_helper)
         self.setup_rpc(interface_mappings.values())
-        self.init_firewall()
 
     def _report_state(self):
         try:
@@ -808,12 +796,11 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
         LOG.info(_LI("RPC agent_id: %s"), self.agent_id)
 
         self.topic = topics.AGENT
-        self.plugin_rpc = LinuxBridgePluginApi(topics.PLUGIN)
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
         # RPC network init
-        self.context = context.get_admin_context_without_session()
         # Handle updates from service
-        self.endpoints = [LinuxBridgeRpcCallbacks(self.context, self)]
+        self.endpoints = [LinuxBridgeRpcCallbacks(self.context, self,
+                                                  self.sg_agent)]
         # Define the listening consumers for the agent
         consumers = [[topics.PORT, topics.UPDATE],
                      [topics.NETWORK, topics.DELETE],
@@ -842,10 +829,10 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
         resync_a = False
         resync_b = False
 
-        self.prepare_devices_filter(device_info.get('added'))
+        self.sg_agent.prepare_devices_filter(device_info.get('added'))
 
         if device_info.get('updated'):
-            self.refresh_firewall()
+            self.sg_agent.refresh_firewall()
 
         # Updated devices are processed the same as new ones, as their
         # admin_state_up may have changed. The set union prevents duplicating
@@ -914,7 +901,7 @@ class LinuxBridgeNeutronAgentRPC(sg_rpc.SecurityGroupAgentRpcMixin):
 
     def treat_devices_removed(self, devices):
         resync = False
-        self.remove_devices_filter(devices)
+        self.sg_agent.remove_devices_filter(devices)
         for device in devices:
             LOG.info(_LI("Attachment %s removed"), device)
             details = None

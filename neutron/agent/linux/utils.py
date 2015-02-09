@@ -27,6 +27,7 @@ from oslo.utils import excutils
 
 from neutron.common import constants
 from neutron.common import utils
+from neutron.i18n import _LE
 from neutron.openstack.common import log as logging
 
 
@@ -65,8 +66,8 @@ def execute(cmd, root_helper=None, process_input=None, addl_env=None,
                                   addl_env=addl_env)
         _stdout, _stderr = obj.communicate(process_input)
         obj.stdin.close()
-        m = _("\nCommand: %(cmd)s\nExit code: %(code)s\nStdout: %(stdout)r\n"
-              "Stderr: %(stderr)r") % {'cmd': cmd, 'code': obj.returncode,
+        m = _("\nCommand: %(cmd)s\nExit code: %(code)s\nStdout: %(stdout)s\n"
+              "Stderr: %(stderr)s") % {'cmd': cmd, 'code': obj.returncode,
                                        'stdout': _stdout, 'stderr': _stderr}
 
         extra_ok_codes = extra_ok_codes or []
@@ -120,24 +121,32 @@ def find_child_pids(pid):
     """Retrieve a list of the pids of child processes of the given pid."""
 
     try:
-        raw_pids = execute(['ps', '--ppid', pid, '-o', 'pid='])
+        raw_pids = execute(['ps', '--ppid', pid, '-o', 'pid='],
+                           log_fail_as_error=False)
     except RuntimeError as e:
         # Unexpected errors are the responsibility of the caller
         with excutils.save_and_reraise_exception() as ctxt:
             # Exception has already been logged by execute
-            no_children_found = 'Exit code: 1' in str(e)
+            no_children_found = 'Exit code: 1' in e.message
             if no_children_found:
                 ctxt.reraise = False
                 return []
     return [x.strip() for x in raw_pids.split('\n') if x.strip()]
 
 
+def ensure_dir(dir_path):
+    """Ensure a directory with 755 permissions mode."""
+    if not os.path.isdir(dir_path):
+        os.makedirs(dir_path, 0o755)
+
+
 def _get_conf_base(cfg_root, uuid, ensure_conf_dir):
+    #TODO(mangelajo): separate responsibilities here, ensure_conf_dir
+    #                 should be a separate function
     conf_dir = os.path.abspath(os.path.normpath(cfg_root))
     conf_base = os.path.join(conf_dir, uuid)
     if ensure_conf_dir:
-        if not os.path.isdir(conf_dir):
-            os.makedirs(conf_dir, 0o755)
+        ensure_dir(conf_dir)
     return conf_base
 
 
@@ -147,22 +156,22 @@ def get_conf_file_name(cfg_root, uuid, cfg_file, ensure_conf_dir=False):
     return "%s.%s" % (conf_base, cfg_file)
 
 
-def get_value_from_conf_file(cfg_root, uuid, cfg_file, converter=None):
-    """A helper function to read a value from one of a config file."""
-    file_name = get_conf_file_name(cfg_root, uuid, cfg_file)
-    msg = _('Error while reading %s')
+def get_value_from_file(filename, converter=None):
 
     try:
-        with open(file_name, 'r') as f:
+        with open(filename, 'r') as f:
             try:
                 return converter(f.read()) if converter else f.read()
             except ValueError:
-                msg = _('Unable to convert value in %s')
+                LOG.error(_LE('Unable to convert value in %s'), filename)
     except IOError:
-        msg = _('Unable to access %s')
+        LOG.debug('Unable to access %s', filename)
 
-    LOG.debug(msg % file_name)
-    return None
+
+def get_value_from_conf_file(cfg_root, uuid, cfg_file, converter=None):
+    """A helper function to read a value from one of a config file."""
+    file_name = get_conf_file_name(cfg_root, uuid, cfg_file)
+    return get_value_from_file(file_name, converter)
 
 
 def remove_conf_files(cfg_root, uuid):
@@ -171,8 +180,33 @@ def remove_conf_files(cfg_root, uuid):
         os.unlink(file_path)
 
 
-def remove_conf_file(cfg_root, uuid, cfg_file):
-    """Remove a config file."""
-    conf_file = get_conf_file_name(cfg_root, uuid, cfg_file)
-    if os.path.exists(conf_file):
-        os.unlink(conf_file)
+def get_root_helper_child_pid(pid, root_helper=None):
+    """
+    Get the lowest child pid in the process hierarchy
+
+    If root helper was used, two or more processes would be created:
+
+     - a root helper process (e.g. sudo myscript)
+     - possibly a rootwrap script (e.g. neutron-rootwrap)
+     - a child process (e.g. myscript)
+
+    Killing the root helper process will leave the child process
+    running, re-parented to init, so the only way to ensure that both
+    die is to target the child process directly.
+    """
+    pid = str(pid)
+    if root_helper:
+        try:
+            pid = find_child_pids(pid)[0]
+        except IndexError:
+            # Process is already dead
+            return None
+        while True:
+            try:
+                # We shouldn't have more than one child per process
+                # so keep getting the children of the first one
+                pid = find_child_pids(pid)[0]
+            except IndexError:
+                # Last process in the tree, return it
+                break
+    return pid

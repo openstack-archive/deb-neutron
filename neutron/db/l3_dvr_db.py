@@ -25,7 +25,9 @@ from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.i18n import _LI
+from neutron import manager
 from neutron.openstack.common import log as logging
+from neutron.plugins.common import constants
 
 
 LOG = logging.getLogger(__name__)
@@ -70,14 +72,43 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             self._process_extra_attr_router_create(context, router_db, router)
             return router_db
 
-    def _validate_router_migration(self, router_db, router_res):
+    def _validate_router_migration(self, context, router_db, router_res):
         """Allow centralized -> distributed state transition only."""
         if (router_db.extra_attributes.distributed and
             router_res.get('distributed') is False):
             LOG.info(_LI("Centralizing distributed router %s "
                          "is not supported"), router_db['id'])
             raise NotImplementedError()
-        # TODO(Swami): Add a check for Services FWaaS and VPNaaS
+        elif (not router_db.extra_attributes.distributed and
+              router_res.get('distributed')):
+            # Add a check for Services FWaaS and VPNaaS
+            # This check below ensures that the legacy routers with
+            # associated VPNaaS or FWaaS services are not allowed to
+            # migrate.
+            if (self.check_router_has_no_vpnaas(context, router_db) and
+                self.check_router_has_no_firewall(context, router_db)):
+                LOG.info(_LI("No Service associated, so safe to migrate: %s "
+                             "listed"), router_db['id'])
+
+    def check_router_has_no_firewall(self, context, router_db):
+        """Check if FWaaS is associated with the legacy router."""
+        fwaas_service = manager.NeutronManager.get_service_plugins().get(
+                constants.FIREWALL)
+        if fwaas_service:
+            tenant_firewalls = fwaas_service.get_firewalls(
+                context,
+                filters={'tenant_id': [router_db['tenant_id']]})
+            if tenant_firewalls:
+                raise l3.RouterInUse(router_id=router_db['id'])
+        return True
+
+    def check_router_has_no_vpnaas(self, context, router_db):
+        """Check if VPNaaS is associated with the legacy router."""
+        vpn_plugin = manager.NeutronManager.get_service_plugins().get(
+            constants.VPN)
+        if vpn_plugin:
+            vpn_plugin.check_router_in_use(context, router_db['id'])
+        return True
 
     def _update_distributed_attr(
         self, context, router_id, router_db, data, gw_info):
@@ -97,7 +128,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             migrating_to_distributed = (
                 not router_db.extra_attributes.distributed and
                 data.get('distributed') is True)
-            self._validate_router_migration(router_db, data)
+            self._validate_router_migration(context, router_db, data)
             router_db.extra_attributes.update(data)
             self._update_distributed_attr(
                 context, router_id, router_db, data, gw_info)
@@ -118,18 +149,20 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                                         agent['id'])
             return router_db
 
-    def _delete_current_gw_port(self, context, router_id, router, new_network):
+    def _delete_current_gw_port(self, context, router_id, router, new_network,
+                                ext_ip_change):
         super(L3_NAT_with_dvr_db_mixin,
               self)._delete_current_gw_port(context, router_id,
-                                            router, new_network)
+                                            router, new_network, ext_ip_change)
         if router.extra_attributes.distributed:
             self.delete_csnat_router_interface_ports(
                 context.elevated(), router)
 
-    def _create_gw_port(self, context, router_id, router, new_network):
+    def _create_gw_port(self, context, router_id, router, new_network, ext_ips,
+                        ext_ip_change):
         super(L3_NAT_with_dvr_db_mixin,
-              self)._create_gw_port(context, router_id,
-                                    router, new_network)
+              self)._create_gw_port(context, router_id, router, new_network,
+                                    ext_ips, ext_ip_change)
         # Make sure that the gateway port exists before creating the
         # snat interface ports for distributed router.
         if router.extra_attributes.distributed and router.gw_port:
@@ -154,25 +187,23 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
 
         return router_intf_qry.filter(
             models_v2.Port.network_id == network_id,
-            l3_db.RouterPort.port_type.in_(
-                [l3_const.DEVICE_OWNER_ROUTER_INTF, DEVICE_OWNER_DVR_INTERFACE]
-            )
+            l3_db.RouterPort.port_type.in_(l3_const.ROUTER_INTERFACE_OWNERS)
         )
 
-    def update_floatingip(self, context, id, floatingip):
-        res_fip = super(L3_NAT_with_dvr_db_mixin, self).update_floatingip(
-            context, id, floatingip)
-        admin_ctx = context.elevated()
-        fip = floatingip['floatingip']
-        unused_agent_port = (fip.get('port_id', -1) is None and
-                            res_fip.get('fixed_port_id'))
-        if unused_agent_port:
+    def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
+        """Override to delete the fip agent gw port on disassociate."""
+        fip_port = fip.get('port_id')
+        unused_fip_agent_gw_port = (
+            fip_port is None and floatingip_db['fixed_port_id'])
+        if unused_fip_agent_gw_port:
+            admin_ctx = context.elevated()
             self.clear_unused_fip_agent_gw_port(
-                admin_ctx, floatingip, fip['id'])
-        return res_fip
+                admin_ctx, floatingip_db)
+        super(L3_NAT_with_dvr_db_mixin, self)._update_fip_assoc(
+            context, fip, floatingip_db, external_port)
 
     def clear_unused_fip_agent_gw_port(
-            self, context, floatingip_db, fip_id):
+            self, context, floatingip_db):
         """Helper function to check for fip agent gw port and delete.
 
         This function checks on compute nodes to make sure if there
@@ -184,7 +215,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         fip_hostid = self.get_vm_port_hostid(
             context, floatingip_db['fixed_port_id'])
         if fip_hostid and self.check_fips_availability_on_host(
-            context, fip_id, fip_hostid):
+            context, fip_hostid):
             LOG.debug('Deleting the Agent GW Port on host: %s', fip_hostid)
             self.delete_floatingip_agent_gateway_port(context, fip_hostid)
 
@@ -193,7 +224,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         if floatingip['fixed_port_id']:
             admin_ctx = context.elevated()
             self.clear_unused_fip_agent_gw_port(
-                admin_ctx, floatingip, id)
+                admin_ctx, floatingip)
         super(L3_NAT_with_dvr_db_mixin,
               self).delete_floatingip(context, id)
 
@@ -211,7 +242,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if fip:
                 admin_ctx = context.elevated()
                 self.clear_unused_fip_agent_gw_port(
-                    admin_ctx, fip, id)
+                    admin_ctx, fip)
         return super(L3_NAT_with_dvr_db_mixin,
                      self).disassociate_floatingips(context,
                                                     port_id,
@@ -375,8 +406,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
     def get_sync_data(self, context, router_ids=None, active=None):
         routers, interfaces, floating_ips = self._get_router_info_list(
             context, router_ids=router_ids, active=active,
-            device_owners=[l3_const.DEVICE_OWNER_ROUTER_INTF,
-                           DEVICE_OWNER_DVR_INTERFACE])
+            device_owners=l3_const.ROUTER_INTERFACE_OWNERS)
         # Add the port binding host to the floatingip dictionary
         for fip in floating_ips:
             fip['host'] = self.get_vm_port_hostid(context, fip['port_id'])
@@ -409,7 +439,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         if ports:
             return ports[0]
 
-    def check_fips_availability_on_host(self, context, fip_id, host_id):
+    def check_fips_availability_on_host(self, context, host_id):
         """Query all floating_ips and filter by particular host."""
         fip_count_on_host = 0
         with context.session.begin(subtransactions=True):

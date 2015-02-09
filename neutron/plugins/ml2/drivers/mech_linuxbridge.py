@@ -13,10 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron.agent import securitygroups_rpc
 from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.openstack.common import log
-from neutron.plugins.ml2 import driver_api as api
+from neutron.plugins.common import constants as p_constants
 from neutron.plugins.ml2.drivers import mech_agent
 
 LOG = log.getLogger(__name__)
@@ -33,25 +34,16 @@ class LinuxbridgeMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
     """
 
     def __init__(self):
+        sg_enabled = securitygroups_rpc.is_firewall_enabled()
         super(LinuxbridgeMechanismDriver, self).__init__(
             constants.AGENT_TYPE_LINUXBRIDGE,
             portbindings.VIF_TYPE_BRIDGE,
-            {portbindings.CAP_PORT_FILTER: True})
+            {portbindings.CAP_PORT_FILTER: sg_enabled})
 
-    def check_segment_for_agent(self, segment, agent):
-        mappings = agent['configurations'].get('interface_mappings', {})
-        tunnel_types = agent['configurations'].get('tunnel_types', [])
-        LOG.debug("Checking segment: %(segment)s "
-                  "for mappings: %(mappings)s "
-                  "with tunnel_types: %(tunnel_types)s",
-                  {'segment': segment, 'mappings': mappings,
-                   'tunnel_types': tunnel_types})
-        network_type = segment[api.NETWORK_TYPE]
-        if network_type == 'local':
-            return True
-        elif network_type in tunnel_types:
-            return True
-        elif network_type in ['flat', 'vlan']:
-            return segment[api.PHYSICAL_NETWORK] in mappings
-        else:
-            return False
+    def get_allowed_network_types(self, agent):
+        return (agent['configurations'].get('tunnel_types', []) +
+                [p_constants.TYPE_LOCAL, p_constants.TYPE_FLAT,
+                 p_constants.TYPE_VLAN])
+
+    def get_mappings(self, agent):
+        return agent['configurations'].get('interface_mappings', {})

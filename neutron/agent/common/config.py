@@ -27,6 +27,10 @@ LOG = logging.getLogger(__name__)
 ROOT_HELPER_OPTS = [
     cfg.StrOpt('root_helper', default='sudo',
                help=_('Root helper application.')),
+    cfg.BoolOpt('use_helper_for_ns_read',
+                default=True,
+                help=_('Use the root helper to read the namespaces from '
+                       'the operating system.')),
 ]
 
 AGENT_STATE_OPTS = [
@@ -49,6 +53,15 @@ USE_NAMESPACES_OPTS = [
 IPTABLES_OPTS = [
     cfg.BoolOpt('comment_iptables_rules', default=True,
                 help=_("Add comments to iptables rules.")),
+]
+
+PROCESS_MONITOR_OPTS = [
+    cfg.StrOpt('check_child_processes_action', default='respawn',
+               choices=['respawn', 'exit'],
+               help=_('Action to be executed when a child process dies')),
+    cfg.IntOpt('check_child_processes_interval', default=0,
+               help=_('Interval between checks of child process liveness '
+                      '(seconds), use 0 to disable')),
 ]
 
 
@@ -99,6 +112,10 @@ def register_use_namespaces_opts_helper(conf):
 
 def register_iptables_opts(conf):
     conf.register_opts(IPTABLES_OPTS, 'AGENT')
+
+
+def register_process_monitor_opts(conf):
+    conf.register_opts(PROCESS_MONITOR_OPTS, 'AGENT')
 
 
 def get_root_helper(conf):

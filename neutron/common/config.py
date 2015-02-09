@@ -79,7 +79,10 @@ core_opts = [
     cfg.BoolOpt('allow_overlapping_ips', default=False,
                 help=_("Allow overlapping IP support in Neutron")),
     cfg.StrOpt('host', default=utils.get_hostname(),
-               help=_("The hostname Neutron is running on")),
+               help=_("Hostname to be used by the neutron server, agents and"
+                      "services running on this machine. All the agents and "
+                      "services running on this machine must use the same "
+                      "host value.")),
     cfg.BoolOpt('force_gateway_on_subnet', default=True,
                 help=_("Ensure that configured gateway is on subnet. "
                        "For IPv6, validate only if gateway is not a link "
@@ -167,7 +170,7 @@ def setup_logging():
     LOG.info(_LI("%(prog)s version %(version)s"),
              {'prog': sys.argv[0],
               'version': version.version_info.release_string()})
-    LOG.debug("command line: %s" % " ".join(sys.argv))
+    LOG.debug("command line: %s", " ".join(sys.argv))
 
 
 def load_paste_app(app_name):

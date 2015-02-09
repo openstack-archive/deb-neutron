@@ -19,6 +19,7 @@ import netaddr
 from oslo.config import cfg
 from oslo.utils import excutils
 from oslo.utils import importutils
+from oslo_concurrency import lockutils
 from sqlalchemy.orm import exc
 
 from neutron.api import extensions as neutron_extensions
@@ -38,7 +39,6 @@ from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron.extensions import securitygroup as ext_sg
-from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.nuage.common import config
@@ -358,7 +358,7 @@ class NuagePlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         # Need to call this explicitly to delete vport to vporttag binding
         if ext_sg.SECURITYGROUPS in port:
-            self._delete_port_security_group_bindings(context, id)
+            self.nuageclient.delete_port_security_group_bindings(id)
 
         netpart_id = subnet_mapping['net_partition_id']
         net_partition = nuagedb.get_net_partition_by_id(context.session,

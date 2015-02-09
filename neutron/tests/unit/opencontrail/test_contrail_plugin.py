@@ -201,9 +201,8 @@ class KeyStoneInfo(object):
     """To generate Keystone Authentication information
        Contrail Driver expects Keystone auth info for testing purpose.
     """
-    auth_protocol = 'http'
-    auth_host = 'host'
-    auth_port = 5000
+    auth_uri = 'http://host:35357/v2.0/'
+    identity_uri = 'http://host:5000'
     admin_user = 'neutron'
     admin_password = 'neutron'
     admin_token = 'neutron'
@@ -272,6 +271,15 @@ class TestContrailPortsV2(test_plugin.TestPortsV2,
     def test_delete_ports_ignores_port_not_found(self):
         self.skipTest("This method tests private method of "
                       "which contrail isn't using")
+
+    def test_update_port_mac_bad_owner(self):
+        self.check_update_port_mac(
+            device_owner='network:router',
+            expected_status=webob.exc.HTTPConflict.code,
+            expected_error='ContrailConflictError')
+
+    def test_update_port_mac_used(self):
+        self.check_update_port_mac_used(expected_error='ContrailConflictError')
 
 
 class TestContrailSecurityGroups(test_sg.TestSecurityGroups,

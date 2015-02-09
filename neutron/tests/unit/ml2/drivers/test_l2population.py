@@ -26,10 +26,12 @@ from neutron.db import agents_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron import manager
+from neutron.plugins.ml2.drivers.l2pop import db as l2pop_db
 from neutron.plugins.ml2.drivers.l2pop import mech_driver as l2pop_mech_driver
 from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
 from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import rpc
+from neutron.tests import base
 from neutron.tests.unit.ml2 import test_ml2_plugin as test_plugin
 
 HOST = 'my_l2_host'
@@ -95,8 +97,7 @@ DEVICE_OWNER_COMPUTE = 'compute:None'
 
 
 class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
-    _mechanism_drivers = ['openvswitch', 'linuxbridge',
-                          'ofagent', 'l2population']
+    _mechanism_drivers = ['openvswitch', 'ofagent', 'l2population']
 
     def setUp(self):
         super(TestL2PopulationRpcTestCase, self).setUp()
@@ -121,6 +122,13 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                                             arg_list=(pnet.NETWORK_TYPE,
                                                       pnet.PHYSICAL_NETWORK,
                                                       pnet.SEGMENTATION_ID,),
+                                            **net_arg)
+
+        net_arg = {pnet.NETWORK_TYPE: 'flat',
+                   pnet.PHYSICAL_NETWORK: 'noagent'}
+        self._network3 = self._make_network(self.fmt, 'net3', True,
+                                            arg_list=(pnet.NETWORK_TYPE,
+                                                      pnet.PHYSICAL_NETWORK,),
                                             **net_arg)
 
         notifier_patch = mock.patch(NOTIFIER)
@@ -569,6 +577,55 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                 self.mock_fanout.assert_any_call(
                     mock.ANY, 'remove_fdb_entries', expected)
 
+    def test_mac_addr_changed(self):
+        self._register_ml2_agents()
+
+        with self.subnet(network=self._network) as subnet:
+            host_arg = {portbindings.HOST_ID: HOST + '_5'}
+            with self.port(subnet=subnet,
+                           device_owner=DEVICE_OWNER_COMPUTE,
+                           arg_list=(portbindings.HOST_ID,),
+                           **host_arg) as port1:
+                p1 = port1['port']
+
+                self.mock_fanout.reset_mock()
+                device = 'tap' + p1['id']
+
+                old_mac = p1['mac_address']
+                mac = old_mac.split(':')
+                mac[5] = '01' if mac[5] != '01' else '00'
+                new_mac = ':'.join(mac)
+                data = {'port': {'mac_address': new_mac,
+                                 portbindings.HOST_ID: HOST}}
+                req = self.new_update_request('ports', data, p1['id'])
+                res = self.deserialize(self.fmt, req.get_response(self.api))
+                self.assertIn('port', res)
+                self.assertEqual(new_mac, res['port']['mac_address'])
+
+                # port was not bound before, so no fdb call expected yet
+                self.assertFalse(self.mock_fanout.called)
+
+                self.callbacks.update_device_up(self.adminContext,
+                                                agent_id=HOST,
+                                                device=device)
+
+                self.assertEqual(1, self.mock_fanout.call_count)
+                add_expected = {
+                    p1['network_id']: {
+                        'segment_id': 1,
+                        'network_type': 'vxlan',
+                        'ports': {
+                            '20.0.0.1': [
+                                l2pop_rpc.PortInfo('00:00:00:00:00:00',
+                                                   '0.0.0.0'),
+                                l2pop_rpc.PortInfo(new_mac, '10.0.0.2')
+                            ]
+                        }
+                    }
+                }
+                self.mock_fanout.assert_called_with(
+                    mock.ANY, 'add_fdb_entries', add_expected)
+
     def test_fixed_ips_changed(self):
         self._register_ml2_agents()
 
@@ -788,3 +845,104 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                                                              rem_fdb_entries):
             l2pop_mech.delete_port_postcommit(mock.Mock())
             self.assertTrue(upd_port_down.called)
+
+
+class TestL2PopulationMechDriver(base.BaseTestCase):
+
+    def _test_get_tunnels(self, agent_ip, exclude_host=True):
+        mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
+        agent = mock.Mock()
+        agent.host = HOST
+        network_ports = ((None, agent),)
+        with mock.patch.object(l2pop_db.L2populationDbMixin,
+                               'get_agent_ip',
+                               return_value=agent_ip):
+            excluded_host = HOST + '-EXCLUDE' if exclude_host else HOST
+            return mech_driver._get_tunnels(network_ports, excluded_host)
+
+    def test_get_tunnels(self):
+        tunnels = self._test_get_tunnels('20.0.0.1')
+        self.assertTrue('20.0.0.1' in tunnels)
+
+    def test_get_tunnels_no_ip(self):
+        tunnels = self._test_get_tunnels(None)
+        self.assertEqual(0, len(tunnels))
+
+    def test_get_tunnels_dont_exclude_host(self):
+        tunnels = self._test_get_tunnels(None, exclude_host=False)
+        self.assertEqual(0, len(tunnels))
+
+    def _test_create_agent_fdb(self, fdb_network_ports_query, agent_ips):
+        mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
+        tunnel_network_ports_query, tunnel_agent = (
+            self._mock_network_ports_query(HOST + '1', None))
+        agent_ips[tunnel_agent] = '10.0.0.1'
+
+        def agent_ip_side_effect(agent):
+            return agent_ips[agent]
+
+        with contextlib.nested(
+                mock.patch.object(l2pop_db.L2populationDbMixin,
+                                  'get_agent_ip',
+                                  side_effect=agent_ip_side_effect),
+                mock.patch.object(l2pop_db.L2populationDbMixin,
+                                  'get_nondvr_network_ports',
+                                  new=fdb_network_ports_query),
+                mock.patch.object(l2pop_db.L2populationDbMixin,
+                                  'get_dvr_network_ports',
+                                  new=tunnel_network_ports_query)):
+            session = mock.Mock()
+            agent = mock.Mock()
+            agent.host = HOST
+            segment = {'segmentation_id': 1, 'network_type': 'vxlan'}
+            return mech_driver._create_agent_fdb(session,
+                                                 agent,
+                                                 segment,
+                                                 'network_id')
+
+    def _mock_network_ports_query(self, host_name, binding):
+        agent = mock.Mock()
+        agent.host = host_name
+        result = [(binding, agent)]
+        all_mock = mock.Mock()
+        all_mock.all = mock.Mock(return_value=result)
+        mock_query = mock.Mock(return_value=all_mock)
+        return mock_query, agent
+
+    def test_create_agent_fdb(self):
+        binding = mock.Mock()
+        binding.port = {'mac_address': '00:00:DE:AD:BE:EF',
+                        'fixed_ips': [{'ip_address': '1.1.1.1'}]}
+        fdb_network_ports_query, fdb_agent = (
+            self._mock_network_ports_query(HOST + '2', binding))
+        agent_ips = {fdb_agent: '20.0.0.1'}
+
+        agent_fdb = self._test_create_agent_fdb(fdb_network_ports_query,
+                                                agent_ips)
+        result = agent_fdb['network_id']
+
+        expected_result = {'segment_id': 1,
+                           'network_type': 'vxlan',
+                           'ports':
+                           {'10.0.0.1':
+                            [constants.FLOODING_ENTRY],
+                            '20.0.0.1':
+                            [constants.FLOODING_ENTRY,
+                             l2pop_rpc.PortInfo(
+                                 mac_address='00:00:DE:AD:BE:EF',
+                                 ip_address='1.1.1.1')]}}
+        self.assertEqual(expected_result, result)
+
+    def test_create_agent_fdb_only_tunnels(self):
+        all_mock = mock.Mock()
+        all_mock.all = mock.Mock(return_value=[])
+        fdb_network_ports_query = mock.Mock(return_value=all_mock)
+        agent_fdb = self._test_create_agent_fdb(fdb_network_ports_query, {})
+        result = agent_fdb['network_id']
+
+        expected_result = {'segment_id': 1,
+                           'network_type': 'vxlan',
+                           'ports':
+                           {'10.0.0.1':
+                            [constants.FLOODING_ENTRY]}}
+        self.assertEqual(expected_result, result)

@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import eventlet
 import os
 
 import netaddr
@@ -20,7 +21,10 @@ from oslo.config import cfg
 
 from neutron.agent.linux import utils
 from neutron.common import exceptions
+from neutron.i18n import _LE
+from neutron.openstack.common import log as logging
 
+LOG = logging.getLogger(__name__)
 
 OPTS = [
     cfg.BoolOpt('ip_lib_force_root',
@@ -202,14 +206,16 @@ class IPWrapper(SubProcessBase):
 
 
 class IpRule(IPWrapper):
-    def add_rule_from(self, ip, table, rule_pr):
-        args = ['add', 'from', ip, 'lookup', table, 'priority', rule_pr]
-        ip = self._as_root('', 'rule', tuple(args))
+    def add(self, ip, table, rule_pr):
+        ip_version = netaddr.IPNetwork(ip).version
+        args = ['add', 'from', ip, 'table', table, 'priority', rule_pr]
+        ip = self._as_root([ip_version], 'rule', tuple(args))
         return ip
 
-    def delete_rule_priority(self, rule_pr):
-        args = ['del', 'priority', rule_pr]
-        ip = self._as_root('', 'rule', tuple(args))
+    def delete(self, ip, table, rule_pr):
+        ip_version = netaddr.IPNetwork(ip).version
+        args = ['del', 'table', table, 'priority', rule_pr]
+        ip = self._as_root([ip_version], 'rule', tuple(args))
         return ip
 
 
@@ -554,8 +560,11 @@ class IpNetnsCommand(IpCommandBase):
             check_exit_code=check_exit_code, extra_ok_codes=extra_ok_codes)
 
     def exists(self, name):
-        output = self._parent._execute('o', 'netns', ['list'])
-
+        root_helper = self._parent.root_helper
+        if not cfg.CONF.AGENT.use_helper_for_ns_read:
+            root_helper = None
+        output = self._parent._execute('o', 'netns', ['list'],
+                                       root_helper=root_helper)
         for line in output.split('\n'):
             if name == line.strip():
                 return True
@@ -590,6 +599,36 @@ def device_exists_with_ip_mac(device_name, ip_cidr, mac, namespace=None,
         return True
 
 
+def get_routing_table(root_helper=None, namespace=None):
+    """Return a list of dictionaries, each representing a route.
+
+    The dictionary format is: {'destination': cidr,
+                               'nexthop': ip,
+                               'device': device_name}
+    """
+
+    ip_wrapper = IPWrapper(root_helper, namespace=namespace)
+    table = ip_wrapper.netns.execute(['ip', 'route'], check_exit_code=True)
+
+    routes = []
+    # Example for route_lines:
+    # default via 192.168.3.120 dev wlp3s0  proto static  metric 1024
+    # 10.0.0.0/8 dev tun0  proto static  scope link  metric 1024
+    # The first column is the destination, followed by key/value pairs.
+    # The generator splits the routing table by newline, then strips and splits
+    # each individual line.
+    route_lines = (line.split() for line in table.split('\n') if line.strip())
+    for route in route_lines:
+        network = route[0]
+        # Create a dict of key/value pairs (For example - 'dev': 'tun0')
+        # excluding the first column.
+        data = dict(route[i:i + 2] for i in range(1, len(route), 2))
+        routes.append({'destination': network,
+                       'nexthop': data.get('via'),
+                       'device': data.get('dev')})
+    return routes
+
+
 def ensure_device_is_ready(device_name, root_helper=None, namespace=None):
     dev = IPDevice(device_name, root_helper, namespace)
     dev.set_log_fail_as_error(False)
@@ -607,3 +646,50 @@ def iproute_arg_supported(command, arg, root_helper=None):
     stdout, stderr = utils.execute(command, root_helper=root_helper,
                                    check_exit_code=False, return_stderr=True)
     return any(arg in line for line in stderr.split('\n'))
+
+
+def _arping(ns_name, iface_name, address, count, root_helper):
+    arping_cmd = ['arping', '-A', '-I', iface_name, '-c', count, address]
+    try:
+        ip_wrapper = IPWrapper(root_helper, namespace=ns_name)
+        ip_wrapper.netns.execute(arping_cmd, check_exit_code=True)
+    except Exception:
+        msg = _LE("Failed sending gratuitous ARP "
+                  "to %(addr)s on %(iface)s in namespace %(ns)s")
+        LOG.exception(msg, {'addr': address,
+                            'iface': iface_name,
+                            'ns': ns_name})
+
+
+def send_gratuitous_arp(ns_name, iface_name, address, count, root_helper):
+    """Send a gratuitous arp using given namespace, interface, and address"""
+
+    def arping():
+        _arping(ns_name, iface_name, address, count, root_helper)
+
+    if count > 0:
+        eventlet.spawn_n(arping)
+
+
+def send_garp_for_proxyarp(ns_name, iface_name, address, count, root_helper):
+    """
+    Send a gratuitous arp using given namespace, interface, and address
+
+    This version should be used when proxy arp is in use since the interface
+    won't actually have the address configured.  We actually need to configure
+    the address on the interface and then remove it when the proxy arp has been
+    sent.
+    """
+    def arping_with_temporary_address():
+        # Configure the address on the interface
+        device = IPDevice(iface_name, root_helper, namespace=ns_name)
+        net = netaddr.IPNetwork(str(address))
+        device.addr.add(net.version, str(net), str(net.broadcast))
+
+        _arping(ns_name, iface_name, address, count, root_helper)
+
+        # Delete the address from the interface
+        device.addr.delete(net.version, str(net))
+
+    if count > 0:
+        eventlet.spawn_n(arping_with_temporary_address)

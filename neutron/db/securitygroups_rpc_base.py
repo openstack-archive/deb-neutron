@@ -14,7 +14,6 @@
 #    under the License.
 
 import netaddr
-from sqlalchemy import or_
 from sqlalchemy.orm import exc
 
 from neutron.common import constants as q_const
@@ -130,6 +129,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         """
         need_notify = False
         if (original_port['fixed_ips'] != updated_port['fixed_ips'] or
+            original_port['mac_address'] != updated_port['mac_address'] or
             not utils.compare_elements(
                 original_port.get(ext_sg.SECURITYGROUPS),
                 updated_port.get(ext_sg.SECURITYGROUPS))):
@@ -352,10 +352,8 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
             models_v2.IPAllocation.subnet_id == subnet['id'])
         query = query.filter(
             models_v2.IPAllocation.ip_address == subnet['gateway_ip'])
-        query = query.filter(or_(models_v2.Port.device_owner ==
-                             q_const.DEVICE_OWNER_ROUTER_INTF,
-                                 models_v2.Port.device_owner ==
-                             q_const.DEVICE_OWNER_DVR_INTERFACE))
+        query = query.filter(
+            models_v2.Port.device_owner.in_(q_const.ROUTER_INTERFACE_OWNERS))
         try:
             mac_address = query.one()[0]
         except (exc.NoResultFound, exc.MultipleResultsFound):
@@ -414,9 +412,6 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
     def _add_ingress_ra_rule(self, port, ips):
         ra_ips = ips.get(port['network_id'])
         for ra_ip in ra_ips:
-            if not netaddr.IPAddress(ra_ip).version == 6:
-                return
-
             ra_rule = {'direction': 'ingress',
                        'ethertype': q_const.IPv6,
                        'protocol': q_const.PROTO_NAME_ICMP_V6,

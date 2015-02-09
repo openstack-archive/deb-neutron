@@ -69,7 +69,9 @@ class IPAvailabilityRange(model_base.BASEV2):
             name='uniq_ipavailabilityranges0first_ip0allocation_pool_id'),
         sa.UniqueConstraint(
             last_ip, allocation_pool_id,
-            name='uniq_ipavailabilityranges0last_ip0allocation_pool_id'))
+            name='uniq_ipavailabilityranges0last_ip0allocation_pool_id'),
+        model_base.BASEV2.__table_args__
+    )
 
     def __repr__(self):
         return "%s - %s" % (self.first_ip, self.last_ip)
@@ -135,6 +137,12 @@ class Port(model_base.BASEV2, HasId, HasTenant):
     status = sa.Column(sa.String(16), nullable=False)
     device_id = sa.Column(sa.String(255), nullable=False)
     device_owner = sa.Column(sa.String(255), nullable=False)
+    __table_args__ = (
+        sa.UniqueConstraint(
+            network_id, mac_address,
+            name='uniq_ports0network_id0mac_address'),
+        model_base.BASEV2.__table_args__
+    )
 
     def __init__(self, id=None, tenant_id=None, name=None, network_id=None,
                  mac_address=None, admin_state_up=None, status=None,

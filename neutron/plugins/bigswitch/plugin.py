@@ -500,6 +500,7 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
         if cfg.CONF.RESTPROXY.sync_data:
             self._send_all_data()
 
+        self.start_periodic_dhcp_agent_status_check()
         LOG.debug("NeutronRestProxyV2: initialization done")
 
     def _setup_rpc(self):
@@ -819,7 +820,6 @@ class NeutronRestProxyV2(NeutronRestProxyV2Base,
             if self.l3_plugin:
                 router_ids = self.l3_plugin.disassociate_floatingips(
                     context, port_id, do_notify=False)
-            self._delete_port_security_group_bindings(context, port_id)
             port = super(NeutronRestProxyV2, self).get_port(context, port_id)
             # Tenant ID must come from network in case the network is shared
             tenid = self._get_port_net_tenantid(context, port)

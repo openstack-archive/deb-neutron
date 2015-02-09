@@ -14,11 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from networking_mlnx.plugins.ml2.drivers.mlnx import constants
 from oslo.config import cfg
 
-from neutron.common import constants
+from neutron.common import constants as n_const
 from neutron.extensions import portbindings
 from neutron.openstack.common import log
+from neutron.plugins.common import constants as p_constants
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import mech_agent
 from neutron.plugins.ml2.drivers.mlnx import config  # noqa
@@ -44,39 +46,26 @@ class MlnxMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
         # several MDs are capable to bing bind port on chosen host, the
         # first listed MD will bind the port for VNIC_NORMAL.
         super(MlnxMechanismDriver, self).__init__(
-            constants.AGENT_TYPE_MLNX,
+            n_const.AGENT_TYPE_MLNX,
             cfg.CONF.ESWITCH.vnic_type,
             {portbindings.CAP_PORT_FILTER: False},
             portbindings.VNIC_TYPES)
 
-    def check_segment_for_agent(self, segment, agent):
-        mappings = agent['configurations'].get('interface_mappings', {})
-        LOG.debug("Checking segment: %(segment)s "
-                  "for mappings: %(mappings)s ",
-                  {'segment': segment, 'mappings': mappings})
+    def get_allowed_network_types(self, agent=None):
+        return [p_constants.TYPE_LOCAL, p_constants.TYPE_FLAT,
+                p_constants.TYPE_VLAN]
 
-        network_type = segment[api.NETWORK_TYPE]
-        if network_type == 'local':
-            return True
-        elif network_type in ['flat', 'vlan']:
-            return segment[api.PHYSICAL_NETWORK] in mappings
-        else:
-            return False
+    def get_mappings(self, agent):
+        return agent['configurations'].get('interface_mappings', {})
 
     def try_to_bind_segment_for_agent(self, context, segment, agent):
         if self.check_segment_for_agent(segment, agent):
-            vif_type = self._get_vif_type(
-                context.current[portbindings.VNIC_TYPE])
-            if segment[api.NETWORK_TYPE] in ['flat', 'vlan']:
+            vif_type = constants.VNIC_TO_VIF_MAPPING.get(
+                context.current[portbindings.VNIC_TYPE], self.vif_type)
+            if (segment[api.NETWORK_TYPE] in
+                    (p_constants.TYPE_FLAT, p_constants.TYPE_VLAN)):
                 self.vif_details['physical_network'] = segment[
                     'physical_network']
             context.set_binding(segment[api.ID],
                                 vif_type,
                                 self.vif_details)
-
-    def _get_vif_type(self, requested_vnic_type):
-        if requested_vnic_type == portbindings.VNIC_MACVTAP:
-                return portbindings.VIF_TYPE_MLNX_DIRECT
-        elif requested_vnic_type == portbindings.VNIC_DIRECT:
-                return portbindings.VIF_TYPE_MLNX_HOSTDEV
-        return self.vif_type

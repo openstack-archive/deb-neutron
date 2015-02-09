@@ -96,13 +96,13 @@ class CiscoML2MechanismTestCase(test_ml2_plugin.Ml2PluginV2TestCase):
         # Mock port context values for bound_segments and 'status'.
         self.mock_bound_segment = mock.patch.object(
             driver_context.PortContext,
-            'bound_segment',
+            'bottom_bound_segment',
             new_callable=mock.PropertyMock).start()
         self.mock_bound_segment.return_value = BOUND_SEGMENT1
 
         self.mock_original_bound_segment = mock.patch.object(
             driver_context.PortContext,
-            'original_bound_segment',
+            'original_bottom_bound_segment',
             new_callable=mock.PropertyMock).start()
         self.mock_original_bound_segment.return_value = None
 
@@ -309,7 +309,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
             plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_port
             with mock.patch.object(plugin_obj,
-                                   'create_port') as patched_plugin:
+                                   '_create_port_db') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
                     return self._fail_second_call(patched_plugin, orig,
@@ -343,7 +343,7 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
             plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_port
             with mock.patch.object(plugin_obj,
-                                   'create_port') as patched_plugin:
+                                   '_create_port_db') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
                     return self._fail_second_call(patched_plugin, orig,
@@ -465,9 +465,9 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
         # The code we are exercising calls connect() twice, if there is a
         # TypeError on the first call (if the old ncclient is installed).
         # The second call should succeed. That's what we are simulating here.
-        connect = self.mock_ncclient.connect
+        orig_connect_return_val = self.mock_ncclient.connect.return_value
         with self._patch_ncclient('connect.side_effect',
-                                  [TypeError, connect]):
+                                  [TypeError, orig_connect_return_val]):
             with self._create_resources() as result:
                 self.assertEqual(result.status_int,
                                  wexc.HTTPOk.code)
@@ -559,16 +559,16 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
         The first one should only change the current host_id and remove the
         binding resulting in the mechanism drivers receiving:
           PortContext.original['binding:host_id']: previous value
-          PortContext.original_bound_segment: previous value
+          PortContext.original_bottom_bound_segment: previous value
           PortContext.current['binding:host_id']: current (new) value
-          PortContext.bound_segment: None
+          PortContext.bottom_bound_segment: None
 
         The second one binds the new host resulting in the mechanism
         drivers receiving:
           PortContext.original['binding:host_id']: previous value
-          PortContext.original_bound_segment: None
+          PortContext.original_bottom_bound_segment: None
           PortContext.current['binding:host_id']: previous value
-          PortContext.bound_segment: new value
+          PortContext.bottom_bound_segment: new value
         """
 
         # Create network, subnet and port.
@@ -700,6 +700,15 @@ class TestCiscoPortsV2(CiscoML2MechanismTestCase,
             self._assertExpectedHTTP(result.status_int,
                                      c_exc.NexusMissingRequiredFields)
 
+    def test_update_port_mac(self):
+        # REVISIT: test passes, but is back-end OK?
+        host_arg = {
+            portbindings.HOST_ID: COMP_HOST_NAME,
+            'device_id': DEVICE_ID_1,
+        }
+        arg_list = (portbindings.HOST_ID, 'device_id',)
+        self.check_update_port_mac(host_arg=host_arg, arg_list=arg_list)
+
 
 class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
                           test_ml2_plugin.TestMl2NetworksV2):
@@ -718,7 +727,7 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
         with mock.patch('__builtin__.hasattr',
                         new=fakehasattr):
             with mock.patch.object(plugin_obj,
-                                   'create_network') as patched_plugin:
+                                   '_create_network_db') as patched_plugin:
                 def side_effect(*args, **kwargs):
                     return self._fail_second_call(patched_plugin, orig,
                                                   *args, **kwargs)
@@ -737,7 +746,7 @@ class TestCiscoNetworksV2(CiscoML2MechanismTestCase,
         plugin_obj = manager.NeutronManager.get_plugin()
         orig = plugin_obj.create_network
         with mock.patch.object(plugin_obj,
-                               'create_network') as patched_plugin:
+                               '_create_network_db') as patched_plugin:
 
             def side_effect(*args, **kwargs):
                 return self._fail_second_call(patched_plugin, orig,
@@ -769,7 +778,7 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
             plugin_obj = manager.NeutronManager.get_plugin()
             orig = plugin_obj.create_subnet
             with mock.patch.object(plugin_obj,
-                                   'create_subnet') as patched_plugin:
+                                   '_create_subnet_db') as patched_plugin:
 
                 def side_effect(*args, **kwargs):
                     self._fail_second_call(patched_plugin, orig,
@@ -792,7 +801,7 @@ class TestCiscoSubnetsV2(CiscoML2MechanismTestCase,
         plugin_obj = manager.NeutronManager.get_plugin()
         orig = plugin_obj.create_subnet
         with mock.patch.object(plugin_obj,
-                               'create_subnet') as patched_plugin:
+                               '_create_subnet_db') as patched_plugin:
             def side_effect(*args, **kwargs):
                 return self._fail_second_call(patched_plugin, orig,
                                               *args, **kwargs)

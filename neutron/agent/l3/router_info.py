@@ -12,22 +12,25 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.agent.l3 import ha
 from neutron.agent.linux import iptables_manager
 
 
-class RouterInfo(ha.RouterMixin):
+class RouterInfo(object):
 
-    def __init__(self, router_id, root_helper, router,
-                 use_ipv6=False, ns_name=None):
+    def __init__(self,
+                 router_id,
+                 router,
+                 root_helper,
+                 agent_conf,
+                 interface_driver,
+                 use_ipv6=False,
+                 ns_name=None):
         self.router_id = router_id
         self.ex_gw_port = None
         self._snat_enabled = None
         self._snat_action = None
         self.internal_ports = []
-        self.snat_ports = []
         self.floating_ips = set()
-        self.floating_ips_dict = {}
         self.root_helper = root_helper
         # Invoke the setter for establishing initial SNAT action
         self.router = router
@@ -36,14 +39,9 @@ class RouterInfo(ha.RouterMixin):
             root_helper=root_helper,
             use_ipv6=use_ipv6,
             namespace=self.ns_name)
-        self.snat_iptables_manager = None
         self.routes = []
-        # DVR Data
-        # Linklocal subnet for router and floating IP namespace link
-        self.rtr_fip_subnet = None
-        self.dist_fip_count = 0
-
-        super(RouterInfo, self).__init__()
+        self.agent_conf = agent_conf
+        self.driver = interface_driver
 
     @property
     def router(self):
@@ -63,6 +61,11 @@ class RouterInfo(ha.RouterMixin):
         elif self.ex_gw_port:
             # Gateway port was removed, remove rules
             self._snat_action = 'remove_rules'
+
+    @property
+    def is_ha(self):
+        # TODO(Carl) Refactoring should render this obsolete.  Remove it.
+        return False
 
     def perform_snat_action(self, snat_callback, *args):
         # Process SNAT rules for attached subnets

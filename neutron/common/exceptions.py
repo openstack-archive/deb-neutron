@@ -124,6 +124,12 @@ class PortInUse(InUse):
                 "device %(device_id)s.")
 
 
+class PortBound(InUse):
+    message = _("Unable to complete operation on port %(port_id)s, "
+                "port is already bound, port type: %(vif_type)s, "
+                "old_mac %(old_mac)s, new_mac %(new_mac)s")
+
+
 class MacAddressInUse(InUse):
     message = _("Unable to complete operation for network %(net_id)s. "
                 "The mac address %(mac)s is in use.")
@@ -201,6 +207,11 @@ class InvalidInput(BadRequest):
 
 class InvalidAllocationPool(BadRequest):
     message = _("The allocation pool %(pool)s is not valid.")
+
+
+class UnsupportedPortDeviceOwner(Conflict):
+    message = _("Operation %(op)s is not supported for device_owner "
+                "%(device_owner)s on port %(port_id)s.")
 
 
 class OverlappingAllocationPools(Conflict):
@@ -339,3 +350,40 @@ class InvalidCIDR(BadRequest):
 
 class RouterNotCompatibleWithAgent(NeutronException):
     message = _("Router '%(router_id)s' is not compatible with this agent")
+
+
+class DvrHaRouterNotSupported(NeutronException):
+    message = _("Router '%(router_id)s' cannot be both DVR and HA")
+
+
+class FailToDropPrivilegesExit(SystemExit):
+    """Exit exception raised when a drop privileges action fails."""
+    code = 99
+
+
+class FloatingIpSetupException(NeutronException):
+    def __init__(self, message=None):
+        self.message = message
+        super(FloatingIpSetupException, self).__init__()
+
+
+class IpTablesApplyException(NeutronException):
+    def __init__(self, message=None):
+        self.message = message
+        super(IpTablesApplyException, self).__init__()
+
+
+# Shared *aas exceptions, pending them being refactored out of Neutron
+# proper.
+
+class FirewallInternalDriverError(NeutronException):
+    """Fwaas exception for all driver errors.
+
+    On any failure or exception in the driver, driver should log it and
+    raise this exception to the agent
+    """
+    message = _("%(driver)s: Internal driver error.")
+
+
+class RouterInUseByVPNService(InUse):
+    message = _("Router %(router_id)s is used by VPNService %(vpnservice_id)s")

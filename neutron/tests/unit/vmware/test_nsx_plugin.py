@@ -77,7 +77,7 @@ class NsxPluginV2TestCase(test_plugin.NeutronDbPluginV2TestCase):
         for arg in (('admin_state_up', 'tenant_id', 'shared') +
                     (arg_list or ())):
             # Arg must be present and not empty
-            if arg in kwargs and kwargs[arg]:
+            if kwargs.get(arg):
                 data['network'][arg] = kwargs[arg]
         network_req = self.new_create_request('networks', data, fmt)
         if (kwargs.get('set_context') and 'tenant_id' in kwargs):
@@ -482,6 +482,19 @@ class L3NatTest(test_l3_plugin.L3BaseForIntTests, NsxPluginV2TestCase):
                             arg_list=(pnet.NETWORK_TYPE,
                                       pnet.PHYSICAL_NETWORK,
                                       pnet.SEGMENTATION_ID))
+
+    #REVISIT: remove the following skips if external IP spec support is added
+    def test_router_create_with_gwinfo_ext_ip(self):
+        raise self.skipException('External IP specification unsupported')
+
+    def test_router_create_with_gwinfo_ext_ip_non_admin(self):
+        raise self.skipException('External IP specification unsupported')
+
+    def test_router_update_gateway_with_different_external_subnet(self):
+        raise self.skipException('External IP specification unsupported')
+
+    def test_router_create_with_gwinfo_ext_ip_subnet(self):
+        raise self.skipException('External IP specification unsupported')
 
 
 class TestL3NatTestCase(L3NatTest,

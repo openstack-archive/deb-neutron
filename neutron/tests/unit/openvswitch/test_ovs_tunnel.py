@@ -55,12 +55,12 @@ BCAST_MAC = "01:00:00:00:00:00/01:00:00:00:00:00"
 UCAST_MAC = "00:00:00:00:00:00/01:00:00:00:00:00"
 
 
-class DummyPort:
+class DummyPort(object):
     def __init__(self, interface_id):
         self.interface_id = interface_id
 
 
-class DummyVlanBinding:
+class DummyVlanBinding(object):
     def __init__(self, network_id, vlan_id):
         self.network_id = network_id
         self.vlan_id = vlan_id
@@ -127,7 +127,8 @@ class TunnelTest(base.BaseTestCase):
         add_veth = self.ipwrapper.return_value.add_veth
         add_veth.return_value = [self.inta, self.intb]
 
-        self.get_bridges = mock.patch.object(ovs_lib, 'get_bridges').start()
+        self.get_bridges = mock.patch.object(ovs_lib.BaseOVS,
+                                             'get_bridges').start()
         self.get_bridges.return_value = [self.INT_BRIDGE,
                                          self.TUN_BRIDGE,
                                          self.MAP_TUN_BRIDGE]
@@ -242,7 +243,7 @@ class TunnelTest(base.BaseTestCase):
         self.ipdevice_expected = []
         self.ipwrapper_expected = [mock.call('sudo')]
 
-        self.get_bridges_expected = [mock.call('sudo'), mock.call('sudo')]
+        self.get_bridges_expected = [mock.call(), mock.call()]
 
         self.inta_expected = []
         self.intb_expected = []
@@ -440,7 +441,7 @@ class TunnelTest(base.BaseTestCase):
         self.mock_int_bridge_expected += [
             mock.call.db_get_val('Port', VIF_PORT.port_name, 'tag'),
             mock.call.set_db_attribute('Port', VIF_PORT.port_name,
-                                       'tag', str(LVM.vlan)),
+                                       'tag', LVM.vlan),
             mock.call.delete_flows(in_port=VIF_PORT.ofport)
         ]
 
@@ -481,7 +482,7 @@ class TunnelTest(base.BaseTestCase):
         tunnel_port = '9999'
         self.mock_tun_bridge.add_tunnel_port.return_value = tunnel_port
         self.mock_tun_bridge_expected += [
-            mock.call.add_tunnel_port('gre-1', '10.0.10.1', '10.0.0.1',
+            mock.call.add_tunnel_port('gre-0a000a01', '10.0.10.1', '10.0.0.1',
                                       'gre', 4789, True),
             mock.call.add_flow(priority=1, in_port=tunnel_port,
                                actions='resubmit(,3)')
@@ -489,14 +490,14 @@ class TunnelTest(base.BaseTestCase):
 
         a = self._build_agent()
         a.tunnel_update(
-            mock.sentinel.ctx, tunnel_id='1', tunnel_ip='10.0.10.1',
+            mock.sentinel.ctx, tunnel_ip='10.0.10.1',
             tunnel_type=p_const.TYPE_GRE)
         self._verify_mock_calls()
 
     def test_tunnel_update_self(self):
         a = self._build_agent()
         a.tunnel_update(
-            mock.sentinel.ctx, tunnel_id='1', tunnel_ip='10.0.0.1')
+            mock.sentinel.ctx, tunnel_ip='10.0.0.1')
         self._verify_mock_calls()
 
     def test_daemon_loop(self):
@@ -669,7 +670,7 @@ class TunnelTestUseVethInterco(TunnelTest):
                                  'phy-%s' % self.MAP_TUN_BRIDGE)
         ]
 
-        self.get_bridges_expected = [mock.call('sudo'), mock.call('sudo')]
+        self.get_bridges_expected = [mock.call(), mock.call()]
 
         self.inta_expected = [mock.call.link.set_up()]
         self.intb_expected = [mock.call.link.set_up()]

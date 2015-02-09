@@ -32,7 +32,6 @@ from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import config as common_config
 from neutron.common import constants as q_const
-from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as q_context
 from neutron.extensions import securitygroup as ext_sg
@@ -83,14 +82,6 @@ class NECAgentRpcCallback(object):
             self.sg_agent.refresh_firewall()
 
 
-class SecurityGroupServerRpcApi(sg_rpc.SecurityGroupServerRpcApiMixin):
-
-    def __init__(self, topic):
-        self.topic = topic
-        target = messaging.Target(topic=topic, version=sg_rpc.SG_RPC_VERSION)
-        self.client = n_rpc.get_client(target)
-
-
 class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
     target = messaging.Target(version=sg_rpc.SG_RPC_VERSION)
@@ -99,14 +90,6 @@ class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
         super(SecurityGroupAgentRpcCallback, self).__init__()
         self.context = context
         self.sg_agent = sg_agent
-
-
-class SecurityGroupAgentRpc(sg_rpc.SecurityGroupAgentRpcMixin):
-
-    def __init__(self, context):
-        self.context = context
-        self.plugin_rpc = SecurityGroupServerRpcApi(topics.PLUGIN)
-        self.init_firewall()
 
 
 class NECNeutronAgent(object):
@@ -133,9 +116,9 @@ class NECNeutronAgent(object):
             'agent_type': q_const.AGENT_TYPE_NEC,
             'start_flag': True}
 
-        self.setup_rpc()
+        self.setup_rpc(root_helper)
 
-    def setup_rpc(self):
+    def setup_rpc(self, root_helper):
         self.host = socket.gethostname()
         self.agent_id = 'nec-q-agent.%s' % self.host
         LOG.info(_LI("RPC agent_id: %s"), self.agent_id)
@@ -145,7 +128,9 @@ class NECNeutronAgent(object):
 
         self.plugin_rpc = NECPluginApi(topics.PLUGIN)
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
-        self.sg_agent = SecurityGroupAgentRpc(self.context)
+        self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
+        self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
+                self.sg_plugin_rpc, root_helper)
 
         # RPC network init
         # Handle updates from service

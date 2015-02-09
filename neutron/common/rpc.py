@@ -153,18 +153,12 @@ class Service(service.Service):
         super(Service, self).start()
 
         self.conn = create_connection(new=True)
-        LOG.debug("Creating Consumer connection for Service %s" %
+        LOG.debug("Creating Consumer connection for Service %s",
                   self.topic)
 
         endpoints = [self.manager]
 
-        # Share this same connection for these Consumers
-        self.conn.create_consumer(self.topic, endpoints, fanout=False)
-
-        node_topic = '%s.%s' % (self.topic, self.host)
-        self.conn.create_consumer(node_topic, endpoints, fanout=False)
-
-        self.conn.create_consumer(self.topic, endpoints, fanout=True)
+        self.conn.create_consumer(self.topic, endpoints)
 
         # Hook to allow the manager to do other initializations after
         # the rpc connection is created.
@@ -200,6 +194,12 @@ class Connection(object):
         for server in self.servers:
             server.start()
         return self.servers
+
+    def close(self):
+        for server in self.servers:
+            server.stop()
+        for server in self.servers:
+            server.wait()
 
 
 # functions

@@ -16,6 +16,7 @@
 import os
 
 import mock
+import netaddr
 
 from neutron.agent.linux import ip_lib
 from neutron.common import exceptions
@@ -449,20 +450,36 @@ class TestIpRule(base.BaseTestCase):
         self.execute_p = mock.patch.object(ip_lib.IpRule, '_execute')
         self.execute = self.execute_p.start()
 
-    def test_add_rule_from(self):
-        ip_lib.IpRule('sudo').add_rule_from('192.168.45.100', 2, 100)
-        self.execute.assert_called_once_with('', 'rule',
-                                             ('add', 'from', '192.168.45.100',
-                                              'lookup', 2, 'priority', 100),
+    def _test_add_rule(self, ip, table, priority):
+        ip_version = netaddr.IPNetwork(ip).version
+        ip_lib.IpRule('sudo').add(ip, table, priority)
+        self.execute.assert_called_once_with([ip_version], 'rule',
+                                             ('add', 'from', ip,
+                                              'table', table,
+                                              'priority', priority),
                                              'sudo', None,
                                              log_fail_as_error=True)
 
-    def test_delete_rule_priority(self):
-        ip_lib.IpRule('sudo').delete_rule_priority(100)
-        self.execute.assert_called_once_with('', 'rule',
-                                             ('del', 'priority', 100),
+    def _test_delete_rule(self, ip, table, priority):
+        ip_version = netaddr.IPNetwork(ip).version
+        ip_lib.IpRule('sudo').delete(ip, table, priority)
+        self.execute.assert_called_once_with([ip_version], 'rule',
+                                             ('del', 'table', table,
+                                              'priority', priority),
                                              'sudo', None,
                                              log_fail_as_error=True)
+
+    def test_add_rule_v4(self):
+        self._test_add_rule('192.168.45.100', 2, 100)
+
+    def test_add_rule_v6(self):
+        self._test_add_rule('2001:db8::1', 3, 200)
+
+    def test_delete_rule_v4(self):
+        self._test_delete_rule('192.168.45.100', 2, 100)
+
+    def test_delete_rule_v6(self):
+        self._test_delete_rule('2001:db8::1', 3, 200)
 
 
 class TestIPDevice(base.BaseTestCase):
@@ -917,3 +934,70 @@ class TestIpNeighCommand(TestIPCmdBase):
         self.neigh_cmd.delete(4, '192.168.45.100', 'cc:dd:ee:ff:ab:cd')
         self._assert_sudo([4], ('del', '192.168.45.100', 'lladdr',
                                 'cc:dd:ee:ff:ab:cd', 'dev', 'tap0'))
+
+
+class TestArpPing(TestIPCmdBase):
+    def _test_arping(self, function, address, spawn_n, mIPWrapper):
+        spawn_n.side_effect = lambda f: f()
+        function(mock.sentinel.ns_name,
+                 mock.sentinel.iface_name,
+                 address,
+                 mock.sentinel.count,
+                 mock.sentinel.root_helper)
+
+        self.assertTrue(spawn_n.called)
+        mIPWrapper.assert_called_once_with(mock.sentinel.root_helper,
+                                           namespace=mock.sentinel.ns_name)
+
+        ip_wrapper = mIPWrapper(mock.sentinel.root_helper,
+                                mock.sentinel.ns_name)
+
+        # Just test that arping is called with the right arguments
+        arping_cmd = ['arping', '-A',
+                      '-I', mock.sentinel.iface_name,
+                      '-c', mock.sentinel.count,
+                      address]
+        ip_wrapper.netns.execute.assert_any_call(arping_cmd,
+                                                 check_exit_code=True)
+
+    @mock.patch.object(ip_lib, 'IPWrapper')
+    @mock.patch('eventlet.spawn_n')
+    def test_send_gratuitous_arp(self, spawn_n, mIPWrapper):
+        self._test_arping(
+            ip_lib.send_gratuitous_arp, '20.0.0.1', spawn_n, mIPWrapper)
+
+    @mock.patch.object(ip_lib, 'IPDevice')
+    @mock.patch.object(ip_lib, 'IPWrapper')
+    @mock.patch('eventlet.spawn_n')
+    def test_send_garp_for_proxy_arp(self, spawn_n, mIPWrapper, mIPDevice):
+        addr = '20.0.0.1'
+        ip_wrapper = mIPWrapper(mock.sentinel.root_helper,
+                                mock.sentinel.ns_name)
+        mIPWrapper.reset_mock()
+        device = mIPDevice(mock.sentinel.iface_name,
+                           mock.sentinel.root_helper,
+                           namespace=mock.sentinel.ns_name)
+        mIPDevice.reset_mock()
+
+        # Check that the address was added to the interface before arping
+        def check_added_address(*args, **kwargs):
+            mIPDevice.assert_called_once_with(mock.sentinel.iface_name,
+                                              mock.sentinel.root_helper,
+                                              namespace=mock.sentinel.ns_name)
+            device.addr.add.assert_called_once_with(4, addr + '/32', addr)
+            self.assertFalse(device.addr.delete.called)
+            device.addr.reset_mock()
+
+        ip_wrapper.netns.execute.side_effect = check_added_address
+
+        self._test_arping(
+            ip_lib.send_garp_for_proxyarp, addr, spawn_n, mIPWrapper)
+
+        # Test that the address was removed after arping
+        device = mIPDevice(mock.sentinel.iface_name,
+                           mock.sentinel.root_helper,
+                           namespace=mock.sentinel.ns_name)
+        device.addr.delete.assert_called_once_with(4, addr + '/32')
+
+        # If this was called then check_added_address probably had a assert
+        self.assertFalse(device.addr.add.called)

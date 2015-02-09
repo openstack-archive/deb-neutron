@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+import operator
+
 from oslo.config import cfg
 from oslo.db import exception as db_exc
 from oslo import messaging
@@ -32,13 +35,20 @@ LOG = logging.getLogger(__name__)
 
 
 class DhcpRpcCallback(object):
-    """DHCP agent RPC callback in plugin implementations."""
+    """DHCP agent RPC callback in plugin implementations.
+
+    This class implements the server side of an rpc interface.  The client
+    side of this interface can be found in
+    neutron.agent.dhcp.agent.DhcpPluginApi.  For more information about
+    changing rpc interfaces, see doc/source/devref/rpc_api.rst.
+    """
 
     # API version history:
     #     1.0 - Initial version.
     #     1.1 - Added get_active_networks_info, create_dhcp_port,
     #           and update_dhcp_port methods.
-    target = messaging.Target(version='1.1')
+    target = messaging.Target(namespace=constants.RPC_NAMESPACE_DHCP_PLUGIN,
+                              version='1.1')
 
     def _get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active networks."""
@@ -94,6 +104,14 @@ class DhcpRpcCallback(object):
         nets = self._get_active_networks(context, **kwargs)
         return [net['id'] for net in nets]
 
+    def _group_by_network_id(self, res):
+        grouped = {}
+        keyfunc = operator.itemgetter('network_id')
+        for net_id, values in itertools.groupby(sorted(res, key=keyfunc),
+                                                keyfunc):
+            grouped[net_id] = list(values)
+        return grouped
+
     def get_active_networks_info(self, context, **kwargs):
         """Returns all the networks/subnets/ports in system."""
         host = kwargs.get('host')
@@ -105,11 +123,11 @@ class DhcpRpcCallback(object):
         filters['enable_dhcp'] = [True]
         subnets = plugin.get_subnets(context, filters=filters)
 
+        grouped_subnets = self._group_by_network_id(subnets)
+        grouped_ports = self._group_by_network_id(ports)
         for network in networks:
-            network['subnets'] = [subnet for subnet in subnets
-                                  if subnet['network_id'] == network['id']]
-            network['ports'] = [port for port in ports
-                                if port['network_id'] == network['id']]
+            network['subnets'] = grouped_subnets.get(network['id'], [])
+            network['ports'] = grouped_ports.get(network['id'], [])
 
         return networks
 

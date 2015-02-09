@@ -16,7 +16,6 @@
 import mock
 
 from neutron.agent.common import config
-from neutron.agent.linux import dhcp
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
@@ -34,21 +33,21 @@ class BaseChild(interface.LinuxInterfaceDriver):
         pass
 
 
-class FakeNetwork:
+class FakeNetwork(object):
     id = '12345678-1234-5678-90ab-ba0987654321'
 
 
-class FakeSubnet:
+class FakeSubnet(object):
     cidr = '192.168.1.1/24'
 
 
-class FakeAllocation:
+class FakeAllocation(object):
     subnet = FakeSubnet()
     ip_address = '192.168.1.2'
     ip_version = 4
 
 
-class FakePort:
+class FakePort(object):
     id = 'abcdef01-1234-5678-90ab-ba0987654321'
     fixed_ips = [FakeAllocation]
     device_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
@@ -225,9 +224,10 @@ class TestOVSInterfaceDriver(TestBase):
             replace.assert_called_once_with(
                 'tap0',
                 ('type', 'internal'),
-                ('external-ids:iface-id', 'port-1234'),
-                ('external-ids:iface-status', 'active'),
-                ('external-ids:attached-mac', 'aa:bb:cc:dd:ee:ff'))
+                ('external_ids', {
+                    'iface-id': 'port-1234',
+                    'iface-status': 'active',
+                    'attached-mac': 'aa:bb:cc:dd:ee:ff'}))
 
         expected = [mock.call('sudo'),
                     mock.call().device('tap0'),
@@ -306,9 +306,10 @@ class TestOVSInterfaceDriverWithVeth(TestOVSInterfaceDriver):
                      prefix=prefix)
             replace.assert_called_once_with(
                 'tap0',
-                ('external-ids:iface-id', 'port-1234'),
-                ('external-ids:iface-status', 'active'),
-                ('external-ids:attached-mac', 'aa:bb:cc:dd:ee:ff'))
+                ('external_ids', {
+                    'iface-id': 'port-1234',
+                    'iface-status': 'active',
+                    'attached-mac': 'aa:bb:cc:dd:ee:ff'}))
 
         ns_dev.assert_has_calls(
             [mock.call.link.set_address('aa:bb:cc:dd:ee:ff')])
@@ -418,7 +419,6 @@ class TestMetaInterfaceDriver(TestBase):
     def setUp(self):
         super(TestMetaInterfaceDriver, self).setUp()
         config.register_interface_driver_opts_helper(self.conf)
-        self.conf.register_opts(dhcp.OPTS)
         self.client_cls_p = mock.patch('neutronclient.v2_0.client.Client')
         client_cls = self.client_cls_p.start()
         self.client_inst = mock.Mock()

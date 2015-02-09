@@ -32,6 +32,7 @@ from neutron.openstack.common import log as logging
 
 VR_ID_RANGE = set(range(1, 255))
 MAX_ALLOCATION_TRIES = 10
+UNLIMITED_AGENTS_PER_ROUTER = 0
 
 LOG = logging.getLogger(__name__)
 
@@ -131,7 +132,18 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         if ('/' not in self.ha_cidr or net.network != net.ip):
             raise l3_ha.HANetworkCIDRNotValid(cidr=self.ha_cidr)
 
-        if cfg.CONF.min_l3_agents_per_router < constants.MINIMUM_AGENTS_FOR_HA:
+        self._check_num_agents_per_router()
+
+    def _check_num_agents_per_router(self):
+        max_agents = cfg.CONF.max_l3_agents_per_router
+        min_agents = cfg.CONF.min_l3_agents_per_router
+
+        if (max_agents != UNLIMITED_AGENTS_PER_ROUTER
+            and max_agents < min_agents):
+            raise l3_ha.HAMaximumAgentsNumberNotValid(
+                max_agents=max_agents, min_agents=min_agents)
+
+        if min_agents < constants.MINIMUM_AGENTS_FOR_HA:
             raise l3_ha.HAMinimumAgentsNumberNotValid()
 
     def __init__(self):
@@ -249,7 +261,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         """
 
         min_agents = cfg.CONF.min_l3_agents_per_router
-        num_agents = len(self.get_l3_agents(context))
+        num_agents = len(self.get_l3_agents(context,
+            filters={'agent_modes': ['legacy', 'dvr_snat']}))
         max_agents = cfg.CONF.max_l3_agents_per_router
         if max_agents:
             if max_agents > num_agents:

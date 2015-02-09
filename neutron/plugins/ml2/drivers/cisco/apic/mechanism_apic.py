@@ -14,13 +14,12 @@
 #    under the License.
 
 from apicapi import apic_manager
-from apicapi import exceptions as exc
 from keystoneclient.v2_0 import client as keyclient
 import netaddr
 from oslo.config import cfg
+from oslo_concurrency import lockutils
 
 from neutron.common import constants as n_constants
-from neutron.openstack.common import lockutils
 from neutron.openstack.common import log
 from neutron.plugins.common import constants
 from neutron.plugins.ml2 import driver_api as api
@@ -79,6 +78,7 @@ class APICMechanismDriver(api.MechanismDriver):
                 inst.synchronizer = (
                     APICMechanismDriver.get_base_synchronizer(inst))
                 inst.synchronizer.sync_base()
+            # pylint: disable=not-callable
             return f(inst, *args, **kwargs)
         return inner
 
@@ -92,13 +92,13 @@ class APICMechanismDriver(api.MechanismDriver):
         tenant_id = self.name_mapper.tenant(context, tenant_id)
 
         # Get segmentation id
-        if not context.bound_segment:
+        segment = context.top_bound_segment
+        if not segment:
             LOG.debug("Port %s is not bound to a segment", port)
             return
         seg = None
-        if (context.bound_segment.get(api.NETWORK_TYPE)
-                in [constants.TYPE_VLAN]):
-            seg = context.bound_segment.get(api.SEGMENTATION_ID)
+        if (segment.get(api.NETWORK_TYPE) in [constants.TYPE_VLAN]):
+            seg = segment.get(api.SEGMENTATION_ID)
         # hosts on which this vlan is provisioned
         host = context.host
         # Create a static path attachment for the host/epg/switchport combo
@@ -143,12 +143,10 @@ class APICMechanismDriver(api.MechanismDriver):
         # Get port
         port = context.current
         # Check if a compute port
-        if port.get('device_owner', '').startswith('compute'):
+        if context.host:
             self._perform_path_port_operations(context, port)
-        elif port.get('device_owner') == n_constants.DEVICE_OWNER_ROUTER_GW:
+        if port.get('device_owner') == n_constants.DEVICE_OWNER_ROUTER_GW:
             self._perform_gw_port_operations(context, port)
-        elif port.get('device_owner') == n_constants.DEVICE_OWNER_DHCP:
-            self._perform_path_port_operations(context, port)
 
     def _delete_contract(self, context):
         port = context.current
@@ -180,31 +178,24 @@ class APICMechanismDriver(api.MechanismDriver):
             self._delete_port_path(context, atenant_id, anetwork_id)
 
     def _get_subnet_info(self, context, subnet):
-        tenant_id = subnet['tenant_id']
-        network_id = subnet['network_id']
-        network = context._plugin.get_network(context._plugin_context,
-                                              network_id)
-        if not network.get('router:external'):
-            cidr = netaddr.IPNetwork(subnet['cidr'])
-            gateway_ip = '%s/%s' % (subnet['gateway_ip'], str(cidr.prefixlen))
+        if subnet['gateway_ip']:
+            tenant_id = subnet['tenant_id']
+            network_id = subnet['network_id']
+            network = context._plugin.get_network(context._plugin_context,
+                                                  network_id)
+            if not network.get('router:external'):
+                cidr = netaddr.IPNetwork(subnet['cidr'])
+                gateway_ip = '%s/%s' % (subnet['gateway_ip'],
+                                        str(cidr.prefixlen))
 
-            # Convert to APIC IDs
-            tenant_id = self.name_mapper.tenant(context, tenant_id)
-            network_id = self.name_mapper.network(context, network_id)
-            return tenant_id, network_id, gateway_ip
+                # Convert to APIC IDs
+                tenant_id = self.name_mapper.tenant(context, tenant_id)
+                network_id = self.name_mapper.network(context, network_id)
+                return tenant_id, network_id, gateway_ip
 
     @sync_init
     def create_port_postcommit(self, context):
         self._perform_port_operations(context)
-
-    def update_port_precommit(self, context):
-        orig = context.original
-        curr = context.current
-        if (orig['device_owner'] != curr['device_owner']
-                or orig['device_id'] != curr['device_id']):
-            raise exc.ApicOperationNotSupported(
-                resource='Port', msg='Port device owner and id cannot be '
-                                     'changed.')
 
     @sync_init
     def update_port_postcommit(self, context):
@@ -213,12 +204,10 @@ class APICMechanismDriver(api.MechanismDriver):
     def delete_port_postcommit(self, context):
         port = context.current
         # Check if a compute port
-        if port.get('device_owner', '').startswith('compute'):
+        if context.host:
             self._delete_path_if_last(context)
-        elif port.get('device_owner') == n_constants.DEVICE_OWNER_ROUTER_GW:
+        if port.get('device_owner') == n_constants.DEVICE_OWNER_ROUTER_GW:
             self._delete_contract(context)
-        elif port.get('device_owner') == n_constants.DEVICE_OWNER_DHCP:
-            self._delete_path_if_last(context)
 
     @sync_init
     def create_network_postcommit(self, context):

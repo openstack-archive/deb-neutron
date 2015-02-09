@@ -69,7 +69,7 @@ SWITCH_OPTS = [cfg.StrOpt('address', default='',
                ]
 
 PHYSICAL_INTERFACE_OPTS = [cfg.StrOpt('physical_interface', default='eth0',
-                           help=_('The network interface to use when creating'
+                           help=_('The network interface to use when creating '
                                   'a port'))
                            ]
 
@@ -239,6 +239,7 @@ class BrocadePluginV2(db_base_plugin_v2.NeutronDbPluginV2,
             cfg.CONF.router_scheduler_driver
         )
         self.brocade_init()
+        self.start_periodic_dhcp_agent_status_check()
 
     def brocade_init(self):
         """Brocade specific initialization."""

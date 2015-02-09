@@ -78,17 +78,14 @@ CONF.register_opts(agent_opts, "AGENT")
 config.register_agent_state_opts_helper(cfg.CONF)
 
 
-class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpcMixin):
-
-    target = messaging.Target(version='1.1')
+class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpc):
 
     def __init__(self, context, plugin_rpc):
-        super(HyperVSecurityAgent, self).__init__()
-        self.context = context
-        self.plugin_rpc = plugin_rpc
-
+        # Note: as rootwrap is not supported on HyperV, root_helper is
+        # passed in as None.
+        super(HyperVSecurityAgent, self).__init__(context, plugin_rpc,
+                                                  root_helper=None)
         if sg_rpc.is_firewall_enabled():
-            self.init_firewall()
             self._setup_rpc()
 
     def _setup_rpc(self):
@@ -108,11 +105,6 @@ class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
     def __init__(self, sg_agent):
         super(HyperVSecurityCallbackMixin, self).__init__()
         self.sg_agent = sg_agent
-
-
-class HyperVPluginApi(agent_rpc.PluginApi,
-                      sg_rpc.SecurityGroupServerRpcApiMixin):
-    pass
 
 
 class HyperVNeutronAgent(object):
@@ -150,7 +142,8 @@ class HyperVNeutronAgent(object):
     def _setup_rpc(self):
         self.agent_id = 'hyperv_%s' % platform.node()
         self.topic = topics.AGENT
-        self.plugin_rpc = HyperVPluginApi(topics.PLUGIN)
+        self.plugin_rpc = agent_rpc.PluginApi(topics.PLUGIN)
+        self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
 
         self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
 
@@ -168,7 +161,7 @@ class HyperVNeutronAgent(object):
                                                      consumers)
 
         self.sec_groups_agent = HyperVSecurityAgent(
-            self.context, self.plugin_rpc)
+            self.context, self.sg_plugin_rpc)
         report_interval = CONF.AGENT.report_interval
         if report_interval:
             heartbeat = loopingcall.FixedIntervalLoopingCall(
