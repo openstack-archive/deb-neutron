@@ -21,7 +21,6 @@ from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
-from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import utils
 from neutron.db import model_base
@@ -508,8 +507,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
     def _add_interface_by_subnet(self, context, router, subnet_id, owner):
         subnet = self._core_plugin._get_subnet(context, subnet_id)
-        if (not subnet['gateway_ip']
-            and not ipv6_utils.is_slaac_subnet(subnet)):
+        if not subnet['gateway_ip']:
             msg = _('Subnet for router interface must have a gateway IP')
             raise n_exc.BadRequest(resource='router', msg=msg)
         if (subnet['ip_version'] == 6 and subnet['ipv6_ra_mode'] is None
