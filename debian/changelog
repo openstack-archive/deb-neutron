@@ -2,7 +2,7 @@ neutron (2014.2.2-1) experimental; urgency=medium
 
   * New upstream release.
 
- -- gustavo panizzo <gfa@zumbi.com.ar>  Fri, 06 Feb 2015 10:56:18 +0800
+ -- Thomas Goirand <zigo@debian.org>  Tue, 10 Feb 2015 22:52:04 +0000
 
 neutron (2014.2.1-5) experimental; urgency=medium
 
