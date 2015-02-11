@@ -1,2 +1,0 @@
-debian/cron.d/neutron-lbaas-agent-netns-cleanup etc/cron.d
-etc/lbaas_agent.ini etc/neutron

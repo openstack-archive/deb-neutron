@@ -77,36 +77,6 @@ Package: python-neutron
 Architecture: all
 Section: python
 Pre-Depends: dpkg (>= 1.15.6~)
-Replaces: python-quantum (<< 2013.2~),
-          quantum-common (<< 2013),
-          quantum-dhcp-agent (<< 2013),
-          quantum-l3-agent (<< 2013),
-          quantum-plugin-cisco (<< 2013),
-          quantum-plugin-linuxbridge (<< 2013),
-          quantum-plugin-linuxbridge-agent (<< 2013),
-          quantum-plugin-metaplugin (<< 2013),
-          quantum-plugin-nec (<< 2013),
-          quantum-plugin-nec-agent (<< 2013),
-          quantum-plugin-nicira (<< 2013),
-          quantum-plugin-openvswitch (<< 2013),
-          quantum-plugin-openvswitch-agent (<< 2013),
-          quantum-plugin-ryu (<< 2013),
-          quantum-plugin-ryu-agent (<< 2013)
-Breaks: python-quantum (<< 2013.2~),
-        quantum-common (<< 2013),
-        quantum-dhcp-agent (<< 2013),
-        quantum-l3-agent (<< 2013),
-        quantum-plugin-cisco (<< 2013),
-        quantum-plugin-linuxbridge (<< 2013),
-        quantum-plugin-linuxbridge-agent (<< 2013),
-        quantum-plugin-metaplugin (<< 2013),
-        quantum-plugin-nec (<< 2013),
-        quantum-plugin-nec-agent (<< 2013),
-        quantum-plugin-nicira (<< 2013),
-        quantum-plugin-openvswitch (<< 2013),
-        quantum-plugin-openvswitch-agent (<< 2013),
-        quantum-plugin-ryu (<< 2013),
-        quantum-plugin-ryu-agent (<< 2013)
 Depends: alembic (>= 0.7.2),
          conntrack,
          iproute2,
@@ -172,8 +142,6 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: quantum-server (<< 2013.2~)
-Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - server
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -210,24 +178,6 @@ Provides: neutron-plugin,
           neutron-plugin-plumgrid,
           neutron-plugin-ryu,
           python-argparse,
-          quantum-plugin,
-          quantum-plugin-bigswitch,
-          quantum-plugin-brocade,
-          quantum-plugin-cisco,
-          quantum-plugin-hyperv,
-          quantum-plugin-linuxbridge,
-          quantum-plugin-metaplugin,
-          quantum-plugin-nec,
-          quantum-plugin-nicira,
-          quantum-plugin-openvswitch,
-          quantum-plugin-plumgrid,
-          quantum-plugin-ryu
-Breaks: quantum-plugin-linuxbridge-agent (<< 2013.2~),
-        quantum-plugin-openvswitch-agent (<< 2013.2~),
-        quantum-server (<< 2013.2~)
-Replaces: quantum-plugin-linuxbridge-agent (<< 2013.2~),
-          quantum-plugin-openvswitch-agent (<< 2013.2~),
-          quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - common files
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -245,8 +195,6 @@ Depends: neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: quantum-plugin-nec-agent (<< 2013.2~)
-Replaces: quantum-plugin-nec-agent (<< 2013.2~)
 Description: OpenStack virtual network service - NEC agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -269,8 +217,6 @@ Depends: adduser,
          ${shlibs:Depends}
 Recommends: openvswitch-switch
 Conflicts: neutron-vpn-agent
-Breaks: quantum-l3-agent (<< 2013.2~)
-Replaces: quantum-l3-agent (<< 2013.2~)
 Description: OpenStack virtual network service - l3 agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -290,8 +236,6 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: quantum-dhcp-agent (<< 2013.2~)
-Replaces: quantum-dhcp-agent (<< 2013.2~)
 Description: OpenStack virtual network service - DHCP agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -308,8 +252,6 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: quantum-metadata-agent (<< 2013.2~)
-Replaces: quantum-metadata-agent (<< 2013.2~)
 Description: OpenStack virtual network service - metadata agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -329,8 +271,6 @@ Depends: adduser,
          ${python:Depends},
          ${shlibs:Depends}
 Provides: neutron-plugin-metering-agent
-Breaks: quantum-server (<< 2013.2~)
-Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - metering agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -352,8 +292,6 @@ Depends: adduser,
 Suggests: openswan
 Provides: neutron-plugin-vpn-agent
 Conflicts: neutron-l3-agent
-Breaks: quantum-server (<< 2013.2~)
-Replaces: quantum-server (<< 2013.2~)
 Description: OpenStack virtual network service - VPN agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -361,24 +299,6 @@ Description: OpenStack virtual network service - VPN agent
  network capabilities, including QoS, ACLs, and network monitoring.
  .
  This package provides the Neutron VPN agent.
-
-Package: neutron-lbaas-agent
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: haproxy,
-         neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Breaks: quantum-common (<< 2013.2~)
-Replaces: quantum-common (<< 2013.2~)
-Description: OpenStack virtual network service - LBaaS agent
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Load Balancing as a Service (LBaaS) agent.
 
 Package: neutron-plugin-openvswitch-agent
 Architecture: all
@@ -388,10 +308,6 @@ Depends: neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: python-quantum (<< 2013.2~),
-        quantum-plugin-openvswitch-agent (<< 2013.2~)
-Replaces: python-quantum (<< 2013.2~),
-          quantum-plugin-openvswitch-agent (<< 2013.2~)
 Recommends: openvswitch-datapath-dkms
 Description: OpenStack virtual network service - Open vSwitch agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -411,10 +327,6 @@ Depends: bridge-utils,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
-Breaks: python-quantum (<< 2013.2~),
-        quantum-plugin-linuxbridge-agent (<< 2013.2~)
-Replaces: python-quantum (<< 2013.2~),
-          quantum-plugin-linuxbridge-agent (<< 2013.2~)
 Description: OpenStack virtual network service - Linux bridge agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -423,226 +335,3 @@ Description: OpenStack virtual network service - Linux bridge agent
  .
  This package provides the Linux bridge agent. If you choose to use the Linux
  bridge plugin on neutron-server, this agent should run on each compute node.
-
-Package: python-quantum
-Depends: python-neutron, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for switching to python-neutron
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from python-quantum to python-neutron.
-
-Package: quantum-server
-Depends: neutron-server, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for switching to neutron-server
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-server to neutron-server.
-
-Package: quantum-common
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for switching to neutron-common
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-common server to neutron-common.
-
-Package: quantum-plugin-cisco
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-cisco
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-cisco server to neutron-common.
-
-Package: quantum-plugin-nec
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-nec
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-nec server to neutron-common.
-
-Package: quantum-plugin-nec-agent
-Depends: neutron-plugin-nec-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-nec-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-nec-agent server to
- neutron-plugin-nec-agent.
-
-Package: quantum-plugin-bigswitch
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-bigswitch
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-bigswitch server to neutron-common.
-
-Package: quantum-plugin-hyperv
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-hyperv
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-hyperv server to neutron-common.
-
-Package: quantum-plugin-brocade
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-brocade
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-brocade server to neutron-common.
-
-Package: quantum-plugin-plumgrid
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-plumgrid
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-plumgrid server to neutron-common.
-
-Package: quantum-plugin-metaplugin
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-metaplugin
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-metaplugin server to neutron-common.
-
-Package: quantum-plugin-nicira
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-nicira
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-nicira server to neutron-common.
-
-Package: quantum-l3-agent
-Depends: neutron-l3-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-l3-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-l3-agent server to neutron-l3-agent.
-
-Package: quantum-dhcp-agent
-Depends: neutron-dhcp-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-dhcp-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-dhcp-agent server to neutron-dhcp-agent.
-
-Package: quantum-metadata-agent
-Depends: neutron-dhcp-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-metadata-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-metadata-agent server to neutron-metadata-agent.
-
-Package: quantum-lbaas-agent
-Depends: neutron-dhcp-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-lbaas-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-lbass-agent server to neutron-lbass-agent.
-
-Package: quantum-plugin-openvswitch
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-openvswitch
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-openvswitch server to neutron-common.
-
-Package: quantum-plugin-openvswitch-agent
-Depends: neutron-plugin-openvswitch-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-openvswitch-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-openvswitch-agent server to
- neutron-plugin-openvswitch-agent.
-
-Package: quantum-plugin-linuxbridge
-Depends: neutron-common, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-linuxbridge
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-linuxbridge server to neutron-common.
-
-Package: quantum-plugin-linuxbridge-agent
-Depends: neutron-plugin-linuxbridge-agent, ${misc:Depends}
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Section: oldlibs
-description: transitional dummy package for upgrading quantum-plugin-linuxbridge-agent
- This is a transitional dummy package due to the rename of Quantum into
- Neutron. Quantum had to be renamed because of a trademark issue. Once you have
- upgraded, this package can safely be removed. This package provides a
- transition path from quantum-plugin-linuxbridge-agent server to
- neutron-plugin-linuxbridge-agent.

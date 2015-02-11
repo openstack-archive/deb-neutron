@@ -2,6 +2,8 @@ neutron (2015.1~b2-1) UNRELEASED; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
+  * Removed quantum transition packages, and lbass package (the later is now a
+    separated project).
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 24 Dec 2014 15:10:00 +0800
 
