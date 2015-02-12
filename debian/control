@@ -279,27 +279,6 @@ Description: OpenStack virtual network service - metering agent
  .
  This package provides the Neutron metering agent.
 
-Package: neutron-vpn-agent
-Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Depends: adduser,
-         debconf,
-         lsb-base,
-         neutron-common (= ${source:Version}),
-         ${misc:Depends},
-         ${python:Depends},
-         ${shlibs:Depends}
-Suggests: openswan
-Provides: neutron-plugin-vpn-agent
-Conflicts: neutron-l3-agent
-Description: OpenStack virtual network service - VPN agent
- Neutron provides an API to dynamically request and configure virtual networks.
- These networks connect "interfaces" from other OpenStack services (such as
- vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
- network capabilities, including QoS, ACLs, and network monitoring.
- .
- This package provides the Neutron VPN agent.
-
 Package: neutron-plugin-openvswitch-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch (>= 1.9)
