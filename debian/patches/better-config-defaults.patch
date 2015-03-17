@@ -5,8 +5,10 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2015-02-12
 
---- neutron-2015.1~b2.orig/etc/metadata_agent.ini
-+++ neutron-2015.1~b2/etc/metadata_agent.ini
+Index: neutron/etc/metadata_agent.ini
+===================================================================
+--- neutron.orig/etc/metadata_agent.ini
++++ neutron/etc/metadata_agent.ini
 @@ -23,7 +23,7 @@ admin_password = %SERVICE_PASSWORD%
  # nova_metadata_port = 8775
  
@@ -16,8 +18,10 @@ Last-Update: 2015-02-12
  
  # Whether insecure SSL connection should be accepted for Nova metadata server
  # requests
---- neutron-2015.1~b2.orig/etc/l3_agent.ini
-+++ neutron-2015.1~b2/etc/l3_agent.ini
+Index: neutron/etc/l3_agent.ini
+===================================================================
+--- neutron.orig/etc/l3_agent.ini
++++ neutron/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -88,8 +92,10 @@ Last-Update: 2015-02-12
  # ha_vrrp_advert_int = 2
 +
 +allow_automatic_l3agent_failover=False
---- neutron-2015.1~b2.orig/etc/dhcp_agent.ini
-+++ neutron-2015.1~b2/etc/dhcp_agent.ini
+Index: neutron/etc/dhcp_agent.ini
+===================================================================
+--- neutron.orig/etc/dhcp_agent.ini
++++ neutron/etc/dhcp_agent.ini
 @@ -9,14 +9,13 @@
  
  # The DHCP agent requires an interface driver be set. Choose the one that best
@@ -147,8 +153,10 @@ Last-Update: 2015-02-12
  
  # Comma-separated list of DNS servers which will be used by dnsmasq
  # as forwarders.
---- neutron-2015.1~b2.orig/etc/neutron.conf
-+++ neutron-2015.1~b2/etc/neutron.conf
+Index: neutron/etc/neutron.conf
+===================================================================
+--- neutron.orig/etc/neutron.conf
++++ neutron/etc/neutron.conf
 @@ -60,8 +60,8 @@ lock_path = $state_path/lock
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -187,7 +195,7 @@ Last-Update: 2015-02-12
  # Ensure that configured gateway is on subnet. For IPv6, validate only if
  # gateway is not a link local address. Deprecated, to be removed during the
  # K release, at which point the check will be mandatory.
-@@ -257,20 +257,20 @@ lock_path = $state_path/lock
+@@ -264,20 +264,20 @@ lock_path = $state_path/lock
  
  # ======== neutron nova interactions ==========
  # Send notification to nova when port status is active.
@@ -212,7 +220,7 @@ Last-Update: 2015-02-12
  
  # The uuid of the admin nova tenant
  # nova_admin_tenant_id =
-@@ -369,7 +369,7 @@ lock_path = $state_path/lock
+@@ -376,7 +376,7 @@ lock_path = $state_path/lock
  
  # The RabbitMQ broker address where a single node is used.
  # (string value)
@@ -221,7 +229,7 @@ Last-Update: 2015-02-12
  
  # The RabbitMQ broker port where a single node is used.
  # (integer value)
-@@ -382,10 +382,10 @@ lock_path = $state_path/lock
+@@ -389,10 +389,10 @@ lock_path = $state_path/lock
  #rabbit_use_ssl=false
  
  # The RabbitMQ userid. (string value)
@@ -234,7 +242,7 @@ Last-Update: 2015-02-12
  
  # the RabbitMQ login method (string value)
  #rabbit_login_method=AMQPLAIN
-@@ -470,7 +470,7 @@ lock_path = $state_path/lock
+@@ -477,7 +477,7 @@ lock_path = $state_path/lock
  
  # The messaging driver to use, defaults to rabbit. Other
  # drivers include qpid and zmq. (string value)
@@ -243,7 +251,7 @@ Last-Update: 2015-02-12
  
  # The default exchange under which topics are scoped. May be
  # overridden by an exchange name specified in the
-@@ -582,7 +582,7 @@ lock_path = $state_path/lock
+@@ -589,7 +589,7 @@ lock_path = $state_path/lock
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the comand directly
@@ -252,7 +260,7 @@ Last-Update: 2015-02-12
  
  # Set to true to add comments to generated iptables rules that describe
  # each rule's purpose. (System must support the iptables comments module.)
-@@ -619,14 +619,13 @@ admin_password = %SERVICE_PASSWORD%
+@@ -626,14 +626,13 @@ admin_password = %SERVICE_PASSWORD%
  [database]
  # This line MUST be changed to actually run the plugin.
  # Example:
@@ -268,8 +276,10 @@ Last-Update: 2015-02-12
  
  # Database engine for which script will be generated when using offline
  # migration
---- neutron-2015.1~b2.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2015.1~b2/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -5,7 +5,7 @@
  # attached to this bridge and then "patched" according to their network
  # connectivity.
@@ -368,8 +378,10 @@ Last-Update: 2015-02-12
 -# local_ip = 10.0.0.3
 -# [agent]
 -# tunnel_types = vxlan
---- neutron-2015.1~b2.orig/etc/neutron/plugins/ml2/ml2_conf.ini
-+++ neutron-2015.1~b2/etc/neutron/plugins/ml2/ml2_conf.ini
+Index: neutron/etc/neutron/plugins/ml2/ml2_conf.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron/etc/neutron/plugins/ml2/ml2_conf.ini
 @@ -2,24 +2,24 @@
  # (ListOpt) List of network type driver entrypoints to be loaded from
  # the neutron.ml2.type_drivers namespace.
@@ -399,7 +411,7 @@ Last-Update: 2015-02-12
  
  # (ListOpt) Ordered list of extension driver entrypoints
  # to be loaded from the neutron.ml2.extension_drivers namespace.
-@@ -31,9 +31,9 @@
+@@ -54,9 +54,9 @@
  # can be created. Use * to allow flat networks with arbitrary
  # physical_network names.
  #
@@ -410,7 +422,7 @@ Last-Update: 2015-02-12
  
  [ml2_type_vlan]
  # (ListOpt) List of <physical_network>[:<vlan_min>:<vlan_max>] tuples
-@@ -46,7 +46,7 @@
+@@ -69,7 +69,7 @@
  
  [ml2_type_gre]
  # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
@@ -419,7 +431,7 @@ Last-Update: 2015-02-12
  
  [ml2_type_vxlan]
  # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
-@@ -64,8 +64,8 @@
+@@ -87,8 +87,8 @@
  [securitygroup]
  # Controls if neutron security group is enabled or not.
  # It should be false when you use nova security group.
