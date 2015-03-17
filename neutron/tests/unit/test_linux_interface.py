@@ -20,6 +20,7 @@ from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
+from neutron.common import constants
 from neutron.extensions import flavor
 from neutron.openstack.common import uuidutils
 from neutron.tests import base
@@ -60,7 +61,6 @@ class TestBase(base.BaseTestCase):
         super(TestBase, self).setUp()
         self.conf = config.setup_conf()
         self.conf.register_opts(interface.OPTS)
-        config.register_root_helper(self.conf)
         self.ip_dev_p = mock.patch.object(ip_lib, 'IPDevice')
         self.ip_dev = self.ip_dev_p.start()
         self.ip_p = mock.patch.object(ip_lib, 'IPWrapper')
@@ -76,7 +76,7 @@ class TestABCDriver(TestBase):
         self.assertEqual('tapabcdef01-12', device_name)
 
     def test_l3_init(self):
-        addresses = [dict(ip_version=4, scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False, cidr='172.16.77.240/24')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
         self.ip_dev().route.list_onlink_routes.return_value = []
@@ -86,15 +86,16 @@ class TestABCDriver(TestBase):
         bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns,
                    extra_subnets=[{'cidr': '172.20.0.0/24'}])
         self.ip_dev.assert_has_calls(
-            [mock.call('tap0', 'sudo', namespace=ns),
+            [mock.call('tap0', namespace=ns),
              mock.call().addr.list(scope='global', filters=['permanent']),
-             mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255'),
-             mock.call().addr.delete(4, '172.16.77.240/24'),
-             mock.call().route.list_onlink_routes(),
+             mock.call().addr.add('192.168.1.2/24'),
+             mock.call().addr.delete('172.16.77.240/24'),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_4),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_6),
              mock.call().route.add_onlink_route('172.20.0.0/24')])
 
     def test_l3_init_delete_onlink_routes(self):
-        addresses = [dict(ip_version=4, scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False, cidr='172.16.77.240/24')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
         self.ip_dev().route.list_onlink_routes.return_value = ['172.20.0.0/24']
@@ -103,11 +104,12 @@ class TestABCDriver(TestBase):
         ns = '12345678-1234-5678-90ab-ba0987654321'
         bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns)
         self.ip_dev.assert_has_calls(
-            [mock.call().route.list_onlink_routes(),
+            [mock.call().route.list_onlink_routes(constants.IP_VERSION_4),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_6),
              mock.call().route.delete_onlink_route('172.20.0.0/24')])
 
     def test_l3_init_with_preserve(self):
-        addresses = [dict(ip_version=4, scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False, cidr='192.168.1.3/32')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
 
@@ -116,30 +118,48 @@ class TestABCDriver(TestBase):
         bc.init_l3('tap0', ['192.168.1.2/24'], namespace=ns,
                    preserve_ips=['192.168.1.3/32'])
         self.ip_dev.assert_has_calls(
-            [mock.call('tap0', 'sudo', namespace=ns),
+            [mock.call('tap0', namespace=ns),
              mock.call().addr.list(scope='global', filters=['permanent']),
-             mock.call().addr.add(4, '192.168.1.2/24', '192.168.1.255')])
+             mock.call().addr.add('192.168.1.2/24')])
         self.assertFalse(self.ip_dev().addr.delete.called)
 
     def test_l3_init_with_ipv6(self):
-        addresses = [dict(ip_version=6,
-                          scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False,
                           cidr='2001:db8:a::123/64')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        self.ip_dev().route.list_onlink_routes.return_value = []
+
+        bc = BaseChild(self.conf)
+        ns = '12345678-1234-5678-90ab-ba0987654321'
+        bc.init_l3('tap0', ['2001:db8:a::124/64'], namespace=ns,
+                   extra_subnets=[{'cidr': '2001:db8:b::/64'}])
+        self.ip_dev.assert_has_calls(
+            [mock.call('tap0', namespace=ns),
+             mock.call().addr.list(scope='global', filters=['permanent']),
+             mock.call().addr.add('2001:db8:a::124/64'),
+             mock.call().addr.delete('2001:db8:a::123/64'),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_4),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_6),
+             mock.call().route.add_onlink_route('2001:db8:b::/64')])
+
+    def test_l3_init_with_ipv6_delete_onlink_routes(self):
+        addresses = [dict(scope='global',
+                          dynamic=False, cidr='2001:db8:a::123/64')]
+        route = '2001:db8:a::/64'
+        self.ip_dev().addr.list = mock.Mock(return_value=addresses)
+        self.ip_dev().route.list_onlink_routes.return_value = [route]
+
         bc = BaseChild(self.conf)
         ns = '12345678-1234-5678-90ab-ba0987654321'
         bc.init_l3('tap0', ['2001:db8:a::124/64'], namespace=ns)
         self.ip_dev.assert_has_calls(
-            [mock.call('tap0', 'sudo', namespace=ns),
-             mock.call().addr.list(scope='global', filters=['permanent']),
-             mock.call().addr.add(6, '2001:db8:a::124/64',
-                                  '2001:db8:a:0:ffff:ffff:ffff:ffff'),
-             mock.call().addr.delete(6, '2001:db8:a::123/64')])
+            [mock.call().route.list_onlink_routes(constants.IP_VERSION_4),
+             mock.call().route.list_onlink_routes(constants.IP_VERSION_6),
+             mock.call().route.delete_onlink_route(route)])
 
     def test_l3_init_with_duplicated_ipv6(self):
-        addresses = [dict(ip_version=6,
-                          scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False,
                           cidr='2001:db8:a::123/64')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
@@ -149,8 +169,7 @@ class TestABCDriver(TestBase):
         self.assertFalse(self.ip_dev().addr.add.called)
 
     def test_l3_init_with_duplicated_ipv6_uncompact(self):
-        addresses = [dict(ip_version=6,
-                          scope='global',
+        addresses = [dict(scope='global',
                           dynamic=False,
                           cidr='2001:db8:a::123/64')]
         self.ip_dev().addr.list = mock.Mock(return_value=addresses)
@@ -184,7 +203,7 @@ class TestOVSInterfaceDriver(TestBase):
         self.conf.set_override('ovs_integration_bridge', br)
         self.assertEqual(self.conf.ovs_integration_bridge, br)
 
-        def device_exists(dev, root_helper=None, namespace=None):
+        def device_exists(dev, namespace=None):
             return dev == br
 
         ovs = interface.OVSInterfaceDriver(self.conf)
@@ -209,7 +228,7 @@ class TestOVSInterfaceDriver(TestBase):
         if not bridge:
             bridge = 'br-int'
 
-        def device_exists(dev, root_helper=None, namespace=None):
+        def device_exists(dev, namespace=None):
             return dev == bridge
 
         with mock.patch.object(ovs_lib.OVSBridge, 'replace_port') as replace:
@@ -229,7 +248,7 @@ class TestOVSInterfaceDriver(TestBase):
                     'iface-status': 'active',
                     'attached-mac': 'aa:bb:cc:dd:ee:ff'}))
 
-        expected = [mock.call('sudo'),
+        expected = [mock.call(),
                     mock.call().device('tap0'),
                     mock.call().device().link.set_address('aa:bb:cc:dd:ee:ff')]
         expected.extend(additional_expectation)
@@ -257,7 +276,7 @@ class TestOVSInterfaceDriver(TestBase):
         with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge') as ovs_br:
             ovs = interface.OVSInterfaceDriver(self.conf)
             ovs.unplug('tap0')
-            ovs_br.assert_has_calls([mock.call(bridge, 'sudo'),
+            ovs_br.assert_has_calls([mock.call(bridge),
                                      mock.call().delete_port('tap0')])
 
 
@@ -283,7 +302,7 @@ class TestOVSInterfaceDriverWithVeth(TestOVSInterfaceDriver):
         if not bridge:
             bridge = 'br-int'
 
-        def device_exists(dev, root_helper=None, namespace=None):
+        def device_exists(dev, namespace=None):
             return dev == bridge
 
         ovs = interface.OVSInterfaceDriver(self.conf)
@@ -292,7 +311,7 @@ class TestOVSInterfaceDriverWithVeth(TestOVSInterfaceDriver):
         root_dev = mock.Mock()
         ns_dev = mock.Mock()
         self.ip().add_veth = mock.Mock(return_value=(root_dev, ns_dev))
-        expected = [mock.call('sudo'),
+        expected = [mock.call(),
                     mock.call().add_veth('tap0', devname,
                                          namespace2=namespace)]
 
@@ -331,9 +350,9 @@ class TestOVSInterfaceDriverWithVeth(TestOVSInterfaceDriver):
         with mock.patch('neutron.agent.linux.ovs_lib.OVSBridge') as ovs_br:
             ovs = interface.OVSInterfaceDriver(self.conf)
             ovs.unplug('ns-0', bridge=bridge)
-            ovs_br.assert_has_calls([mock.call(bridge, 'sudo'),
+            ovs_br.assert_has_calls([mock.call(bridge),
                                      mock.call().delete_port('tap0')])
-        self.ip_dev.assert_has_calls([mock.call('ns-0', 'sudo', None),
+        self.ip_dev.assert_has_calls([mock.call('ns-0', namespace=None),
                                       mock.call().link.delete()])
 
 
@@ -350,7 +369,7 @@ class TestBridgeInterfaceDriver(TestBase):
         self._test_plug(namespace='01234567-1234-1234-99')
 
     def _test_plug(self, namespace=None, mtu=None):
-        def device_exists(device, root_helper=None, namespace=None):
+        def device_exists(device, namespace=None):
             return device.startswith('brq')
 
         root_veth = mock.Mock()
@@ -367,7 +386,7 @@ class TestBridgeInterfaceDriver(TestBase):
                 mac_address,
                 namespace=namespace)
 
-        ip_calls = [mock.call('sudo'),
+        ip_calls = [mock.call(),
                     mock.call().add_veth('tap0', 'ns-0', namespace2=namespace)]
         ns_veth.assert_has_calls([mock.call.link.set_address(mac_address)])
         if mtu:
@@ -401,7 +420,7 @@ class TestBridgeInterfaceDriver(TestBase):
         with mock.patch('neutron.agent.linux.interface.LOG') as log:
             br = interface.BridgeInterfaceDriver(self.conf)
             br.unplug('tap0')
-            [mock.call(), mock.call('tap0', 'sudo'), mock.call().link.delete()]
+            [mock.call(), mock.call('tap0'), mock.call().link.delete()]
             self.assertEqual(log.error.call_count, 1)
 
     def test_unplug(self):
@@ -411,7 +430,7 @@ class TestBridgeInterfaceDriver(TestBase):
             br.unplug('tap0')
             self.assertEqual(log.call_count, 1)
 
-        self.ip_dev.assert_has_calls([mock.call('tap0', 'sudo', None),
+        self.ip_dev.assert_has_calls([mock.call('tap0', namespace=None),
                                       mock.call().link.delete()])
 
 
@@ -454,14 +473,14 @@ class TestMetaInterfaceDriver(TestBase):
         meta_interface._set_device_plugin_tag(driver,
                                               'tap0',
                                               namespace=None)
-        expected = [mock.call('tap0', 'sudo', None),
+        expected = [mock.call('tap0', namespace=None),
                     mock.call().link.set_alias('fake1')]
         self.ip_dev.assert_has_calls(expected)
         namespace = '01234567-1234-1234-99'
         meta_interface._set_device_plugin_tag(driver,
                                               'tap1',
                                               namespace=namespace)
-        expected = [mock.call('tap1', 'sudo', '01234567-1234-1234-99'),
+        expected = [mock.call('tap1', namespace='01234567-1234-1234-99'),
                     mock.call().link.set_alias('fake1')]
         self.ip_dev.assert_has_calls(expected)
 
@@ -470,11 +489,11 @@ class TestMetaInterfaceDriver(TestBase):
         self.ip_dev().link.alias = 'fake1'
         plugin_tag0 = meta_interface._get_device_plugin_tag('tap0',
                                                             namespace=None)
-        expected = [mock.call('tap0', 'sudo', None)]
+        expected = [mock.call('tap0', namespace=None)]
         self.ip_dev.assert_has_calls(expected)
         self.assertEqual('fake1', plugin_tag0)
         namespace = '01234567-1234-1234-99'
-        expected = [mock.call('tap1', 'sudo', '01234567-1234-1234-99')]
+        expected = [mock.call('tap1', namespace='01234567-1234-1234-99')]
         plugin_tag1 = meta_interface._get_device_plugin_tag(
             'tap1',
             namespace=namespace)
@@ -501,7 +520,7 @@ class TestIVSInterfaceDriver(TestBase):
         if not devname:
             devname = 'ns-0'
 
-        def device_exists(dev, root_helper=None, namespace=None):
+        def device_exists(dev, namespace=None):
             return dev == 'indigo'
 
         ivs = interface.IVSInterfaceDriver(self.conf)
@@ -512,7 +531,7 @@ class TestIVSInterfaceDriver(TestBase):
         ns_dev = mock.Mock()
         self.ip().add_veth = mock.Mock(return_value=(root_dev, _ns_dev))
         self.ip().device = mock.Mock(return_value=(ns_dev))
-        expected = [mock.call('sudo'), mock.call().add_veth('tap0', devname),
+        expected = [mock.call(), mock.call().add_veth('tap0', devname),
                     mock.call().device(devname)]
 
         ivsctl_cmd = ['ivs-ctl', 'add-port', 'tap0']
@@ -524,7 +543,7 @@ class TestIVSInterfaceDriver(TestBase):
                      'aa:bb:cc:dd:ee:ff',
                      namespace=namespace,
                      prefix=prefix)
-            execute.assert_called_once_with(ivsctl_cmd, 'sudo')
+            execute.assert_called_once_with(ivsctl_cmd, run_as_root=True)
 
         ns_dev.assert_has_calls(
             [mock.call.link.set_address('aa:bb:cc:dd:ee:ff')])
@@ -553,8 +572,8 @@ class TestIVSInterfaceDriver(TestBase):
         ivsctl_cmd = ['ivs-ctl', 'del-port', 'tap0']
         with mock.patch.object(utils, 'execute') as execute:
             ivs.unplug('ns-0')
-            execute.assert_called_once_with(ivsctl_cmd, 'sudo')
-            self.ip_dev.assert_has_calls([mock.call('ns-0', 'sudo', None),
+            execute.assert_called_once_with(ivsctl_cmd, run_as_root=True)
+            self.ip_dev.assert_has_calls([mock.call('ns-0', namespace=None),
                                           mock.call().link.delete()])
 
 
@@ -562,7 +581,6 @@ class TestMidonetInterfaceDriver(TestBase):
     def setUp(self):
         self.conf = config.setup_conf()
         self.conf.register_opts(interface.OPTS)
-        config.register_root_helper(self.conf)
         self.driver = interface.MidonetInterfaceDriver(self.conf)
         self.network_id = uuidutils.generate_uuid()
         self.port_id = uuidutils.generate_uuid()
@@ -584,9 +602,9 @@ class TestMidonetInterfaceDriver(TestBase):
                 self.network_id, self.port_id,
                 self.device_name, self.mac_address,
                 self.bridge, self.namespace)
-            execute.assert_called_once_with(cmd, 'sudo')
+            execute.assert_called_once_with(cmd, run_as_root=True)
 
-        expected = [mock.call(), mock.call('sudo'),
+        expected = [mock.call(), mock.call(),
                     mock.call().add_veth(self.device_name,
                                          self.device_name,
                                          namespace2=self.namespace),
@@ -605,7 +623,6 @@ class TestMidonetInterfaceDriver(TestBase):
         self.driver.unplug(self.device_name, self.bridge, self.namespace)
 
         self.ip_dev.assert_has_calls([
-            mock.call(self.device_name, self.driver.root_helper,
-                      self.namespace),
+            mock.call(self.device_name, namespace=self.namespace),
             mock.call().link.delete()])
         self.ip.assert_has_calls(mock.call().garbage_collect_namespace())

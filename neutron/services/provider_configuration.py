@@ -13,13 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 import stevedore
 
 from neutron.common import exceptions as n_exc
 from neutron.common import repos
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 
 LOG = logging.getLogger(__name__)

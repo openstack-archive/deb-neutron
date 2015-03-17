@@ -12,8 +12,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from oslo.config import cfg
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import importutils
 import six
 
 from neutron.agent.common import config
@@ -23,7 +24,6 @@ from neutron.common import constants as constants
 from neutron.common import ipv6_utils
 from neutron.common import log
 from neutron.i18n import _LI
-from neutron.openstack.common import log as logging
 from neutron.services.metering.drivers import abstract_driver
 
 
@@ -37,7 +37,6 @@ LABEL = '-l-'
 
 config.register_interface_driver_opts_helper(cfg.CONF)
 config.register_use_namespaces_opts_helper(cfg.CONF)
-config.register_root_helper(cfg.CONF)
 cfg.CONF.register_opts(interface.OPTS)
 
 
@@ -70,10 +69,8 @@ class RouterWithMetering(object):
         self.conf = conf
         self.id = router['id']
         self.router = router
-        self.root_helper = config.get_root_helper(self.conf)
         self.ns_name = NS_PREFIX + self.id if conf.use_namespaces else None
         self.iptables_manager = iptables_manager.IptablesManager(
-            root_helper=self.root_helper,
             namespace=self.ns_name,
             binary_name=WRAP_NAME,
             use_ipv6=ipv6_utils.is_enabled())

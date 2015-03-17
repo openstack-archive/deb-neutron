@@ -19,13 +19,16 @@ import copy
 
 import mock
 import netaddr
-from oslo.config import cfg
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import importutils
 from webob import exc
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron import context
@@ -40,7 +43,6 @@ from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as service_constants
 from neutron.tests import base
@@ -1255,13 +1257,14 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
             with self.network(tenant_id='tenant_a',
                               set_context=True) as n:
                 with self.subnet(network=n):
-                    self._create_port(
-                        self.fmt, n['network']['id'],
-                        tenant_id='tenant_a',
-                        device_id=admin_router['router']['id'],
-                        device_owner='network:router_interface',
-                        set_context=True,
-                        expected_res_status=exc.HTTPConflict.code)
+                    for device_owner in l3_constants.ROUTER_INTERFACE_OWNERS:
+                        self._create_port(
+                            self.fmt, n['network']['id'],
+                            tenant_id='tenant_a',
+                            device_id=admin_router['router']['id'],
+                            device_owner=device_owner,
+                            set_context=True,
+                            expected_res_status=exc.HTTPConflict.code)
 
     def test_create_non_router_port_device_id_of_other_teants_router_update(
         self):
@@ -1272,19 +1275,19 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
             with self.network(tenant_id='tenant_a',
                               set_context=True) as n:
                 with self.subnet(network=n):
-                    port_res = self._create_port(
-                        self.fmt, n['network']['id'],
-                        tenant_id='tenant_a',
-                        device_id=admin_router['router']['id'],
-                        set_context=True)
-                    port = self.deserialize(self.fmt, port_res)
-                    neutron_context = context.Context('', 'tenant_a')
-                    data = {'port': {'device_owner':
-                                     'network:router_interface'}}
-                    self._update('ports', port['port']['id'], data,
-                                 neutron_context=neutron_context,
-                                 expected_code=exc.HTTPConflict.code)
-                    self._delete('ports', port['port']['id'])
+                    for device_owner in l3_constants.ROUTER_INTERFACE_OWNERS:
+                        port_res = self._create_port(
+                            self.fmt, n['network']['id'],
+                            tenant_id='tenant_a',
+                            device_id=admin_router['router']['id'],
+                            set_context=True)
+                        port = self.deserialize(self.fmt, port_res)
+                        neutron_context = context.Context('', 'tenant_a')
+                        data = {'port': {'device_owner': device_owner}}
+                        self._update('ports', port['port']['id'], data,
+                                     neutron_context=neutron_context,
+                                     expected_code=exc.HTTPConflict.code)
+                        self._delete('ports', port['port']['id'])
 
     def test_update_port_device_id_to_different_tenants_router(self):
         with self.router() as admin_router:
@@ -1350,6 +1353,57 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                                               r['router']['id'],
                                               s['subnet']['id'],
                                               None)
+
+    def test_router_remove_interface_callback_failure_returns_409(self):
+        with contextlib.nested(
+            self.router(),
+            self.subnet(),
+            mock.patch.object(registry, 'notify')) as (r, s, notify):
+                errors = [
+                    exceptions.NotificationError(
+                        'foo_callback_id', n_exc.InUse()),
+                ]
+                # we fail the first time, but not the second, when
+                # the clean-up takes place
+                notify.side_effect = [
+                    exceptions.CallbackFailure(errors=errors), None
+                ]
+                self._router_interface_action('add',
+                                              r['router']['id'],
+                                              s['subnet']['id'],
+                                              None)
+                self._router_interface_action(
+                    'remove',
+                    r['router']['id'],
+                    s['subnet']['id'],
+                    None,
+                    exc.HTTPConflict.code)
+                # remove properly to clean-up
+                self._router_interface_action(
+                    'remove',
+                    r['router']['id'],
+                    s['subnet']['id'],
+                    None)
+
+    def test_router_clear_gateway_callback_failure_returns_409(self):
+        with contextlib.nested(
+            self.router(),
+            self.subnet(),
+            mock.patch.object(registry, 'notify')) as (r, s, notify):
+                errors = [
+                    exceptions.NotificationError(
+                        'foo_callback_id', n_exc.InUse()),
+                ]
+                notify.side_effect = exceptions.CallbackFailure(errors=errors)
+                self._set_net_external(s['subnet']['network_id'])
+                self._add_external_gateway_to_router(
+                       r['router']['id'],
+                       s['subnet']['network_id'])
+                self._remove_external_gateway_from_router(
+                    r['router']['id'],
+                    s['subnet']['network_id'],
+                    external_gw_info={},
+                    expected_code=exc.HTTPConflict.code)
 
     def test_router_remove_interface_wrong_subnet_returns_400(self):
         with self.router() as r:
@@ -1969,21 +2023,41 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                     break
         self.assertTrue(found)
 
+    def _test_router_delete_subnet_inuse_returns_409(self, router, subnet):
+        r, s = router, subnet
+        self._router_interface_action('add',
+                                      r['router']['id'],
+                                      s['subnet']['id'],
+                                      None)
+        # subnet cannot be deleted as it's attached to a router
+        self._delete('subnets', s['subnet']['id'],
+                     expected_code=exc.HTTPConflict.code)
+        # remove interface so test can exit without errors
+        self._router_interface_action('remove',
+                                      r['router']['id'],
+                                      s['subnet']['id'],
+                                      None)
+
+    def _ipv6_subnet(self, mode):
+        return self.subnet(cidr='fd00::1/64', gateway_ip='fd00::1',
+                           ip_version=6,
+                           ipv6_ra_mode=mode,
+                           ipv6_address_mode=mode)
+
     def test_router_delete_subnet_inuse_returns_409(self):
         with self.router() as r:
             with self.subnet() as s:
-                self._router_interface_action('add',
-                                              r['router']['id'],
-                                              s['subnet']['id'],
-                                              None)
-                # subnet cannot be delete as it's attached to a router
-                self._delete('subnets', s['subnet']['id'],
-                             expected_code=exc.HTTPConflict.code)
-                # remove interface so test can exit without errors
-                self._router_interface_action('remove',
-                                              r['router']['id'],
-                                              s['subnet']['id'],
-                                              None)
+                self._test_router_delete_subnet_inuse_returns_409(r, s)
+
+    def test_router_delete_ipv6_slaac_subnet_inuse_returns_409(self):
+        with self.router() as r:
+            with self._ipv6_subnet(l3_constants.IPV6_SLAAC) as s:
+                self._test_router_delete_subnet_inuse_returns_409(r, s)
+
+    def test_router_delete_dhcpv6_stateless_subnet_inuse_returns_409(self):
+        with self.router() as r:
+            with self._ipv6_subnet(l3_constants.DHCPV6_STATELESS) as s:
+                self._test_router_delete_subnet_inuse_returns_409(r, s)
 
     def test_delete_ext_net_with_disassociated_floating_ips(self):
         with self.network() as net:
@@ -2140,20 +2214,13 @@ class L3AgentDbTestCaseBase(L3NatTestCaseMixin):
     def _test_notify_op_agent(self, target_func, *args):
         l3_rpc_agent_api_str = (
             'neutron.api.rpc.agentnotifiers.l3_rpc_agent_api.L3AgentNotifyAPI')
-        plugin = manager.NeutronManager.get_service_plugins()[
-            service_constants.L3_ROUTER_NAT]
-        oldNotify = plugin.l3_rpc_notifier
-        try:
-            with mock.patch(l3_rpc_agent_api_str) as notifyApi:
-                plugin.l3_rpc_notifier = notifyApi
-                kargs = [item for item in args]
-                kargs.append(notifyApi)
-                target_func(*kargs)
-        except Exception:
-            plugin.l3_rpc_notifier = oldNotify
-            raise
-        else:
-            plugin.l3_rpc_notifier = oldNotify
+        with mock.patch(l3_rpc_agent_api_str):
+            plugin = manager.NeutronManager.get_service_plugins()[
+                service_constants.L3_ROUTER_NAT]
+            notifyApi = plugin.l3_rpc_notifier
+            kargs = [item for item in args]
+            kargs.append(notifyApi)
+            target_func(*kargs)
 
     def _test_router_gateway_op_agent(self, notifyApi):
         with self.router() as r:

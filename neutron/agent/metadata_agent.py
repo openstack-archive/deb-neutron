@@ -14,10 +14,8 @@
 
 import sys
 
-import eventlet
-eventlet.monkey_patch()
-
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron.agent.common import config as agent_conf
 from neutron.agent.metadata import agent
@@ -25,7 +23,6 @@ from neutron.agent.metadata import config as metadata_conf
 from neutron.common import config
 from neutron.common import utils
 from neutron.openstack.common.cache import cache
-from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 

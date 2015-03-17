@@ -15,7 +15,7 @@
 import copy
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.services.metering.drivers.iptables import iptables_driver
 from neutron.tests import base
@@ -75,19 +75,8 @@ class IptablesDriverTestCase(base.BaseTestCase):
         self.iptables_cls.return_value = self.iptables_inst
         cfg.CONF.set_override('interface_driver',
                               'neutron.agent.linux.interface.NullDriver')
-        cfg.CONF.set_override('root_helper',
-                              'fake_sudo',
-                              'AGENT')
         self.metering = iptables_driver.IptablesMeteringDriver('metering',
                                                                cfg.CONF)
-
-    def test_root_helper(self):
-        self.metering.add_metering_label(None, TEST_ROUTERS)
-
-        self.iptables_cls.assert_called_with(root_helper='fake_sudo',
-                                             namespace=mock.ANY,
-                                             binary_name=mock.ANY,
-                                             use_ipv6=mock.ANY)
 
     def test_add_metering_label(self):
         routers = TEST_ROUTERS[:1]

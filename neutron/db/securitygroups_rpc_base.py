@@ -14,6 +14,7 @@
 #    under the License.
 
 import netaddr
+from oslo_log import log as logging
 from sqlalchemy.orm import exc
 
 from neutron.common import constants as q_const
@@ -24,7 +25,6 @@ from neutron.db import models_v2
 from neutron.db import securitygroups_db as sg_db
 from neutron.extensions import securitygroup as ext_sg
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 
@@ -136,8 +136,8 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
             need_notify = True
         return need_notify
 
-    def notify_security_groups_member_updated(self, context, port):
-        """Notify update event of security group members.
+    def notify_security_groups_member_updated_bulk(self, context, ports):
+        """Notify update event of security group members for ports.
 
         The agent setups the iptables rule to allow
         ingress packet from the dhcp server (as a part of provider rules),
@@ -147,17 +147,28 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         occurs and the plugin agent fetches the update provider
         rule in the other RPC call (security_group_rules_for_devices).
         """
-        if port['device_owner'] == q_const.DEVICE_OWNER_DHCP:
+        security_groups_provider_updated = False
+        sec_groups = set()
+        for port in ports:
+            if port['device_owner'] == q_const.DEVICE_OWNER_DHCP:
+                security_groups_provider_updated = True
+            # For IPv6, provider rule need to be updated in case router
+            # interface is created or updated after VM port is created.
+            elif port['device_owner'] == q_const.DEVICE_OWNER_ROUTER_INTF:
+                if any(netaddr.IPAddress(fixed_ip['ip_address']).version == 6
+                       for fixed_ip in port['fixed_ips']):
+                    security_groups_provider_updated = True
+            else:
+                sec_groups |= set(port.get(ext_sg.SECURITYGROUPS))
+
+        if security_groups_provider_updated:
             self.notifier.security_groups_provider_updated(context)
-        # For IPv6, provider rule need to be updated in case router
-        # interface is created or updated after VM port is created.
-        elif port['device_owner'] == q_const.DEVICE_OWNER_ROUTER_INTF:
-            if any(netaddr.IPAddress(fixed_ip['ip_address']).version == 6
-                   for fixed_ip in port['fixed_ips']):
-                self.notifier.security_groups_provider_updated(context)
-        else:
+        if sec_groups:
             self.notifier.security_groups_member_updated(
-                context, port.get(ext_sg.SECURITYGROUPS))
+                context, list(sec_groups))
+
+    def notify_security_groups_member_updated(self, context, port):
+        self.notify_security_groups_member_updated_bulk(context, [port])
 
     def security_group_info_for_ports(self, context, ports):
         sg_info = {'devices': ports,
@@ -183,7 +194,8 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
                 if remote_gid not in remote_security_group_info:
                     remote_security_group_info[remote_gid] = {}
                 if ethertype not in remote_security_group_info[remote_gid]:
-                    remote_security_group_info[remote_gid][ethertype] = []
+                    # this set will be serialized into a list by rpc code
+                    remote_security_group_info[remote_gid][ethertype] = set()
 
             direction = rule_in_db['direction']
             rule_dict = {
@@ -217,9 +229,8 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         for sg_id, member_ips in ips.items():
             for ip in member_ips:
                 ethertype = 'IPv%d' % netaddr.IPNetwork(ip).version
-                if (ethertype in sg_info['sg_member_ips'][sg_id]
-                    and ip not in sg_info['sg_member_ips'][sg_id][ethertype]):
-                    sg_info['sg_member_ips'][sg_id][ethertype].append(ip)
+                if ethertype in sg_info['sg_member_ips'][sg_id]:
+                    sg_info['sg_member_ips'][sg_id][ethertype].add(ip)
         return sg_info
 
     def _select_rules_for_ports(self, context, ports):

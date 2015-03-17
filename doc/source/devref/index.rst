@@ -30,6 +30,7 @@ Programming HowTos and Tutorials
     :maxdepth: 3
 
     development.environment
+    contribute
 
 
 Neutron Internals
@@ -37,6 +38,7 @@ Neutron Internals
 .. toctree::
    :maxdepth: 3
 
+   services_and_agents
    api_layer
    api_extensions
    plugin-api
@@ -45,6 +47,8 @@ Neutron Internals
    layer3
    l2_agents
    advanced_services
+   oslo-incubator
+   callbacks
 
 
 Module Reference

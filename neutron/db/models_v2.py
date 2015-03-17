@@ -25,7 +25,7 @@ class HasTenant(object):
     """Tenant mixin, add to subclasses that have a tenant."""
 
     # NOTE(jkoelker) tenant_id is just a free form string ;(
-    tenant_id = sa.Column(sa.String(255))
+    tenant_id = sa.Column(sa.String(255), index=True)
 
 
 class HasId(object):
@@ -219,3 +219,5 @@ class Network(model_base.BASEV2, HasId, HasTenant):
     status = sa.Column(sa.String(16))
     admin_state_up = sa.Column(sa.Boolean)
     shared = sa.Column(sa.Boolean)
+    mtu = sa.Column(sa.Integer, nullable=True)
+    vlan_transparent = sa.Column(sa.Boolean, nullable=True)

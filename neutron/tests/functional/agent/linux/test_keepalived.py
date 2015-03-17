@@ -13,46 +13,52 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
 
-from neutron.agent.common import config
 from neutron.agent.linux import external_process
 from neutron.agent.linux import keepalived
-from neutron.openstack.common import log as logging
-from neutron.tests.functional import base as functional_base
+from neutron.agent.linux import utils
+from neutron.tests import base
 from neutron.tests.unit.agent.linux import test_keepalived
 
-LOG = logging.getLogger(__name__)
 
-
-class KeepalivedManagerTestCase(functional_base.BaseSudoTestCase,
+class KeepalivedManagerTestCase(base.BaseTestCase,
                                 test_keepalived.KeepalivedConfBaseMixin):
+
     def setUp(self):
         super(KeepalivedManagerTestCase, self).setUp()
-        self.check_sudo_enabled()
-        self._configure()
+        cfg.CONF.set_override('check_child_processes_interval', 1, 'AGENT')
 
-    def _configure(self):
-        cfg.CONF.set_override('debug', False)
-        config.setup_logging()
+        self.expected_config = self._get_config()
+        self.process_monitor = external_process.ProcessMonitor(cfg.CONF,
+                                                               'router')
+        self.manager = keepalived.KeepalivedManager(
+            'router1', self.expected_config, conf_path=cfg.CONF.state_path,
+            process_monitor=self.process_monitor)
+        self.addCleanup(self.manager.get_process().disable)
+        self.addCleanup(self.process_monitor.stop)
 
     def test_keepalived_spawn(self):
-        expected_config = self._get_config()
-        manager = keepalived.KeepalivedManager('router1', expected_config,
-                                               conf_path=cfg.CONF.state_path,
-                                               root_helper=self.root_helper)
-        self.addCleanup(manager.disable)
-
-        manager.spawn()
+        self.manager.spawn()
         process = external_process.ProcessManager(
             cfg.CONF,
             'router1',
-            self.root_helper,
             namespace=None,
             pids_path=cfg.CONF.state_path)
         self.assertTrue(process.active)
 
-        config_path = manager._get_full_config_file_path('keepalived.conf')
-        with open(config_path, 'r') as config_file:
-            config_contents = config_file.read()
-        self.assertEqual(expected_config.get_config_str(), config_contents)
+        self.assertEqual(self.expected_config.get_config_str(),
+                         self.manager.get_conf_on_disk())
+
+    def test_keepalived_respawns(self):
+        self.manager.spawn()
+        process = self.manager.get_process()
+        self.assertTrue(process.active)
+
+        process.disable(sig='15')
+
+        utils.wait_until_true(
+            lambda: process.active,
+            timeout=5,
+            sleep=0.01,
+            exception=RuntimeError(_("Keepalived didn't respawn")))

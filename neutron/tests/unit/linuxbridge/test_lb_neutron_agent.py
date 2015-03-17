@@ -16,7 +16,7 @@ import contextlib
 import os
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
@@ -46,10 +46,11 @@ class TestLinuxBridge(base.BaseTestCase):
     def setUp(self):
         super(TestLinuxBridge, self).setUp()
         interface_mappings = {'physnet1': 'eth1'}
-        root_helper = cfg.CONF.AGENT.root_helper
 
-        self.linux_bridge = linuxbridge_neutron_agent.LinuxBridgeManager(
-            interface_mappings, root_helper)
+        with mock.patch.object(linuxbridge_neutron_agent.LinuxBridgeManager,
+                               'get_interface_by_ip', return_value=None):
+            self.linux_bridge = linuxbridge_neutron_agent.LinuxBridgeManager(
+                interface_mappings)
 
     def test_ensure_physical_in_bridge_invalid(self):
         result = self.linux_bridge.ensure_physical_in_bridge('network_id',
@@ -105,14 +106,13 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                                     'get_interface_mac')
         self.get_mac = self.get_mac_p.start()
         self.get_mac.return_value = '00:00:00:00:00:01'
-        self.agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                          0,
-                                                                          None)
+        with mock.patch.object(linuxbridge_neutron_agent.LinuxBridgeManager,
+                               'get_interface_by_ip', return_value=None):
+            self.agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC(
+                {}, 0)
 
     def test_treat_devices_removed_with_existed_device(self):
-        agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                     0,
-                                                                     None)
+        agent = self.agent
         devices = [DEVICE_1]
         with contextlib.nested(
             mock.patch.object(agent.plugin_rpc, "update_device_down"),
@@ -129,9 +129,7 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                 self.assertTrue(fn_rdf.called)
 
     def test_treat_devices_removed_with_not_existed_device(self):
-        agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                     0,
-                                                                     None)
+        agent = self.agent
         devices = [DEVICE_1]
         with contextlib.nested(
             mock.patch.object(agent.plugin_rpc, "update_device_down"),
@@ -148,9 +146,7 @@ class TestLinuxBridgeAgent(base.BaseTestCase):
                 self.assertTrue(fn_rdf.called)
 
     def test_treat_devices_removed_failed(self):
-        agent = linuxbridge_neutron_agent.LinuxBridgeNeutronAgentRPC({},
-                                                                     0,
-                                                                     None)
+        agent = self.agent
         devices = [DEVICE_1]
         with contextlib.nested(
             mock.patch.object(agent.plugin_rpc, "update_device_down"),
@@ -346,10 +342,11 @@ class TestLinuxBridgeManager(base.BaseTestCase):
     def setUp(self):
         super(TestLinuxBridgeManager, self).setUp()
         self.interface_mappings = {'physnet1': 'eth1'}
-        self.root_helper = cfg.CONF.AGENT.root_helper
 
-        self.lbm = linuxbridge_neutron_agent.LinuxBridgeManager(
-            self.interface_mappings, self.root_helper)
+        with mock.patch.object(linuxbridge_neutron_agent.LinuxBridgeManager,
+                               'get_interface_by_ip', return_value=None):
+            self.lbm = linuxbridge_neutron_agent.LinuxBridgeManager(
+                self.interface_mappings)
 
     def test_interface_exists_on_bridge(self):
         with mock.patch.object(os, 'listdir') as listdir_fn:
@@ -447,7 +444,7 @@ class TestLinuxBridgeManager(base.BaseTestCase):
             exists_fn.return_value = True
             self.assertTrue(self.lbm.is_device_on_bridge("tap1"))
             exists_fn.assert_called_with(
-                "/sys/devices/virtual/net/tap1/brport"
+                "/sys/class/net/tap1/brport"
             )
 
     def test_get_interface_details(self):
@@ -622,9 +619,9 @@ class TestLinuxBridgeManager(base.BaseTestCase):
             self.lbm.ensure_bridge("br0", "eth0")
             expected = [
                 mock.call(['brctl', 'delif', 'br1', 'eth0'],
-                          root_helper=self.root_helper),
+                          run_as_root=True),
                 mock.call(['brctl', 'addif', 'br0', 'eth0'],
-                          root_helper=self.root_helper),
+                          run_as_root=True),
             ]
             exec_fn.assert_has_calls(expected)
 
@@ -761,8 +758,10 @@ class TestLinuxBridgeManager(base.BaseTestCase):
 
     def test_delete_vxlan_bridge_no_int_mappings(self):
         interface_mappings = {}
-        lbm = linuxbridge_neutron_agent.LinuxBridgeManager(
-            interface_mappings, self.root_helper)
+        with mock.patch.object(linuxbridge_neutron_agent.LinuxBridgeManager,
+                               'get_interface_by_ip', return_value=None):
+            lbm = linuxbridge_neutron_agent.LinuxBridgeManager(
+                interface_mappings)
 
         with contextlib.nested(
             mock.patch.object(ip_lib, "device_exists"),
@@ -925,8 +924,7 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
             def __init__(self):
                 self.agent_id = 1
                 self.br_mgr = (linuxbridge_neutron_agent.
-                               LinuxBridgeManager({'physnet1': 'eth1'},
-                                                  cfg.CONF.AGENT.root_helper))
+                               LinuxBridgeManager({'physnet1': 'eth1'}))
 
                 self.br_mgr.vxlan_mode = lconst.VXLAN_UCAST
                 segment = mock.Mock()
@@ -939,8 +937,6 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
             FakeLBAgent(),
             object()
         )
-
-        self.root_helper = cfg.CONF.AGENT.root_helper
 
     def test_network_delete(self):
         with contextlib.nested(
@@ -966,19 +962,19 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
 
             expected = [
                 mock.call(['bridge', 'fdb', 'show', 'dev', 'vxlan-1'],
-                          root_helper=self.root_helper),
+                          run_as_root=True),
                 mock.call(['bridge', 'fdb', 'add',
                            constants.FLOODING_ENTRY[0],
                            'dev', 'vxlan-1', 'dst', 'agent_ip'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
                 mock.call(['ip', 'neigh', 'replace', 'port_ip', 'lladdr',
                            'port_mac', 'dev', 'vxlan-1', 'nud', 'permanent'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
                 mock.call(['bridge', 'fdb', 'add', 'port_mac', 'dev',
                            'vxlan-1', 'dst', 'agent_ip'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
             ]
             execute_fn.assert_has_calls(expected)
@@ -1028,15 +1024,15 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
                 mock.call(['bridge', 'fdb', 'del',
                            constants.FLOODING_ENTRY[0],
                            'dev', 'vxlan-1', 'dst', 'agent_ip'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
                 mock.call(['ip', 'neigh', 'del', 'port_ip', 'lladdr',
                            'port_mac', 'dev', 'vxlan-1'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
                 mock.call(['bridge', 'fdb', 'del', 'port_mac',
                            'dev', 'vxlan-1', 'dst', 'agent_ip'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
             ]
             execute_fn.assert_has_calls(expected)
@@ -1055,11 +1051,11 @@ class TestLinuxBridgeRpcCallbacks(base.BaseTestCase):
             expected = [
                 mock.call(['ip', 'neigh', 'replace', 'port_ip_2', 'lladdr',
                            'port_mac', 'dev', 'vxlan-1', 'nud', 'permanent'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False),
                 mock.call(['ip', 'neigh', 'del', 'port_ip_1', 'lladdr',
                            'port_mac', 'dev', 'vxlan-1'],
-                          root_helper=self.root_helper,
+                          run_as_root=True,
                           check_exit_code=False)
             ]
             execute_fn.assert_has_calls(expected)

@@ -18,6 +18,7 @@ import webob.exc
 
 from neutron.api import extensions
 from neutron.common import config
+from neutron.common import constants as n_consts
 from neutron import context
 import neutron.extensions
 from neutron.extensions import metering
@@ -86,20 +87,17 @@ class MeteringPluginDbTestCaseMixin(object):
 
     @contextlib.contextmanager
     def metering_label(self, name='label', description='desc',
-                       fmt=None, do_delete=True, **kwargs):
+                       fmt=None, **kwargs):
         if not fmt:
             fmt = self.fmt
         metering_label = self._make_metering_label(fmt, name,
                                                    description, **kwargs)
         yield metering_label
-        if do_delete:
-            self._delete('metering-labels',
-                         metering_label['metering_label']['id'])
 
     @contextlib.contextmanager
     def metering_label_rule(self, metering_label_id=None, direction='ingress',
                             remote_ip_prefix='10.0.0.0/24',
-                            excluded='false', fmt=None, do_delete=True):
+                            excluded='false', fmt=None):
         if not fmt:
             fmt = self.fmt
         metering_label_rule = self._make_metering_label_rule(fmt,
@@ -108,9 +106,6 @@ class MeteringPluginDbTestCaseMixin(object):
                                                              remote_ip_prefix,
                                                              excluded)
         yield metering_label_rule
-        if do_delete:
-            self._delete('metering-label-rules',
-                         metering_label_rule['metering_label_rule']['id'])
 
 
 class MeteringPluginDbTestCase(test_db_plugin.NeutronDbPluginV2TestCase,
@@ -163,8 +158,7 @@ class TestMetering(MeteringPluginDbTestCase):
         name = 'my label'
         description = 'my metering label'
 
-        with self.metering_label(name, description,
-                                 do_delete=False) as metering_label:
+        with self.metering_label(name, description) as metering_label:
             metering_label_id = metering_label['metering_label']['id']
             self._delete('metering-labels', metering_label_id, 204)
 
@@ -214,8 +208,7 @@ class TestMetering(MeteringPluginDbTestCase):
             with self.metering_label_rule(metering_label_id,
                                           direction,
                                           remote_ip_prefix,
-                                          excluded,
-                                          do_delete=False) as label_rule:
+                                          excluded) as label_rule:
                 rule_id = label_rule['metering_label_rule']['id']
                 self._delete('metering-label-rules', rule_id, 204)
 
@@ -261,7 +254,7 @@ class TestMetering(MeteringPluginDbTestCase):
                                          excluded),
                 self.metering_label_rule(metering_label_id,
                                          direction,
-                                         '0.0.0.0/0',
+                                         n_consts.IPv4_ANY,
                                          False)) as metering_label_rule:
 
                 self._test_list_resources('metering-label-rule',

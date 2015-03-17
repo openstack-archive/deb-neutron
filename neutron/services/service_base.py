@@ -15,14 +15,14 @@
 
 import abc
 
-from oslo.utils import excutils
-from oslo.utils import importutils
+from oslo_log import log as logging
+from oslo_utils import excutils
+from oslo_utils import importutils
 import six
 
 from neutron.api import extensions
 from neutron.db import servicetype_db as sdb
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log as logging
 from neutron.services import provider_configuration as pconf
 
 LOG = logging.getLogger(__name__)

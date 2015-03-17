@@ -15,17 +15,19 @@
 
 import os
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron.agent.common import config
 from neutron.agent.linux import external_process
-from neutron.openstack.common import log as logging
+from neutron.common import exceptions
 from neutron.services import advanced_service
 
 LOG = logging.getLogger(__name__)
 
 # Access with redirection to metadata proxy iptables mark mask
 METADATA_ACCESS_MARK_MASK = '0xffffffff'
+METADATA_SERVICE_NAME = 'metadata-proxy'
 
 
 class MetadataDriver(advanced_service.AdvancedService):
@@ -38,12 +40,12 @@ class MetadataDriver(advanced_service.AdvancedService):
         cfg.StrOpt('metadata_proxy_user',
                    default='',
                    help=_("User (uid or name) running metadata proxy after "
-                          "its initialization (if empty: L3 agent effective "
+                          "its initialization (if empty: agent effective "
                           "user)")),
         cfg.StrOpt('metadata_proxy_group',
                    default='',
                    help=_("Group (gid or name) running metadata proxy after "
-                          "its initialization (if empty: L3 agent effective "
+                          "its initialization (if empty: agent effective "
                           "group)"))
     ]
 
@@ -63,8 +65,12 @@ class MetadataDriver(advanced_service.AdvancedService):
         router.iptables_manager.apply()
 
         if not router.is_ha:
-            self._spawn_monitored_metadata_proxy(router.router_id,
-                                                 router.ns_name)
+            self.spawn_monitored_metadata_proxy(
+                self.l3_agent.process_monitor,
+                router.ns_name,
+                self.metadata_port,
+                self.l3_agent.conf,
+                router_id=router.router_id)
 
     def before_router_removed(self, router):
         for c, r in self.metadata_filter_rules(self.metadata_port,
@@ -76,18 +82,20 @@ class MetadataDriver(advanced_service.AdvancedService):
             router.iptables_manager.ipv4['nat'].remove_rule(c, r)
         router.iptables_manager.apply()
 
-        self._destroy_monitored_metadata_proxy(router.router['id'],
-                                               router.ns_name)
+        self.destroy_monitored_metadata_proxy(self.l3_agent.process_monitor,
+                                              router.router['id'],
+                                              router.ns_name,
+                                              self.l3_agent.conf)
 
     @classmethod
     def metadata_filter_rules(cls, port, mark):
         return [('INPUT', '-m mark --mark %s -j ACCEPT' % mark),
-                ('INPUT', '-s 0.0.0.0/0 -p tcp -m tcp --dport %s '
+                ('INPUT', '-p tcp -m tcp --dport %s '
                  '-j DROP' % port)]
 
     @classmethod
     def metadata_mangle_rules(cls, mark):
-        return [('PREROUTING', '-s 0.0.0.0/0 -d 169.254.169.254/32 '
+        return [('PREROUTING', '-d 169.254.169.254/32 '
                  '-p tcp -m tcp --dport 80 '
                  '-j MARK --set-xmark %(value)s/%(mask)s' %
                  {'value': mark,
@@ -95,7 +103,7 @@ class MetadataDriver(advanced_service.AdvancedService):
 
     @classmethod
     def metadata_nat_rules(cls, port):
-        return [('PREROUTING', '-s 0.0.0.0/0 -d 169.254.169.254/32 '
+        return [('PREROUTING', '-d 169.254.169.254/32 '
                  '-p tcp -m tcp --dport 80 -j REDIRECT '
                  '--to-port %s' % port)]
 
@@ -106,7 +114,16 @@ class MetadataDriver(advanced_service.AdvancedService):
         return user, group
 
     @classmethod
-    def _get_metadata_proxy_callback(cls, router_id, conf):
+    def _get_metadata_proxy_callback(cls, port, conf, network_id=None,
+                                     router_id=None):
+        uuid = network_id or router_id
+        if uuid is None:
+            raise exceptions.NetworkIdOrRouterIdRequiredError()
+
+        if network_id:
+            lookup_param = '--network_id=%s' % network_id
+        else:
+            lookup_param = '--router_id=%s' % router_id
 
         def callback(pid_file):
             metadata_proxy_socket = conf.metadata_proxy_socket
@@ -114,44 +131,39 @@ class MetadataDriver(advanced_service.AdvancedService):
             proxy_cmd = ['neutron-ns-metadata-proxy',
                          '--pid_file=%s' % pid_file,
                          '--metadata_proxy_socket=%s' % metadata_proxy_socket,
-                         '--router_id=%s' % router_id,
+                         lookup_param,
                          '--state_path=%s' % conf.state_path,
-                         '--metadata_port=%s' % conf.metadata_port,
+                         '--metadata_port=%s' % port,
                          '--metadata_proxy_user=%s' % user,
                          '--metadata_proxy_group=%s' % group]
             proxy_cmd.extend(config.get_log_args(
-                conf, 'neutron-ns-metadata-proxy-%s.log' %
-                router_id))
+                conf, 'neutron-ns-metadata-proxy-%s.log' % uuid))
             return proxy_cmd
 
         return callback
 
-    def _spawn_monitored_metadata_proxy(self, router_id, ns_name):
-        callback = self._get_metadata_proxy_callback(
-            router_id, self.l3_agent.conf)
-        self.l3_agent.process_monitor.enable(router_id, callback, ns_name)
-
-    def _destroy_monitored_metadata_proxy(self, router_id, ns_name):
-        self.l3_agent.process_monitor.disable(router_id, ns_name)
-
-    # TODO(mangelajo): remove the unmonitored _get_*_process_manager,
-    #                  _spawn_* and _destroy* when keepalived stops
-    #                  spawning and killing proxies on its own.
     @classmethod
-    def _get_metadata_proxy_process_manager(cls, router_id, ns_name, conf):
-        return external_process.ProcessManager(
-            conf,
-            router_id,
-            config.get_root_helper(conf),
-            ns_name)
+    def spawn_monitored_metadata_proxy(cls, monitor, ns_name, port, conf,
+                                       network_id=None, router_id=None):
+        uuid = network_id or router_id
+        callback = cls._get_metadata_proxy_callback(
+            port, conf, network_id=network_id, router_id=router_id)
+        pm = cls._get_metadata_proxy_process_manager(uuid, ns_name, conf,
+                                                     callback=callback)
+        pm.enable()
+        monitor.register(uuid, METADATA_SERVICE_NAME, pm)
 
     @classmethod
-    def _spawn_metadata_proxy(cls, router_id, ns_name, conf):
-        callback = cls._get_metadata_proxy_callback(router_id, conf)
-        pm = cls._get_metadata_proxy_process_manager(router_id, ns_name, conf)
-        pm.enable(callback)
-
-    @classmethod
-    def _destroy_metadata_proxy(cls, router_id, ns_name, conf):
-        pm = cls._get_metadata_proxy_process_manager(router_id, ns_name, conf)
+    def destroy_monitored_metadata_proxy(cls, monitor, uuid, ns_name, conf):
+        monitor.unregister(uuid, METADATA_SERVICE_NAME)
+        pm = cls._get_metadata_proxy_process_manager(uuid, ns_name, conf)
         pm.disable()
+
+    @classmethod
+    def _get_metadata_proxy_process_manager(cls, router_id, ns_name, conf,
+                                            callback=None):
+        return external_process.ProcessManager(
+            conf=conf,
+            uuid=router_id,
+            namespace=ns_name,
+            default_cmd_callback=callback)

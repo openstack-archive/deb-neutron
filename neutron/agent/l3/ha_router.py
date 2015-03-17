@@ -12,15 +12,18 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import netaddr
 import shutil
 import signal
+
+import netaddr
+from oslo_log import log as logging
 
 from neutron.agent.l3 import router_info as router
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import keepalived
 from neutron.agent.metadata import driver as metadata_driver
-from neutron.openstack.common import log as logging
+from neutron.common import constants as n_consts
+from neutron.common import utils as common_utils
 
 LOG = logging.getLogger(__name__)
 HA_DEV_PREFIX = 'ha-'
@@ -66,17 +69,13 @@ class HaRouter(router.RouterInfo):
             LOG.debug('Error while reading HA state for %s', self.router_id)
             return None
 
-    def get_keepalived_manager(self):
-        return keepalived.KeepalivedManager(
+    def _init_keepalived_manager(self, process_monitor):
+        self.keepalived_manager = keepalived.KeepalivedManager(
             self.router['id'],
             keepalived.KeepalivedConf(),
             conf_path=self.agent_conf.ha_confs_path,
             namespace=self.ns_name,
-            root_helper=self.root_helper)
-
-    def _init_keepalived_manager(self):
-        # TODO(Carl) This looks a bit funny, doesn't it?
-        self.keepalived_manager = self.get_keepalived_manager()
+            process_monitor=process_monitor)
 
         config = self.keepalived_manager.config
 
@@ -98,14 +97,10 @@ class HaRouter(router.RouterInfo):
             instance.set_authentication(self.agent_conf.ha_vrrp_auth_type,
                                         self.agent_conf.ha_vrrp_auth_password)
 
-        group = keepalived.KeepalivedGroup(self.ha_vr_id)
-        group.add_instance(instance)
-
-        config.add_group(group)
         config.add_instance(instance)
 
     def spawn_keepalived(self):
-        self.keepalived_manager.spawn_or_restart()
+        self.keepalived_manager.spawn()
 
     def disable_keepalived(self):
         self.keepalived_manager.disable()
@@ -115,7 +110,8 @@ class HaRouter(router.RouterInfo):
     def _add_keepalived_notifiers(self):
         callback = (
             metadata_driver.MetadataDriver._get_metadata_proxy_callback(
-                self.router_id, self.agent_conf))
+                self.agent_conf.metadata_port, self.agent_conf,
+                router_id=self.router_id))
         # TODO(mangelajo): use the process monitor in keepalived when
         #                  keepalived stops killing/starting metadata
         #                  proxy on its own
@@ -169,31 +165,42 @@ class HaRouter(router.RouterInfo):
         instance = self._get_keepalived_instance()
         return instance.get_existing_vip_ip_addresses(interface_name)
 
+    def get_router_cidrs(self, device):
+        return set(self._ha_get_existing_cidrs(device.name))
+
     def _ha_external_gateway_removed(self, interface_name):
         self._clear_vips(interface_name)
 
-    def _process_virtual_routes(self, new_routes):
+    def routes_updated(self):
+        new_routes = self.router['routes']
+
         instance = self._get_keepalived_instance()
 
         # Filter out all of the old routes while keeping only the default route
+        default_gw = (n_consts.IPv6_ANY, n_consts.IPv4_ANY)
         instance.virtual_routes = [route for route in instance.virtual_routes
-                                   if route.destination == '0.0.0.0/0']
+                                   if route.destination in default_gw]
         for route in new_routes:
             instance.virtual_routes.append(keepalived.KeepalivedVirtualRoute(
                 route['destination'],
                 route['nexthop']))
 
+        self.routes = new_routes
+
     def _add_default_gw_virtual_route(self, ex_gw_port, interface_name):
         gw_ip = ex_gw_port['subnet']['gateway_ip']
         if gw_ip:
             # TODO(Carl) This is repeated everywhere.  A method would be nice.
+            default_gw = (n_consts.IPv4_ANY if
+                          netaddr.IPAddress(gw_ip).version == 4 else
+                          n_consts.IPv6_ANY)
             instance = self._get_keepalived_instance()
             instance.virtual_routes = (
                 [route for route in instance.virtual_routes
-                 if route.destination != '0.0.0.0/0'])
+                 if route.destination != default_gw])
             instance.virtual_routes.append(
                 keepalived.KeepalivedVirtualRoute(
-                    '0.0.0.0/0', gw_ip, interface_name))
+                    default_gw, gw_ip, interface_name))
 
     def _get_ipv6_lladdr(self, mac_addr):
         return '%s/64' % netaddr.EUI(mac_addr).ipv6_link_local()
@@ -204,14 +211,8 @@ class HaRouter(router.RouterInfo):
         it manage IPv4 addresses. In order to do that, we must delete
         the address first as it is autoconfigured by the kernel.
         """
-        process = keepalived.KeepalivedManager.get_process(
-            self.agent_conf,
-            self.router_id,
-            self.root_helper,
-            self.ns_name,
-            self.agent_conf.ha_confs_path)
-        if process.active:
-            manager = self.get_keepalived_manager()
+        manager = self.keepalived_manager
+        if manager.get_process().active:
             conf = manager.get_conf_on_disk()
             managed_by_keepalived = conf and ipv6_lladdr in conf
             if managed_by_keepalived:
@@ -223,13 +224,11 @@ class HaRouter(router.RouterInfo):
         a VIP to keepalived. This means that the IPv6 link local address
         will only be present on the master.
         """
-        device = ip_lib.IPDevice(interface_name,
-                                 self.root_helper,
-                                 self.ns_name)
+        device = ip_lib.IPDevice(interface_name, namespace=self.ns_name)
         ipv6_lladdr = self._get_ipv6_lladdr(device.link.address)
 
         if self._should_delete_ipv6_lladdr(ipv6_lladdr):
-            device.addr.flush()
+            device.addr.flush(n_consts.IP_VERSION_6)
 
         self._remove_vip(ipv6_lladdr)
         self._add_vip(ipv6_lladdr, interface_name, scope='link')
@@ -242,3 +241,34 @@ class HaRouter(router.RouterInfo):
         old_gateway_cidr = self.ex_gw_port['ip_cidr']
         self._remove_vip(old_gateway_cidr)
         self._ha_external_gateway_added(ex_gw_port, interface_name)
+
+    def add_floating_ip(self, fip, interface_name, device):
+        fip_ip = fip['floating_ip_address']
+        ip_cidr = common_utils.ip_to_cidr(fip_ip)
+        self._add_vip(ip_cidr, interface_name)
+        # TODO(Carl) Should this return status?
+        # return l3_constants.FLOATINGIP_STATUS_ACTIVE
+
+    def remove_floating_ip(self, device, ip_cidr):
+        self._remove_vip(ip_cidr)
+
+    def internal_network_added(self, port):
+        port_id = port['id']
+        interface_name = self.get_internal_device_name(port_id)
+
+        if not ip_lib.device_exists(interface_name, namespace=self.ns_name):
+            self.driver.plug(port['network_id'],
+                             port_id,
+                             interface_name,
+                             port['mac_address'],
+                             namespace=self.ns_name,
+                             prefix=router.INTERNAL_DEV_PREFIX)
+
+        self._ha_disable_addressing_on_interface(interface_name)
+        self._add_vip(port['ip_cidr'], interface_name)
+
+    def internal_network_removed(self, port):
+        super(HaRouter, self).internal_network_removed(port)
+
+        interface_name = self.get_internal_device_name(port['id'])
+        self._clear_vips(interface_name)

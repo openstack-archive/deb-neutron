@@ -16,6 +16,7 @@ import mock
 import os.path
 
 from neutron.agent.linux import external_process as ep
+from neutron.agent.linux import utils
 from neutron.tests import base
 
 
@@ -26,7 +27,8 @@ class TestProcessManager(base.BaseTestCase):
         self.execute = self.execute_p.start()
         self.delete_if_exists = mock.patch(
             'neutron.openstack.common.fileutils.delete_if_exists').start()
-        self.makedirs = mock.patch('os.makedirs').start()
+        self.ensure_dir = mock.patch.object(
+            utils, 'ensure_dir').start()
 
         self.conf = mock.Mock()
         self.conf.external_pids = '/var/path'
@@ -34,7 +36,7 @@ class TestProcessManager(base.BaseTestCase):
     def test_processmanager_ensures_pid_dir(self):
         pid_file = os.path.join(self.conf.external_pids, 'pid')
         ep.ProcessManager(self.conf, 'uuid', pid_file=pid_file)
-        self.makedirs.assert_called_once_with(self.conf.external_pids, 0o755)
+        self.ensure_dir.assert_called_once_with(self.conf.external_pids)
 
     def test_enable_no_namespace(self):
         callback = mock.Mock()
@@ -49,7 +51,6 @@ class TestProcessManager(base.BaseTestCase):
                 manager.enable(callback)
                 callback.assert_called_once_with('pidfile')
                 self.execute.assert_called_once_with(['the', 'cmd'],
-                                                     root_helper='sudo',
                                                      check_exit_code=True,
                                                      extra_ok_codes=None)
 
@@ -67,7 +68,7 @@ class TestProcessManager(base.BaseTestCase):
                     manager.enable(callback)
                     callback.assert_called_once_with('pidfile')
                     ip_lib.assert_has_calls([
-                        mock.call.IPWrapper('sudo', 'ns'),
+                        mock.call.IPWrapper(namespace='ns'),
                         mock.call.IPWrapper().netns.execute(['the', 'cmd'],
                                                             addl_env=None)])
 
@@ -88,10 +89,12 @@ class TestProcessManager(base.BaseTestCase):
             pid.__get__ = mock.Mock(return_value=4)
             with mock.patch.object(ep.ProcessManager, 'active') as active:
                 active.__get__ = mock.Mock(return_value=True)
-
                 manager = ep.ProcessManager(self.conf, 'uuid')
-                manager.disable()
-                self.execute(['kill', '-9', 4], 'sudo')
+
+                with mock.patch.object(ep, 'utils') as utils:
+                    manager.disable()
+                    utils.assert_has_calls(
+                        mock.call.execute(['kill', '-9', 4], run_as_root=True))
 
     def test_disable_namespace(self):
         with mock.patch.object(ep.ProcessManager, 'pid') as pid:
@@ -104,7 +107,7 @@ class TestProcessManager(base.BaseTestCase):
                 with mock.patch.object(ep, 'utils') as utils:
                     manager.disable()
                     utils.assert_has_calls(
-                        mock.call.execute(['kill', '-9', 4], 'sudo'))
+                        mock.call.execute(['kill', '-9', 4], run_as_root=True))
 
     def test_disable_not_active(self):
         with mock.patch.object(ep.ProcessManager, 'pid') as pid:

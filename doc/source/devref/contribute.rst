@@ -37,6 +37,7 @@ Below, the following strategies will be documented:
 * Testing and Continuous Integration;
 * Defect Management;
 * Backport Management for plugin specific code;
+* DevStack Integration;
 * Documentation;
 
 This document will then provide a working example on how to contribute
@@ -121,12 +122,15 @@ Testing Strategy
 
 The testing process will be as follow:
 
-* There will be no unit tests for plugins and drivers in the tree; The
-  expectation is that contributors would run unit test in their own external
-  library (e.g. in stackforge where Jenkins setup is for free). For unit tests
-  that validate the vendor library, it is the responsibility of the vendor to
-  choose what CI system they see fit to run them. There is no need or
-  requirement to use OpenStack CI resources if they do not want to.
+* No unit tests for the vendor integration of plugins and drivers are deemed
+  necessary. The expectation is that contributors would run unit test in their
+  own external library (e.g. in stackforge where Jenkins setup is for free).
+  For unit tests that validate the vendor library, it is the responsibility of
+  the vendor to choose what CI system they see fit to run them. There is no
+  need or requirement to use OpenStack CI resources if they do not want to.
+  Having said that, it may be useful to provide coverage for the shim layer in
+  the form of basic validation as done in `ODL <https://github.com/openstack/neutron/blob/master/neutron/tests/unit/ml2/test_mechanism_odl.py>`_ and `LBaaS A10 driver <https://github.com/openstack/neutron-lbaas/blob/master/neutron_lbaas/tests/unit/services/loadbalancer/drivers/a10networks/test_driver_v1.py>`_.
+
 * 3rd Party CI will continue to validate vendor integration with Neutron via
   functional testing. 3rd Party CI is a communication mechanism. This objective
   of this mechanism is as follows:
@@ -143,6 +147,16 @@ The testing process will be as follow:
     is being actively maintained.
   * A maintainer that is perceived to be responsive to failures in their
     3rd party CI jobs is likely to generate community goodwill.
+
+  It is worth noting that if the vendor library is hosted on StackForge, due to
+  current openstack-infra limitations, it is not possible to have 3rd party CI systems
+  participating in the gate pipeline for the StackForge repo. This means that the only
+  validation provided during the merge process to the StackForge repo is through unit
+  tests. Post-merge hooks can still be exploited to provide 3rd party CI feedback, and
+  alert the contributor/reviewer of potential issues. As mentioned above, 3rd party CI
+  systems will continue to validate Neutron core commits. This will allow them to
+  detect when incompatible changes occur, whether they are in Neutron or in the vendor
+  library repo.
 
 Review and Defect Management Strategies
 ---------------------------------------
@@ -163,12 +177,12 @@ precisely:
 Backport Management Strategies
 ------------------------------
 
-As outlined in the `Spec proposal http://specs.openstack.org/openstack/neutron-specs/specs/kilo/core-vendor-decomposition.html`
+As outlined in the `Spec proposal <http://specs.openstack.org/openstack/neutron-specs/specs/kilo/core-vendor-decomposition.html>`_
 all new plugins and drivers will have to follow the contribution model
 described here. As for existing plugins and drivers, no in-tree features can
 be merged until some progress has been done to make the solution adhere to
 this model. That said, there is the question of critical fixes and/or backports
-to `stable branches https://wiki.openstack.org/wiki/StableBranch`. The possible
+to `stable branches <https://wiki.openstack.org/wiki/StableBranch>`_. The possible
 scenarios are:
 
 * The decomposition just completed, we are in the cycle (X) where the decomposition
@@ -195,6 +209,70 @@ scenarios are:
   explicit rule to prevent them from merging to master, it is in the best interest
   of the maintainer to avoid introducing or modifying existing code that will
   ultimately be deprecated.
+
+DevStack Integration Strategies
+-------------------------------
+
+When developing and testing a new or existing plugin or driver, the aid provided
+by DevStack is incredibly valuable: DevStack can help get all the software bits
+installed, and configured correctly, and more importantly in a predictable way.
+For DevStack integration there are a few options available, and they may or may not
+make sense depending on whether you are contributing a new or existing plugin or
+driver.
+
+If you are contributing a new plugin, the approach to choose should be based on
+`Extras.d Hooks' externally hosted plugins <http://docs.openstack.org/developer/devstack/plugins.html#extras-d-hooks>`_.
+With the extra.d hooks, the DevStack integration is colocated with the vendor integration
+library, and it leads to the greatest level of flexibility when dealing with DevStack based
+dev/test deployments.
+
+Having said that, most Neutron plugins developed in the past likely already have
+integration with DevStack in the form of `neutron_plugins <https://github.com/openstack-dev/devstack/tree/master/lib/neutron_plugins>`_.
+If the plugin is being decomposed in vendor integration plus vendor library, it would
+be necessary to adjust the instructions provided in the neutron_plugin file to pull the
+vendor library code as a new dependency. For instance, the instructions below:
+
+  ::
+
+      INSTALL_FROM_REQUIREMENTS=$(trueorfalse True INSTALL_FROM_REQUIREMENTS)
+
+      if [[ "$INSTALL_FROM_REQUIREMENTS" == "False" ]]; then
+          git_clone $NEUTRON_LIB_REPO $NEUTRON_LIB_DIR $NEUTRON_LIB_BRANCH
+          setup_package $NEUTRON_LIB_DIR
+      else
+          # Retrieve the package from the vendor library's requirements.txt
+          plugin_package=$(cat $NEUTRON_LIB_REQUIREMENTS_FILE)
+          pip_install "$plugin_package"
+      fi
+
+could be placed in 'neutron_plugin_configure_service', ahead of the service
+configuration. An alternative could be under the `third_party section
+<https://github.com/openstack-dev/devstack/tree/master/lib/neutron_thirdparty>`_,
+if available. This solution can be similarly exploited for both monolithic
+plugins or ML2 mechanism drivers. The configuration of the plugin or driver itself can be
+done by leveraging the extensibility mechanisms provided by `local.conf <http://docs.openstack.org/developer/devstack/configuration.html>`_. In fact, since the .ini file for the vendor plugin or driver lives
+in the Neutron tree, it is possible to do add the section below to local.conf:
+
+  ::
+
+     [[post-config|$THE_FILE_YOU_NEED_TO_CUSTOMIZE]]
+
+     # Override your section config as you see fit
+     [DEFAULT]
+     verbose=True
+
+Which in turn it is going to edit the file with the options outlined in the post-config
+section.
+
+The above mentioned approach, albeit valid, has the shortcoming of depending on DevStack's
+explicit support for the plugin installation and configuration, and the plugin maintainer
+is strongly encouraged to revise the existing DevStack integration, in order to evolve it
+in an extras.d hooks based approach.
+
+One final consideration is worth making for 3rd party CI setups: if `Devstack Gate
+<https://github.com/openstack-infra/devstack-gate>`_ is used, it does provide hook
+functions that can be executed at specific times of the devstack-gate-wrap script run.
+For example, the `Neutron Functional job <https://github.com/openstack-infra/project-config/blob/master/jenkins/jobs/neutron-functional.yaml>`_ uses them. For more details see `devstack-vm-gate-wrap.sh <https://github.com/openstack-infra/devstack-gate/blob/master/devstack-vm-gate-wrap.sh>`_.
 
 Documentation Strategies
 ------------------------
@@ -269,32 +347,204 @@ be the bare minimum you have to complete in order to get you off the ground.
   the previous step. In the latter case, you can do so by specifying the
   upstream section for your project in project-config/gerrit/project.yaml.
   Steps are documented on the
-  `Project Creators Manual http://docs.openstack.org/infra/manual/creators.html`.
+  `Project Creators Manual <http://docs.openstack.org/infra/manual/creators.html>`_.
 * Ask for a Launchpad user to be assigned to the core team created. Steps are
   documented in
-  `this section http://docs.openstack.org/infra/manual/creators.html#update-the-gerrit-group-members`.
+  `this section <http://docs.openstack.org/infra/manual/creators.html#update-the-gerrit-group-members>`_.
 * Fix, fix, fix: at this point you have an external base to work on. You
   can develop against the new stackforge project, the same way you work
   with any other OpenStack project: you have pep8, docs, and python27 CI
   jobs that validate your patches when posted to Gerrit. For instance, one
   thing you would need to do is to define an entry point for your plugin
   or driver in your own setup.cfg similarly as to how it is done
-  `here https://github.com/stackforge/networking-odl/blob/master/setup.cfg#L31`.
+  `here <https://github.com/stackforge/networking-odl/blob/master/setup.cfg#L31>`_.
 * Define an entry point for your plugin or driver in setup.cfg
 * Create 3rd Party CI account: if you do not already have one, follow
   instructions for
-  `3rd Party CI http://ci.openstack.org/third_party.html` to get one.
+  `3rd Party CI <http://ci.openstack.org/third_party.html>`_ to get one.
 * TODO(armax): ...
 
-The 'ODL ML2 Mechanism Driver' - example 1
-------------------------------------------
 
-* Create the StackForge repo: https://review.openstack.org/#/c/136854/
-* TODO(armax): continue with adding meat on the bone here
+Decomposition progress chart
+============================
 
-The 'OVSvAPP Mechanism Driver' - example 2
-------------------------------------------
+The following chart captures the following aspects:
 
-* Create the StackForge repo: https://review.openstack.org/#/c/136091/
-* Cookiecutter initial commit: https://review.openstack.org/#/c/141268/
-* TODO(armax): continue with adding meat on the bone here
+* Name: the name of the project that implements a Neutron plugin or driver. The
+  name is an internal target for links that point to source code, etc.
+* Plugins/Drivers: whether the source code contains a core (aka monolithic)
+  plugin, a set of ML2 drivers, and/or (service) plugins (or extensions) for
+  firewall, vpn, and load balancers.
+* Launchpad: whether the project is managed through Launchpad.
+* PyPI: whether the project deliverables are available through PyPI.
+* State: a code to represent the current state of the decomposition. Possible
+  values are:
+
+  * [A] External repo available, no code decomposition
+  * [B] External repo available, partial code decomposition
+  * [C] External repo available, code decomposition is complete
+  * [D] Not deemed required. Driver is already bare-bone and decomposition
+        effort is not considered justified. Assessment may change in the
+        future
+
+  Absense of an entry for an existing plugin or driver means no active effort
+  has been observed or potentially not required.
+* Completed in: the release in which the effort is considered completed. Code
+  completion can be deemed as such, if there is no overlap/duplication between
+  what exists in the Neutron tree, and what it exists in the vendor repo.
+
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| Name                          |    Plugins/Drivers    | Launchpad |       PyPI       |  State  | Completed in |
++===============================+=======================+===========+==================+=========+==============+
+| freescale-nscs_               |         ml2,fw        |    no     |       no         |   [D]   |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-arista_            |       ml2,l3          |    yes    |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-bigswitch_         |      ml2,core,l3      |    no     |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-brocade_           |        ml2,l3         |   yes     |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-cisco_             |  core,ml2,l3,fw,vpn   |    yes    |       yes        |   [B]   |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-hyperv_            |                       |           |                  |         |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-metaplugin_        |         core          |    no     |       no         |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-midonet_           |        core,lb        |    yes    |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-mlnx_              |          ml2          |    yes    |       no         |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-nec_               |         core          |    yes    |       no         |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| nuage-openstack-neutron_      |                       |           |                  |         |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-odl_               |      ml2,l3,lb,fw     |    yes    |       no         |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-ofagent_           |          ml2          |    yes    |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-ovs-dpdk_          |          ml2          |    yes    |       no         |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-plumgrid_          |          core         |    yes    |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| networking-vsphere_           |                       |           |                  |         |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| pluribus_                     |                       |           |                  |         |              |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+| vmware-nsx_                   |         core          |    yes    |       yes        |   [C]   |     Kilo     |
++-------------------------------+-----------------------+-----------+------------------+---------+--------------+
+
+.. _networking-arista:
+
+Arista
+------
+
+* Git: https://github.com/stackforge/networking-arista
+* Launchpad: https://launchpad.net/networking-arista
+* Pypi: https://pypi.python.org/pypi/networking-arista
+
+.. _networking-bigswitch:
+
+Big Switch Networks
+-------------------
+
+* Git: https://git.openstack.org/stackforge/networking-bigswitch
+* Pypi: https://pypi.python.org/pypi/bsnstacklib
+
+.. _networking-brocade:
+
+* Git: https://github.com/stackforge/networking-brocade
+* Launchpad: https://launchpad.net/networking-brocade
+* PyPI: https://pypi.python.org/pypi/networking-brocade
+
+
+.. _networking-cisco:
+
+Cisco
+-----
+
+* Git: https://git.openstack.org/stackforge/networking-cisco
+* Launchpad: https://launchpad.net/networking-cisco
+* PyPI: https://pypi.python.org/pypi/networking-cisco
+
+.. _networking-hyperv:
+
+.. _networking-metaplugin:
+
+Metaplugin
+----------
+
+* Git: https://github.com/ntt-sic/networking-metaplugin
+
+.. _networking-midonet:
+
+MidoNet
+-------
+
+* Git: https://github.com/stackforge/networking-midonet
+* Launchpad: https://launchpad.net/networking-midonet
+* PyPI: https://pypi.python.org/pypi/networking-midonet
+
+.. _networking-mlnx:
+
+Mellanox
+--------
+
+* Git: https://github.com/stackforge/networking-mlnx
+* Launchpad: https://launchpad.net/networking-mlnx
+
+.. _networking-nec:
+
+NEC
+---
+
+* Git: https://github.com/stackforge/networking-nec
+* Launchpad: https://launchpad.net/networking-nec
+
+.. _nuage-openstack-neutron:
+
+.. _networking-odl:
+
+OpenDayLight
+------------
+
+* Git: https://github.com/stackforge/networking-odl
+* Launchpad: https://launchpad.net/networking-odl
+
+.. _networking-ofagent:
+
+OpenFlow Agent (ofagent)
+------------------------
+
+* Git: https://github.com/stackforge/networking-ofagent
+* Launchpad: https://launchpad.net/networking-ofagent
+* PyPI: https://pypi.python.org/pypi/networking-ofagent
+
+.. _networking-ovs-dpdk:
+
+Networking OVS-DPDK
+-------------------
+
+* Git: https://github.com/stackforge/networking-ovs-dpdk
+* Launchpad: https://launchpad.net/networking-ovs-dpdk
+
+.. _networking-plumgrid:
+
+PLUMgrid
+---------
+
+* Git: https://github.com/stackforge/networking-plumgrid
+* Launchpad: https://launchpad.net/networking-plumgrid
+* PyPI: https://pypi.python.org/pypi/networking-plumgrid
+
+.. _networking-vsphere:
+
+.. _pluribus:
+
+.. _vmware-nsx:
+
+VMware
+------
+
+* Git: https://github.com/stackforge/vmware-nsx
+* Launchpad: https://launchpad.net/vmware-nsx
+* PyPI: https://pypi.python.org/pypi/vmware-nsx

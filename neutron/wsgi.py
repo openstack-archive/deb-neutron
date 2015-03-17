@@ -26,11 +26,12 @@ import sys
 import time
 
 import eventlet.wsgi
-eventlet.patcher.monkey_patch(all=False, socket=True, thread=True)
-from oslo.config import cfg
-from oslo import i18n
-from oslo.serialization import jsonutils
-from oslo.utils import excutils
+from oslo_config import cfg
+import oslo_i18n
+from oslo_log import log as logging
+from oslo_log import loggers
+from oslo_serialization import jsonutils
+from oslo_utils import excutils
 import routes.middleware
 import webob.dec
 import webob.exc
@@ -39,7 +40,6 @@ from neutron.common import exceptions as exception
 from neutron import context
 from neutron.db import api
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import service as common_service
 from neutron.openstack.common import systemd
 
@@ -119,10 +119,12 @@ class WorkerService(object):
 class Server(object):
     """Server class to manage multiple WSGI sockets and applications."""
 
-    def __init__(self, name, threads=1000):
+    def __init__(self, name, num_threads=1000):
         # Raise the default from 8192 to accommodate large tokens
         eventlet.wsgi.MAX_HEADER_LINE = CONF.max_header_line
-        self.pool = eventlet.GreenPool(threads)
+        self.num_threads = num_threads
+        # Pool for a greenthread in which wsgi server will be running
+        self.pool = eventlet.GreenPool(1)
         self.name = name
         self._server = None
         # A value of 0 is converted to None because None is what causes the
@@ -255,8 +257,9 @@ class Server(object):
 
     def _run(self, application, socket):
         """Start a WSGI server in a new green thread."""
-        eventlet.wsgi.server(socket, application, custom_pool=self.pool,
-                             log=logging.WritableLogger(LOG),
+        eventlet.wsgi.server(socket, application,
+                             max_size=self.num_threads,
+                             log=loggers.WritableLogger(LOG),
                              keepalive=CONF.wsgi_keep_alive,
                              socket_timeout=self.client_socket_timeout)
 
@@ -367,7 +370,7 @@ class Request(webob.Request):
         """
         if not self.accept_language:
             return None
-        all_languages = i18n.get_available_languages('neutron')
+        all_languages = oslo_i18n.get_available_languages('neutron')
         return self.accept_language.best_match(all_languages)
 
     @property
@@ -682,11 +685,6 @@ class Debug(Middleware):
 class Router(object):
     """WSGI middleware that maps incoming requests to WSGI apps."""
 
-    @classmethod
-    def factory(cls, global_config, **local_config):
-        """Return an instance of the WSGI Router class."""
-        return cls()
-
     def __init__(self, mapper):
         """Create a router for the given routes.Mapper.
 
@@ -735,7 +733,7 @@ class Router(object):
         if not match:
             language = req.best_match_language()
             msg = _('The resource could not be found.')
-            msg = i18n.translate(msg, language)
+            msg = oslo_i18n.translate(msg, language)
             return webob.exc.HTTPNotFound(explanation=msg)
         app = match['controller']
         return app

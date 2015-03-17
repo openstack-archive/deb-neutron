@@ -29,6 +29,7 @@ from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import topics
 from neutron.plugins.ml2.drivers import type_tunnel
+from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import rpc as plugin_rpc
 from neutron.tests import base
 
@@ -37,48 +38,38 @@ class RpcCallbacksTestCase(base.BaseTestCase):
 
     def setUp(self):
         super(RpcCallbacksTestCase, self).setUp()
-        self.callbacks = plugin_rpc.RpcCallbacks(mock.Mock(), mock.Mock())
+        self.type_manager = managers.TypeManager()
+        self.notifier = plugin_rpc.AgentNotifierApi(topics.AGENT)
+        self.callbacks = plugin_rpc.RpcCallbacks(self.notifier,
+                                                 self.type_manager)
         self.manager = mock.patch.object(
             plugin_rpc.manager, 'NeutronManager').start()
-        self.l3plugin = mock.Mock()
-        self.manager.get_service_plugins.return_value = {
-            'L3_ROUTER_NAT': self.l3plugin
-        }
         self.plugin = self.manager.get_plugin()
 
-    def _test_update_device_up(self, extensions, kwargs):
+    def _test_update_device_up(self):
+        kwargs = {
+            'agent_id': 'foo_agent',
+            'device': 'foo_device'
+        }
         with mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin'
                         '._device_to_port_id'):
-            type(self.l3plugin).supported_extension_aliases = (
-                mock.PropertyMock(return_value=extensions))
-            self.callbacks.update_device_up(mock.ANY, **kwargs)
+            with mock.patch('neutron.callbacks.registry.notify') as notify:
+                self.callbacks.update_device_up(mock.Mock(), **kwargs)
+                return notify
 
-    def test_update_device_up_without_dvr(self):
+    def test_update_device_up_notify(self):
+        notify = self._test_update_device_up()
         kwargs = {
-            'agent_id': 'foo_agent',
-            'device': 'foo_device'
+            'context': mock.ANY, 'port': mock.ANY, 'update_device_up': True
         }
-        self._test_update_device_up(['router'], kwargs)
-        self.assertFalse(self.l3plugin.dvr_vmarp_table_update.call_count)
+        notify.assert_called_once_with(
+            'port', 'after_update', self.plugin, **kwargs)
 
-    def test_update_device_up_with_dvr(self):
-        kwargs = {
-            'agent_id': 'foo_agent',
-            'device': 'foo_device'
-        }
-        self._test_update_device_up(['router', 'dvr'], kwargs)
-        self.l3plugin.dvr_vmarp_table_update.assert_called_once_with(
-            mock.ANY, mock.ANY, 'add')
-
-    def test_update_device_up_with_dvr_when_port_not_found(self):
-        kwargs = {
-            'agent_id': 'foo_agent',
-            'device': 'foo_device'
-        }
-        self.l3plugin.dvr_vmarp_table_update.side_effect = (
+    def test_update_device_up_notify_not_sent_with_port_not_found(self):
+        self.plugin._get_port.side_effect = (
             exceptions.PortNotFound(port_id='foo_port_id'))
-        self._test_update_device_up(['router', 'dvr'], kwargs)
-        self.assertTrue(self.l3plugin.dvr_vmarp_table_update.call_count)
+        notify = self._test_update_device_up()
+        self.assertFalse(notify.call_count)
 
     def test_get_device_details_without_port_context(self):
         self.plugin.get_bound_port_context.return_value = None
@@ -112,6 +103,16 @@ class RpcCallbacksTestCase(base.BaseTestCase):
                 self.assertEqual(status == new_status,
                                  not self.plugin.update_port_status.called)
 
+    def test_get_device_details_caching(self):
+        port = collections.defaultdict(lambda: 'fake_port')
+        cached_networks = {}
+        self.plugin.get_bound_port_context().current = port
+        self.plugin.get_bound_port_context().network.current = (
+            {"id": "fake_network"})
+        self.callbacks.get_device_details('fake_context', host='fake_host',
+                                          cached_networks=cached_networks)
+        self.assertTrue('fake_port' in cached_networks)
+
     def test_get_devices_details_list(self):
         devices = [1, 2, 3, 4, 5]
         kwargs = {'host': 'fake_host', 'agent_id': 'fake_agent_id'}
@@ -122,7 +123,8 @@ class RpcCallbacksTestCase(base.BaseTestCase):
                                                           **kwargs)
             self.assertEqual(devices, res)
             self.assertEqual(len(devices), f.call_count)
-            calls = [mock.call('fake_context', device=i, **kwargs)
+            calls = [mock.call('fake_context', device=i,
+                               cached_networks={}, **kwargs)
                      for i in devices]
             f.assert_has_calls(calls)
 
@@ -223,6 +225,16 @@ class RpcApiTestCase(base.BaseTestCase):
                 segmentation_id='fake_segmentation_id',
                 physical_network='fake_physical_network')
 
+    def test_port_delete(self):
+        rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
+        self._test_rpc_api(
+            rpcapi,
+            topics.get_topic_name(topics.AGENT,
+                                  topics.PORT,
+                                  topics.DELETE),
+            'port_delete', rpc_method='cast',
+            fanout=True, port_id='fake_port')
+
     def test_tunnel_update(self):
         rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
         self._test_rpc_api(
@@ -231,6 +243,17 @@ class RpcApiTestCase(base.BaseTestCase):
                                       type_tunnel.TUNNEL,
                                       topics.UPDATE),
                 'tunnel_update', rpc_method='cast',
+                fanout=True,
+                tunnel_ip='fake_ip', tunnel_type='gre')
+
+    def test_tunnel_delete(self):
+        rpcapi = plugin_rpc.AgentNotifierApi(topics.AGENT)
+        self._test_rpc_api(
+                rpcapi,
+                topics.get_topic_name(topics.AGENT,
+                                      type_tunnel.TUNNEL,
+                                      topics.DELETE),
+                'tunnel_delete', rpc_method='cast',
                 fanout=True,
                 tunnel_ip='fake_ip', tunnel_type='gre')
 
@@ -263,7 +286,9 @@ class RpcApiTestCase(base.BaseTestCase):
         self._test_rpc_api(rpcapi, None,
                            'tunnel_sync', rpc_method='call',
                            tunnel_ip='fake_tunnel_ip',
-                           tunnel_type=None)
+                           tunnel_type=None,
+                           host='fake_host',
+                           version='1.4')
 
     def test_update_device_up(self):
         rpcapi = agent_rpc.PluginApi(topics.PLUGIN)

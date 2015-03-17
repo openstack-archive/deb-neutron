@@ -26,11 +26,9 @@ import pep8
 #    on the N3xx value.
 #  - List the new rule in the top level HACKING.rst file
 #  - Add test cases for each new rule to
-#    neutron/tests/unit/test_hacking.py
+#    neutron/tests/unit/hacking/test_checks.py
 
 _all_log_levels = {
-    # NOTE(yamamoto): Following nova which uses _() for audit.
-    'audit': '_',
     'error': '_LE',
     'info': '_LI',
     'warn': '_LW',
@@ -51,6 +49,10 @@ def _regex_for_level(level, hint):
 log_translation_hint = re.compile(
     '|'.join('(?:%s)' % _regex_for_level(level, hint)
              for level, hint in _all_log_levels.iteritems()))
+
+oslo_namespace_imports_dot = re.compile(r"import[\s]+oslo[.][^\s]+")
+oslo_namespace_imports_from_dot = re.compile(r"from[\s]+oslo[.]")
+oslo_namespace_imports_from_root = re.compile(r"from[\s]+oslo[\s]+import[\s]+")
 
 
 def validate_log_translations(logical_line, physical_line, filename):
@@ -114,8 +116,27 @@ def check_assert_called_once_with(logical_line, filename):
             yield (0, msg)
 
 
+def check_oslo_namespace_imports(logical_line):
+    if re.match(oslo_namespace_imports_from_dot, logical_line):
+        msg = ("N323: '%s' must be used instead of '%s'.") % (
+               logical_line.replace('oslo.', 'oslo_'),
+               logical_line)
+        yield(0, msg)
+    elif re.match(oslo_namespace_imports_from_root, logical_line):
+        msg = ("N323: '%s' must be used instead of '%s'.") % (
+               logical_line.replace('from oslo import ', 'import oslo_'),
+               logical_line)
+        yield(0, msg)
+    elif re.match(oslo_namespace_imports_dot, logical_line):
+        msg = ("N323: '%s' must be used instead of '%s'.") % (
+               logical_line.replace('import', 'from').replace('.', ' import '),
+               logical_line)
+        yield(0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
     register(check_assert_called_once_with)
     register(no_translate_debug_logs)
+    register(check_oslo_namespace_imports)

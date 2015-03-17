@@ -15,7 +15,7 @@
 
 import os
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.agent.common import config
 from neutron.tests import base
@@ -27,12 +27,10 @@ class BaseSudoTestCase(base.BaseTestCase):
     """
     Base class for tests requiring invocation of commands via a root helper.
 
-    Inheritors of this class should call check_sudo_enabled() in
-    setUp() to ensure that tests requiring sudo are skipped unless
-    OS_SUDO_TESTING is set to '1' or 'True' in the test execution
-    environment.  This is intended to allow developers to run the
-    functional suite (e.g. tox -e functional) without test failures if
-    sudo invocations are not allowed.
+    This class skips (during setUp) its tests unless sudo is enabled, ie:
+    OS_SUDO_TESTING is set to '1' or 'True' in the test execution environment.
+    This is intended to allow developers to run the functional suite (e.g. tox
+    -e functional) without test failures if sudo invocations are not allowed.
 
     Running sudo tests in the upstream gate jobs
     (*-neutron-dsvm-functional) requires the additional step of
@@ -48,14 +46,16 @@ class BaseSudoTestCase(base.BaseTestCase):
 
     def setUp(self):
         super(BaseSudoTestCase, self).setUp()
-        self.sudo_enabled = base.bool_from_env('OS_SUDO_TESTING')
+
+        if not base.bool_from_env('OS_SUDO_TESTING'):
+            self.skipTest('Testing with sudo is not enabled')
+
         self.fail_on_missing_deps = (
             base.bool_from_env('OS_FAIL_ON_MISSING_DEPS'))
 
-        self.root_helper = os.environ.get('OS_ROOTWRAP_CMD', SUDO_CMD)
         config.register_root_helper(cfg.CONF)
-        cfg.CONF.set_override('root_helper', self.root_helper, group='AGENT')
-
-    def check_sudo_enabled(self):
-        if not self.sudo_enabled:
-            self.skipTest('testing with sudo is not enabled')
+        self.config(group='AGENT',
+                    root_helper=os.environ.get('OS_ROOTWRAP_CMD', SUDO_CMD))
+        self.config(group='AGENT',
+                    root_helper_daemon=os.environ.get(
+                        'OS_ROOTWRAP_DAEMON_CMD'))

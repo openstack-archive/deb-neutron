@@ -17,7 +17,7 @@
 Neutron base exception handling.
 """
 
-from oslo.utils import excutils
+from oslo_utils import excutils
 
 
 class NeutronException(Exception):
@@ -147,6 +147,16 @@ class DNSNameServersExhausted(BadRequest):
                 "The number of DNS nameservers exceeds the limit %(quota)s.")
 
 
+class InvalidIpForNetwork(BadRequest):
+    message = _("IP address %(ip_address)s is not a valid IP "
+                "for any of the subnets on the specified network.")
+
+
+class InvalidIpForSubnet(BadRequest):
+    message = _("IP address %(ip_address)s is not a valid IP "
+                "for the specified subnet.")
+
+
 class IpAddressInUse(InUse):
     message = _("Unable to complete operation for network %(net_id)s. "
                 "The IP address %(ip_address)s is in use.")
@@ -238,10 +248,6 @@ class BridgeDoesNotExist(NeutronException):
 
 class PreexistingDeviceFailure(NeutronException):
     message = _("Creation failed. %(dev_name)s already exists.")
-
-
-class SudoRequired(NeutronException):
-    message = _("Sudo privilege is required to run this command.")
 
 
 class QuotaResourceUnknown(NotFound):
@@ -373,6 +379,14 @@ class IpTablesApplyException(NeutronException):
         super(IpTablesApplyException, self).__init__()
 
 
+class NetworkIdOrRouterIdRequiredError(NeutronException):
+    message = _('network_id and router_id are None. One must be provided.')
+
+
+class AbortSyncRouters(NeutronException):
+    message = _("Aborting periodic_sync_routers_task due to an error")
+
+
 # Shared *aas exceptions, pending them being refactored out of Neutron
 # proper.
 
@@ -383,7 +397,3 @@ class FirewallInternalDriverError(NeutronException):
     raise this exception to the agent
     """
     message = _("%(driver)s: Internal driver error.")
-
-
-class RouterInUseByVPNService(InUse):
-    message = _("Router %(router_id)s is used by VPNService %(vpnservice_id)s")

@@ -22,8 +22,9 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
-from oslo.config import cfg
-from oslo import messaging
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
@@ -34,7 +35,6 @@ from neutron.common import topics
 from neutron.common import utils as n_utils
 from neutron.i18n import _LE, _LI
 from neutron import context
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.ibm.common import constants
 
@@ -53,10 +53,10 @@ class SdnvePluginApi(agent_rpc.PluginApi):
 
 class SdnveNeutronAgent(object):
 
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
     def __init__(self, integ_br, interface_mappings,
-                 info, root_helper, polling_interval,
+                 info, polling_interval,
                  controller_ip, reset_br, out_of_band):
         '''The agent initialization.
 
@@ -65,13 +65,11 @@ class SdnveNeutronAgent(object):
         :param integ_br: name of the integration bridge.
         :param interface_mappings: interfaces to physical networks.
         :param info: local IP address of this hypervisor.
-        :param root_helper: utility to use when running shell cmds.
         :param polling_interval: interval (secs) to poll DB.
         :param controller_ip: Ip address of SDN-VE controller.
         '''
 
         super(SdnveNeutronAgent, self).__init__()
-        self.root_helper = root_helper
         self.int_bridge_name = integ_br
         self.controller_ip = controller_ip
         self.interface_mappings = interface_mappings
@@ -146,7 +144,7 @@ class SdnveNeutronAgent(object):
             if out_of_band:
                 LOG.debug("info_update received. New controller"
                           "is set to be out of band")
-                self.int_br.set_db_attribute("controller",
+                self.int_br.set_db_attribute("Controller",
                                              self.int_bridge_name,
                                              "connection-mode",
                                              "out-of-band")
@@ -164,7 +162,7 @@ class SdnveNeutronAgent(object):
         :returns: the integration bridge
         '''
 
-        int_br = ovs_lib.OVSBridge(bridge_name, self.root_helper)
+        int_br = ovs_lib.OVSBridge(bridge_name)
         if reset_br:
             int_br.reset_bridge()
             int_br.remove_all_flows()
@@ -175,7 +173,7 @@ class SdnveNeutronAgent(object):
         if controller_ip:
             int_br.set_controller(["tcp:" + controller_ip])
         if out_of_band:
-            int_br.set_db_attribute("controller", bridge_name,
+            int_br.set_db_attribute("Controller", bridge_name,
                                     "connection-mode", "out-of-band")
 
         return int_br
@@ -193,7 +191,7 @@ class SdnveNeutronAgent(object):
                      {'physical_network': physical_network,
                       'interface': interface})
             # Connect the physical interface to the bridge
-            if not ip_lib.device_exists(interface, self.root_helper):
+            if not ip_lib.device_exists(interface):
                 LOG.error(_LE("Interface %(interface)s for physical network "
                               "%(physical_network)s does not exist. Agent "
                               "terminated!"),
@@ -241,7 +239,6 @@ def create_agent_config_map(config):
         'interface_mappings': interface_mappings,
         'controller_ip': controller_ip,
         'info': config.SDNVE.info,
-        'root_helper': config.SDNVE_AGENT.root_helper,
         'polling_interval': config.SDNVE_AGENT.polling_interval,
         'reset_br': config.SDNVE.reset_bridge,
         'out_of_band': config.SDNVE.out_of_band}

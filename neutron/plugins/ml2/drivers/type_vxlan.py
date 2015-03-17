@@ -13,8 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
-from oslo.db import exception as db_exc
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_log import log
 from six import moves
 import sqlalchemy as sa
 from sqlalchemy import sql
@@ -23,7 +24,6 @@ from neutron.common import exceptions as n_exc
 from neutron.db import api as db_api
 from neutron.db import model_base
 from neutron.i18n import _LE, _LW
-from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers import type_tunnel
 
@@ -120,9 +120,10 @@ class VxlanTypeDriver(type_tunnel.TunnelTypeDriver):
             chunked_vnis = (vnis_to_remove[i:i + bulk_size] for i in
                             range(0, len(vnis_to_remove), bulk_size))
             for vni_list in chunked_vnis:
-                session.query(VxlanAllocation).filter(
-                    VxlanAllocation.vxlan_vni.in_(vni_list)).delete(
-                        synchronize_session=False)
+                if vni_list:
+                    session.query(VxlanAllocation).filter(
+                        VxlanAllocation.vxlan_vni.in_(vni_list)).delete(
+                            synchronize_session=False)
             # collect vnis that need to be added
             vnis = list(vxlan_vnis - existing_vnis)
             chunked_vnis = (vnis[i:i + bulk_size] for i in

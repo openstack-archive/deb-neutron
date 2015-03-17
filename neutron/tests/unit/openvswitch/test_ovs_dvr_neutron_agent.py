@@ -15,8 +15,8 @@
 import contextlib
 
 import mock
-from oslo.config import cfg
-from oslo import messaging
+from oslo_config import cfg
+import oslo_messaging
 
 from neutron.agent.linux import utils
 from neutron.common import constants as n_const
@@ -300,7 +300,7 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
                     physical_network, segmentation_id, self._fixed_ips,
                     n_const.DEVICE_OWNER_DVR_INTERFACE, False)
                 lvm = self.agent.local_vlan_map[self._net_uuid]
-                expected_in_tun_br = [
+                expected_on_tun_br = [
                     mock.call(
                         table=constants.TUN_TABLE['vxlan'],
                         priority=1, tun_id=lvm.segmentation_id,
@@ -320,27 +320,27 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
                             self.agent.dvr_agent.dvr_mac_address,
                             constants.PATCH_LV_TO_TUN))]
                 if ip_version == 4:
-                    expected_in_tun_br.insert(1, mock.call(
+                    expected_on_tun_br.insert(1, mock.call(
                         proto='arp',
                         nw_dst=gateway_ip, actions='drop',
                         priority=3, table=constants.DVR_PROCESS,
                         dl_vlan=lvm.vlan))
                 else:
-                    expected_in_tun_br.insert(1, mock.call(
+                    expected_on_tun_br.insert(1, mock.call(
                         icmp_type=n_const.ICMPV6_TYPE_RA,
                         proto='icmp6',
                         dl_src=self._port.vif_mac,
                         actions='drop',
                         priority=3, table=constants.DVR_PROCESS,
                         dl_vlan=lvm.vlan))
-                self.assertEqual(expected_in_tun_br,
+                self.assertEqual(expected_on_tun_br,
                                  add_flow_tun_fn.call_args_list)
                 self.agent.port_bound(self._compute_port, self._net_uuid,
                                       network_type, physical_network,
                                       segmentation_id,
                                       self._compute_fixed_ips,
                                       device_owner, False)
-                expected_in_int_br = [
+                expected_on_int_br = [
                     mock.call(table=constants.DVR_TO_SRC_MAC, priority=4,
                         dl_dst=self._compute_port.vif_mac,
                         dl_vlan=lvm.vlan,
@@ -348,14 +348,14 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
                         "output:%s" %
                         (gateway_mac, self._compute_port.ofport))
                                 ]
-                self.assertEqual(expected_in_int_br,
+                self.assertEqual(expected_on_int_br,
                                  add_flow_int_fn.call_args_list)
                 self.assertFalse(add_flow_phys_fn.called)
-                expected_in_int_br = [
+                expected_on_int_br = [
                     mock.call(in_port=self._port.ofport),
                     mock.call(in_port=self._compute_port.ofport)
                                       ]
-                self.assertEqual(expected_in_int_br,
+                self.assertEqual(expected_on_int_br,
                                  delete_flows_int_fn.call_args_list)
                 self.assertFalse(add_flow_phys_fn.called)
                 self.assertFalse(delete_flows_tun_fn.called)
@@ -703,7 +703,7 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
         with contextlib.nested(
                 mock.patch.object(self.agent.dvr_agent.plugin_rpc,
                                'get_dvr_mac_address_by_host',
-                               side_effect=messaging.RemoteError),
+                               side_effect=oslo_messaging.RemoteError),
                 mock.patch.object(self.agent.dvr_agent.int_br,
                                   'add_flow')) as (gd_mac, add_int_flow_fn):
 
@@ -714,7 +714,7 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
 
     def test_get_dvr_mac_address_retried(self):
         valid_entry = {'host': 'cn1', 'mac_address': 'aa:22:33:44:55:66'}
-        raise_timeout = messaging.MessagingTimeout()
+        raise_timeout = oslo_messaging.MessagingTimeout()
         # Raise a timeout the first 2 times it calls get_dvr_mac_address()
         self._setup_for_dvr_test()
         self.agent.dvr_agent.dvr_mac_address = None
@@ -730,7 +730,7 @@ class TestOvsDvrNeutronAgent(base.BaseTestCase):
                              get_dvr_mac_address_by_host.call_count, 3)
 
     def test_get_dvr_mac_address_retried_max(self):
-        raise_timeout = messaging.MessagingTimeout()
+        raise_timeout = oslo_messaging.MessagingTimeout()
         # Raise a timeout every time until we give up, currently 5 tries
         self._setup_for_dvr_test()
         self.agent.dvr_agent.dvr_mac_address = None

@@ -18,10 +18,10 @@ import copy
 import datetime
 
 import mock
-from oslo.config import cfg
-from oslo.db import exception as db_exc
-from oslo import messaging
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+import oslo_messaging
+from oslo_utils import timeutils
 from webob import exc
 
 from neutron.api import extensions
@@ -32,6 +32,7 @@ from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron import context
 from neutron.db import agents_db
+from neutron.db import agentschedulers_db
 from neutron.db import l3_agentschedulers_db
 from neutron.extensions import agent
 from neutron.extensions import dhcpagentscheduler
@@ -478,6 +479,27 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
         self._delete('ports', port2['port']['id'])
         self.assertEqual(0, len(dhcp_agents['agents']))
 
+    def test_is_eligible_agent(self):
+        agent_startup = ('neutron.db.agentschedulers_db.'
+                         'DhcpAgentSchedulerDbMixin.agent_starting_up')
+        is_eligible_agent = ('neutron.db.agentschedulers_db.'
+                             'AgentSchedulerDbMixin.is_eligible_agent')
+        dhcp_mixin = agentschedulers_db.DhcpAgentSchedulerDbMixin()
+        with contextlib.nested(
+            mock.patch(agent_startup),
+            mock.patch(is_eligible_agent)
+        ) as (startup, elig):
+            tests = [(True, True),
+                     (True, False),
+                     (False, True),
+                     (False, False)]
+            for rv1, rv2 in tests:
+                startup.return_value = rv1
+                elig.return_value = rv2
+                self.assertEqual(rv1 or rv2,
+                                 dhcp_mixin.is_eligible_agent(None,
+                                                              None, None))
+
     def test_network_scheduler_with_down_agent(self):
         dhcp_hosta = {
             'binary': 'neutron-dhcp-agent',
@@ -488,17 +510,19 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                                },
             'agent_type': constants.AGENT_TYPE_DHCP}
         self._register_one_agent_state(dhcp_hosta)
-        is_agent_down_str = 'neutron.db.agents_db.AgentDbMixin.is_agent_down'
-        with mock.patch(is_agent_down_str) as mock_is_agent_down:
-            mock_is_agent_down.return_value = False
+        eligible_agent_str = ('neutron.db.agentschedulers_db.'
+                              'DhcpAgentSchedulerDbMixin.is_eligible_agent')
+        with mock.patch(eligible_agent_str) as eligible_agent:
+            eligible_agent.return_value = True
             with self.port() as port:
                 dhcp_agents = self._list_dhcp_agents_hosting_network(
                     port['port']['network_id'])
             self._delete('ports', port['port']['id'])
             self._delete('networks', port['port']['network_id'])
             self.assertEqual(1, len(dhcp_agents['agents']))
-        with mock.patch(is_agent_down_str) as mock_is_agent_down:
-            mock_is_agent_down.return_value = True
+
+        with mock.patch(eligible_agent_str) as eligible_agent:
+            eligible_agent.return_value = False
             with self.port() as port:
                 dhcp_agents = self._list_dhcp_agents_hosting_network(
                     port['port']['network_id'])
@@ -663,7 +687,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             mock.patch.object(
                 plugin, 'reschedule_router',
                 side_effect=[
-                    db_exc.DBError(), messaging.RemoteError(),
+                    db_exc.DBError(), oslo_messaging.RemoteError(),
                     l3agentscheduler.RouterReschedulingFailed(router_id='f',
                                                               agent_id='f'),
                     ValueError('this raises')
@@ -1150,6 +1174,16 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                 expected_code=exc.HTTPForbidden.code,
                 admin_context=False)
 
+    def test_list_routers_hosted_by_l3_agent_with_invalid_agent(self):
+        invalid_agentid = 'non_existing_agent'
+        self._list_routers_hosted_by_l3_agent(invalid_agentid,
+                                              exc.HTTPNotFound.code)
+
+    def test_list_networks_hosted_by_dhcp_agent_with_invalid_agent(self):
+        invalid_agentid = 'non_existing_agent'
+        self._list_networks_hosted_by_dhcp_agent(invalid_agentid,
+                                                 exc.HTTPNotFound.code)
+
 
 class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                                    test_agent_ext_plugin.AgentDBTestMixIn,
@@ -1256,6 +1290,11 @@ class OvsDhcpAgentNotifierTestCase(test_l3_plugin.L3NatTestCaseMixin,
                     'network_create_end',
                     {'network': {'id': net['network']['id']}},
                     host),
+                mock.call(
+                    mock.ANY,
+                    'subnet_create_end',
+                    subnet,
+                    host, 'dhcp_agent'),
                 mock.call(
                     mock.ANY,
                     'port_create_end',

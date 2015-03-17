@@ -12,14 +12,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from oslo import messaging
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as service_constants
 
 LOG = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class MeteringAgentNotifyAPI(object):
 
     def __init__(self, topic=topics.METERING_AGENT):
         self.topic = topic
-        target = messaging.Target(topic=topic, version='1.0')
+        target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
     def _agent_notification(self, context, method, routers):

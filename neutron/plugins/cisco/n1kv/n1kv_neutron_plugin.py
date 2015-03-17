@@ -13,10 +13,10 @@
 #    under the License.
 
 import eventlet
-
-from oslo.config import cfg as q_conf
-from oslo.utils import excutils
-from oslo.utils import importutils
+from oslo_config import cfg as q_conf
+from oslo_log import log as logging
+from oslo_utils import excutils
+from oslo_utils import importutils
 
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
@@ -37,7 +37,6 @@ from neutron.extensions import portbindings
 from neutron.extensions import providernet
 from neutron.i18n import _LW
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils as uuidutils
 from neutron.plugins.cisco.common import cisco_constants as c_const
 from neutron.plugins.cisco.common import cisco_credentials_v2 as c_cred
@@ -1297,10 +1296,6 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
                       self).delete_subnet(context, sub['id'])
         else:
             LOG.debug("Created subnet: %s", sub['id'])
-            if not q_conf.CONF.network_auto_schedule:
-                # Schedule network to a DHCP agent
-                net = self.get_network(context, sub['network_id'])
-                self.schedule_network(context, net)
             return sub
 
     def update_subnet(self, context, id, subnet):

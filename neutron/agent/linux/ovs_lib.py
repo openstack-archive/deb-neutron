@@ -17,17 +17,17 @@ import collections
 import itertools
 import operator
 
-from oslo.config import cfg
-from oslo.utils import excutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import excutils
 import retrying
 import six
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
-from neutron.agent import ovsdb
+from neutron.agent.ovsdb import api as ovsdb
 from neutron.common import exceptions
 from neutron.i18n import _LE, _LI, _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 
 # Default timeout for ovs-vsctl command
@@ -36,6 +36,9 @@ DEFAULT_OVS_VSCTL_TIMEOUT = 10
 # Special return value for an invalid OVS ofport
 INVALID_OFPORT = -1
 UNASSIGNED_OFPORT = []
+
+# OVS bridge fail modes
+FAILMODE_SECURE = 'secure'
 
 OPTS = [
     cfg.IntOpt('ovs_vsctl_timeout',
@@ -93,14 +96,13 @@ class VifPort(object):
 
 class BaseOVS(object):
 
-    def __init__(self, root_helper):
-        self.root_helper = root_helper
+    def __init__(self):
         self.vsctl_timeout = cfg.CONF.ovs_vsctl_timeout
         self.ovsdb = ovsdb.API.get(self)
 
     def add_bridge(self, bridge_name):
         self.ovsdb.add_br(bridge_name).execute()
-        return OVSBridge(bridge_name, self.root_helper)
+        return OVSBridge(bridge_name)
 
     def delete_bridge(self, bridge_name):
         self.ovsdb.del_br(bridge_name).execute()
@@ -135,8 +137,8 @@ class BaseOVS(object):
 
 
 class OVSBridge(BaseOVS):
-    def __init__(self, br_name, root_helper):
-        super(OVSBridge, self).__init__(root_helper)
+    def __init__(self, br_name):
+        super(OVSBridge, self).__init__()
         self.br_name = br_name
 
     def set_controller(self, controllers):
@@ -151,11 +153,11 @@ class OVSBridge(BaseOVS):
             check_error=True)
 
     def set_secure_mode(self):
-        self.ovsdb.set_fail_mode(self.br_name, 'secure').execute(
+        self.ovsdb.set_fail_mode(self.br_name, FAILMODE_SECURE).execute(
             check_error=True)
 
     def set_protocols(self, protocols):
-        self.set_db_attribute('bridge', self.br_name, 'protocols', protocols,
+        self.set_db_attribute('Bridge', self.br_name, 'protocols', protocols,
                               check_error=True)
 
     def create(self):
@@ -164,10 +166,13 @@ class OVSBridge(BaseOVS):
     def destroy(self):
         self.delete_bridge(self.br_name)
 
-    def reset_bridge(self):
+    def reset_bridge(self, secure_mode=False):
         with self.ovsdb.transaction() as txn:
             txn.add(self.ovsdb.del_br(self.br_name))
             txn.add(self.ovsdb.add_br(self.br_name))
+            if secure_mode:
+                txn.add(self.ovsdb.set_fail_mode(self.br_name,
+                                                 FAILMODE_SECURE))
 
     def add_port(self, port_name, *interface_attr_tuples):
         with self.ovsdb.transaction() as txn:
@@ -193,7 +198,7 @@ class OVSBridge(BaseOVS):
     def run_ofctl(self, cmd, args, process_input=None):
         full_args = ["ovs-ofctl", cmd, self.br_name] + args
         try:
-            return utils.execute(full_args, root_helper=self.root_helper,
+            return utils.execute(full_args, run_as_root=True,
                                  process_input=process_input)
         except Exception as e:
             LOG.error(_LE("Unable to execute %(cmd)s. Exception: "
@@ -288,7 +293,7 @@ class OVSBridge(BaseOVS):
         args = ["xe", "vif-param-get", "param-name=other-config",
                 "param-key=nicira-iface-id", "uuid=%s" % xs_vif_uuid]
         try:
-            return utils.execute(args, root_helper=self.root_helper).strip()
+            return utils.execute(args, run_as_root=True).strip()
         except Exception as e:
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("Unable to execute %(cmd)s. "
@@ -392,7 +397,7 @@ class OVSBridge(BaseOVS):
 
     def get_local_port_mac(self):
         """Retrieve the mac of the bridge's local port."""
-        address = ip_lib.IPDevice(self.br_name, self.root_helper).link.address
+        address = ip_lib.IPDevice(self.br_name).link.address
         if address:
             return address
         else:

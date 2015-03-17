@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from oslo import messaging
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
@@ -21,7 +22,6 @@ from neutron.common import topics
 from neutron.common import utils
 from neutron.i18n import _LE, _LW
 from neutron import manager
-from neutron.openstack.common import log as logging
 
 
 LOG = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class DhcpAgentNotifyAPI(object):
 
     def __init__(self, topic=topics.DHCP_AGENT, plugin=None):
         self._plugin = plugin
-        target = messaging.Target(topic=topic, version='1.0')
+        target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
     @property
@@ -70,8 +70,8 @@ class DhcpAgentNotifyAPI(object):
                     {'network': {'id': network['id']}}, agent['host'])
         elif not existing_agents:
             LOG.warn(_LW('Unable to schedule network %s: no agents available; '
-                         'will retry on subsequent port creation events.'),
-                     network['id'])
+                         'will retry on subsequent port and subnet creation '
+                         'events.'), network['id'])
         return new_agents + existing_agents
 
     def _get_enabled_agents(self, context, network, agents, method, payload):
@@ -126,6 +126,7 @@ class DhcpAgentNotifyAPI(object):
 
             # schedule the network first, if needed
             schedule_required = (
+                method == 'subnet_create_end' or
                 method == 'port_create_end' and
                 not self._is_reserved_dhcp_port(payload['port']))
             if schedule_required:

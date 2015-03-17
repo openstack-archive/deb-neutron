@@ -15,71 +15,123 @@
 
 import fcntl
 import glob
+import httplib
 import os
 import shlex
 import socket
 import struct
 import tempfile
+import threading
 
+import eventlet
 from eventlet.green import subprocess
 from eventlet import greenthread
-from oslo.utils import excutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_log import loggers
+from oslo_rootwrap import client
+from oslo_utils import excutils
 
+from neutron.agent.common import config
 from neutron.common import constants
 from neutron.common import utils
 from neutron.i18n import _LE
-from neutron.openstack.common import log as logging
+from neutron import wsgi
 
 
 LOG = logging.getLogger(__name__)
+config.register_root_helper(cfg.CONF)
 
 
-def create_process(cmd, root_helper=None, addl_env=None):
+class RootwrapDaemonHelper(object):
+    __client = None
+    __lock = threading.Lock()
+
+    def __new__(cls):
+        """There is no reason to instantiate this class"""
+        raise NotImplementedError()
+
+    @classmethod
+    def get_client(cls):
+        with cls.__lock:
+            if cls.__client is None:
+                cls.__client = client.Client(
+                    shlex.split(cfg.CONF.AGENT.root_helper_daemon))
+            return cls.__client
+
+
+def addl_env_args(addl_env):
+    """Build arugments for adding additional environment vars with env"""
+
+    # NOTE (twilson) If using rootwrap, an EnvFilter should be set up for the
+    # command instead of a CommandFilter.
+    if addl_env is None:
+        return []
+    return ['env'] + ['%s=%s' % pair for pair in addl_env.items()]
+
+
+def create_process(cmd, run_as_root=False, addl_env=None):
     """Create a process object for the given command.
 
     The return value will be a tuple of the process object and the
     list of command arguments used to create it.
     """
-    if root_helper:
-        cmd = shlex.split(root_helper) + cmd
-    cmd = map(str, cmd)
-
+    cmd = map(str, addl_env_args(addl_env) + cmd)
+    if run_as_root:
+        cmd = shlex.split(config.get_root_helper(cfg.CONF)) + cmd
     LOG.debug("Running command: %s", cmd)
-    env = os.environ.copy()
-    if addl_env:
-        env.update(addl_env)
-
     obj = utils.subprocess_popen(cmd, shell=False,
                                  stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,
-                                 env=env)
+                                 stderr=subprocess.PIPE)
 
     return obj, cmd
 
 
-def execute(cmd, root_helper=None, process_input=None, addl_env=None,
+def execute_rootwrap_daemon(cmd, process_input, addl_env):
+    cmd = map(str, addl_env_args(addl_env) + cmd)
+    # NOTE(twilson) oslo_rootwrap.daemon will raise on filter match
+    # errors, whereas oslo_rootwrap.cmd converts them to return codes.
+    # In practice, no neutron code should be trying to execute something that
+    # would throw those errors, and if it does it should be fixed as opposed to
+    # just logging the execution error.
+    LOG.debug("Running command (rootwrap daemon): %s", cmd)
+    client = RootwrapDaemonHelper.get_client()
+    return client.execute(cmd, process_input)
+
+
+def execute(cmd, process_input=None, addl_env=None,
             check_exit_code=True, return_stderr=False, log_fail_as_error=True,
-            extra_ok_codes=None):
+            extra_ok_codes=None, run_as_root=False):
     try:
-        obj, cmd = create_process(cmd, root_helper=root_helper,
-                                  addl_env=addl_env)
-        _stdout, _stderr = obj.communicate(process_input)
-        obj.stdin.close()
-        m = _("\nCommand: %(cmd)s\nExit code: %(code)s\nStdout: %(stdout)s\n"
-              "Stderr: %(stderr)s") % {'cmd': cmd, 'code': obj.returncode,
-                                       'stdout': _stdout, 'stderr': _stderr}
+        if run_as_root and cfg.CONF.AGENT.root_helper_daemon:
+            returncode, _stdout, _stderr = (
+                execute_rootwrap_daemon(cmd, process_input, addl_env))
+        else:
+            obj, cmd = create_process(cmd, run_as_root=run_as_root,
+                                      addl_env=addl_env)
+            _stdout, _stderr = obj.communicate(process_input)
+            returncode = obj.returncode
+            obj.stdin.close()
+
+        m = _("\nCommand: {cmd}\nExit code: {code}\nStdin: {stdin}\n"
+              "Stdout: {stdout}\nStderr: {stderr}").format(
+                  cmd=cmd,
+                  code=returncode,
+                  stdin=process_input or '',
+                  stdout=_stdout,
+                  stderr=_stderr)
 
         extra_ok_codes = extra_ok_codes or []
-        if obj.returncode and obj.returncode in extra_ok_codes:
-            obj.returncode = None
+        if returncode and returncode in extra_ok_codes:
+            returncode = None
 
-        if obj.returncode and log_fail_as_error:
+        if returncode and log_fail_as_error:
             LOG.error(m)
         else:
             LOG.debug(m)
 
-        if obj.returncode and check_exit_code:
+        if returncode and check_exit_code:
             raise RuntimeError(m)
     finally:
         # NOTE(termie): this appears to be necessary to let the subprocess
@@ -180,7 +232,7 @@ def remove_conf_files(cfg_root, uuid):
         os.unlink(file_path)
 
 
-def get_root_helper_child_pid(pid, root_helper=None):
+def get_root_helper_child_pid(pid, run_as_root=False):
     """
     Get the lowest child pid in the process hierarchy
 
@@ -195,7 +247,7 @@ def get_root_helper_child_pid(pid, root_helper=None):
     die is to target the child process directly.
     """
     pid = str(pid)
-    if root_helper:
+    if run_as_root:
         try:
             pid = find_child_pids(pid)[0]
         except IndexError:
@@ -210,3 +262,121 @@ def get_root_helper_child_pid(pid, root_helper=None):
                 # Last process in the tree, return it
                 break
     return pid
+
+
+def remove_abs_path(cmd):
+    """Remove absolute path of executable in cmd
+
+    Note: New instance of list is returned
+
+    :param cmd: parsed shlex command (e.g. ['/bin/foo', 'param1', 'param two'])
+
+    """
+    if cmd and os.path.isabs(cmd[0]):
+        cmd = list(cmd)
+        cmd[0] = os.path.basename(cmd[0])
+
+    return cmd
+
+
+def get_cmdline_from_pid(pid):
+    if pid is None or not os.path.exists('/proc/%s' % pid):
+        return []
+    with open('/proc/%s/cmdline' % pid, 'r') as f:
+        return f.readline().split('\0')[:-1]
+
+
+def cmdlines_are_equal(cmd1, cmd2):
+    """Validate provided lists containing output of /proc/cmdline are equal
+
+    This function ignores absolute paths of executables in order to have
+    correct results in case one list uses absolute path and the other does not.
+    """
+    cmd1 = remove_abs_path(cmd1)
+    cmd2 = remove_abs_path(cmd2)
+    return cmd1 == cmd2
+
+
+def pid_invoked_with_cmdline(pid, expected_cmd):
+    """Validate process with given pid is running with provided parameters
+
+    """
+    cmdline = get_cmdline_from_pid(pid)
+    return cmdlines_are_equal(expected_cmd, cmdline)
+
+
+def wait_until_true(predicate, timeout=60, sleep=1, exception=None):
+    """
+    Wait until callable predicate is evaluated as True
+
+    :param predicate: Callable deciding whether waiting should continue.
+    Best practice is to instantiate predicate with functools.partial()
+    :param timeout: Timeout in seconds how long should function wait.
+    :param sleep: Polling interval for results in seconds.
+    :param exception: Exception class for eventlet.Timeout.
+    (see doc for eventlet.Timeout for more information)
+    """
+    with eventlet.timeout.Timeout(timeout, exception):
+        while not predicate():
+            eventlet.sleep(sleep)
+
+
+def ensure_directory_exists_without_file(path):
+    dirname = os.path.dirname(path)
+    if os.path.isdir(dirname):
+        try:
+            os.unlink(path)
+        except OSError:
+            with excutils.save_and_reraise_exception() as ctxt:
+                if not os.path.exists(path):
+                    ctxt.reraise = False
+    else:
+        ensure_dir(dirname)
+
+
+class UnixDomainHTTPConnection(httplib.HTTPConnection):
+    """Connection class for HTTP over UNIX domain socket."""
+    def __init__(self, host, port=None, strict=None, timeout=None,
+                 proxy_info=None):
+        httplib.HTTPConnection.__init__(self, host, port, strict)
+        self.timeout = timeout
+        self.socket_path = cfg.CONF.metadata_proxy_socket
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if self.timeout:
+            self.sock.settimeout(self.timeout)
+        self.sock.connect(self.socket_path)
+
+
+class UnixDomainHttpProtocol(eventlet.wsgi.HttpProtocol):
+    def __init__(self, request, client_address, server):
+        if client_address == '':
+            client_address = ('<local>', 0)
+        # base class is old-style, so super does not work properly
+        eventlet.wsgi.HttpProtocol.__init__(self, request, client_address,
+                                            server)
+
+
+class UnixDomainWSGIServer(wsgi.Server):
+    def __init__(self, name):
+        self._socket = None
+        self._launcher = None
+        self._server = None
+        super(UnixDomainWSGIServer, self).__init__(name)
+
+    def start(self, application, file_socket, workers, backlog):
+        self._socket = eventlet.listen(file_socket,
+                                       family=socket.AF_UNIX,
+                                       backlog=backlog)
+
+        self._launch(application, workers=workers)
+
+    def _run(self, application, socket):
+        """Start a WSGI service in a new green thread."""
+        logger = logging.getLogger('eventlet.wsgi.server')
+        eventlet.wsgi.server(socket,
+                             application,
+                             max_size=self.num_threads,
+                             protocol=UnixDomainHttpProtocol,
+                             log=loggers.WritableLogger(logger))

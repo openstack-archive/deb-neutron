@@ -14,7 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 DHCP_AGENT_OPTS = [
     cfg.IntOpt('resync_interval', default=5,
@@ -29,11 +29,7 @@ DHCP_AGENT_OPTS = [
                        "dedicated network. Requires "
                        "enable_isolated_metadata = True")),
     cfg.IntOpt('num_sync_threads', default=4,
-               help=_('Number of threads to use during sync process.')),
-    cfg.StrOpt('metadata_proxy_socket',
-               default='$state_path/metadata_proxy',
-               help=_('Location of Metadata Proxy UNIX domain '
-                      'socket')),
+               help=_('Number of threads to use during sync process.'))
 ]
 
 DHCP_OPTS = [

@@ -13,13 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron.common import constants as const
 from neutron import context as n_context
 from neutron.db import api as db_api
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers.l2pop import config  # noqa
@@ -107,7 +107,7 @@ class L2populationMechanismDriver(api.MechanismDriver,
             context.status == const.PORT_STATUS_ACTIVE):
             LOG.warning(_LW("unable to modify mac_address of ACTIVE port "
                             "%s"), port['id'])
-            raise ml2_exc.MechansimDriverError(method='update_port_postcommit')
+            raise ml2_exc.MechanismDriverError(method='update_port_postcommit')
         diff_ips = self._get_diff_ips(orig, port)
         if diff_ips:
             self._fixed_ips_changed(context, orig, port, diff_ips)
@@ -185,9 +185,9 @@ class L2populationMechanismDriver(api.MechanismDriver,
                               'network_type': segment['network_type'],
                               'ports': {}}}
         tunnel_network_ports = (
-            self.get_dvr_network_ports(session, network_id).all())
+            self.get_dvr_active_network_ports(session, network_id).all())
         fdb_network_ports = (
-            self.get_nondvr_network_ports(session, network_id).all())
+            self.get_nondvr_active_network_ports(session, network_id).all())
         ports = agent_fdb_entries[network_id]['ports']
         ports.update(self._get_tunnels(
             fdb_network_ports + tunnel_network_ports,

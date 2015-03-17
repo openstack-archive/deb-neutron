@@ -14,7 +14,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 from midonet.neutron import plugin
 
@@ -36,6 +36,9 @@ midonet_opts = [
 cfg.CONF.register_opts(midonet_opts, "MIDONET")
 
 
+# Derives from `object` (via at least NeutronDbPluginV2), but pylint
+# can't see that without having the midonet libraries available.
+# pylint: disable=super-on-old-class
 class MidonetPluginV2(plugin.MidonetMixin):
 
     vendor_extensions = plugin.MidonetMixin.supported_extension_aliases

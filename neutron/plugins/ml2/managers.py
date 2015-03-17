@@ -13,7 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log
 import stevedore
 
 from neutron.api.v2 import attributes
@@ -22,12 +23,14 @@ from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
+from neutron.plugins.ml2 import models
 
 LOG = log.getLogger(__name__)
+
+MAX_BINDING_LEVELS = 10
 
 
 class TypeManager(stevedore.named.NamedExtensionManager):
@@ -86,10 +89,6 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         msg = _("network_type required")
         raise exc.InvalidInput(error_message=msg)
 
-    def _get_segment_attributes(self, network):
-        return {attr: self._get_attribute(network, attr)
-                for attr in provider.ATTRIBUTES}
-
     def _process_provider_create(self, network):
         if any(attributes.is_attr_set(network.get(attr))
                for attr in provider.ATTRIBUTES):
@@ -97,9 +96,8 @@ class TypeManager(stevedore.named.NamedExtensionManager):
             # at the same time.
             if attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
                 raise mpnet.SegmentsSetInConjunctionWithProviders()
-
-            segments = [self._get_segment_attributes(network)]
-            return [self._process_provider_segment(s) for s in segments]
+            segment = self._get_provider_segment(network)
+            return [self._process_provider_segment(segment)]
         elif attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
             segments = [self._process_provider_segment(s)
                         for s in network[mpnet.SEGMENTS]]
@@ -108,13 +106,38 @@ class TypeManager(stevedore.named.NamedExtensionManager):
                 self.is_partial_segment)
             return segments
 
+    def _match_segment(self, segment, filters):
+        return all(not filters.get(attr) or segment.get(attr) in filters[attr]
+                   for attr in provider.ATTRIBUTES)
+
+    def _get_provider_segment(self, network):
+        # TODO(manishg): Placeholder method
+        # Code intended for operating on a provider segment should use
+        # this method to extract the segment, even though currently the
+        # segment attributes are part of the network dictionary. In the
+        # future, network and segment information will be decoupled and
+        # here we will do the job of extracting the segment information.
+        return network
+
+    def network_matches_filters(self, network, filters):
+        if not filters:
+            return True
+        if any(attributes.is_attr_set(network.get(attr))
+               for attr in provider.ATTRIBUTES):
+            segments = [self._get_provider_segment(network)]
+        elif attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
+            segments = self._get_attribute(network, mpnet.SEGMENTS)
+        else:
+            return True
+        return any(self._match_segment(s, filters) for s in segments)
+
     def _get_attribute(self, attrs, key):
         value = attrs.get(key)
         if value is attributes.ATTR_NOT_SPECIFIED:
             value = None
         return value
 
-    def _extend_network_dict_provider(self, context, network):
+    def extend_network_dict_provider(self, context, network):
         id = network['id']
         segments = db.get_network_segments(context.session, id)
         if not segments:
@@ -558,30 +581,71 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         binding = context._binding
         LOG.debug("Attempting to bind port %(port)s on host %(host)s "
                   "for vnic_type %(vnic_type)s with profile %(profile)s",
-                  {'port': context._port['id'],
-                   'host': binding.host,
+                  {'port': context.current['id'],
+                   'host': context.host,
                    'vnic_type': binding.vnic_type,
                    'profile': binding.profile})
+        context._clear_binding_levels()
+        if not self._bind_port_level(context, 0,
+                                     context.network.network_segments):
+            binding.vif_type = portbindings.VIF_TYPE_BINDING_FAILED
+            LOG.error(_LE("Failed to bind port %(port)s on host %(host)s"),
+                      {'port': context.current['id'],
+                       'host': context.host})
+
+    def _bind_port_level(self, context, level, segments_to_bind):
+        binding = context._binding
+        port_id = context._port['id']
+        LOG.debug("Attempting to bind port %(port)s on host %(host)s "
+                  "at level %(level)s using segments %(segments)s",
+                  {'port': port_id,
+                   'host': context.host,
+                   'level': level,
+                   'segments': segments_to_bind})
+
+        if level == MAX_BINDING_LEVELS:
+            LOG.error(_LE("Exceeded maximum binding levels attempting to bind "
+                        "port %(port)s on host %(host)s"),
+                      {'port': context.current['id'],
+                       'host': context.host})
+            return False
+
         for driver in self.ordered_mech_drivers:
+            if not self._check_driver_to_bind(driver, segments_to_bind,
+                                              context._binding_levels):
+                continue
             try:
+                context._prepare_to_bind(segments_to_bind)
                 driver.obj.bind_port(context)
-                if binding.segment:
-                    binding.driver = driver.name
-                    LOG.debug("Bound port: %(port)s, host: %(host)s, "
-                              "vnic_type: %(vnic_type)s, "
-                              "profile: %(profile)s, "
-                              "driver: %(driver)s, vif_type: %(vif_type)s, "
-                              "vif_details: %(vif_details)s, "
-                              "segment: %(segment)s",
-                              {'port': context._port['id'],
-                               'host': binding.host,
-                               'vnic_type': binding.vnic_type,
-                               'profile': binding.profile,
-                               'driver': binding.driver,
-                               'vif_type': binding.vif_type,
-                               'vif_details': binding.vif_details,
-                               'segment': binding.segment})
-                    return
+                segment = context._new_bound_segment
+                if segment:
+                    context._push_binding_level(
+                        models.PortBindingLevel(port_id=port_id,
+                                                host=context.host,
+                                                level=level,
+                                                driver=driver.name,
+                                                segment_id=segment))
+                    next_segments = context._next_segments_to_bind
+                    if next_segments:
+                        # Continue binding another level.
+                        if self._bind_port_level(context, level + 1,
+                                                 next_segments):
+                            return True
+                        else:
+                            context._pop_binding_level()
+                    else:
+                        # Binding complete.
+                        LOG.debug("Bound port: %(port)s, "
+                                  "host: %(host)s, "
+                                  "vif_type: %(vif_type)s, "
+                                  "vif_details: %(vif_details)s, "
+                                  "binding_levels: %(binding_levels)s",
+                                  {'port': port_id,
+                                   'host': context.host,
+                                   'vif_type': binding.vif_type,
+                                   'vif_details': binding.vif_details,
+                                   'binding_levels': context.binding_levels})
+                        return True
             except Exception:
                 LOG.exception(_LE("Mechanism driver %s failed in "
                                   "bind_port"),
@@ -590,6 +654,18 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         LOG.error(_LE("Failed to bind port %(port)s on host %(host)s"),
                   {'port': context._port['id'],
                    'host': binding.host})
+
+    def _check_driver_to_bind(self, driver, segments_to_bind, binding_levels):
+        # To prevent a possible binding loop, don't try to bind with
+        # this driver if the same driver has already bound at a higher
+        # level to one of the segments we are currently trying to
+        # bind. Note that is is OK for the same driver to bind at
+        # multiple levels using different segments.
+        for level in binding_levels:
+            if (level.driver == driver and
+                level.segment_id in segments_to_bind):
+                return False
+        return True
 
 
 class ExtensionManager(stevedore.named.NamedExtensionManager):
@@ -635,62 +711,64 @@ class ExtensionManager(stevedore.named.NamedExtensionManager):
                      {'alias': alias, 'drv': driver.name})
         return exts
 
-    def _call_on_ext_drivers(self, method_name, session, data, result):
+    def _call_on_ext_drivers(self, method_name, plugin_context, data, result):
         """Helper method for calling a method across all extension drivers."""
         for driver in self.ordered_ext_drivers:
             try:
-                getattr(driver.obj, method_name)(session, data, result)
+                getattr(driver.obj, method_name)(plugin_context, data, result)
             except Exception:
                 LOG.exception(
                     _LE("Extension driver '%(name)s' failed in %(method)s"),
                     {'name': driver.name, 'method': method_name}
                 )
 
-    def process_create_network(self, session, data, result):
+    def process_create_network(self, plugin_context, data, result):
         """Notify all extension drivers during network creation."""
-        self._call_on_ext_drivers("process_create_network", session, data,
-                                  result)
+        self._call_on_ext_drivers("process_create_network", plugin_context,
+                                  data, result)
 
-    def process_update_network(self, session, data, result):
+    def process_update_network(self, plugin_context, data, result):
         """Notify all extension drivers during network update."""
-        self._call_on_ext_drivers("process_update_network", session, data,
-                                  result)
+        self._call_on_ext_drivers("process_update_network", plugin_context,
+                                  data, result)
 
-    def process_create_subnet(self, session, data, result):
+    def process_create_subnet(self, plugin_context, data, result):
         """Notify all extension drivers during subnet creation."""
-        self._call_on_ext_drivers("process_create_subnet", session, data,
-                                  result)
+        self._call_on_ext_drivers("process_create_subnet", plugin_context,
+                                  data, result)
 
-    def process_update_subnet(self, session, data, result):
+    def process_update_subnet(self, plugin_context, data, result):
         """Notify all extension drivers during subnet update."""
-        self._call_on_ext_drivers("process_update_subnet", session, data,
-                                  result)
+        self._call_on_ext_drivers("process_update_subnet", plugin_context,
+                                  data, result)
 
-    def process_create_port(self, session, data, result):
+    def process_create_port(self, plugin_context, data, result):
         """Notify all extension drivers during port creation."""
-        self._call_on_ext_drivers("process_create_port", session, data, result)
+        self._call_on_ext_drivers("process_create_port", plugin_context,
+                                  data, result)
 
-    def process_update_port(self, session, data, result):
+    def process_update_port(self, plugin_context, data, result):
         """Notify all extension drivers during port update."""
-        self._call_on_ext_drivers("process_update_port", session, data, result)
+        self._call_on_ext_drivers("process_update_port", plugin_context,
+                                  data, result)
 
-    def extend_network_dict(self, session, result):
+    def extend_network_dict(self, session, base_model, result):
         """Notify all extension drivers to extend network dictionary."""
         for driver in self.ordered_ext_drivers:
-            driver.obj.extend_network_dict(session, result)
+            driver.obj.extend_network_dict(session, base_model, result)
             LOG.info(_LI("Extended network dict for driver '%(drv)s'"),
                      {'drv': driver.name})
 
-    def extend_subnet_dict(self, session, result):
+    def extend_subnet_dict(self, session, base_model, result):
         """Notify all extension drivers to extend subnet dictionary."""
         for driver in self.ordered_ext_drivers:
-            driver.obj.extend_subnet_dict(session, result)
+            driver.obj.extend_subnet_dict(session, base_model, result)
             LOG.info(_LI("Extended subnet dict for driver '%(drv)s'"),
                      {'drv': driver.name})
 
-    def extend_port_dict(self, session, result):
+    def extend_port_dict(self, session, base_model, result):
         """Notify all extension drivers to extend port dictionary."""
         for driver in self.ordered_ext_drivers:
-            driver.obj.extend_port_dict(session, result)
+            driver.obj.extend_port_dict(session, base_model, result)
             LOG.info(_LI("Extended port dict for driver '%(drv)s'"),
                      {'drv': driver.name})

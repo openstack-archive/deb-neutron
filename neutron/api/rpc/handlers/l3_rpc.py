@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from oslo.config import cfg
-from oslo import messaging
-from oslo.serialization import jsonutils
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_serialization import jsonutils
 
 from neutron.common import constants
 from neutron.common import exceptions
@@ -25,7 +26,6 @@ from neutron.extensions import l3
 from neutron.extensions import portbindings
 from neutron.i18n import _LE
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as plugin_constants
 
 
@@ -40,7 +40,7 @@ class L3RpcCallback(object):
     # 1.2 Added methods for DVR support
     # 1.3 Added a method that returns the list of activated services
     # 1.4 Added L3 HA update_router_state
-    target = messaging.Target(version='1.4')
+    target = oslo_messaging.Target(version='1.4')
 
     @property
     def plugin(self):
@@ -208,28 +208,6 @@ class L3RpcCallback(object):
                   'host %(host)s', {'agent_port': agent_port,
                   'host': host})
         return agent_port
-
-    def get_snat_router_interface_ports(self, context, **kwargs):
-        """Get SNAT serviced Router Port List.
-
-        The Service Node that hosts the SNAT service requires
-        the ports to service the router interfaces.
-        This function will check if any available ports, if not
-        it will create ports on the routers interfaces and
-        will send a list to the L3 agent.
-        """
-        router_id = kwargs.get('router_id')
-        host = kwargs.get('host')
-        admin_ctx = neutron_context.get_admin_context()
-        snat_port_list = (
-            self.l3plugin.create_snat_intf_port_list_if_not_exists(
-                admin_ctx, router_id))
-        for p in snat_port_list:
-            self._ensure_host_set_on_port(admin_ctx, host, p)
-        LOG.debug('SNAT interface ports returned : %(snat_port_list)s '
-                  'and on host %(host)s', {'snat_port_list': snat_port_list,
-                  'host': host})
-        return snat_port_list
 
     def update_router_state(self, context, **kwargs):
         router_id = kwargs.get('router_id')

@@ -21,8 +21,9 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
-from oslo.config import cfg
-from oslo import messaging
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
@@ -32,7 +33,6 @@ from neutron.common import topics
 from neutron.common import utils as q_utils
 from neutron import context
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.sriovnicagent.common import config  # noqa
 from neutron.plugins.sriovnicagent.common import exceptions as exc
@@ -47,7 +47,7 @@ class SriovNicSwitchRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
     # Set RPC API version to 1.0 by default.
     # history
     #   1.1 Support Security Group RPC
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
     def __init__(self, context, agent, sg_agent):
         super(SriovNicSwitchRpcCallbacks, self).__init__()
@@ -68,10 +68,9 @@ class SriovNicSwitchRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
 class SriovNicSwitchAgent(object):
     def __init__(self, physical_devices_mappings, exclude_devices,
-                 polling_interval, root_helper):
+                 polling_interval):
 
         self.polling_interval = polling_interval
-        self.root_helper = root_helper
         self.setup_eswitch_mgr(physical_devices_mappings,
                                exclude_devices)
         configurations = {'device_mappings': physical_devices_mappings}
@@ -90,7 +89,7 @@ class SriovNicSwitchAgent(object):
         self.plugin_rpc = agent_rpc.PluginApi(topics.PLUGIN)
         self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
         self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
-                self.sg_plugin_rpc, self.root_helper)
+                self.sg_plugin_rpc)
         self._setup_rpc()
         # Initialize iteration counter
         self.iter_num = 0
@@ -130,9 +129,7 @@ class SriovNicSwitchAgent(object):
             LOG.exception(_LE("Failed reporting state!"))
 
     def setup_eswitch_mgr(self, device_mappings, exclude_devices={}):
-        self.eswitch_mgr = esm.ESwitchManager(device_mappings,
-                                              exclude_devices,
-                                              self.root_helper)
+        self.eswitch_mgr = esm.ESwitchManager(device_mappings, exclude_devices)
 
     def scan_devices(self, registered_devices, updated_devices):
         curr_devices = self.eswitch_mgr.get_assigned_devices()
@@ -337,12 +334,10 @@ def main():
     LOG.info(_LI("Exclude Devices: %s"), exclude_devices)
 
     polling_interval = cfg.CONF.AGENT.polling_interval
-    root_helper = cfg.CONF.AGENT.root_helper
     try:
         agent = SriovNicSwitchAgent(device_mappings,
                                     exclude_devices,
-                                    polling_interval,
-                                    root_helper)
+                                    polling_interval)
     except exc.SriovNicError:
         LOG.exception(_LE("Agent Initialization Failed"))
         raise SystemExit(1)

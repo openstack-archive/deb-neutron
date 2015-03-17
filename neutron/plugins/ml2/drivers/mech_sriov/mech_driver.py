@@ -14,12 +14,12 @@
 # limitations under the License.
 
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log
 
 from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.i18n import _LE, _LW
-from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers.mech_sriov import exceptions as exc

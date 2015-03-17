@@ -13,15 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-
-from oslo import messaging
-from oslo.utils import excutils
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_utils import excutils
 
 from neutron.api.rpc.handlers import dvr_rpc
 from neutron.common import constants as n_const
 from neutron.common import utils as n_utils
 from neutron.i18n import _LE, _LI, _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.openvswitch.common import constants
 
@@ -155,12 +154,12 @@ class OVSDVRNeutronAgent(dvr_rpc.DVRAgentRpcApiMixin):
     def get_dvr_mac_address(self):
         try:
             self.get_dvr_mac_address_with_retry()
-        except messaging.RemoteError as e:
+        except oslo_messaging.RemoteError as e:
             LOG.warning(_LW('L2 agent could not get DVR MAC address at '
                             'startup due to RPC error.  It happens when the '
                             'server does not support this RPC API.  Detailed '
                             'message: %s'), e)
-        except messaging.MessagingTimeout:
+        except oslo_messaging.MessagingTimeout:
             LOG.error(_LE('DVR: Failed to obtain a valid local '
                           'DVR MAC address - L2 Agent operating '
                           'in Non-DVR Mode'))
@@ -178,7 +177,7 @@ class OVSDVRNeutronAgent(dvr_rpc.DVRAgentRpcApiMixin):
             try:
                 details = self.plugin_rpc.get_dvr_mac_address_by_host(
                     self.context, self.host)
-            except messaging.MessagingTimeout as e:
+            except oslo_messaging.MessagingTimeout as e:
                 with excutils.save_and_reraise_exception() as ctx:
                     if retry_count > 0:
                         ctx.reraise = False
@@ -295,7 +294,7 @@ class OVSDVRNeutronAgent(dvr_rpc.DVRAgentRpcApiMixin):
                 self.phys_brs[physical_network].add_flow(
                     table=constants.DVR_NOT_LEARN_VLAN,
                     priority=2,
-                    dl_src=mac,
+                    dl_src=mac['mac_address'],
                     actions="output:%s" %
                     self.phys_ofports[physical_network])
 
@@ -313,7 +312,7 @@ class OVSDVRNeutronAgent(dvr_rpc.DVRAgentRpcApiMixin):
                 # result in flow explosions
                 self.tun_br.add_flow(table=constants.DVR_NOT_LEARN,
                                  priority=1,
-                                 dl_src=mac,
+                                 dl_src=mac['mac_address'],
                                  actions="output:%s" %
                                  self.patch_int_ofport)
             self.registered_dvr_macs.add(mac['mac_address'])
@@ -797,27 +796,6 @@ class OVSDVRNeutronAgent(dvr_rpc.DVRAgentRpcApiMixin):
             self.local_dvr_map.pop(sub_uuid, None)
         # release port state
         self.local_ports.pop(port.vif_id, None)
-
-    def _get_flow_args_by_version(self, ip_version, table,
-                                  vlan, subnet, priority, actions):
-        """
-        Get flow args for DVR by IP version.
-        priority and actions are optional to support both add_flows
-        and delete_flows
-        """
-        args = {'table': table,
-                'dl_vlan': vlan}
-        if ip_version == 4:
-            args['proto'] = 'ip'
-            args['nw_dst'] = subnet
-        else:
-            args['proto'] = 'ipv6'
-            args['ipv6_dst'] = subnet
-        if priority:
-            args['priority'] = priority
-        if actions:
-            args['actions'] = actions
-        return args
 
     def unbind_port_from_dvr(self, vif_port, local_vlan_map):
         if not self.in_distributed_mode():

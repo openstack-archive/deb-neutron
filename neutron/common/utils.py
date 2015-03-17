@@ -31,12 +31,12 @@ import socket
 import uuid
 
 from eventlet.green import subprocess
-from oslo.config import cfg
-from oslo.utils import excutils
 from oslo_concurrency import lockutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import excutils
 
 from neutron.common import constants as q_const
-from neutron.openstack.common import log as logging
 
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"

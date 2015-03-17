@@ -15,12 +15,10 @@
 import sys
 import time
 
-import eventlet
-eventlet.monkey_patch()
-
-from oslo.config import cfg
-from oslo import messaging
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_utils import importutils
 
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
@@ -32,7 +30,6 @@ from neutron.common import utils
 from neutron import context
 from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import periodic_task
 from neutron.openstack.common import service
@@ -50,7 +47,8 @@ class MeteringPluginRpc(object):
         # it's actually necessary to initialize parent classes of
         # manager.Manager correctly.
         super(MeteringPluginRpc, self).__init__()
-        target = messaging.Target(topic=topics.METERING_PLUGIN, version='1.0')
+        target = oslo_messaging.Target(topic=topics.METERING_PLUGIN,
+                                       version='1.0')
         self.client = n_rpc.get_client(target)
 
     def _get_sync_data_metering(self, context):
@@ -78,7 +76,6 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     def __init__(self, host, conf=None):
         self.conf = conf or cfg.CONF
         self._load_drivers()
-        self.root_helper = config.get_root_helper(self.conf)
         self.context = context.get_admin_context_without_session()
         self.metering_info = {}
         self.metering_loop = loopingcall.FixedIntervalLoopingCall(
@@ -285,7 +282,6 @@ def main():
     conf = cfg.CONF
     conf.register_opts(MeteringAgent.Opts)
     config.register_agent_state_opts_helper(conf)
-    config.register_root_helper(conf)
     common_config.init(sys.argv[1:])
     config.setup_logging()
     server = neutron_service.Service.create(

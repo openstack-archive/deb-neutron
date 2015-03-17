@@ -18,10 +18,11 @@ import logging as std_logging
 import os
 import random
 
-from oslo.config import cfg
-from oslo.messaging import server as rpc_server
-from oslo.utils import excutils
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_messaging import server as rpc_server
+from oslo_utils import excutils
+from oslo_utils import importutils
 
 from neutron.common import config
 from neutron.common import rpc as n_rpc
@@ -29,7 +30,6 @@ from neutron import context
 from neutron.db import api as session
 from neutron.i18n import _LE, _LI
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.openstack.common import service as common_service
 from neutron import wsgi

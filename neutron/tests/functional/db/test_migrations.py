@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import functools
 import logging
 import pprint
 
@@ -20,10 +21,10 @@ import alembic.autogenerate
 import alembic.migration
 from alembic import script as alembic_script
 import mock
-from oslo.config import cfg
-from oslo.config import fixture as config_fixture
-from oslo.db.sqlalchemy import test_base
-from oslo.db.sqlalchemy import test_migrations
+from oslo_config import cfg
+from oslo_config import fixture as config_fixture
+from oslo_db.sqlalchemy import test_base
+from oslo_db.sqlalchemy import test_migrations
 import sqlalchemy
 
 from neutron.db.migration import cli as migration
@@ -111,15 +112,14 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
     * ``add_*`` means that it is missing in db;
 
     * ``modify_*`` means that on column in db is set wrong
-      type/nullable/server_default. Element contains information:
-        * what should be modified,
-        * schema,
-        * table,
-        * column,
-        * existing correct column parameters,
-        * right value,
-        * wrong value.
-
+        type/nullable/server_default. Element contains information:
+        - what should be modified,
+        - schema,
+        - table,
+        - column,
+        - existing correct column parameters,
+        - right value,
+        - wrong value.
     '''
 
     def setUp(self):
@@ -157,7 +157,8 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
 
     def test_models_sync(self):
         # drop all tables after a test run
-        self.addCleanup(self._cleanup)
+        self.addCleanup(functools.partial(self.db.backend.drop_all_objects,
+                                          self.get_engine()))
 
         # run migration scripts
         self.db_sync(self.get_engine())

@@ -17,12 +17,12 @@ import re
 import sys
 
 import eventlet
-
 eventlet.monkey_patch()
 
-from oslo.config import cfg
-from oslo import messaging
 from oslo_concurrency import lockutils
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.agent.common import config
 from neutron.agent.linux import ip_lib
@@ -33,7 +33,6 @@ from neutron.common import utils as neutron_utils
 from neutron.db import agents_db
 from neutron.i18n import _LE, _LI
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import periodic_task
 from neutron.openstack.common import service as svc
 from neutron.plugins.ml2.drivers.cisco.apic import mechanism_apic as ma
@@ -58,7 +57,7 @@ LOG = logging.getLogger(__name__)
 
 class ApicTopologyService(manager.Manager):
 
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
     def __init__(self, host=None):
         if host is None:
@@ -142,7 +141,7 @@ class ApicTopologyService(manager.Manager):
 class ApicTopologyServiceNotifierApi(object):
 
     def __init__(self):
-        target = messaging.Target(topic=TOPIC_APIC_SERVICE, version='1.0')
+        target = oslo_messaging.Target(topic=TOPIC_APIC_SERVICE, version='1.0')
         self.client = rpc.get_client(target)
 
     def update_link(self, context, host, interface, mac, switch, module, port):
@@ -169,7 +168,6 @@ class ApicTopologyAgent(manager.Manager):
         self.lldpcmd = None
         self.peers = {}
         self.port_desc_re = map(re.compile, ACI_PORT_DESCR_FORMATS)
-        self.root_helper = self.conf.root_helper
         self.service_agent = ApicTopologyServiceNotifierApi()
         self.state = None
         self.state_agent = None
@@ -248,7 +246,7 @@ class ApicTopologyAgent(manager.Manager):
 
     def _get_peers(self):
         peers = {}
-        lldpkeys = utils.execute(self.lldpcmd, self.root_helper)
+        lldpkeys = utils.execute(self.lldpcmd, run_as_root=True)
         for line in lldpkeys.splitlines():
             if '=' not in line:
                 continue

@@ -43,6 +43,10 @@ DEVICE_OWNER_LOADBALANCER = "neutron:LOADBALANCER"
 # DEVICE_OWNER_ROUTER_HA_INTF is a special case and so is not included.
 ROUTER_INTERFACE_OWNERS = (DEVICE_OWNER_ROUTER_INTF,
                            DEVICE_OWNER_DVR_INTERFACE)
+L3_AGENT_MODE_DVR = 'dvr'
+L3_AGENT_MODE_DVR_SNAT = 'dvr_snat'
+L3_AGENT_MODE_LEGACY = 'legacy'
+L3_AGENT_MODE = 'agent_mode'
 
 DEVICE_ID_RESERVED_DHCP_PORT = "reserved_dhcp_port"
 
@@ -61,8 +65,13 @@ MINIMUM_AGENTS_FOR_HA = 2
 
 IPv4 = 'IPv4'
 IPv6 = 'IPv6'
+IP_VERSION_4 = 4
+IP_VERSION_6 = 6
 IPv4_BITS = 32
 IPv6_BITS = 128
+
+IPv4_ANY = '0.0.0.0/0'
+IPv6_ANY = '::/0'
 
 DHCP_RESPONSE_PORT = 68
 
@@ -145,9 +154,17 @@ ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
 # but here it will be limited by this value for consistency.
 DB_INTEGER_MAX_VALUE = 2 ** 31 - 1
 
+# TODO(amuller): Re-define the RPC namespaces once Oslo messaging supports
+# Targets with multiple namespaces. Neutron will then implement callbacks
+# for its RPC clients in order to support rolling upgrades.
+
 # RPC Interface for agents to call DHCP API implemented on the plugin side
-RPC_NAMESPACE_DHCP_PLUGIN = 'dhcp'
+RPC_NAMESPACE_DHCP_PLUGIN = None
 # RPC interface for the metadata service to get info from the plugin side
-RPC_NAMESPACE_METADATA = 'metadata'
-# RPC interface for plugin to agent security group API
-RPC_NAMESPACE_SECGROUP = 'secgroup'
+RPC_NAMESPACE_METADATA = None
+# RPC interface for agent to plugin security group API
+RPC_NAMESPACE_SECGROUP = None
+# RPC interface for agent to plugin DVR api
+RPC_NAMESPACE_DVR = None
+# RPC interface for reporting state back to the plugin
+RPC_NAMESPACE_STATE = None

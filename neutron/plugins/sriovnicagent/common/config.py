@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.agent.common import config
 
@@ -85,4 +85,3 @@ sriov_nic_opts = [
 cfg.CONF.register_opts(agent_opts, 'AGENT')
 cfg.CONF.register_opts(sriov_nic_opts, 'SRIOV_NIC')
 config.register_agent_state_opts_helper(cfg.CONF)
-config.register_root_helper(cfg.CONF)

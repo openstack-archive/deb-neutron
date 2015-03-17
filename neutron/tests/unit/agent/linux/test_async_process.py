@@ -128,13 +128,14 @@ class TestAsyncProcess(base.BaseTestCase):
         mock_start.assert_called_once_with()
 
     def test__iter_queue_returns_empty_list_for_empty_queue(self):
-        result = list(self.proc._iter_queue(eventlet.queue.LightQueue()))
+        result = list(self.proc._iter_queue(eventlet.queue.LightQueue(),
+                                            False))
         self.assertEqual(result, [])
 
     def test__iter_queue_returns_queued_data(self):
         queue = eventlet.queue.LightQueue()
         queue.put('foo')
-        result = list(self.proc._iter_queue(queue))
+        result = list(self.proc._iter_queue(queue, False))
         self.assertEqual(result, ['foo'])
 
     def _test_iter_output_calls_iter_queue_on_output_queue(self, output_type):
@@ -146,7 +147,7 @@ class TestAsyncProcess(base.BaseTestCase):
 
         self.assertEqual(value, expected_value)
         queue = getattr(self.proc, '_%s_lines' % output_type, None)
-        mock_iter_queue.assert_called_with(queue)
+        mock_iter_queue.assert_called_with(queue, False)
 
     def test_iter_stdout(self):
         self._test_iter_output_calls_iter_queue_on_output_queue('stdout')
@@ -186,7 +187,7 @@ class TestAsyncProcess(base.BaseTestCase):
         self._test__kill(False, pid='1')
 
     def _test__kill_process(self, pid, expected, exception_message=None):
-        self.proc.root_helper = 'foo'
+        self.proc.run_as_root = True
         if exception_message:
             exc = RuntimeError(exception_message)
         else:
@@ -197,7 +198,7 @@ class TestAsyncProcess(base.BaseTestCase):
 
         self.assertEqual(expected, actual)
         mock_execute.assert_called_with(['kill', '-9', pid],
-                                        root_helper=self.proc.root_helper)
+                                        run_as_root=self.proc.run_as_root)
 
     def test__kill_process_returns_true_for_valid_pid(self):
         self._test__kill_process('1', True)

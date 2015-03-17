@@ -34,7 +34,6 @@ class TestDvrFipNs(base.BaseTestCase):
         self.fip_ns = dvr_fip_ns.FipNamespace(self.net_id,
                                               self.conf,
                                               self.driver,
-                                              mock.sentinel.root_helper,
                                               use_ipv6=True)
 
     def test_subscribe(self):
@@ -87,7 +86,7 @@ class TestDvrFipNs(base.BaseTestCase):
         send_arp.assert_called_once_with(self.fip_ns.get_name(),
                                          mock.sentinel.interface_name,
                                          '20.0.0.30',
-                                         mock.ANY, mock.ANY)
+                                         mock.ANY)
 
     @mock.patch.object(ip_lib, 'IPWrapper')
     def test_destroy(self, IPWrapper):
@@ -98,7 +97,9 @@ class TestDvrFipNs(base.BaseTestCase):
         dev2.name = 'fg-aaaa'
         ip_wrapper.get_devices.return_value = [dev1, dev2]
 
-        self.fip_ns.destroy()
+        self.conf.router_delete_namespaces = False
+
+        self.fip_ns.delete()
 
         ext_net_bridge = self.conf.external_network_bridge
         ns_name = self.fip_ns.get_name()

@@ -19,7 +19,7 @@ Unit tests for Windows Hyper-V virtual switch neutron driver
 """
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.plugins.hyperv.agent import hyperv_neutron_agent
 from neutron.plugins.hyperv.agent import utilsfactory
@@ -56,6 +56,7 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
         self.agent = hyperv_neutron_agent.HyperVNeutronAgent()
         self.agent.plugin_rpc = mock.Mock()
         self.agent.sec_groups_agent = mock.MagicMock()
+        self.agent.sg_plugin_rpc = mock.Mock()
         self.agent.context = mock.Mock()
         self.agent.agent_id = mock.Mock()
 
@@ -67,6 +68,11 @@ class TestHyperVNeutronAgent(base.BaseTestCase):
             'agent_type': 'HyperV agent',
             'start_flag': True}
         self.agent_state = fake_agent_state
+
+    def test_use_enhanced_rpc(self):
+        self.agent.sec_groups_agent = hyperv_neutron_agent.HyperVSecurityAgent(
+            self.agent.context, self.agent.sg_plugin_rpc)
+        self.assertFalse(self.agent.sec_groups_agent.use_enhanced_rpc)
 
     def test_port_bound_enable_metrics(self):
         cfg.CONF.set_override('enable_metrics_collection', True, 'AGENT')

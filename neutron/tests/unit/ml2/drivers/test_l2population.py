@@ -14,9 +14,10 @@
 #    under the License.
 
 import contextlib
+import testtools
 
 import mock
-from oslo.utils import timeutils
+from oslo_utils import timeutils
 
 from neutron.agent import l2population_rpc
 from neutron.common import constants
@@ -26,6 +27,8 @@ from neutron.db import agents_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron import manager
+from neutron.plugins.ml2.common import exceptions as ml2_exc
+from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2.drivers.l2pop import db as l2pop_db
 from neutron.plugins.ml2.drivers.l2pop import mech_driver as l2pop_mech_driver
 from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
@@ -80,13 +83,15 @@ L2_AGENT_4 = {
 }
 
 L2_AGENT_5 = {
-    'binary': 'neutron-ofagent-agent',
+    'binary': 'neutron-fake-agent',
     'host': HOST + '_5',
     'topic': constants.L2_AGENT_TOPIC,
     'configurations': {'tunneling_ip': '20.0.0.5',
                        'tunnel_types': [],
                        'interface_mappings': {'physnet1': 'eth9'},
                        'l2pop_network_types': ['vlan']},
+    # NOTE(yamamoto): mech_fake_agent has a comment to explain why
+    # OFA is used here.
     'agent_type': constants.AGENT_TYPE_OFA,
     'tunnel_type': [],
     'start_flag': True
@@ -97,7 +102,7 @@ DEVICE_OWNER_COMPUTE = 'compute:None'
 
 
 class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
-    _mechanism_drivers = ['openvswitch', 'ofagent', 'l2population']
+    _mechanism_drivers = ['openvswitch', 'fake_agent', 'l2population']
 
     def setUp(self):
         super(TestL2PopulationRpcTestCase, self).setUp()
@@ -303,6 +308,46 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                     self.mock_fanout.assert_called_with(
                         mock.ANY, 'add_fdb_entries', expected)
 
+    def test_fdb_called_for_active_ports(self):
+        self._register_ml2_agents()
+
+        with self.subnet(network=self._network) as subnet:
+            host_arg = {portbindings.HOST_ID: HOST}
+            with self.port(subnet=subnet,
+                           device_owner=DEVICE_OWNER_COMPUTE,
+                           arg_list=(portbindings.HOST_ID,),
+                           **host_arg) as port1:
+                host_arg = {portbindings.HOST_ID: HOST + '_2'}
+                with self.port(subnet=subnet,
+                               device_owner=DEVICE_OWNER_COMPUTE,
+                               arg_list=(portbindings.HOST_ID,),
+                               **host_arg):
+                    p1 = port1['port']
+
+                    device1 = 'tap' + p1['id']
+
+                    self.mock_cast.reset_mock()
+                    self.mock_fanout.reset_mock()
+                    self.callbacks.update_device_up(self.adminContext,
+                                                    agent_id=HOST,
+                                                    device=device1)
+
+                    p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
+
+                    self.assertFalse(self.mock_cast.called)
+
+                    expected2 = {p1['network_id']:
+                                 {'ports':
+                                  {'20.0.0.1': [constants.FLOODING_ENTRY,
+                                                l2pop_rpc.PortInfo(
+                                                    p1['mac_address'],
+                                                    p1_ips[0])]},
+                                  'network_type': 'vxlan',
+                                  'segment_id': 1}}
+
+                    self.mock_fanout.assert_called_with(
+                        mock.ANY, 'add_fdb_entries', expected2)
+
     def test_fdb_add_two_agents(self):
         self._register_ml2_agents()
 
@@ -323,13 +368,17 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                     p1 = port1['port']
                     p2 = port2['port']
 
-                    device = 'tap' + p1['id']
+                    device1 = 'tap' + p1['id']
+                    device2 = 'tap' + p2['id']
 
                     self.mock_cast.reset_mock()
                     self.mock_fanout.reset_mock()
                     self.callbacks.update_device_up(self.adminContext,
+                                                    agent_id=HOST + '_2',
+                                                    device=device2)
+                    self.callbacks.update_device_up(self.adminContext,
                                                     agent_id=HOST,
-                                                    device=device)
+                                                    device=device1)
 
                     p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
                     p2_ips = [p['ip_address'] for p in p2['fixed_ips']]
@@ -381,13 +430,17 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                             p1 = port1['port']
                             p3 = port3['port']
 
-                            device = 'tap' + p3['id']
+                            device1 = 'tap' + p1['id']
+                            device3 = 'tap' + p3['id']
 
                             self.mock_cast.reset_mock()
                             self.mock_fanout.reset_mock()
                             self.callbacks.update_device_up(
+                                self.adminContext, agent_id=HOST + '_2',
+                                device=device1)
+                            self.callbacks.update_device_up(
                                 self.adminContext, agent_id=HOST,
-                                device=device)
+                                device=device3)
 
                             p1_ips = [p['ip_address']
                                       for p in p1['fixed_ips']]
@@ -886,10 +939,10 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                                   'get_agent_ip',
                                   side_effect=agent_ip_side_effect),
                 mock.patch.object(l2pop_db.L2populationDbMixin,
-                                  'get_nondvr_network_ports',
+                                  'get_nondvr_active_network_ports',
                                   new=fdb_network_ports_query),
                 mock.patch.object(l2pop_db.L2populationDbMixin,
-                                  'get_dvr_network_ports',
+                                  'get_dvr_active_network_ports',
                                   new=tunnel_network_ports_query)):
             session = mock.Mock()
             agent = mock.Mock()
@@ -946,3 +999,25 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                            {'10.0.0.1':
                             [constants.FLOODING_ENTRY]}}
         self.assertEqual(expected_result, result)
+
+    def test_update_port_postcommit_mac_address_changed_raises(self):
+        port = {'status': u'ACTIVE',
+                'device_owner': u'compute:None',
+                'mac_address': u'12:34:56:78:4b:0e',
+                'id': u'1'}
+
+        original_port = port.copy()
+        original_port['mac_address'] = u'12:34:56:78:4b:0f'
+
+        with mock.patch.object(driver_context.db, 'get_network_segments'):
+            ctx = driver_context.PortContext(mock.Mock(),
+                                             mock.Mock(),
+                                             port,
+                                             mock.MagicMock(),
+                                             mock.Mock(),
+                                             None,
+                                             original_port=original_port)
+
+        mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
+        with testtools.ExpectedException(ml2_exc.MechanismDriverError):
+            mech_driver.update_port_postcommit(ctx)

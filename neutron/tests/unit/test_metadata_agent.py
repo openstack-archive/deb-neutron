@@ -13,12 +13,12 @@
 #    under the License.
 
 import contextlib
-import socket
 
 import mock
 import testtools
 import webob
 
+from neutron.agent.linux import utils as agent_utils
 from neutron.agent.metadata import agent
 from neutron.agent import metadata_agent
 from neutron.common import constants
@@ -163,7 +163,7 @@ class TestMetadataProxyHandlerCache(TestMetadataProxyHandlerBase):
                  'not_used': [1, 2, 3]}
         expected_networks = ('network_id1',)
         with mock.patch(
-            'oslo.utils.timeutils.utcnow_ts', return_value=0):
+            'oslo_utils.timeutils.utcnow_ts', return_value=0):
             mock_list_ports = self.qclient.return_value.list_ports
             mock_list_ports.return_value = ports
             networks = self.handler._get_router_networks(router_id)
@@ -510,50 +510,6 @@ class TestMetadataProxyHandlerNoCache(TestMetadataProxyHandlerCache):
             2, self.qclient.return_value.list_ports.call_count)
 
 
-class TestUnixDomainHttpProtocol(base.BaseTestCase):
-    def test_init_empty_client(self):
-        u = agent.UnixDomainHttpProtocol(mock.Mock(), '', mock.Mock())
-        self.assertEqual(u.client_address, ('<local>', 0))
-
-    def test_init_with_client(self):
-        u = agent.UnixDomainHttpProtocol(mock.Mock(), 'foo', mock.Mock())
-        self.assertEqual(u.client_address, 'foo')
-
-
-class TestUnixDomainWSGIServer(base.BaseTestCase):
-    def setUp(self):
-        super(TestUnixDomainWSGIServer, self).setUp()
-        self.eventlet_p = mock.patch.object(agent, 'eventlet')
-        self.eventlet = self.eventlet_p.start()
-        self.server = agent.UnixDomainWSGIServer('test')
-
-    def test_start(self):
-        mock_app = mock.Mock()
-        with mock.patch.object(self.server, '_launch') as launcher:
-            self.server.start(mock_app, '/the/path', workers=5, backlog=128)
-            self.eventlet.assert_has_calls([
-                mock.call.listen(
-                    '/the/path',
-                    family=socket.AF_UNIX,
-                    backlog=128
-                )]
-            )
-            launcher.assert_called_once_with(mock_app, workers=5)
-
-    def test_run(self):
-        with mock.patch.object(agent, 'logging') as logging:
-            self.server._run('app', 'sock')
-
-            self.eventlet.wsgi.server.assert_called_once_with(
-                'sock',
-                'app',
-                protocol=agent.UnixDomainHttpProtocol,
-                log=mock.ANY,
-                custom_pool=self.server.pool
-            )
-            self.assertTrue(len(logging.mock_calls))
-
-
 class TestUnixDomainMetadataProxy(base.BaseTestCase):
     def setUp(self):
         super(TestUnixDomainMetadataProxy, self).setUp()
@@ -566,22 +522,16 @@ class TestUnixDomainMetadataProxy(base.BaseTestCase):
         self.cfg.CONF.metadata_workers = 0
         self.cfg.CONF.metadata_backlog = 128
 
-    def test_init_doesnot_exists(self):
-        with mock.patch('os.path.isdir') as isdir:
-            with mock.patch('os.makedirs') as makedirs:
-                isdir.return_value = False
-                agent.UnixDomainMetadataProxy(mock.Mock())
-
-                isdir.assert_called_once_with('/the')
-                makedirs.assert_called_once_with('/the', 0o755)
+    @mock.patch.object(agent_utils, 'ensure_dir')
+    def test_init_doesnot_exists(self, ensure_dir):
+        agent.UnixDomainMetadataProxy(mock.Mock())
+        ensure_dir.assert_called_once_with('/the')
 
     def test_init_exists(self):
         with mock.patch('os.path.isdir') as isdir:
             with mock.patch('os.unlink') as unlink:
                 isdir.return_value = True
                 agent.UnixDomainMetadataProxy(mock.Mock())
-
-                isdir.assert_called_once_with('/the')
                 unlink.assert_called_once_with('/the/path')
 
     def test_init_exists_unlink_no_file(self):
@@ -593,10 +543,7 @@ class TestUnixDomainMetadataProxy(base.BaseTestCase):
                     unlink.side_effect = OSError
 
                     agent.UnixDomainMetadataProxy(mock.Mock())
-
-                    isdir.assert_called_once_with('/the')
                     unlink.assert_called_once_with('/the/path')
-                    exists.assert_called_once_with('/the/path')
 
     def test_init_exists_unlink_fails_file_still_exists(self):
         with mock.patch('os.path.isdir') as isdir:
@@ -608,30 +555,23 @@ class TestUnixDomainMetadataProxy(base.BaseTestCase):
 
                     with testtools.ExpectedException(OSError):
                         agent.UnixDomainMetadataProxy(mock.Mock())
-
-                    isdir.assert_called_once_with('/the')
                     unlink.assert_called_once_with('/the/path')
-                    exists.assert_called_once_with('/the/path')
 
-    def test_run(self):
-        with mock.patch.object(agent, 'MetadataProxyHandler') as handler:
-            with mock.patch.object(agent, 'UnixDomainWSGIServer') as server:
-                with mock.patch('os.path.isdir') as isdir:
-                    with mock.patch('os.makedirs') as makedirs:
-                        isdir.return_value = False
+    @mock.patch.object(agent, 'MetadataProxyHandler')
+    @mock.patch.object(agent_utils, 'UnixDomainWSGIServer')
+    @mock.patch.object(agent_utils, 'ensure_dir')
+    def test_run(self, ensure_dir, server, handler):
+        p = agent.UnixDomainMetadataProxy(self.cfg.CONF)
+        p.run()
 
-                        p = agent.UnixDomainMetadataProxy(self.cfg.CONF)
-                        p.run()
-
-                        isdir.assert_called_once_with('/the')
-                        makedirs.assert_called_once_with('/the', 0o755)
-                        server.assert_has_calls([
-                            mock.call('neutron-metadata-agent'),
-                            mock.call().start(handler.return_value,
-                                              '/the/path', workers=0,
-                                              backlog=128),
-                            mock.call().wait()]
-                        )
+        ensure_dir.assert_called_once_with('/the')
+        server.assert_has_calls([
+            mock.call('neutron-metadata-agent'),
+            mock.call().start(handler.return_value,
+                              '/the/path', workers=0,
+                              backlog=128),
+            mock.call().wait()]
+        )
 
     def test_main(self):
         with mock.patch.object(agent, 'UnixDomainMetadataProxy') as proxy:

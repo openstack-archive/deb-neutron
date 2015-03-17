@@ -17,12 +17,12 @@
 import sys
 
 from networking_mlnx.plugins.mlnx.agent import mlnx_eswitch_neutron_agent
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron.i18n import _LE, _LI
 from neutron.common import config as common_config
 from neutron.common import utils
-from neutron.openstack.common import log as logging
 from neutron.plugins.mlnx.agent import config  # noqa
 
 LOG = logging.getLogger(__name__)
@@ -41,10 +41,9 @@ def main():
         sys.exit(1)
     LOG.info(_LI("Interface mappings: %s"), interface_mappings)
 
-    root_helper = cfg.CONF.AGENT.root_helper
     try:
         agent = mlnx_eswitch_neutron_agent.MlnxEswitchNeutronAgent(
-            interface_mappings, root_helper)
+            interface_mappings)
     except Exception as e:
         LOG.error(_LE("Failed on Agent initialisation : %s. "
                       "Agent terminated!"), e)

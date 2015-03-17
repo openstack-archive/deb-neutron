@@ -21,7 +21,8 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
-from oslo import messaging
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.agent.linux import ovs_lib
 from neutron.agent import rpc as agent_rpc
@@ -31,7 +32,6 @@ from neutron.common import topics
 from neutron import context as n_context
 from neutron.extensions import securitygroup as ext_sg
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log as logging
 from neutron.plugins.oneconvergence.lib import config
 
 LOG = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ LOG = logging.getLogger(__name__)
 
 class NVSDAgentRpcCallback(object):
 
-    target = messaging.Target(version='1.0')
+    target = oslo_messaging.Target(version='1.0')
 
     def __init__(self, context, agent, sg_agent):
         super(NVSDAgentRpcCallback, self).__init__()
@@ -61,7 +61,7 @@ class NVSDAgentRpcCallback(object):
 
 class SecurityGroupAgentRpcCallback(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
-    target = messaging.Target(version=sg_rpc.SG_RPC_VERSION)
+    target = oslo_messaging.Target(version=sg_rpc.SG_RPC_VERSION)
 
     def __init__(self, context, sg_agent):
         super(SecurityGroupAgentRpcCallback, self).__init__()
@@ -73,13 +73,12 @@ class NVSDNeutronAgent(object):
     # history
     #   1.0 Initial version
     #   1.1 Support Security Group RPC
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
-    def __init__(self, integ_br, root_helper, polling_interval):
+    def __init__(self, integ_br, polling_interval):
         super(NVSDNeutronAgent, self).__init__()
-        self.int_br = ovs_lib.OVSBridge(integ_br, root_helper)
+        self.int_br = ovs_lib.OVSBridge(integ_br)
         self.polling_interval = polling_interval
-        self.root_helper = root_helper
         self.setup_rpc()
         self.ports = set()
 
@@ -93,8 +92,7 @@ class NVSDNeutronAgent(object):
         self.context = n_context.get_admin_context_without_session()
         self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
         self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
-                                                     self.sg_plugin_rpc,
-                                                     self.root_helper)
+                                                     self.sg_plugin_rpc)
 
         # RPC network init
         # Handle updates from service
@@ -150,9 +148,8 @@ def main():
     common_config.setup_logging()
 
     integ_br = config.AGENT.integration_bridge
-    root_helper = config.AGENT.root_helper
     polling_interval = config.AGENT.polling_interval
-    agent = NVSDNeutronAgent(integ_br, root_helper, polling_interval)
+    agent = NVSDNeutronAgent(integ_br, polling_interval)
     LOG.info(_LI("NVSD Agent initialized successfully, now running... "))
 
     # Start everything.

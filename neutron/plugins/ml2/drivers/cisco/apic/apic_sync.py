@@ -13,11 +13,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_log import log
+
 from neutron.common import constants as n_constants
 from neutron import context
 from neutron.i18n import _LW
 from neutron import manager
-from neutron.openstack.common import log
 from neutron.openstack.common import loopingcall
 from neutron.plugins.ml2 import db as l2_db
 from neutron.plugins.ml2 import driver_context
@@ -82,7 +83,8 @@ class ApicBaseSynchronizer(SynchronizerBase):
                                                            port['id'])
             network = self.core_plugin.get_network(ctx, port['network_id'])
             mech_context = driver_context.PortContext(self.core_plugin, ctx,
-                                                      port, network, binding)
+                                                      port, network, binding,
+                                                      [])
             try:
                 self.driver.create_port_postcommit(mech_context)
             except Exception:

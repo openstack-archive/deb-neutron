@@ -39,11 +39,8 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
             iface_id = base.get_rand_name()
         if mac is None:
             mac = base.get_rand_name()
-        attrs = {
-            'external_ids:%s' % iface_field: iface_id,
-            'external_ids:attached-mac': mac
-        }
-        port_name, ofport = self.create_ovs_port(*attrs.items())
+        attrs = ('external_ids', {iface_field: iface_id, 'attached-mac': mac})
+        port_name, ofport = self.create_ovs_port(attrs)
         return ovs_lib.VifPort(port_name, ofport, iface_id, mac, self.br)
 
     def test_port_lifecycle(self):
@@ -64,7 +61,7 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
         self.assertEqual('internal',
                          self.br.db_get_val('Interface', port_name, 'type'))
         self.br.replace_port(port_name, ('type', 'internal'),
-                                        ('external_ids:test', 'test'))
+                             ('external_ids', {'test': 'test'}))
         self.assertTrue(self.br.port_exists(port_name))
         self.assertEqual('test', self.br.db_get_val('Interface', port_name,
                                                     'external_ids')['test'])
@@ -81,7 +78,8 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
 
     def test_get_bridge_external_bridge_id(self):
         self.ovs.set_db_attribute('Bridge', self.br.br_name,
-                                  'external_ids:bridge-id', self.br.br_name)
+                                  'external_ids',
+                                  {'bridge-id': self.br.br_name})
         self.assertEqual(
             self.br.br_name,
             self.ovs.get_bridge_external_bridge_id(self.br.br_name))
@@ -95,9 +93,12 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
 
     def test_set_fail_mode(self):
         self.br.set_secure_mode()
+        self._assert_br_fail_mode(ovs_lib.FAILMODE_SECURE)
+
+    def _assert_br_fail_mode(self, fail_mode):
         self.assertEqual(
             self.br.db_get_val('Bridge', self.br.br_name, 'fail_mode'),
-            'secure')
+            fail_mode)
 
     def test_set_protocols(self):
         self.br.set_protocols('OpenFlow10')
@@ -192,6 +193,16 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
         self.br.delete_ports(all_ports=True)
         self.assertEqual(len(self.br.get_port_name_list()), 0)
 
+    def test_reset_bridge(self):
+        self.create_ovs_port()
+        self.br.reset_bridge()
+        self.assertEqual(len(self.br.get_port_name_list()), 0)
+        self._assert_br_fail_mode([])
+
+    def test_reset_bridge_secure_mode(self):
+        self.br.reset_bridge(secure_mode=True)
+        self._assert_br_fail_mode(ovs_lib.FAILMODE_SECURE)
+
 
 class OVSLibTestCase(base.BaseOVSLinuxTestCase):
     def test_bridge_lifecycle_baseovs(self):
@@ -209,7 +220,7 @@ class OVSLibTestCase(base.BaseOVSLinuxTestCase):
 
     def test_bridge_lifecycle_ovsbridge(self):
         name = base.get_rand_name(prefix=base.BR_PREFIX)
-        br = ovs_lib.OVSBridge(name, self.root_helper)
+        br = ovs_lib.OVSBridge(name)
         self.assertEqual(br.br_name, name)
         # Make sure that instantiating an OVSBridge does not actually create
         self.assertFalse(self.ovs.bridge_exists(name))

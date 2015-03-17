@@ -22,8 +22,9 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
-from oslo.config import cfg
-from oslo import messaging
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
 
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
@@ -33,7 +34,6 @@ from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron import context
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.hyperv.agent import utils
@@ -81,12 +81,13 @@ config.register_agent_state_opts_helper(cfg.CONF)
 class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpc):
 
     def __init__(self, context, plugin_rpc):
-        # Note: as rootwrap is not supported on HyperV, root_helper is
-        # passed in as None.
-        super(HyperVSecurityAgent, self).__init__(context, plugin_rpc,
-                                                  root_helper=None)
+        super(HyperVSecurityAgent, self).__init__(context, plugin_rpc)
         if sg_rpc.is_firewall_enabled():
             self._setup_rpc()
+
+    @property
+    def use_enhanced_rpc(self):
+        return False
 
     def _setup_rpc(self):
         self.topic = topics.AGENT
@@ -100,7 +101,7 @@ class HyperVSecurityAgent(sg_rpc.SecurityGroupAgentRpc):
 
 class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
     def __init__(self, sg_agent):
         super(HyperVSecurityCallbackMixin, self).__init__()
@@ -109,7 +110,7 @@ class HyperVSecurityCallbackMixin(sg_rpc.SecurityGroupAgentRpcCallbackMixin):
 
 class HyperVNeutronAgent(object):
     # Set RPC API version to 1.1 by default.
-    target = messaging.Target(version='1.1')
+    target = oslo_messaging.Target(version='1.1')
 
     def __init__(self):
         super(HyperVNeutronAgent, self).__init__()

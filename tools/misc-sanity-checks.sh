@@ -25,14 +25,14 @@ FAILURES=$TMPDIR/failures
 
 check_opinionated_shell () {
     # The purpose of this function is to avoid casual introduction of more
-    # bash dependency.  Please consider alternatives before commiting code
+    # bash dependency.  Please consider alternatives before committing code
     # which uses bash specific features.
 
     # Check that shell scripts are not bash opinionated (ignore comments though)
     # If you cannot avoid the use of bash, please change the EXPECTED var below.
     OBSERVED=$(grep -E '^([[:space:]]*[^#[:space:]]|#!).*bash' \
                tox.ini tools/* | wc -l)
-    EXPECTED=4
+    EXPECTED=7
     if [ ${EXPECTED} -ne ${OBSERVED} ]; then
         echo "Bash usage has been detected!" >>$FAILURES
     fi

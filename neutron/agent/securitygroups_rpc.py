@@ -16,16 +16,16 @@
 
 import functools
 
-from oslo.config import cfg
-from oslo import messaging
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_utils import importutils
 
 from neutron.agent import firewall
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.i18n import _LI, _LW
-from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 # history
@@ -96,8 +96,9 @@ class SecurityGroupServerRpcApi(object):
     doc/source/devref/rpc_api.rst.
     """
     def __init__(self, topic):
-        target = messaging.Target(topic=topic, version='1.0',
-                                  namespace=constants.RPC_NAMESPACE_SECGROUP)
+        target = oslo_messaging.Target(
+            topic=topic, version='1.0',
+            namespace=constants.RPC_NAMESPACE_SECGROUP)
         self.client = n_rpc.get_client(target)
 
     def security_group_rules_for_devices(self, context, devices):
@@ -162,11 +163,9 @@ class SecurityGroupAgentRpcCallbackMixin(object):
 class SecurityGroupAgentRpc(object):
     """Enables SecurityGroup agent support in agent implementations."""
 
-    def __init__(self, context, plugin_rpc, root_helper,
-                 defer_refresh_firewall=False):
+    def __init__(self, context, plugin_rpc, defer_refresh_firewall=False):
         self.context = context
         self.plugin_rpc = plugin_rpc
-        self.root_helper = root_helper
         self.init_firewall(defer_refresh_firewall)
 
     def init_firewall(self, defer_refresh_firewall=False):
@@ -199,7 +198,7 @@ class SecurityGroupAgentRpc(object):
         try:
             self.plugin_rpc.security_group_info_for_devices(
                 self.context, devices=[])
-        except messaging.UnsupportedVersion:
+        except oslo_messaging.UnsupportedVersion:
             LOG.warning(_LW('security_group_info_for_devices rpc call not '
                             'supported by the server, falling back to old '
                             'security_group_rules_for_devices which scales '

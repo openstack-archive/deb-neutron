@@ -13,13 +13,12 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.serialization import jsonutils
+from oslo_log import log
+from oslo_serialization import jsonutils
 
 from neutron.common import constants
-from neutron.common import exceptions as exc
 from neutron.extensions import portbindings
 from neutron.i18n import _LW
-from neutron.openstack.common import log
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
 
@@ -78,20 +77,42 @@ class SubnetContext(MechanismDriverContext, api.SubnetContext):
 class PortContext(MechanismDriverContext, api.PortContext):
 
     def __init__(self, plugin, plugin_context, port, network, binding,
-                 original_port=None):
+                 binding_levels, original_port=None):
         super(PortContext, self).__init__(plugin, plugin_context)
         self._port = port
         self._original_port = original_port
         self._network_context = NetworkContext(plugin, plugin_context,
                                                network)
         self._binding = binding
+        self._binding_levels = binding_levels
+        self._segments_to_bind = None
+        self._new_bound_segment = None
+        self._next_segments_to_bind = None
         if original_port:
-            self._original_bound_segment_id = self._binding.segment
-            self._original_bound_driver = self._binding.driver
+            self._original_binding_levels = self._binding_levels
         else:
-            self._original_bound_segment_id = None
-            self._original_bound_driver = None
+            self._original_binding_levels = None
         self._new_port_status = None
+
+    # The following methods are for use by the ML2 plugin and are not
+    # part of the driver API.
+
+    def _prepare_to_bind(self, segments_to_bind):
+        self._segments_to_bind = segments_to_bind
+        self._new_bound_segment = None
+        self._next_segments_to_bind = None
+
+    def _clear_binding_levels(self):
+        self._binding_levels = []
+
+    def _push_binding_level(self, binding_level):
+        self._binding_levels.append(binding_level)
+
+    def _pop_binding_level(self):
+        return self._binding_levels.pop()
+
+    # The following implement the abstract methods and properties of
+    # the driver API.
 
     @property
     def current(self):
@@ -120,46 +141,41 @@ class PortContext(MechanismDriverContext, api.PortContext):
 
     @property
     def binding_levels(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._binding.segment:
+        if self._binding_levels:
             return [{
-                api.BOUND_DRIVER: self._binding.driver,
-                api.BOUND_SEGMENT: self._expand_segment(self._binding.segment)
-            }]
+                api.BOUND_DRIVER: level.driver,
+                api.BOUND_SEGMENT: self._expand_segment(level.segment_id)
+            } for level in self._binding_levels]
 
     @property
     def original_binding_levels(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._original_bound_segment_id:
+        if self._original_binding_levels:
             return [{
-                api.BOUND_DRIVER: self._original_bound_driver,
-                api.BOUND_SEGMENT:
-                self._expand_segment(self._original_bound_segment_id)
-            }]
+                api.BOUND_DRIVER: level.driver,
+                api.BOUND_SEGMENT: self._expand_segment(level.segment_id)
+            } for level in self._original_binding_levels]
 
     @property
     def top_bound_segment(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._binding.segment:
-            return self._expand_segment(self._binding.segment)
+        if self._binding_levels:
+            return self._expand_segment(self._binding_levels[0].segment_id)
 
     @property
     def original_top_bound_segment(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._original_bound_segment_id:
-            return self._expand_segment(self._original_bound_segment_id)
+        if self._original_binding_levels:
+            return self._expand_segment(
+                self._original_binding_levels[0].segment_id)
 
     @property
     def bottom_bound_segment(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._binding.segment:
-            return self._expand_segment(self._binding.segment)
+        if self._binding_levels:
+            return self._expand_segment(self._binding_levels[-1].segment_id)
 
     @property
     def original_bottom_bound_segment(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        if self._original_bound_segment_id:
-            return self._expand_segment(self._original_bound_segment_id)
+        if self._original_binding_levels:
+            return self._expand_segment(
+                self._original_binding_levels[-1].segment_id)
 
     def _expand_segment(self, segment_id):
         segment = db.get_segment_by_id(self._plugin_context.session,
@@ -183,8 +199,7 @@ class PortContext(MechanismDriverContext, api.PortContext):
 
     @property
     def segments_to_bind(self):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        return self._network_context.network_segments
+        return self._segments_to_bind
 
     def host_agents(self, agent_type):
         return self._plugin.get_agents(self._plugin_context,
@@ -194,15 +209,15 @@ class PortContext(MechanismDriverContext, api.PortContext):
     def set_binding(self, segment_id, vif_type, vif_details,
                     status=None):
         # TODO(rkukura) Verify binding allowed, segment in network
-        self._binding.segment = segment_id
+        self._new_bound_segment = segment_id
         self._binding.vif_type = vif_type
         self._binding.vif_details = jsonutils.dumps(vif_details)
         self._new_port_status = status
 
     def continue_binding(self, segment_id, next_segments_to_bind):
-        # TODO(rkukura): Implement for hierarchical port binding.
-        msg = _("Hierarchical port binding not yet implemented")
-        raise exc.Invalid(message=msg)
+        # TODO(rkukura) Verify binding allowed, segment in network
+        self._new_bound_segment = segment_id
+        self._next_segments_to_bind = next_segments_to_bind
 
     def allocate_dynamic_segment(self, segment):
         network_id = self._network_context.current['id']

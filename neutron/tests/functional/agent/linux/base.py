@@ -13,15 +13,13 @@
 #    under the License.
 
 import netaddr
-from oslo.config import cfg
+import testscenarios
 
-from neutron.agent.common import config
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
 from neutron.common import constants as n_const
 from neutron.openstack.common import uuidutils
-from neutron.tests.functional.agent.linux import helpers
 from neutron.tests.functional import base as functional_base
 from neutron.tests import sub_base
 
@@ -55,18 +53,17 @@ class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
 
     def setUp(self):
         super(BaseLinuxTestCase, self).setUp()
-        config.register_root_helper(cfg.CONF)
 
-    def check_command(self, cmd, error_text, skip_msg, root_helper=None):
+    def check_command(self, cmd, error_text, skip_msg, run_as_root=False):
         try:
-            utils.execute(cmd, root_helper=root_helper)
+            utils.execute(cmd, run_as_root=run_as_root)
         except RuntimeError as e:
             if error_text in str(e) and not self.fail_on_missing_deps:
                 self.skipTest(skip_msg)
             raise
 
     def _create_namespace(self):
-        ip_cmd = ip_lib.IPWrapper(self.root_helper)
+        ip_cmd = ip_lib.IPWrapper()
         name = "func-%s" % uuidutils.generate_uuid()
         namespace = ip_cmd.ensure_namespace(name)
         self.addCleanup(namespace.netns.delete, namespace.namespace)
@@ -91,7 +88,7 @@ class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
                 continue
 
     def create_veth(self):
-        ip_wrapper = ip_lib.IPWrapper(self.root_helper)
+        ip_wrapper = ip_lib.IPWrapper()
         name1 = get_rand_veth_name()
         name2 = get_rand_veth_name()
         self.addCleanup(ip_wrapper.del_veth, name1)
@@ -114,11 +111,19 @@ class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
         return str(net)
 
 
-class BaseOVSLinuxTestCase(BaseLinuxTestCase):
+# Regarding MRO, it goes BaseOVSLinuxTestCase, WithScenarios,
+# BaseLinuxTestCase, ..., UnitTest, object. setUp is not dfined in
+# WithScenarios, so it will correctly be found in BaseLinuxTestCase.
+class BaseOVSLinuxTestCase(testscenarios.WithScenarios, BaseLinuxTestCase):
+    scenarios = [
+        ('vsctl', dict(ovsdb_interface='vsctl')),
+    ]
+
     def setUp(self):
         super(BaseOVSLinuxTestCase, self).setUp()
-        self.ovs = ovs_lib.BaseOVS(self.root_helper)
-        self.ip = ip_lib.IPWrapper(self.root_helper)
+        self.config(group='OVS', ovsdb_interface=self.ovsdb_interface)
+        self.ovs = ovs_lib.BaseOVS()
+        self.ip = ip_lib.IPWrapper()
 
     def create_ovs_bridge(self, br_prefix=BR_PREFIX):
         br = self.create_resource(br_prefix, self.ovs.add_bridge)
@@ -126,7 +131,7 @@ class BaseOVSLinuxTestCase(BaseLinuxTestCase):
         return br
 
     def get_ovs_bridge(self, br_name):
-        return ovs_lib.OVSBridge(br_name, self.root_helper)
+        return ovs_lib.OVSBridge(br_name)
 
     def create_ovs_port_in_ns(self, br, ns):
         def create_port(name):
@@ -147,45 +152,33 @@ class BaseOVSLinuxTestCase(BaseLinuxTestCase):
         """
         net = netaddr.IPNetwork(ip_cidr)
         port_dev = self.create_ovs_port_in_ns(br, namespace)
-        port_dev.addr.add(net.version, str(net), net.broadcast)
+        port_dev.addr.add(str(net))
         return port_dev
 
 
 class BaseIPVethTestCase(BaseLinuxTestCase):
     SRC_ADDRESS = '192.168.0.1'
     DST_ADDRESS = '192.168.0.2'
-    BROADCAST_ADDRESS = '192.168.0.255'
-
-    def setUp(self):
-        super(BaseIPVethTestCase, self).setUp()
-        self.check_sudo_enabled()
-        self.pinger = helpers.Pinger(self)
 
     @staticmethod
-    def _set_ip_up(device, cidr, broadcast, ip_version=4):
-        device.addr.add(ip_version=ip_version, cidr=cidr, broadcast=broadcast)
+    def _set_ip_up(device, cidr):
+        device.addr.add(cidr)
         device.link.set_up()
 
-    def prepare_veth_pairs(self, src_addr=None,
-                           dst_addr=None,
-                           broadcast_addr=None,
-                           src_ns=None, dst_ns=None,
-                           src_veth=None,
-                           dst_veth=None):
+    def prepare_veth_pairs(self):
 
-        src_addr = src_addr or self.SRC_ADDRESS
-        dst_addr = dst_addr or self.DST_ADDRESS
-        broadcast_addr = broadcast_addr or self.BROADCAST_ADDRESS
-        src_veth = src_veth or get_rand_veth_name()
-        dst_veth = dst_veth or get_rand_veth_name()
-        src_ns = src_ns or self._create_namespace()
-        dst_ns = dst_ns or self._create_namespace()
+        src_addr = self.SRC_ADDRESS
+        dst_addr = self.DST_ADDRESS
+        src_veth = get_rand_veth_name()
+        dst_veth = get_rand_veth_name()
+        src_ns = self._create_namespace()
+        dst_ns = self._create_namespace()
 
         src_veth, dst_veth = src_ns.add_veth(src_veth,
                                              dst_veth,
                                              dst_ns.namespace)
 
-        self._set_ip_up(src_veth, '%s/24' % src_addr, broadcast_addr)
-        self._set_ip_up(dst_veth, '%s/24' % dst_addr, broadcast_addr)
+        self._set_ip_up(src_veth, '%s/24' % src_addr)
+        self._set_ip_up(dst_veth, '%s/24' % dst_addr)
 
         return src_ns, dst_ns

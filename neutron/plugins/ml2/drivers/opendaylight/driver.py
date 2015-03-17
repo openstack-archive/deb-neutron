@@ -15,11 +15,11 @@
 
 from networking_odl.common import constants as odl_const
 from networking_odl.ml2 import mech_driver
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log
 
 from neutron.common import constants as n_const
 from neutron.extensions import portbindings
-from neutron.openstack.common import log
 from neutron.plugins.common import constants
 from neutron.plugins.ml2 import driver_api as api
 
@@ -45,7 +45,7 @@ class OpenDaylightMechanismDriver(api.MechanismDriver):
 
     """Mechanism Driver for OpenDaylight.
 
-    This driver was a port from the Tail-F NCS MechanismDriver.  The API
+    This driver was a port from the NCS MechanismDriver.  The API
     exposed by ODL is slightly different from the API exposed by NCS,
     but the general concepts are the same.
     """

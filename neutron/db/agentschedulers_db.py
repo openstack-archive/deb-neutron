@@ -17,8 +17,9 @@ import datetime
 import random
 import time
 
-from oslo.config import cfg
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import timeutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
@@ -32,7 +33,6 @@ from neutron.db import model_base
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import dhcpagentscheduler
 from neutron.i18n import _LE, _LI, _LW
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
 
 
@@ -156,7 +156,12 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
 
         self.setup_agent_status_check(self.remove_networks_from_down_agents)
 
-    def _agent_starting_up(self, context, agent):
+    def is_eligible_agent(self, context, active, agent):
+        # eligible agent is active or starting up
+        return (AgentSchedulerDbMixin.is_eligible_agent(active, agent) or
+                self.agent_starting_up(context, agent))
+
+    def agent_starting_up(self, context, agent):
         """Check if agent was just started.
 
         Method returns True if agent is in its 'starting up' period.
@@ -217,7 +222,7 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
         for binding in bindings:
             agent_id = binding.dhcp_agent['id']
             if agent_id not in checked_agents:
-                if self._agent_starting_up(context, binding.dhcp_agent):
+                if self.agent_starting_up(context, binding.dhcp_agent):
                     # When agent starts and it has many networks to process
                     # it may fail to send state reports in defined interval.
                     # The server will consider it dead and try to remove
@@ -254,21 +259,33 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                      {'network': binding.network_id,
                       'agent': binding.dhcp_agent_id,
                       'dead_time': agent_dead_limit})
+            # save binding object to avoid ObjectDeletedError
+            # in case binding is concurrently deleted from the DB
+            saved_binding = {'net': binding.network_id,
+                             'agent': binding.dhcp_agent_id}
             try:
+                # do not notify agent if it considered dead
+                # so when it is restarted it won't see network delete
+                # notifications on its queue
                 self.remove_network_from_dhcp_agent(context,
                                                     binding.dhcp_agent_id,
-                                                    binding.network_id)
+                                                    binding.network_id,
+                                                    notify=False)
             except dhcpagentscheduler.NetworkNotHostedByDhcpAgent:
                 # measures against concurrent operation
                 LOG.debug("Network %(net)s already removed from DHCP agent "
-                          "%s(agent)",
-                          {'net': binding.network_id,
-                           'agent': binding.dhcp_agent_id})
+                          "%(agent)s",
+                          saved_binding)
                 # still continue and allow concurrent scheduling attempt
+            except Exception:
+                LOG.exception(_LE("Unexpected exception occurred while "
+                                  "removing network %(net)s from agent "
+                                  "%(agent)s"),
+                              saved_binding)
 
             if cfg.CONF.network_auto_schedule:
                 self._schedule_network(
-                    context, binding.network_id, dhcp_notifier)
+                    context, saved_binding['net'], dhcp_notifier)
 
     def get_dhcp_agents_hosting_networks(
             self, context, network_ids, active=None):
@@ -287,8 +304,8 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
 
         return [binding.dhcp_agent
                 for binding in query
-                if AgentSchedulerDbMixin.is_eligible_agent(active,
-                                                           binding.dhcp_agent)]
+                if self.is_eligible_agent(context, active,
+                                          binding.dhcp_agent)]
 
     def add_network_to_dhcp_agent(self, context, id, network_id):
         self._get_network(context, network_id)
@@ -312,14 +329,17 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
             dhcp_notifier.network_added_to_agent(
                 context, network_id, agent_db.host)
 
-    def remove_network_from_dhcp_agent(self, context, id, network_id):
+    def remove_network_from_dhcp_agent(self, context, id, network_id,
+                                       notify=True):
         agent = self._get_agent(context, id)
         with context.session.begin(subtransactions=True):
             try:
                 query = context.session.query(NetworkDhcpAgentBinding)
-                binding = query.filter(
+                query = query.filter(
                     NetworkDhcpAgentBinding.network_id == network_id,
-                    NetworkDhcpAgentBinding.dhcp_agent_id == id).one()
+                    NetworkDhcpAgentBinding.dhcp_agent_id == id)
+                # just ensure the binding exists
+                query.one()
             except exc.NoResultFound:
                 raise dhcpagentscheduler.NetworkNotHostedByDhcpAgent(
                     network_id=network_id, agent_id=id)
@@ -332,8 +352,10 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
             for port in ports:
                 port['device_id'] = constants.DEVICE_ID_RESERVED_DHCP_PORT
                 self.update_port(context, port['id'], dict(port=port))
+            query.delete()
 
-            context.session.delete(binding)
+        if not notify:
+            return
         dhcp_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_DHCP)
         if dhcp_notifier:
             dhcp_notifier.network_removed_from_agent(
@@ -348,6 +370,8 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
             return {'networks':
                     self.get_networks(context, filters={'id': net_ids})}
         else:
+            # Exception will be thrown if the requested agent does not exist.
+            self._get_agent(context, id)
             return {'networks': []}
 
     def list_active_networks_on_active_dhcp_agent(self, context, host):

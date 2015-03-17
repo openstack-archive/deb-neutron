@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
@@ -21,7 +22,6 @@ from neutron.db import db_base_plugin_v2
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import portsecurity as psec
-from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class PortSecurityDbMixin(object):
         # conveniently set port_security_enabled to true this way
         # user doesn't also have to pass in port_security_enabled=True
         # when creating ports.
-        elif (has_ip and attrs.is_attr_set('security_groups')):
+        elif (has_ip and attrs.is_attr_set(port.get('security_groups'))):
             port_security_enabled = True
         else:
             port_security_enabled = self._get_network_security_binding(

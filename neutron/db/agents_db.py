@@ -14,23 +14,23 @@
 #    under the License.
 
 from eventlet import greenthread
-
-from oslo.config import cfg
-from oslo.db import exception as db_exc
-from oslo import messaging
-from oslo.serialization import jsonutils
-from oslo.utils import timeutils
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_serialization import jsonutils
+from oslo_utils import timeutils
 import sqlalchemy as sa
 from sqlalchemy.orm import exc
 from sqlalchemy import sql
 
 from neutron.api.v2 import attributes
+from neutron.common import constants
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import agent as ext_agent
 from neutron.i18n import _LW
 from neutron import manager
-from neutron.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
 cfg.CONF.register_opt(
@@ -220,9 +220,15 @@ class AgentDbMixin(ext_agent.AgentPluginBase):
 
 
 class AgentExtRpcCallback(object):
-    """Processes the rpc report in plugin implementations."""
+    """Processes the rpc report in plugin implementations.
 
-    target = messaging.Target(version='1.0')
+    This class implements the server side of an rpc interface.  The client side
+    can be found in neutron.agent.rpc.PluginReportStateAPI.  For more
+    information on changing rpc interfaces, see doc/source/devref/rpc_api.rst.
+    """
+
+    target = oslo_messaging.Target(version='1.0',
+                                   namespace=constants.RPC_NAMESPACE_STATE)
     START_TIME = timeutils.utcnow()
 
     def __init__(self, plugin=None):

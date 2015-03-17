@@ -13,12 +13,19 @@
 #    under the License.
 
 import netaddr
+from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
+from oslo_utils import excutils
+
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
@@ -29,7 +36,6 @@ from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.i18n import _LI
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 
@@ -91,7 +97,8 @@ class FloatingIP(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
 
     floating_ip_address = sa.Column(sa.String(64), nullable=False)
     floating_network_id = sa.Column(sa.String(36), nullable=False)
-    floating_port_id = sa.Column(sa.String(36), sa.ForeignKey('ports.id'),
+    floating_port_id = sa.Column(sa.String(36),
+                                 sa.ForeignKey('ports.id', ondelete="CASCADE"),
                                  nullable=False)
     fixed_port_id = sa.Column(sa.String(36), sa.ForeignKey('ports.id'))
     fixed_ip_address = sa.Column(sa.String(64))
@@ -338,12 +345,21 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             router.gw_port = None
             context.session.add(router)
             context.session.expire(gw_port)
-            vpnservice = manager.NeutronManager.get_service_plugins().get(
-                constants.VPN)
-            if vpnservice:
-                vpnservice.check_router_in_use(context, router_id)
+            self._check_router_gw_port_in_use(context, router_id)
         self._core_plugin.delete_port(
             admin_ctx, gw_port['id'], l3_port_check=False)
+
+    def _check_router_gw_port_in_use(self, context, router_id):
+        try:
+            kwargs = {'context': context, 'router_id': router_id}
+            registry.notify(
+                resources.ROUTER_GATEWAY, events.BEFORE_DELETE, self, **kwargs)
+        except exceptions.CallbackFailure as e:
+            with excutils.save_and_reraise_exception():
+                # NOTE(armax): preserve old check's behavior
+                if len(e.errors) == 1:
+                    raise e.errors[0].error
+                raise l3.RouterInUse(router_id=router_id, reason=e)
 
     def _create_gw_port(self, context, router_id, router, new_network,
                         ext_ips, ext_ip_change):
@@ -573,10 +589,17 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         subnet_db = self._core_plugin._get_subnet(context, subnet_id)
         subnet_cidr = netaddr.IPNetwork(subnet_db['cidr'])
         fip_qry = context.session.query(FloatingIP)
-        vpnservice = manager.NeutronManager.get_service_plugins().get(
-            constants.VPN)
-        if vpnservice:
-            vpnservice.check_subnet_in_use(context, subnet_id)
+        try:
+            kwargs = {'context': context, 'subnet_id': subnet_id}
+            registry.notify(
+                resources.ROUTER_INTERFACE,
+                events.BEFORE_DELETE, self, **kwargs)
+        except exceptions.CallbackFailure as e:
+            with excutils.save_and_reraise_exception():
+                # NOTE(armax): preserve old check's behavior
+                if len(e.errors) == 1:
+                    raise e.errors[0].error
+                raise l3.RouterInUse(router_id=router_id, reason=e)
         for fip_db in fip_qry.filter_by(router_id=router_id):
             if netaddr.IPAddress(fip_db['fixed_ip_address']) in subnet_cidr:
                 raise l3.RouterInterfaceInUseByFloatingIP(
@@ -890,11 +913,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
     def _delete_floatingip(self, context, id):
         floatingip = self._get_floatingip(context, id)
         router_id = floatingip['router_id']
-        with context.session.begin(subtransactions=True):
-            context.session.delete(floatingip)
-            self._core_plugin.delete_port(context.elevated(),
-                                          floatingip['floating_port_id'],
-                                          l3_port_check=False)
+        # Foreign key cascade will take care of the removal of the
+        # floating IP record once the port is deleted. We can't start
+        # a transaction first to remove it ourselves because the delete_port
+        # method will yield in its post-commit activities.
+        self._core_plugin.delete_port(context.elevated(),
+                                      floatingip['floating_port_id'],
+                                      l3_port_check=False)
         return router_id
 
     def delete_floatingip(self, context, id):

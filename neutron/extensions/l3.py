@@ -15,7 +15,7 @@
 
 import abc
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
@@ -30,7 +30,12 @@ class RouterNotFound(nexception.NotFound):
 
 
 class RouterInUse(nexception.InUse):
-    message = _("Router %(router_id)s still has ports")
+    message = _("Router %(router_id)s %(reason)s")
+
+    def __init__(self, **kwargs):
+        if 'reason' not in kwargs:
+            kwargs['reason'] = "still has ports"
+        super(RouterInUse, self).__init__(**kwargs)
 
 
 class RouterInterfaceNotFound(nexception.NotFound):

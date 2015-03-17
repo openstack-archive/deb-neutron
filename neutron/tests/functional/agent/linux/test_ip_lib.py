@@ -16,14 +16,14 @@
 import collections
 
 import netaddr
-from oslo.config import cfg
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+from oslo_utils import importutils
 
 from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import utils
-from neutron.openstack.common import log as logging
 from neutron.tests.functional.agent.linux import base
 
 LOG = logging.getLogger(__name__)
@@ -33,7 +33,6 @@ Device = collections.namedtuple('Device', 'name ip_cidr mac_address namespace')
 class IpLibTestFramework(base.BaseLinuxTestCase):
     def setUp(self):
         super(IpLibTestFramework, self).setUp()
-        self.check_sudo_enabled()
         self._configure()
 
     def _configure(self):
@@ -68,7 +67,7 @@ class IpLibTestFramework(base.BaseLinuxTestCase):
         :param attr: A Device namedtuple
         :return: A tuntap ip_lib.IPDevice
         """
-        ip = ip_lib.IPWrapper(self.root_helper, namespace=attr.namespace)
+        ip = ip_lib.IPWrapper(namespace=attr.namespace)
         ip.netns.add(attr.namespace)
         self.addCleanup(ip.netns.delete, attr.namespace)
         tap_device = ip.add_tuntap(attr.name)
@@ -85,50 +84,39 @@ class IpLibTestCase(IpLibTestFramework):
         attr = self.generate_device_details()
 
         self.assertFalse(
-            ip_lib.device_exists(attr.name, self.root_helper,
-                                 attr.namespace))
+            ip_lib.device_exists(attr.name, namespace=attr.namespace))
 
         device = self.manage_device(attr)
 
         self.assertTrue(
-            ip_lib.device_exists(device.name, self.root_helper,
-                                 attr.namespace))
+            ip_lib.device_exists(device.name, namespace=attr.namespace))
 
         device.link.delete()
 
         self.assertFalse(
-            ip_lib.device_exists(attr.name, self.root_helper,
-                                 attr.namespace))
+            ip_lib.device_exists(attr.name, namespace=attr.namespace))
 
     def test_device_exists_with_ip_mac(self):
         attr = self.generate_device_details()
         device = self.manage_device(attr)
         self.assertTrue(
-            ip_lib.device_exists_with_ip_mac(
-                *attr, root_helper=self.root_helper))
+            ip_lib.device_exists_with_ip_mac(*attr))
 
         wrong_ip_cidr = '10.0.0.1/8'
         wrong_mac_address = 'aa:aa:aa:aa:aa:aa'
 
         attr = self.generate_device_details(name='wrong_name')
         self.assertFalse(
-            ip_lib.device_exists_with_ip_mac(
-                *attr, root_helper=self.root_helper))
+            ip_lib.device_exists_with_ip_mac(*attr))
 
         attr = self.generate_device_details(ip_cidr=wrong_ip_cidr)
-        self.assertFalse(
-            ip_lib.device_exists_with_ip_mac(
-                *attr, root_helper=self.root_helper))
+        self.assertFalse(ip_lib.device_exists_with_ip_mac(*attr))
 
         attr = self.generate_device_details(mac_address=wrong_mac_address)
-        self.assertFalse(
-            ip_lib.device_exists_with_ip_mac(
-                *attr, root_helper=self.root_helper))
+        self.assertFalse(ip_lib.device_exists_with_ip_mac(*attr))
 
         attr = self.generate_device_details(namespace='wrong_namespace')
-        self.assertFalse(
-            ip_lib.device_exists_with_ip_mac(
-                *attr, root_helper=self.root_helper))
+        self.assertFalse(ip_lib.device_exists_with_ip_mac(*attr))
 
         device.link.delete()
 
@@ -147,5 +135,5 @@ class IpLibTestCase(IpLibTestFramework):
                             'destination': str(
                                 netaddr.IPNetwork(attr.ip_cidr).cidr)}]
 
-        routes = ip_lib.get_routing_table(self.root_helper, attr.namespace)
+        routes = ip_lib.get_routing_table(namespace=attr.namespace)
         self.assertEqual(expected_routes, routes)

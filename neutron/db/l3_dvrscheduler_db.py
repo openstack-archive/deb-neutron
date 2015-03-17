@@ -15,12 +15,16 @@
 
 import random
 
-from oslo.db import exception as db_exc
+from oslo_db import exception as db_exc
+from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import joinedload
 
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants as q_const
 from neutron.common import utils as n_utils
 from neutron.db import agents_db
@@ -28,7 +32,8 @@ from neutron.db import l3_agentschedulers_db as l3agent_sch_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.i18n import _LI, _LW
-from neutron.openstack.common import log as logging
+from neutron import manager
+from neutron.plugins.common import constants as service_constants
 from neutron.plugins.ml2 import db as ml2_db
 
 LOG = logging.getLogger(__name__)
@@ -308,3 +313,28 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 return
             self.bind_dvr_router_servicenode(
                 context, router_id, chosen_agent)
+            return chosen_agent
+
+
+def _notify_l3_agent_new_port(resource, event, trigger, **kwargs):
+    LOG.debug('Received %s %s' % (resource, event))
+    port = kwargs['port']
+    if not port:
+        return
+
+    l3plugin = manager.NeutronManager.get_service_plugins().get(
+        service_constants.L3_ROUTER_NAT)
+    mac_address_updated = kwargs.get('mac_address_updated')
+    update_device_up = kwargs.get('update_device_up')
+    context = kwargs['context']
+    if mac_address_updated or update_device_up:
+        l3plugin.dvr_vmarp_table_update(context, port, "add")
+    if n_utils.is_dvr_serviced(port['device_owner']):
+        l3plugin.dvr_update_router_addvm(context, port)
+
+
+def subscribe():
+    registry.subscribe(
+        _notify_l3_agent_new_port, resources.PORT, events.AFTER_UPDATE)
+    registry.subscribe(
+        _notify_l3_agent_new_port, resources.PORT, events.AFTER_CREATE)

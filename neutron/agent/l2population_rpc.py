@@ -15,12 +15,12 @@
 
 import abc
 
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log as logging
 import six
 
 from neutron.common import constants as n_const
 from neutron.common import log
-from neutron.openstack.common import log as logging
 from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
 
 LOG = logging.getLogger(__name__)
@@ -225,10 +225,10 @@ class L2populationRpcCallBackTunnelMixin(L2populationRpcCallBackMixin):
             yield (lvm, agent_ports)
 
     @log.log
-    def fdb_add_tun(self, context, br, lvm, agent_ports, ofports):
+    def fdb_add_tun(self, context, br, lvm, agent_ports, lookup_port):
         for remote_ip, ports in agent_ports.items():
             # Ensure we have a tunnel port with this remote agent
-            ofport = ofports[lvm.network_type].get(remote_ip)
+            ofport = lookup_port(lvm.network_type, remote_ip)
             if not ofport:
                 ofport = self.setup_tunnel_port(br, remote_ip,
                                                 lvm.network_type)
@@ -238,9 +238,9 @@ class L2populationRpcCallBackTunnelMixin(L2populationRpcCallBackMixin):
                 self.add_fdb_flow(br, port, remote_ip, lvm, ofport)
 
     @log.log
-    def fdb_remove_tun(self, context, br, lvm, agent_ports, ofports):
+    def fdb_remove_tun(self, context, br, lvm, agent_ports, lookup_port):
         for remote_ip, ports in agent_ports.items():
-            ofport = ofports[lvm.network_type].get(remote_ip)
+            ofport = lookup_port(lvm.network_type, remote_ip)
             if not ofport:
                 continue
             for port in ports:

@@ -15,28 +15,17 @@
 
 import mock
 
-from neutron.agent.linux import interface
 from neutron.cmd import netns_cleanup as util
 from neutron.tests import base
 
 
 class TestNetnsCleanup(base.BaseTestCase):
 
-    def setup_config(self):
-        # don't use default config
-        pass
-
-    def test_setup_conf(self):
-        expected_opts = interface.OPTS
-        conf = util.setup_conf()
-        self.assertTrue(all([opt.name in conf for opt in expected_opts]))
-
     def test_kill_dhcp(self, dhcp_active=True):
         conf = mock.Mock()
-        conf.AGENT.root_helper = 'sudo',
         conf.dhcp_driver = 'driver'
 
-        method_to_patch = 'oslo.utils.importutils.import_object'
+        method_to_patch = 'oslo_utils.importutils.import_object'
 
         with mock.patch(method_to_patch) as import_object:
             driver = mock.Mock()
@@ -46,9 +35,7 @@ class TestNetnsCleanup(base.BaseTestCase):
             util.kill_dhcp(conf, 'ns')
 
             expected_params = {'conf': conf, 'network': mock.ANY,
-                               'root_helper': conf.AGENT.root_helper,
-                               'plugin': mock.ANY,
-                               'process_monitor': mock.ANY}
+                               'plugin': mock.ANY}
             import_object.assert_called_once_with('driver', **expected_params)
 
             if dhcp_active:
@@ -73,7 +60,7 @@ class TestNetnsCleanup(base.BaseTestCase):
             self.assertEqual(util.eligible_for_deletion(conf, ns, force),
                              expected)
 
-            expected_calls = [mock.call(conf.AGENT.root_helper, ns)]
+            expected_calls = [mock.call(namespace=ns)]
             if not force:
                 expected_calls.append(mock.call().namespace_is_empty())
             ip_wrap.assert_has_calls(expected_calls)
@@ -113,8 +100,7 @@ class TestNetnsCleanup(base.BaseTestCase):
                 util.unplug_device(conf, device)
 
                 mock_get_bridge_for_iface.assert_called_once_with('tap1')
-                ovs_br_cls.assert_called_once_with('br-int',
-                                                   conf.AGENT.root_helper)
+                ovs_br_cls.assert_called_once_with('br-int')
                 ovs_bridge.assert_has_calls(
                     [mock.call.delete_port(device.name)])
 
@@ -144,7 +130,6 @@ class TestNetnsCleanup(base.BaseTestCase):
     def _test_destroy_namespace_helper(self, force, num_devices):
         ns = 'qrouter-6e322ac7-ab50-4f53-9cdc-d1d3c1164b6d'
         conf = mock.Mock()
-#        conf.AGENT.root_helper = 'sudo'
 
         lo_device = mock.Mock()
         lo_device.name = 'lo'
@@ -165,7 +150,7 @@ class TestNetnsCleanup(base.BaseTestCase):
 
                 with mock.patch.object(util, 'kill_dhcp') as kill_dhcp:
                     util.destroy_namespace(conf, ns, force)
-                    expected = [mock.call(conf.AGENT.root_helper, ns)]
+                    expected = [mock.call(namespace=ns)]
 
                     if force:
                         expected.extend([
@@ -191,7 +176,6 @@ class TestNetnsCleanup(base.BaseTestCase):
     def test_destroy_namespace_exception(self):
         ns = 'qrouter-6e322ac7-ab50-4f53-9cdc-d1d3c1164b6d'
         conf = mock.Mock()
-        conf.AGENT.root_helper = 'sudo'
         with mock.patch('neutron.agent.linux.ip_lib.IPWrapper') as ip_wrap:
             ip_wrap.side_effect = Exception()
             util.destroy_namespace(conf, ns)
@@ -201,7 +185,7 @@ class TestNetnsCleanup(base.BaseTestCase):
         with mock.patch('neutron.agent.linux.ip_lib.IPWrapper') as ip_wrap:
             ip_wrap.get_namespaces.return_value = namespaces
 
-            with mock.patch('eventlet.sleep') as eventlet_sleep:
+            with mock.patch('time.sleep') as time_sleep:
                 conf = mock.Mock()
                 conf.force = False
                 methods_to_mock = dict(
@@ -224,16 +208,16 @@ class TestNetnsCleanup(base.BaseTestCase):
                              mock.call(conf, 'ns2', False)])
 
                         ip_wrap.assert_has_calls(
-                            [mock.call.get_namespaces(conf.AGENT.root_helper)])
+                            [mock.call.get_namespaces()])
 
-                        eventlet_sleep.assert_called_once_with(2)
+                        time_sleep.assert_called_once_with(2)
 
     def test_main_no_candidates(self):
         namespaces = ['ns1', 'ns2']
         with mock.patch('neutron.agent.linux.ip_lib.IPWrapper') as ip_wrap:
             ip_wrap.get_namespaces.return_value = namespaces
 
-            with mock.patch('eventlet.sleep') as eventlet_sleep:
+            with mock.patch('time.sleep') as time_sleep:
                 conf = mock.Mock()
                 conf.force = False
                 methods_to_mock = dict(
@@ -248,7 +232,7 @@ class TestNetnsCleanup(base.BaseTestCase):
                         util.main()
 
                         ip_wrap.assert_has_calls(
-                            [mock.call.get_namespaces(conf.AGENT.root_helper)])
+                            [mock.call.get_namespaces()])
 
                         mocks['eligible_for_deletion'].assert_has_calls(
                             [mock.call(conf, 'ns1', False),
@@ -256,4 +240,4 @@ class TestNetnsCleanup(base.BaseTestCase):
 
                         self.assertFalse(mocks['destroy_namespace'].called)
 
-                        self.assertFalse(eventlet_sleep.called)
+                        self.assertFalse(time_sleep.called)

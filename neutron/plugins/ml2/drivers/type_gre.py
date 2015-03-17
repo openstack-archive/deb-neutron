@@ -13,8 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
-from oslo.db import exception as db_exc
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_log import log
 from six import moves
 import sqlalchemy as sa
 from sqlalchemy import sql
@@ -23,7 +24,6 @@ from neutron.common import exceptions as n_exc
 from neutron.db import api as db_api
 from neutron.db import model_base
 from neutron.i18n import _LE, _LW
-from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers import type_tunnel
 
@@ -96,6 +96,16 @@ class GreTypeDriver(type_tunnel.TunnelTypeDriver):
                 gre_ids |= set(moves.xrange(tun_min, tun_max + 1))
 
         session = db_api.get_session()
+        try:
+            self._add_allocation(session, gre_ids)
+        except db_exc.DBDuplicateEntry:
+            # in case multiple neutron-servers start allocations could be
+            # already added by different neutron-server. because this function
+            # is called only when initializing this type driver, it's safe to
+            # assume allocations were added.
+            LOG.warning(_LW("Gre allocations were already created."))
+
+    def _add_allocation(self, session, gre_ids):
         with session.begin(subtransactions=True):
             # remove from table unallocated tunnels not currently allocatable
             allocs = (session.query(GreAllocation).all())

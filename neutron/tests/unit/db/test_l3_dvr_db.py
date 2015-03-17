@@ -17,7 +17,6 @@ import contextlib
 import mock
 
 from neutron.common import constants as l3_const
-from neutron.common import exceptions as nexception
 from neutron import context
 from neutron.db import l3_dvr_db
 from neutron.extensions import l3
@@ -156,6 +155,32 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             'device_id': ['agent_id'],
             'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW]})
 
+    def _test_prepare_direct_delete_dvr_internal_ports(self, port):
+        with mock.patch.object(manager.NeutronManager, 'get_plugin') as gp:
+            plugin = mock.Mock()
+            gp.return_value = plugin
+            plugin._get_port.return_value = port
+            self.assertRaises(l3.L3PortInUse,
+                              self.mixin.prevent_l3_port_deletion,
+                              self.ctx,
+                              port['id'])
+
+    def test_prevent_delete_floatingip_agent_gateway_port(self):
+        port = {
+            'id': 'my_port_id',
+            'fixed_ips': mock.ANY,
+            'device_owner': l3_const.DEVICE_OWNER_AGENT_GW
+        }
+        self._test_prepare_direct_delete_dvr_internal_ports(port)
+
+    def test_prevent_delete_csnat_port(self):
+        port = {
+            'id': 'my_port_id',
+            'fixed_ips': mock.ANY,
+            'device_owner': l3_const.DEVICE_OWNER_ROUTER_SNAT
+        }
+        self._test_prepare_direct_delete_dvr_internal_ports(port)
+
     def test__create_gw_port_with_no_gateway(self):
         router = {
             'name': 'foo_router',
@@ -194,7 +219,7 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             mock.patch.object(self.mixin,
                               'get_vm_port_hostid'),
             mock.patch.object(self.mixin,
-                              'check_fips_availability_on_host'),
+                              'check_fips_availability_on_host_ext_net'),
             mock.patch.object(self.mixin,
                               'delete_floatingip_agent_gateway_port')
                              ) as (gfips, gvm, cfips, dfips):
@@ -206,6 +231,28 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             self.assertTrue(dfips.called)
             self.assertTrue(cfips.called)
             self.assertTrue(gvm.called)
+
+    def test_delete_floatingip_agent_gateway_port(self):
+        port = {
+            'id': 'my_port_id',
+            'binding:host_id': 'foo_host',
+            'network_id': 'ext_network_id',
+            'device_owner': l3_const.DEVICE_OWNER_AGENT_GW
+        }
+        with contextlib.nested(
+            mock.patch.object(manager.NeutronManager, 'get_plugin'),
+            mock.patch.object(self.mixin,
+                              'get_vm_port_hostid')) as (gp, vm_host):
+            plugin = mock.Mock()
+            gp.return_value = plugin
+            plugin.get_ports.return_value = [port]
+            vm_host.return_value = 'foo_host'
+            self.mixin.delete_floatingip_agent_gateway_port(
+                self.ctx, 'foo_host', 'network_id')
+        plugin.get_ports.assert_called_with(self.ctx, filters={
+            'network_id': ['network_id'],
+            'device_owner': [l3_const.DEVICE_OWNER_AGENT_GW]})
+        plugin._delete_port.assert_called_with(self.ctx, 'my_port_id')
 
     def _delete_floatingip_test_setup(self, floatingip):
         fip_id = floatingip['id']
@@ -321,88 +368,151 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
         floatingip = {
             'id': _uuid(),
             'fixed_port_id': 1234,
+            'router_id': 'foo_router_id'
         }
+        router = {'id': 'foo_router_id', 'distributed': True}
         with contextlib.nested(
+            mock.patch.object(self.mixin,
+                              'get_router'),
             mock.patch.object(self.mixin,
                               'clear_unused_fip_agent_gw_port'),
             mock.patch.object(l3_dvr_db.l3_db.L3_NAT_db_mixin,
                               '_update_fip_assoc'),
-                 ) as (vf, cf):
+                 ) as (grtr, vf, cf):
+            grtr.return_value = router
             self.mixin._update_fip_assoc(
                 self.ctx, fip, floatingip, mock.ANY)
             self.assertTrue(vf.called)
 
-    def _router_migration_with_services_setup(
-        self, test_side_effect_vpn=None, test_side_effect_fw=None,
-        no_vpn=None, no_fw=None):
-        '''Helper function to test router migration with services.'''
-        router = {'name': 'foo_router',
-                  'admin_state_up': True}
-        router_db = self._create_router(router)
-        self.assertFalse(router_db.extra_attributes.distributed)
+    def _setup_test_create_delete_floatingip(
+        self, fip, floatingip_db, router_db):
+        port = {
+            'id': '1234',
+            'binding:host_id': 'myhost',
+            'network_id': 'external_net'
+        }
+
         with contextlib.nested(
-            mock.patch.object(
-                self.mixin, 'check_router_has_no_vpnaas',
-                side_effect=test_side_effect_vpn, return_value=no_vpn),
-            mock.patch.object(
-                self.mixin, 'check_router_has_no_firewall',
-                side_effect=test_side_effect_fw, return_value=no_fw),
-            mock.patch.object(self.mixin, '_get_router',
-                              return_value=router_db)
-                              ) as (vpn_mock, fw_mock, r_mock):
-            router_db['status'] = 'ACTIVE'
-            if no_vpn and no_fw and (
-                test_side_effect_vpn and test_side_effect_fw) is None:
-                self.mixin._validate_router_migration(
-                    self.ctx, router_db, {'distributed': True})
-                return router_db, fw_mock, vpn_mock
-            if not no_vpn and test_side_effect_vpn:
-                self.assertRaises(
-                    nexception.RouterInUseByVPNService,
-                    self.mixin._validate_router_migration,
-                    self.ctx,
-                    router_db,
-                    {'distributed': True})
-                return router_db, fw_mock, vpn_mock
-            if not no_fw and test_side_effect_fw:
-                self.assertRaises(
-                    l3.RouterInUse,
-                    self.mixin._validate_router_migration,
-                    self.ctx,
-                    router_db,
-                    {'distributed': True})
-                return router_db, fw_mock, vpn_mock
+            mock.patch.object(self.mixin,
+                              'get_router'),
+            mock.patch.object(self.mixin,
+                              'get_vm_port_hostid'),
+            mock.patch.object(self.mixin,
+                              'clear_unused_fip_agent_gw_port'),
+            mock.patch.object(self.mixin,
+                              'create_fip_agent_gw_port_if_not_exists'),
+            mock.patch.object(l3_dvr_db.l3_db.L3_NAT_db_mixin,
+                              '_update_fip_assoc'),
+                 ) as (grtr, vmp, d_fip, c_fip, up_fip):
+            grtr.return_value = router_db
+            vmp.return_value = 'my-host'
+            self.mixin._update_fip_assoc(
+                self.ctx, fip, floatingip_db, port)
+            return d_fip, c_fip
 
-    def test__validate_router_migration_fail_with_vpnservice(self):
-        '''Test to check router migration fail with vpn.'''
-        router_db, mock_firewall, mock_vpnaas = (
-            self._router_migration_with_services_setup(
-                test_side_effect_vpn=(
-                    nexception.RouterInUseByVPNService(
-                        router_id='fake_id',
-                        vpnservice_id='fake_vpnaas_id')
-                ),
-                no_vpn=False,
-                no_fw=True))
-        mock_vpnaas.assert_called_once_with(self.ctx, router_db)
+    def test_create_floatingip_agent_gw_port_with_dvr_router(self):
+        floatingip = {
+            'id': _uuid(),
+            'router_id': 'foo_router_id'
+        }
+        router = {'id': 'foo_router_id', 'distributed': True}
+        fip = {
+            'id': _uuid(),
+            'port_id': _uuid()
+        }
+        delete_fip, create_fip = (
+            self._setup_test_create_delete_floatingip(
+                fip, floatingip, router))
+        self.assertTrue(create_fip.called)
+        self.assertFalse(delete_fip.called)
 
-    def test__validate_router_migration_fail_with_fwservice(self):
-        '''Test to check router migration with firewall.'''
-        router_db, mock_firewall, mock_vpnaas = (
-            self._router_migration_with_services_setup(
-                test_side_effect_vpn=None,
-                test_side_effect_fw=l3.RouterInUse(
-                    router_id='fake_id'
-                ),
-                no_vpn=True,
-                no_fw=False))
-        mock_firewall.assert_called_once_with(self.ctx, router_db)
+    def test_create_floatingip_agent_gw_port_with_non_dvr_router(self):
+        floatingip = {
+            'id': _uuid(),
+            'router_id': 'foo_router_id'
+        }
+        router = {'id': 'foo_router_id', 'distributed': False}
+        fip = {
+            'id': _uuid(),
+            'port_id': _uuid()
+        }
+        delete_fip, create_fip = (
+            self._setup_test_create_delete_floatingip(
+                fip, floatingip, router))
+        self.assertFalse(create_fip.called)
+        self.assertFalse(delete_fip.called)
 
-    def test__validate_router_migration_with_no_services(self):
-        '''Test to check router migration with no services.'''
-        router_db, mock_firewall, mock_vpnaas = (
-            self._router_migration_with_services_setup(
-                no_vpn=True,
-                no_fw=True))
-        mock_vpnaas.assert_called_once_with(self.ctx, router_db)
-        mock_firewall.assert_called_once_with(self.ctx, router_db)
+    def test_delete_floatingip_agent_gw_port_with_dvr_router(self):
+        floatingip = {
+            'id': _uuid(),
+            'fixed_port_id': 1234,
+            'router_id': 'foo_router_id'
+        }
+        router = {'id': 'foo_router_id', 'distributed': True}
+        fip = {
+            'id': _uuid(),
+            'port_id': None
+        }
+        delete_fip, create_fip = (
+            self._setup_test_create_delete_floatingip(
+                fip, floatingip, router))
+        self.assertTrue(delete_fip.called)
+        self.assertFalse(create_fip.called)
+
+    def test_delete_floatingip_agent_gw_port_with_non_dvr_router(self):
+        floatingip = {
+            'id': _uuid(),
+            'fixed_port_id': 1234,
+            'router_id': 'foo_router_id'
+        }
+        router = {'id': 'foo_router_id', 'distributed': False}
+        fip = {
+            'id': _uuid(),
+            'port_id': None
+        }
+        delete_fip, create_fip = (
+            self._setup_test_create_delete_floatingip(
+                fip, floatingip, router))
+        self.assertFalse(create_fip.called)
+        self.assertFalse(delete_fip.called)
+
+    def test__validate_router_migration_prevent_check_advanced_svc(self):
+        router = {'name': 'foo_router', 'admin_state_up': True}
+        router_db = self._create_router(router)
+        # make sure the check are invoked, whether they pass or
+        # raise, it does not matter in the context of this test
+        with contextlib.nested(
+            mock.patch.object(self.mixin, 'check_router_has_no_firewall'),
+            mock.patch.object(self.mixin, 'check_router_has_no_vpnaas')
+        ) as (check_fw, check_vpn):
+            self.mixin._validate_router_migration(
+                self.ctx, router_db, {'distributed': True})
+            check_fw.assert_called_once_with(self.ctx, router_db)
+            check_vpn.assert_called_once_with(self.ctx, router_db)
+
+    def test_check_router_has_no_firewall_raises(self):
+        with mock.patch.object(
+            manager.NeutronManager, 'get_service_plugins') as sp:
+            fw_plugin = mock.Mock()
+            sp.return_value = {'FIREWALL': fw_plugin}
+            fw_plugin.get_firewalls.return_value = [mock.ANY]
+            self.assertRaises(
+                l3.RouterInUse,
+                self.mixin.check_router_has_no_firewall,
+                self.ctx, {'id': 'foo_id', 'tenant_id': 'foo_tenant'})
+
+    def test_check_router_has_no_firewall_passes(self):
+        with mock.patch.object(manager.NeutronManager,
+                               'get_service_plugins',
+                               return_value={}):
+            self.assertTrue(
+                self.mixin.check_router_has_no_firewall(mock.ANY, mock.ANY))
+
+    def test_check_router_has_no_vpn(self):
+        with mock.patch.object(
+            manager.NeutronManager, 'get_service_plugins') as sp:
+            vpn_plugin = mock.Mock()
+            sp.return_value = {'VPN': vpn_plugin}
+            self.mixin.check_router_has_no_vpnaas(mock.ANY, {'id': 'foo_id'})
+            vpn_plugin.check_router_in_use.assert_called_once_with(
+                mock.ANY, 'foo_id')

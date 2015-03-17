@@ -14,10 +14,11 @@
 #    under the License.
 import abc
 
+from oslo_log import log
+
 from neutron.common import exceptions as exc
 from neutron.common import topics
 from neutron.i18n import _LI, _LW
-from neutron.openstack.common import log
 from neutron.plugins.common import utils as plugin_utils
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import helpers
@@ -265,4 +266,13 @@ class TunnelAgentRpcApiMixin(object):
         cctxt.cast(context, 'tunnel_update', tunnel_ip=tunnel_ip,
                    tunnel_type=tunnel_type)
 
-    # TODO(romilg): Add tunnel_delete rpc in dependent patch-set
+    def _get_tunnel_delete_topic(self):
+        return topics.get_topic_name(self.topic,
+                                     TUNNEL,
+                                     topics.DELETE)
+
+    def tunnel_delete(self, context, tunnel_ip, tunnel_type):
+        cctxt = self.client.prepare(topic=self._get_tunnel_delete_topic(),
+                                    fanout=True)
+        cctxt.cast(context, 'tunnel_delete', tunnel_ip=tunnel_ip,
+                   tunnel_type=tunnel_type)

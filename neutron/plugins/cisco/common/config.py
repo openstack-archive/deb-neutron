@@ -12,9 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo.config import cfg
-
-from neutron.agent.common import config
+from oslo_config import cfg
 
 
 cisco_opts = [
@@ -78,7 +76,6 @@ cisco_n1k_opts = [
 
 cfg.CONF.register_opts(cisco_opts, "CISCO")
 cfg.CONF.register_opts(cisco_n1k_opts, "CISCO_N1K")
-config.register_root_helper(cfg.CONF)
 
 # shortcuts
 CONF = cfg.CONF

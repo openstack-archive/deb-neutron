@@ -27,12 +27,13 @@ import logging as std_logging
 import os.path
 
 import fixtures
-from oslo.config import cfg
-from oslo.messaging import conffixture as messaging_conffixture
 from oslo_concurrency.fixture import lockutils
+from oslo_config import cfg
+from oslo_messaging import conffixture as messaging_conffixture
 
 from neutron.common import config
 from neutron.common import rpc as n_rpc
+from neutron import policy
 from neutron.tests import fake_notifier
 from neutron.tests import sub_base
 
@@ -41,12 +42,12 @@ CONF = cfg.CONF
 CONF.import_opt('state_path', 'neutron.common.config')
 LOG_FORMAT = sub_base.LOG_FORMAT
 
-ROOTDIR = os.path.dirname(__file__)
-ETCDIR = os.path.join(ROOTDIR, 'etc')
+ROOT_DIR = os.path.join(os.path.dirname(__file__), '..', '..')
+TEST_ROOT_DIR = os.path.dirname(__file__)
 
 
-def etcdir(*p):
-    return os.path.join(ETCDIR, *p)
+def etcdir(filename, root=TEST_ROOT_DIR):
+    return os.path.join(root, 'etc', filename)
 
 
 def fake_use_fatal_exceptions(*args):
@@ -68,6 +69,11 @@ class BaseTestCase(sub_base.SubBaseTestCase):
         # neutron.conf.test includes rpc_backend which needs to be cleaned up
         if args is None:
             args = ['--config-file', etcdir('neutron.conf.test')]
+        # this is needed to add ROOT_DIR to the list of paths that oslo.config
+        # will try to traverse when searching for a new config file (it's
+        # needed so that policy module can locate policy_file)
+        args += ['--config-file', etcdir('neutron.conf', root=ROOT_DIR)]
+
         if conf is None:
             config.init(args=args)
         else:
@@ -98,6 +104,9 @@ class BaseTestCase(sub_base.SubBaseTestCase):
 
         self.setup_rpc_mocks()
         self.setup_config()
+
+        policy.init()
+        self.addCleanup(policy.reset)
 
     def get_new_temp_dir(self):
         """Create a new temporary directory.
@@ -142,7 +151,7 @@ class BaseTestCase(sub_base.SubBaseTestCase):
             fake_consume_in_threads))
 
         self.useFixture(fixtures.MonkeyPatch(
-            'oslo.messaging.Notifier', fake_notifier.FakeNotifier))
+            'oslo_messaging.Notifier', fake_notifier.FakeNotifier))
 
         self.messaging_conf = messaging_conffixture.ConfFixture(CONF)
         self.messaging_conf.transport_driver = 'fake'

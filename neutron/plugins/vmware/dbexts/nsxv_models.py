@@ -84,7 +84,7 @@ class NsxvInternalNetworks(model_base.BASEV2):
         primary_key=True)
     network_id = sa.Column(sa.String(36),
                            sa.ForeignKey("networks.id", ondelete="CASCADE"),
-                           nullable=False)
+                           nullable=True)
 
 
 class NsxvInternalEdges(model_base.BASEV2):
@@ -93,7 +93,7 @@ class NsxvInternalEdges(model_base.BASEV2):
     __tablename__ = 'nsxv_internal_edges'
 
     ext_ip_address = sa.Column(sa.String(64), primary_key=True)
-    router_id = sa.Column(sa.String(36), nullable=False)
+    router_id = sa.Column(sa.String(36), nullable=True)
     purpose = sa.Column(
         sa.Enum(nsxv_constants.INTER_EDGE_PURPOSE,
                 name='nsxv_internal_edges_purpose'))
@@ -150,7 +150,10 @@ class NsxvRouterExtAttributes(model_base.BASEV2):
                           sa.ForeignKey('routers.id', ondelete="CASCADE"),
                           primary_key=True)
     distributed = sa.Column(sa.Boolean, default=False, nullable=False)
-    exclusive = sa.Column(sa.Boolean, default=False, nullable=False)
+    router_type = sa.Column(
+        sa.Enum('shared', 'exclusive',
+                name='nsxv_router_type'),
+        default='exclusive', nullable=False)
     service_router = sa.Column(sa.Boolean, default=False, nullable=False)
     # Add a relationship to the Router model in order to instruct
     # SQLAlchemy to eagerly load this association

@@ -14,10 +14,11 @@
 
 """Implementation of OneConvergence Neutron Plugin."""
 
-from oslo.config import cfg
-from oslo import messaging
-from oslo.utils import excutils
-from oslo.utils import importutils
+from oslo_config import cfg
+from oslo_log import log as logging
+import oslo_messaging
+from oslo_utils import excutils
+from oslo_utils import importutils
 
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
@@ -42,7 +43,6 @@ from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import portbindings
 from neutron.i18n import _LE
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as svc_constants
 import neutron.plugins.oneconvergence.lib.config  # noqa
 import neutron.plugins.oneconvergence.lib.exception as nvsdexception
@@ -69,7 +69,7 @@ class NVSDPluginV2AgentNotifierApi(sg_rpc.SecurityGroupAgentRpcApiMixin):
         self.topic = topic
         self.topic_port_update = topics.get_topic_name(topic, topics.PORT,
                                                        topics.UPDATE)
-        target = messaging.Target(topic=topic, version='1.0')
+        target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
     def port_update(self, context, port):

@@ -13,10 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_db import exception as db_exc
+from oslo_log import log
 from sqlalchemy import or_
 from sqlalchemy.orm import exc
-
-from oslo.db import exception as db_exc
 
 from neutron.common import constants as n_const
 from neutron.db import api as db_api
@@ -25,7 +25,6 @@ from neutron.db import securitygroups_db as sg_db
 from neutron.extensions import portbindings
 from neutron.i18n import _LE, _LI
 from neutron import manager
-from neutron.openstack.common import log
 from neutron.openstack.common import uuidutils
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2 import models
@@ -152,6 +151,44 @@ def get_locked_port_and_binding(session, port_id):
         return None, None
 
 
+def set_binding_levels(session, levels):
+    if levels:
+        for level in levels:
+            session.add(level)
+        LOG.debug("For port %(port_id)s, host %(host)s, "
+                  "set binding levels %(levels)s",
+                  {'port_id': levels[0].port_id,
+                   'host': levels[0].host,
+                   'levels': levels})
+    else:
+        LOG.debug("Attempted to set empty binding levels")
+
+
+def get_binding_levels(session, port_id, host):
+    if host:
+        result = (session.query(models.PortBindingLevel).
+                  filter_by(port_id=port_id, host=host).
+                  order_by(models.PortBindingLevel.level).
+                  all())
+        LOG.debug("For port %(port_id)s, host %(host)s, "
+                  "got binding levels %(levels)s",
+                  {'port_id': port_id,
+                   'host': host,
+                   'levels': result})
+        return result
+
+
+def clear_binding_levels(session, port_id, host):
+    if host:
+        (session.query(models.PortBindingLevel).
+         filter_by(port_id=port_id, host=host).
+         delete())
+        LOG.debug("For port %(port_id)s, host %(host)s, "
+                  "cleared binding levels",
+                  {'port_id': port_id,
+                   'host': host})
+
+
 def ensure_dvr_port_binding(session, port_id, host, router_id=None):
     record = (session.query(models.DVRPortBinding).
               filter_by(port_id=port_id, host=host).first())
@@ -166,7 +203,6 @@ def ensure_dvr_port_binding(session, port_id, host, router_id=None):
                 router_id=router_id,
                 vif_type=portbindings.VIF_TYPE_UNBOUND,
                 vnic_type=portbindings.VNIC_NORMAL,
-                cap_port_filter=False,
                 status=n_const.PORT_STATUS_DOWN)
             session.add(record)
             return record
@@ -196,6 +232,7 @@ def get_port(session, port_id):
     with session.begin(subtransactions=True):
         try:
             record = (session.query(models_v2.Port).
+                      enable_eagerloads(False).
                       filter(models_v2.Port.id.startswith(port_id)).
                       one())
             return record

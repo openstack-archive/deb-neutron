@@ -21,10 +21,10 @@ expected_calls_and_values is a list of (expected_call, return_value):
 
         expected_calls_and_values = [
             (mock.call(["ovs-vsctl", self.TO, '--', "--may-exist", "add-port",
-                        self.BR_NAME, pname], root_helper=self.root_helper),
+                        self.BR_NAME, pname]),
              None),
             (mock.call(["ovs-vsctl", self.TO, "set", "Interface",
-                        pname, "type=gre"], root_helper=self.root_helper),
+                        pname, "type=gre"]),
              None),
             ....
         ]
@@ -33,6 +33,8 @@ expected_calls_and_values is a list of (expected_call, return_value):
 * return_value is passed to side_effect of a mocked call.
   A return value or an exception can be specified.
 """
+
+import unittest
 
 
 def setup_mock_calls(mocked_call, expected_calls_and_values):
@@ -44,3 +46,12 @@ def verify_mock_calls(mocked_call, expected_calls_and_values,
                       any_order=False):
     expected_calls = [call[0] for call in expected_calls_and_values]
     mocked_call.assert_has_calls(expected_calls, any_order=any_order)
+
+
+def fail(msg=None):
+    """Fail immediatly, with the given message.
+
+    This method is equivalent to TestCase.fail without requiring a
+    testcase instance (usefully for reducing coupling).
+    """
+    raise unittest.TestCase.failureException(msg)

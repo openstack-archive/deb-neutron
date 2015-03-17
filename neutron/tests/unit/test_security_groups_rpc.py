@@ -17,8 +17,8 @@ import contextlib
 
 import collections
 import mock
-from oslo.config import cfg
-from oslo import messaging
+from oslo_config import cfg
+import oslo_messaging
 from testtools import matchers
 import webob.exc
 
@@ -490,8 +490,8 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                          'remote_group_id': sg2_id}
                     ]},
                     'sg_member_ips': {sg2_id: {
-                        'IPv4': [u'10.0.0.3'],
-                        'IPv6': [],
+                        'IPv4': set([u'10.0.0.3']),
+                        'IPv6': set(),
                     }}
                 }
                 self.assertEqual(expected['security_groups'],
@@ -626,7 +626,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                          'remote_group_id': sg1_id}
                     ]},
                     'sg_member_ips': {sg1_id: {
-                        'IPv6': [],
+                        'IPv6': set(),
                     }}
                 }
                 self.assertEqual(expected['security_groups'],
@@ -1113,7 +1113,7 @@ class SecurityGroupAgentRpcTestCaseForNoneDriver(base.BaseTestCase):
     def test_init_firewall_with_none_driver(self):
         set_enable_security_groups(False)
         agent = sg_rpc.SecurityGroupAgentRpc(
-                context=None, plugin_rpc=mock.Mock(), root_helper=None)
+                context=None, plugin_rpc=mock.Mock())
         self.assertEqual(agent.firewall.__class__.__name__,
                          'NoopFirewallDriver')
 
@@ -1123,7 +1123,7 @@ class BaseSecurityGroupAgentRpcTestCase(base.BaseTestCase):
         super(BaseSecurityGroupAgentRpcTestCase, self).setUp()
         set_firewall_driver(FIREWALL_NOOP_DRIVER)
         self.agent = sg_rpc.SecurityGroupAgentRpc(
-                context=None, plugin_rpc=mock.Mock(), root_helper='sudo',
+                context=None, plugin_rpc=mock.Mock(),
                 defer_refresh_firewall=defer_refresh_firewall)
         mock.patch('neutron.agent.linux.iptables_manager').start()
         self.default_firewall = self.agent.firewall
@@ -1147,7 +1147,7 @@ class SecurityGroupAgentRpcTestCase(BaseSecurityGroupAgentRpcTestCase):
             defer_refresh_firewall)
         rpc = self.agent.plugin_rpc
         rpc.security_group_info_for_devices.side_effect = (
-                messaging.UnsupportedVersion('1.2'))
+                oslo_messaging.UnsupportedVersion('1.2'))
         rpc.security_group_rules_for_devices.return_value = (
             self.firewall.ports)
 
@@ -1621,7 +1621,7 @@ class SecurityGroupServerRpcApiTestCase(base.BaseTestCase):
 class FakeSGNotifierAPI(sg_rpc.SecurityGroupAgentRpcApiMixin):
     def __init__(self):
         self.topic = 'fake'
-        target = messaging.Target(topic=self.topic, version='1.0')
+        target = oslo_messaging.Target(topic=self.topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
 
@@ -2503,7 +2503,6 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
 
     def setUp(self, defer_refresh_firewall=False, test_rpc_v1_1=True):
         super(TestSecurityGroupAgentWithIptables, self).setUp()
-        config.register_root_helper(cfg.CONF)
         config.register_iptables_opts(cfg.CONF)
         set_firewall_driver(self.FIREWALL_DRIVER)
         cfg.CONF.set_override('enable_ipset', False, group='SECURITYGROUP')
@@ -2511,13 +2510,12 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
 
         self.rpc = mock.Mock()
         self.agent = sg_rpc.SecurityGroupAgentRpc(
-                context=None, plugin_rpc=self.rpc, root_helper='sudo',
+                context=None, plugin_rpc=self.rpc,
                 defer_refresh_firewall=defer_refresh_firewall)
-        self.root_helper = 'sudo'
 
         if test_rpc_v1_1:
             self.rpc.security_group_info_for_devices.side_effect = (
-                messaging.UnsupportedVersion('1.2'))
+                oslo_messaging.UnsupportedVersion('1.2'))
 
         self.iptables = self.agent.firewall.iptables
         # TODO(jlibosva) Get rid of mocking iptables execute and mock out
@@ -2633,22 +2631,22 @@ class TestSecurityGroupAgentWithIptables(base.BaseTestCase):
     def _replay_iptables(self, v4_filter, v6_filter):
         self._register_mock_call(
             ['iptables-save', '-c'],
-            root_helper=self.root_helper,
+            run_as_root=True,
             return_value='')
         self._register_mock_call(
             ['iptables-restore', '-c'],
             process_input=self._regex(IPTABLES_RAW + IPTABLES_NAT +
                                       IPTABLES_MANGLE + v4_filter),
-            root_helper=self.root_helper,
+            run_as_root=True,
             return_value='')
         self._register_mock_call(
             ['ip6tables-save', '-c'],
-            root_helper=self.root_helper,
+            run_as_root=True,
             return_value='')
         self._register_mock_call(
             ['ip6tables-restore', '-c'],
             process_input=self._regex(v6_filter),
-            root_helper=self.root_helper,
+            run_as_root=True,
             return_value='')
 
     def test_prepare_remove_port(self):
@@ -2852,19 +2850,18 @@ class SGNotificationTestMixin(object):
         name = 'webservers'
         description = 'my webservers'
         with self.security_group(name, description) as sg:
-            with self.security_group(name, description) as sg2:
+            with self.security_group(name, description):
                 security_group_id = sg['security_group']['id']
-                direction = "ingress"
-                remote_group_id = sg2['security_group']['id']
-                protocol = const.PROTO_NAME_TCP
-                port_range_min = 88
-                port_range_max = 88
-                with self.security_group_rule(security_group_id, direction,
-                                              protocol, port_range_min,
-                                              port_range_max,
-                                              remote_group_id=remote_group_id
-                                              ):
-                    pass
+
+                rule = self._build_security_group_rule(
+                    security_group_id,
+                    direction='ingress',
+                    proto=const.PROTO_NAME_TCP)
+                security_group_rule = self._make_security_group_rule(self.fmt,
+                                                                     rule)
+                self._delete('security-group-rules',
+                             security_group_rule['security_group_rule']['id'])
+
             self.notifier.assert_has_calls(
                 [mock.call.security_groups_rule_updated(mock.ANY,
                                                         [security_group_id]),

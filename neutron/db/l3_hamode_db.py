@@ -14,9 +14,10 @@
 #
 
 import netaddr
-from oslo.config import cfg
-from oslo.db import exception as db_exc
-from oslo.utils import excutils
+from oslo_config import cfg
+from oslo_db import exception as db_exc
+from oslo_log import log as logging
+from oslo_utils import excutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 
@@ -28,7 +29,6 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3_ext_ha_mode as l3_ha
 from neutron.i18n import _LI, _LW
-from neutron.openstack.common import log as logging
 
 VR_ID_RANGE = set(range(1, 255))
 MAX_ALLOCATION_TRIES = 10
@@ -262,7 +262,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
         min_agents = cfg.CONF.min_l3_agents_per_router
         num_agents = len(self.get_l3_agents(context,
-            filters={'agent_modes': ['legacy', 'dvr_snat']}))
+            filters={'agent_modes': [constants.L3_AGENT_MODE_LEGACY,
+                                     constants.L3_AGENT_MODE_DVR_SNAT]}))
         max_agents = cfg.CONF.max_l3_agents_per_router
         if max_agents:
             if max_agents > num_agents:
@@ -423,6 +424,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
     def delete_router(self, context, id):
         router_db = self._get_router(context, id)
+        super(L3_HA_NAT_db_mixin, self).delete_router(context, id)
+
         if router_db.extra_attributes.ha:
             ha_network = self.get_ha_network(context,
                                              router_db.tenant_id)
@@ -431,9 +434,9 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 self._delete_ha_interfaces(context, router_db.id)
 
-        return super(L3_HA_NAT_db_mixin, self).delete_router(context, id)
-
     def get_ha_router_port_bindings(self, context, router_ids, host=None):
+        if not router_ids:
+            return []
         query = context.session.query(L3HARouterAgentPortBinding)
 
         if host:

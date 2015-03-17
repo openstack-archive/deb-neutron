@@ -18,11 +18,11 @@ import contextlib
 import time
 
 import mock
-from oslo.config import cfg
+from oslo_config import cfg
+from oslo_log import log
 
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
-from neutron.openstack.common import log
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.openvswitch.agent import ovs_neutron_agent
 from neutron.plugins.openvswitch.common import constants
@@ -31,7 +31,7 @@ from neutron.tests import base
 
 # Useful global dummy variables.
 NET_UUID = '3faeebfe-5d37-11e1-a64b-000c29d5f0a7'
-LS_ID = 42
+LS_ID = 420
 LV_ID = 42
 LV_IDS = [42, 43]
 VIF_ID = '404deaec-5d37-11e1-a64b-000c29d5f0a8'
@@ -99,7 +99,7 @@ class TunnelTest(base.BaseTestCase):
         }
 
         self.mock_bridge = mock.patch.object(ovs_lib, 'OVSBridge').start()
-        self.mock_bridge.side_effect = (lambda br_name, root_helper:
+        self.mock_bridge.side_effect = (lambda br_name:
                                         self.ovs_bridges[br_name])
 
         self.mock_int_bridge = self.ovs_bridges[self.INT_BRIDGE]
@@ -139,9 +139,9 @@ class TunnelTest(base.BaseTestCase):
 
     def _define_expected_calls(self):
         self.mock_bridge_expected = [
-            mock.call(self.INT_BRIDGE, 'sudo'),
-            mock.call(self.MAP_TUN_BRIDGE, 'sudo'),
-            mock.call(self.TUN_BRIDGE, 'sudo'),
+            mock.call(self.INT_BRIDGE),
+            mock.call(self.MAP_TUN_BRIDGE),
+            mock.call(self.TUN_BRIDGE),
         ]
 
         self.mock_int_bridge = self.ovs_bridges[self.INT_BRIDGE]
@@ -186,7 +186,7 @@ class TunnelTest(base.BaseTestCase):
         ]
 
         self.mock_tun_bridge_expected = [
-            mock.call.reset_bridge(),
+            mock.call.reset_bridge(secure_mode=True),
             mock.call.add_patch_port('patch-int', 'patch-tun'),
         ]
         self.mock_int_bridge_expected += [
@@ -241,7 +241,7 @@ class TunnelTest(base.BaseTestCase):
         self.device_exists_expected = []
 
         self.ipdevice_expected = []
-        self.ipwrapper_expected = [mock.call('sudo')]
+        self.ipwrapper_expected = [mock.call()]
 
         self.get_bridges_expected = [mock.call(), mock.call()]
 
@@ -254,7 +254,6 @@ class TunnelTest(base.BaseTestCase):
         kwargs.setdefault('tun_br', self.TUN_BRIDGE)
         kwargs.setdefault('local_ip', '10.0.0.1')
         kwargs.setdefault('bridge_mappings', self.NET_MAPPING)
-        kwargs.setdefault('root_helper', 'sudo')
         kwargs.setdefault('polling_interval', 2)
         kwargs.setdefault('tunnel_types', ['gre'])
         kwargs.setdefault('veth_mtu', self.VETH_MTU)
@@ -367,10 +366,10 @@ class TunnelTest(base.BaseTestCase):
             mock.call.add_flow(priority=4, in_port=self.MAP_TUN_PHY_OFPORT,
                                dl_vlan=LV_ID, actions=action_string))
 
-        action_string = 'mod_vlan_vid:%s,normal' % LS_ID
+        action_string = 'mod_vlan_vid:%s,normal' % LV_ID
         self.mock_int_bridge_expected.append(
             mock.call.add_flow(priority=3, in_port=self.INT_OFPORT,
-                               dl_vlan=LV_ID, actions=action_string))
+                               dl_vlan=LS_ID, actions=action_string))
 
         a = self._build_agent()
         a.available_local_vlans = set([LV_ID])
@@ -424,7 +423,7 @@ class TunnelTest(base.BaseTestCase):
                 in_port=self.MAP_TUN_PHY_OFPORT, dl_vlan=LVM_VLAN.vlan))
         self.mock_int_bridge_expected.append(
             mock.call.delete_flows(
-                dl_vlan=LV_ID, in_port=self.INT_OFPORT))
+                dl_vlan=LS_ID, in_port=self.INT_OFPORT))
 
         a = self._build_agent()
         a.phys_brs['net1'] = self.mock_map_tun_bridge
@@ -515,7 +514,7 @@ class TunnelTest(base.BaseTestCase):
         ]
 
         with contextlib.nested(
-            mock.patch.object(log.ContextAdapter, 'exception'),
+            mock.patch.object(log.KeywordArgumentAdapter, 'exception'),
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
                               'scan_ports'),
             mock.patch.object(ovs_neutron_agent.OVSNeutronAgent,
@@ -564,9 +563,9 @@ class TunnelTestUseVethInterco(TunnelTest):
 
     def _define_expected_calls(self):
         self.mock_bridge_expected = [
-            mock.call(self.INT_BRIDGE, 'sudo'),
-            mock.call(self.MAP_TUN_BRIDGE, 'sudo'),
-            mock.call(self.TUN_BRIDGE, 'sudo'),
+            mock.call(self.INT_BRIDGE),
+            mock.call(self.MAP_TUN_BRIDGE),
+            mock.call(self.TUN_BRIDGE),
         ]
 
         self.mock_int_bridge_expected = [
@@ -602,7 +601,7 @@ class TunnelTestUseVethInterco(TunnelTest):
         ]
 
         self.mock_tun_bridge_expected = [
-            mock.call.reset_bridge(),
+            mock.call.reset_bridge(secure_mode=True),
             mock.call.add_patch_port('patch-int', 'patch-tun'),
         ]
         self.mock_int_bridge_expected += [
@@ -657,15 +656,15 @@ class TunnelTestUseVethInterco(TunnelTest):
         ]
 
         self.device_exists_expected = [
-            mock.call('int-%s' % self.MAP_TUN_BRIDGE, 'sudo'),
+            mock.call('int-%s' % self.MAP_TUN_BRIDGE),
         ]
 
         self.ipdevice_expected = [
-            mock.call('int-%s' % self.MAP_TUN_BRIDGE, 'sudo'),
+            mock.call('int-%s' % self.MAP_TUN_BRIDGE),
             mock.call().link.delete()
         ]
         self.ipwrapper_expected = [
-            mock.call('sudo'),
+            mock.call(),
             mock.call().add_veth('int-%s' % self.MAP_TUN_BRIDGE,
                                  'phy-%s' % self.MAP_TUN_BRIDGE)
         ]

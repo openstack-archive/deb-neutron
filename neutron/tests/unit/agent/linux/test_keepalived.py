@@ -15,6 +15,7 @@
 import testtools
 
 from neutron.agent.linux import keepalived
+from neutron.common import constants as n_consts
 from neutron.tests import base
 
 # Keepalived user guide:
@@ -60,16 +61,12 @@ class KeepalivedConfBaseMixin(object):
     def _get_config(self):
         config = keepalived.KeepalivedConf()
 
-        group1 = keepalived.KeepalivedGroup(1)
-        group2 = keepalived.KeepalivedGroup(2)
-
-        group1.set_notify('master', '/tmp/script.sh')
-
         instance1 = keepalived.KeepalivedInstance('MASTER', 'eth0', 1,
                                                   '169.254.192.0/18',
                                                   advert_int=5)
         instance1.set_authentication('AH', 'pass123')
         instance1.track_interfaces.append("eth0")
+        instance1.set_notify('master', '/tmp/script.sh')
 
         vip_address1 = keepalived.KeepalivedVipAddress('192.168.1.0/24',
                                                        'eth1')
@@ -88,12 +85,10 @@ class KeepalivedConfBaseMixin(object):
         instance1.vips.append(vip_address3)
         instance1.vips.append(vip_address_ex)
 
-        virtual_route = keepalived.KeepalivedVirtualRoute("0.0.0.0/0",
+        virtual_route = keepalived.KeepalivedVirtualRoute(n_consts.IPv4_ANY,
                                                           "192.168.1.1",
                                                           "eth1")
         instance1.virtual_routes.append(virtual_route)
-
-        group1.add_instance(instance1)
 
         instance2 = keepalived.KeepalivedInstance('MASTER', 'eth4', 2,
                                                   '169.254.192.0/18',
@@ -107,11 +102,7 @@ class KeepalivedConfBaseMixin(object):
         instance2.vips.append(vip_address2)
         instance2.vips.append(vip_address_ex)
 
-        group2.add_instance(instance2)
-
-        config.add_group(group1)
         config.add_instance(instance1)
-        config.add_group(group2)
         config.add_instance(instance2)
 
         return config
@@ -120,18 +111,7 @@ class KeepalivedConfBaseMixin(object):
 class KeepalivedConfTestCase(base.BaseTestCase,
                              KeepalivedConfBaseMixin):
 
-    expected = """vrrp_sync_group VG_1 {
-    group {
-        VR_1
-    }
-    notify_master "/tmp/script.sh"
-}
-vrrp_sync_group VG_2 {
-    group {
-        VR_2
-    }
-}
-vrrp_instance VR_1 {
+    expected = """vrrp_instance VR_1 {
     state MASTER
     interface eth0
     virtual_router_id 1
@@ -156,6 +136,7 @@ vrrp_instance VR_1 {
     virtual_routes {
         0.0.0.0/0 via 192.168.1.1 dev eth1
     }
+    notify_master "/tmp/script.sh"
 }
 vrrp_instance VR_2 {
     state MASTER
@@ -196,11 +177,12 @@ vrrp_instance VR_2 {
 
 class KeepalivedStateExceptionTestCase(base.BaseTestCase):
     def test_state_exception(self):
-        group = keepalived.KeepalivedGroup('group2')
+        instance = keepalived.KeepalivedInstance('MASTER', 'eth0', 1,
+                                                 '169.254.192.0/18')
 
         invalid_notify_state = 'a seal walks'
         self.assertRaises(keepalived.InvalidNotifyStateException,
-                          group.set_notify,
+                          instance.set_notify,
                           invalid_notify_state, '/tmp/script.sh')
 
         invalid_vrrp_state = 'into a club'
@@ -211,7 +193,7 @@ class KeepalivedStateExceptionTestCase(base.BaseTestCase):
         invalid_auth_type = '[hip, hip]'
         instance = keepalived.KeepalivedInstance('MASTER', 'eth0', 1,
                                                  '169.254.192.0/18')
-        self.assertRaises(keepalived.InvalidAuthenticationTypeExecption,
+        self.assertRaises(keepalived.InvalidAuthenticationTypeException,
                           instance.set_authentication,
                           invalid_auth_type, 'some_password')
 
@@ -230,18 +212,7 @@ class KeepalivedInstanceTestCase(base.BaseTestCase,
         instance.remove_vips_vroutes_by_interface('eth2')
         instance.remove_vips_vroutes_by_interface('eth10')
 
-        expected = """vrrp_sync_group VG_1 {
-    group {
-        VR_1
-    }
-    notify_master "/tmp/script.sh"
-}
-vrrp_sync_group VG_2 {
-    group {
-        VR_2
-    }
-}
-vrrp_instance VR_1 {
+        expected = """vrrp_instance VR_1 {
     state MASTER
     interface eth0
     virtual_router_id 1
@@ -263,6 +234,7 @@ vrrp_instance VR_1 {
     virtual_routes {
         0.0.0.0/0 via 192.168.1.1 dev eth1
     }
+    notify_master "/tmp/script.sh"
 }
 vrrp_instance VR_2 {
     state MASTER
@@ -311,7 +283,7 @@ class KeepalivedVipAddressTestCase(base.BaseTestCase):
 
 class KeepalivedVirtualRouteTestCase(base.BaseTestCase):
     def test_virtual_route_with_dev(self):
-        route = keepalived.KeepalivedVirtualRoute('0.0.0.0/0', '1.2.3.4',
+        route = keepalived.KeepalivedVirtualRoute(n_consts.IPv4_ANY, '1.2.3.4',
                                                   'eth0')
         self.assertEqual('0.0.0.0/0 via 1.2.3.4 dev eth0',
                          route.build_config())

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from networking_mlnx.plugins.mlnx.agent import constants
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.agent.common import config
 
@@ -26,8 +26,8 @@ eswitch_opts = [
                 help=_("List of <physical_network>:<physical_interface>")),
     cfg.StrOpt('vnic_type',
                default=constants.VIF_TYPE_DIRECT,
-               help=_("Type of VM network interface: mlnx_direct or "
-                      "hostdev")),
+               choices=(constants.VIF_TYPE_DIRECT, constants.VIF_TYPE_HOSTDEV),
+               help=_("Type of VM network interface")),
     cfg.StrOpt('daemon_endpoint',
                default='tcp://127.0.0.1:60001',
                help=_('eswitch daemon end point')),
@@ -53,4 +53,3 @@ agent_opts = [
 cfg.CONF.register_opts(eswitch_opts, "ESWITCH")
 cfg.CONF.register_opts(agent_opts, "AGENT")
 config.register_agent_state_opts_helper(cfg.CONF)
-config.register_root_helper(cfg.CONF)

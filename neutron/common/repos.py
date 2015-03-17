@@ -17,9 +17,8 @@ import ConfigParser
 import importlib
 import os
 
-from oslo.config import cfg
-
-from neutron.openstack.common import log as logging
+from oslo_config import cfg
+from oslo_log import log as logging
 
 LOG = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class NeutronModules(object):
 
     def __init__(self):
         self.repos = {}
-        for repo in self.MODULES.iterkeys():
+        for repo in self.MODULES:
             self.repos[repo] = {}
             self.repos[repo]['mod'] = self._import_or_none(repo)
             self.repos[repo]['ini'] = None
@@ -62,7 +61,7 @@ class NeutronModules(object):
     def alembic_name(self, module):
         return self.MODULES[module]['alembic-name']
 
-    # Return an INI parser for the child module. oslo.conf is a bit too
+    # Return an INI parser for the child module. oslo.config is a bit too
     # magical in its INI loading, and in one notable case, we need to merge
     # together the [service_providers] section across at least four
     # repositories.

@@ -16,10 +16,7 @@
 
 import sys
 
-import eventlet
-eventlet.monkey_patch()
-
-from oslo.config import cfg
+from oslo_config import cfg
 
 from neutron.agent.common import config
 from neutron.agent.l3 import config as l3_config
@@ -40,7 +37,6 @@ def register_opts(conf):
     config.register_interface_driver_opts_helper(conf)
     config.register_use_namespaces_opts_helper(conf)
     config.register_agent_state_opts_helper(conf)
-    config.register_root_helper(conf)
     conf.register_opts(interface.OPTS)
     conf.register_opts(external_process.OPTS)
 
