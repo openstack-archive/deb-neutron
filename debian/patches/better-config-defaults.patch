@@ -272,7 +272,7 @@ Index: neutron/etc/neutron.conf
  # be set in the corresponding core plugin '.ini' file. However, it is suggested
  # to put the [database] section and its connection attribute in this
  # configuration file.
-+connection = sqlite:///var/lib/neutron/neutrondb
++#connection = sqlite:///var/lib/neutron/neutrondb
  
  # Database engine for which script will be generated when using offline
  # migration
