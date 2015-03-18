@@ -1,0 +1,253 @@
+From: Ihar Hrachyshka <ihrachys@redhat.com>
+Date: Wed, 18 Mar 2015 13:21:57 +0000 (+0100)
+Subject: tests: don't rely on configuration files outside tests directory
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=9231a132f79f8427d410a8ef165b674578addac3
+
+tests: don't rely on configuration files outside tests directory
+
+etc/... may be non existent in some build environments. It's also pip
+does not install those files under site-packages neutron module, so
+paths relative to python files don't work.
+
+So instead of using relative paths to etc/... contents, maintain our own
+version of configuration files. It means we need to maintain tests only
+policy.json file too, in addition to neutron.conf.test and
+api-paste.ini.test.
+
+Ideally, we would make etc/policy.json copied under site-packages in
+addition to /etc/neutron/. In that way, we would not maintain a copy of
+policy.json file in two places.
+
+Though it seems that setuputils does not have a good way to install
+files under site-packages that would consider all the differences
+between python environments (specifically, different prefixes used in
+different systems).
+
+Note: it's not *absolutely* needed to update the test policy.json file
+on each next policy update, though it will be needed in cases when we
+want to test policy changes in unit tests. So adding a check to make
+sure files are identical.
+
+This partially reverts commit 1404f33b50452d4c0e0ef8c748011ce80303c2fd.
+
+Conflicts:
+	neutron/policy.py
+
+Related-Bug: #1433146
+Change-Id: If1f5ebd981cf06558d5102524211799676068889
+---
+
+diff --git a/neutron/tests/base.py b/neutron/tests/base.py
+index 6886af9..d8bc0ce 100644
+--- a/neutron/tests/base.py
++++ b/neutron/tests/base.py
+@@ -42,12 +42,12 @@ CONF = cfg.CONF
+ CONF.import_opt('state_path', 'neutron.common.config')
+ LOG_FORMAT = sub_base.LOG_FORMAT
+ 
+-ROOT_DIR = os.path.join(os.path.dirname(__file__), '..', '..')
+-TEST_ROOT_DIR = os.path.dirname(__file__)
++ROOTDIR = os.path.dirname(__file__)
++ETCDIR = os.path.join(ROOTDIR, 'etc')
+ 
+ 
+-def etcdir(filename, root=TEST_ROOT_DIR):
+-    return os.path.join(root, 'etc', filename)
++def etcdir(*p):
++    return os.path.join(ETCDIR, *p)
+ 
+ 
+ def fake_use_fatal_exceptions(*args):
+@@ -69,11 +69,6 @@ class BaseTestCase(sub_base.SubBaseTestCase):
+         # neutron.conf.test includes rpc_backend which needs to be cleaned up
+         if args is None:
+             args = ['--config-file', etcdir('neutron.conf.test')]
+-        # this is needed to add ROOT_DIR to the list of paths that oslo.config
+-        # will try to traverse when searching for a new config file (it's
+-        # needed so that policy module can locate policy_file)
+-        args += ['--config-file', etcdir('neutron.conf', root=ROOT_DIR)]
+-
+         if conf is None:
+             config.init(args=args)
+         else:
+diff --git a/neutron/tests/etc/policy.json b/neutron/tests/etc/policy.json
+new file mode 100644
+index 0000000..4fc6c1c
+--- /dev/null
++++ b/neutron/tests/etc/policy.json
+@@ -0,0 +1,147 @@
++{
++    "context_is_admin":  "role:admin",
++    "admin_or_owner": "rule:context_is_admin or tenant_id:%(tenant_id)s",
++    "context_is_advsvc":  "role:advsvc",
++    "admin_or_network_owner": "rule:context_is_admin or tenant_id:%(network:tenant_id)s",
++    "admin_only": "rule:context_is_admin",
++    "regular_user": "",
++    "shared": "field:networks:shared=True",
++    "shared_firewalls": "field:firewalls:shared=True",
++    "shared_firewall_policies": "field:firewall_policies:shared=True",
++    "external": "field:networks:router:external=True",
++    "default": "rule:admin_or_owner",
++
++    "create_subnet": "rule:admin_or_network_owner",
++    "get_subnet": "rule:admin_or_owner or rule:shared",
++    "update_subnet": "rule:admin_or_network_owner",
++    "delete_subnet": "rule:admin_or_network_owner",
++
++    "create_network": "",
++    "get_network": "rule:admin_or_owner or rule:shared or rule:external or rule:context_is_advsvc",
++    "get_network:router:external": "rule:regular_user",
++    "get_network:segments": "rule:admin_only",
++    "get_network:provider:network_type": "rule:admin_only",
++    "get_network:provider:physical_network": "rule:admin_only",
++    "get_network:provider:segmentation_id": "rule:admin_only",
++    "get_network:queue_id": "rule:admin_only",
++    "create_network:shared": "rule:admin_only",
++    "create_network:router:external": "rule:admin_only",
++    "create_network:segments": "rule:admin_only",
++    "create_network:provider:network_type": "rule:admin_only",
++    "create_network:provider:physical_network": "rule:admin_only",
++    "create_network:provider:segmentation_id": "rule:admin_only",
++    "update_network": "rule:admin_or_owner",
++    "update_network:segments": "rule:admin_only",
++    "update_network:shared": "rule:admin_only",
++    "update_network:provider:network_type": "rule:admin_only",
++    "update_network:provider:physical_network": "rule:admin_only",
++    "update_network:provider:segmentation_id": "rule:admin_only",
++    "update_network:router:external": "rule:admin_only",
++    "delete_network": "rule:admin_or_owner",
++
++    "create_port": "",
++    "create_port:mac_address": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "create_port:fixed_ips": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "create_port:port_security_enabled": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "create_port:binding:host_id": "rule:admin_only",
++    "create_port:binding:profile": "rule:admin_only",
++    "create_port:mac_learning_enabled": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "get_port": "rule:admin_or_owner or rule:context_is_advsvc",
++    "get_port:queue_id": "rule:admin_only",
++    "get_port:binding:vif_type": "rule:admin_only",
++    "get_port:binding:vif_details": "rule:admin_only",
++    "get_port:binding:host_id": "rule:admin_only",
++    "get_port:binding:profile": "rule:admin_only",
++    "update_port": "rule:admin_or_owner or rule:context_is_advsvc",
++    "update_port:mac_address": "rule:admin_only or rule:context_is_advsvc",
++    "update_port:fixed_ips": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "update_port:port_security_enabled": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "update_port:binding:host_id": "rule:admin_only",
++    "update_port:binding:profile": "rule:admin_only",
++    "update_port:mac_learning_enabled": "rule:admin_or_network_owner or rule:context_is_advsvc",
++    "delete_port": "rule:admin_or_owner or rule:context_is_advsvc",
++
++    "get_router:ha": "rule:admin_only",
++    "create_router": "rule:regular_user",
++    "create_router:external_gateway_info:enable_snat": "rule:admin_only",
++    "create_router:distributed": "rule:admin_only",
++    "create_router:ha": "rule:admin_only",
++    "get_router": "rule:admin_or_owner",
++    "get_router:distributed": "rule:admin_only",
++    "update_router:external_gateway_info:enable_snat": "rule:admin_only",
++    "update_router:distributed": "rule:admin_only",
++    "update_router:ha": "rule:admin_only",
++    "delete_router": "rule:admin_or_owner",
++
++    "add_router_interface": "rule:admin_or_owner",
++    "remove_router_interface": "rule:admin_or_owner",
++
++    "create_router:external_gateway_info:external_fixed_ips": "rule:admin_only",
++    "update_router:external_gateway_info:external_fixed_ips": "rule:admin_only",
++
++    "create_firewall": "",
++    "get_firewall": "rule:admin_or_owner",
++    "create_firewall:shared": "rule:admin_only",
++    "get_firewall:shared": "rule:admin_only",
++    "update_firewall": "rule:admin_or_owner",
++    "update_firewall:shared": "rule:admin_only",
++    "delete_firewall": "rule:admin_or_owner",
++
++    "create_firewall_policy": "",
++    "get_firewall_policy": "rule:admin_or_owner or rule:shared_firewall_policies",
++    "create_firewall_policy:shared": "rule:admin_or_owner",
++    "update_firewall_policy": "rule:admin_or_owner",
++    "delete_firewall_policy": "rule:admin_or_owner",
++
++    "create_firewall_rule": "",
++    "get_firewall_rule": "rule:admin_or_owner or rule:shared_firewalls",
++    "update_firewall_rule": "rule:admin_or_owner",
++    "delete_firewall_rule": "rule:admin_or_owner",
++
++    "create_qos_queue": "rule:admin_only",
++    "get_qos_queue": "rule:admin_only",
++
++    "update_agent": "rule:admin_only",
++    "delete_agent": "rule:admin_only",
++    "get_agent": "rule:admin_only",
++
++    "create_dhcp-network": "rule:admin_only",
++    "delete_dhcp-network": "rule:admin_only",
++    "get_dhcp-networks": "rule:admin_only",
++    "create_l3-router": "rule:admin_only",
++    "delete_l3-router": "rule:admin_only",
++    "get_l3-routers": "rule:admin_only",
++    "get_dhcp-agents": "rule:admin_only",
++    "get_l3-agents": "rule:admin_only",
++    "get_loadbalancer-agent": "rule:admin_only",
++    "get_loadbalancer-pools": "rule:admin_only",
++    "get_agent-loadbalancers": "rule:admin_only",
++    "get_loadbalancer-hosting-agent": "rule:admin_only",
++
++    "create_floatingip": "rule:regular_user",
++    "create_floatingip:floating_ip_address": "rule:admin_only",
++    "update_floatingip": "rule:admin_or_owner",
++    "delete_floatingip": "rule:admin_or_owner",
++    "get_floatingip": "rule:admin_or_owner",
++
++    "create_network_profile": "rule:admin_only",
++    "update_network_profile": "rule:admin_only",
++    "delete_network_profile": "rule:admin_only",
++    "get_network_profiles": "",
++    "get_network_profile": "",
++    "update_policy_profiles": "rule:admin_only",
++    "get_policy_profiles": "",
++    "get_policy_profile": "",
++
++    "create_metering_label": "rule:admin_only",
++    "delete_metering_label": "rule:admin_only",
++    "get_metering_label": "rule:admin_only",
++
++    "create_metering_label_rule": "rule:admin_only",
++    "delete_metering_label_rule": "rule:admin_only",
++    "get_metering_label_rule": "rule:admin_only",
++
++    "get_service_provider": "rule:regular_user",
++    "get_lsn": "rule:admin_only",
++    "create_lsn": "rule:admin_only"
++}
+diff --git a/tools/misc-sanity-checks.sh b/tools/misc-sanity-checks.sh
+index bc4d2eb..eeac227 100644
+--- a/tools/misc-sanity-checks.sh
++++ b/tools/misc-sanity-checks.sh
+@@ -61,10 +61,23 @@ check_pot_files_errors () {
+     fi
+ }
+ 
++
++check_identical_policy_files () {
++    # For unit tests, we maintain their own policy.json file to make test suite
++    # independent of whether it's executed from the neutron source tree or from
++    # site-packages installation path. We don't want two copies of the same
++    # file to diverge, so checking that they are identical
++    diff etc/policy.json neutron/tests/etc/policy.json 2>&1 > /dev/null
++    if [ "$?" -ne 0 ]; then
++        echo "policy.json files must be identical!" >>$FAILURES
++    fi
++}
++
+ # Add your checks here...
+ check_opinionated_shell
+ check_no_symlinks_allowed
+ check_pot_files_errors
++check_identical_policy_files
+ 
+ # Fail, if there are emitted failures
+ if [ -f $FAILURES ]; then
