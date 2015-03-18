@@ -1,41 +1,35 @@
-From: Ihar Hrachyshka <ihrachys@redhat.com>
-Date: Wed, 18 Mar 2015 13:21:57 +0000 (+0100)
 Subject: tests: don't rely on configuration files outside tests directory
+ etc/... may be non existent in some build environments. It's also pip
+ does not install those files under site-packages neutron module, so
+ paths relative to python files don't work.
+ .
+ So instead of using relative paths to etc/... contents, maintain our own
+ version of configuration files. It means we need to maintain tests only
+ policy.json file too, in addition to neutron.conf.test and
+ api-paste.ini.test.
+ .
+ Ideally, we would make etc/policy.json copied under site-packages in
+ addition to /etc/neutron/. In that way, we would not maintain a copy of
+ policy.json file in two places.
+ .
+ Though it seems that setuputils does not have a good way to install
+ files under site-packages that would consider all the differences
+ between python environments (specifically, different prefixes used in
+ different systems).
+ .
+ Note: it's not *absolutely* needed to update the test policy.json file
+ on each next policy update, though it will be needed in cases when we
+ want to test policy changes in unit tests. So adding a check to make
+ sure files are identical.
+ .
+ This partially reverts commit 1404f33b50452d4c0e0ef8c748011ce80303c2fd.
+Author: Ihar Hrachyshka <ihrachys@redhat.com>
+Date: Wed, 18 Mar 2015 13:21:57 +0000 (+0100)
 X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=9231a132f79f8427d410a8ef165b674578addac3
-
-tests: don't rely on configuration files outside tests directory
-
-etc/... may be non existent in some build environments. It's also pip
-does not install those files under site-packages neutron module, so
-paths relative to python files don't work.
-
-So instead of using relative paths to etc/... contents, maintain our own
-version of configuration files. It means we need to maintain tests only
-policy.json file too, in addition to neutron.conf.test and
-api-paste.ini.test.
-
-Ideally, we would make etc/policy.json copied under site-packages in
-addition to /etc/neutron/. In that way, we would not maintain a copy of
-policy.json file in two places.
-
-Though it seems that setuputils does not have a good way to install
-files under site-packages that would consider all the differences
-between python environments (specifically, different prefixes used in
-different systems).
-
-Note: it's not *absolutely* needed to update the test policy.json file
-on each next policy update, though it will be needed in cases when we
-want to test policy changes in unit tests. So adding a check to make
-sure files are identical.
-
-This partially reverts commit 1404f33b50452d4c0e0ef8c748011ce80303c2fd.
-
-Conflicts:
-	neutron/policy.py
-
 Related-Bug: #1433146
 Change-Id: If1f5ebd981cf06558d5102524211799676068889
----
+Origin: upstream, https://review.openstack.org/#/c/165237/
+Last-Update: 2015-03-18
 
 diff --git a/neutron/tests/base.py b/neutron/tests/base.py
 index 6886af9..d8bc0ce 100644
