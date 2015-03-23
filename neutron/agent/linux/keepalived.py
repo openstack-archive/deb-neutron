@@ -15,7 +15,6 @@
 import errno
 import itertools
 import os
-import stat
 
 import netaddr
 from oslo_config import cfg
@@ -26,7 +25,6 @@ from neutron.agent.linux import utils
 from neutron.common import exceptions
 
 VALID_STATES = ['MASTER', 'BACKUP']
-VALID_NOTIFY_STATES = ['master', 'backup', 'fault']
 VALID_AUTH_TYPES = ['AH', 'PASS']
 HA_DEFAULT_PRIORITY = 50
 PRIMARY_VIP_RANGE_SIZE = 24
@@ -67,16 +65,6 @@ class InvalidInstanceStateException(exceptions.NeutronException):
         if 'valid_states' not in kwargs:
             kwargs['valid_states'] = ', '.join(VALID_STATES)
         super(InvalidInstanceStateException, self).__init__(**kwargs)
-
-
-class InvalidNotifyStateException(exceptions.NeutronException):
-    message = _('Invalid notify state: %(state)s, valid states are: '
-                '%(valid_notify_states)s')
-
-    def __init__(self, **kwargs):
-        if 'valid_notify_states' not in kwargs:
-            kwargs['valid_notify_states'] = ', '.join(VALID_NOTIFY_STATES)
-        super(InvalidNotifyStateException, self).__init__(**kwargs)
 
 
 class InvalidAuthenticationTypeException(exceptions.NeutronException):
@@ -141,7 +129,6 @@ class KeepalivedInstance(object):
         self.vips = []
         self.virtual_routes = []
         self.authentication = None
-        self.notifiers = []
         metadata_cidr = '169.254.169.254/32'
         self.primary_vip_range = get_free_range(
             parent_range='169.254.0.0/16',
@@ -174,18 +161,13 @@ class KeepalivedInstance(object):
         return [vip.ip_address for vip in self.vips
                 if vip.interface_name == interface_name]
 
-    def set_notify(self, state, path):
-        if state not in VALID_NOTIFY_STATES:
-            raise InvalidNotifyStateException(state=state)
-        self.notifiers.append((state, path))
-
     def _build_track_interface_config(self):
         return itertools.chain(
             ['    track_interface {'],
             ('        %s' % i for i in self.track_interfaces),
             ['    }'])
 
-    def _generate_primary_vip(self):
+    def get_primary_vip(self):
         """Return an address in the primary_vip_range CIDR, with the router's
         VRID in the host section.
 
@@ -197,7 +179,7 @@ class KeepalivedInstance(object):
 
         ip = (netaddr.IPNetwork(self.primary_vip_range).network +
               self.vrouter_id)
-        return netaddr.IPNetwork('%s/%s' % (ip, PRIMARY_VIP_RANGE_SIZE))
+        return str(netaddr.IPNetwork('%s/%s' % (ip, PRIMARY_VIP_RANGE_SIZE)))
 
     def _build_vips_config(self):
         # NOTE(amuller): The primary VIP must be consistent in order to avoid
@@ -212,8 +194,7 @@ class KeepalivedInstance(object):
         # interface IP and floating IPs) are placed in the
         # virtual_ipaddress_excluded section.
 
-        primary = KeepalivedVipAddress(str(self._generate_primary_vip()),
-                                       self.interface)
+        primary = KeepalivedVipAddress(self.get_primary_vip(), self.interface)
         vips_result = ['    virtual_ipaddress {',
                        '        %s' % primary.build_config(),
                        '    }']
@@ -234,10 +215,6 @@ class KeepalivedInstance(object):
                                ('        %s' % route.build_config()
                                 for route in self.virtual_routes),
                                ['    }'])
-
-    def _build_notify_scripts(self):
-        return itertools.chain(('    notify_%s "%s"' % (state, path)
-                                for state, path in self.notifiers))
 
     def build_config(self):
         config = ['vrrp_instance %s {' % self.name,
@@ -270,9 +247,6 @@ class KeepalivedInstance(object):
 
         if self.virtual_routes:
             config.extend(self._build_virtual_routes_config())
-
-        if self.notifiers:
-            config.extend(self._build_notify_scripts())
 
         config.append('}')
 
@@ -310,53 +284,7 @@ class KeepalivedConf(object):
         return '\n'.join(self.build_config())
 
 
-class KeepalivedNotifierMixin(object):
-    def _get_notifier_path(self, state):
-        return self._get_full_config_file_path('notify_%s.sh' % state)
-
-    def _write_notify_script(self, state, script):
-        name = self._get_notifier_path(state)
-        utils.replace_file(name, script)
-        st = os.stat(name)
-        os.chmod(name, st.st_mode | stat.S_IEXEC)
-
-        return name
-
-    def _prepend_shebang(self, script):
-        return '#!/bin/sh\n%s' % script
-
-    def _append_state(self, script, state):
-        state_path = self._get_full_config_file_path('state')
-        return '%s\necho -n %s > %s' % (script, state, state_path)
-
-    def add_notifier(self, script, state, vrouter_id):
-        """Add a master, backup or fault notifier.
-
-        These notifiers are executed when keepalived invokes a state
-        transition. Write a notifier to disk and add it to the
-        configuration.
-        """
-
-        script_with_prefix = self._prepend_shebang(' '.join(script))
-        full_script = self._append_state(script_with_prefix, state)
-        self._write_notify_script(state, full_script)
-
-        vr_instance = self.config.get_instance(vrouter_id)
-        vr_instance.set_notify(state, self._get_notifier_path(state))
-
-    def get_conf_dir(self):
-        confs_dir = os.path.abspath(os.path.normpath(self.conf_path))
-        conf_dir = os.path.join(confs_dir, self.resource_id)
-        return conf_dir
-
-    def _get_full_config_file_path(self, filename, ensure_conf_dir=True):
-        conf_dir = self.get_conf_dir()
-        if ensure_conf_dir:
-            utils.ensure_dir(conf_dir)
-        return os.path.join(conf_dir, filename)
-
-
-class KeepalivedManager(KeepalivedNotifierMixin):
+class KeepalivedManager(object):
     """Wrapper for keepalived.
 
     This wrapper permits to write keepalived config files, to start/restart
@@ -372,6 +300,17 @@ class KeepalivedManager(KeepalivedNotifierMixin):
         self.process_monitor = process_monitor
         self.conf_path = conf_path
         self.process = None
+
+    def get_conf_dir(self):
+        confs_dir = os.path.abspath(os.path.normpath(self.conf_path))
+        conf_dir = os.path.join(confs_dir, self.resource_id)
+        return conf_dir
+
+    def _get_full_config_file_path(self, filename, ensure_conf_dir=True):
+        conf_dir = self.get_conf_dir()
+        if ensure_conf_dir:
+            utils.ensure_dir(conf_dir)
+        return os.path.join(conf_dir, filename)
 
     def _output_config_file(self):
         config_str = self.config.get_config_str()

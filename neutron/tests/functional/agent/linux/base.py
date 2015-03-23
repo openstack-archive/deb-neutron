@@ -15,6 +15,7 @@
 import netaddr
 import testscenarios
 
+from neutron.agent.linux import bridge_lib
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils
@@ -33,6 +34,7 @@ ICMP_MARK_RULE = ('-j MARK --set-xmark %(value)s/%(mask)s'
 MARKED_BLOCK_RULE = '-m mark --mark %s -j DROP' % MARK_VALUE
 ICMP_BLOCK_RULE = '-p icmp -j DROP'
 VETH_PREFIX = 'tst-vth'
+NS_PREFIX = 'func-'
 
 
 #TODO(jschwarz): Move these two functions to neutron/tests/common/
@@ -49,6 +51,11 @@ def get_rand_port_name():
                          max_length=n_const.DEVICE_NAME_MAX_LEN)
 
 
+def get_rand_bridge_name():
+    return get_rand_name(prefix=BR_PREFIX,
+                         max_length=n_const.DEVICE_NAME_MAX_LEN)
+
+
 class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
 
     def setUp(self):
@@ -62,11 +69,16 @@ class BaseLinuxTestCase(functional_base.BaseSudoTestCase):
                 self.skipTest(skip_msg)
             raise
 
-    def _create_namespace(self):
+    @staticmethod
+    def _cleanup_namespace(namespace):
+        if namespace.netns.exists(namespace.namespace):
+            namespace.netns.delete(namespace.namespace)
+
+    def _create_namespace(self, prefix=NS_PREFIX):
         ip_cmd = ip_lib.IPWrapper()
-        name = "func-%s" % uuidutils.generate_uuid()
+        name = prefix + uuidutils.generate_uuid()
         namespace = ip_cmd.ensure_namespace(name)
-        self.addCleanup(namespace.netns.delete, namespace.namespace)
+        self.addCleanup(BaseLinuxTestCase._cleanup_namespace, namespace)
 
         return namespace
 
@@ -165,14 +177,15 @@ class BaseIPVethTestCase(BaseLinuxTestCase):
         device.addr.add(cidr)
         device.link.set_up()
 
-    def prepare_veth_pairs(self):
+    def prepare_veth_pairs(self, src_ns_prefix=NS_PREFIX,
+                           dst_ns_prefix=NS_PREFIX):
 
         src_addr = self.SRC_ADDRESS
         dst_addr = self.DST_ADDRESS
         src_veth = get_rand_veth_name()
         dst_veth = get_rand_veth_name()
-        src_ns = self._create_namespace()
-        dst_ns = self._create_namespace()
+        src_ns = self._create_namespace(src_ns_prefix)
+        dst_ns = self._create_namespace(dst_ns_prefix)
 
         src_veth, dst_veth = src_ns.add_veth(src_veth,
                                              dst_veth,
@@ -182,3 +195,21 @@ class BaseIPVethTestCase(BaseLinuxTestCase):
         self._set_ip_up(dst_veth, '%s/24' % dst_addr)
 
         return src_ns, dst_ns
+
+
+class BaseBridgeTestCase(BaseIPVethTestCase):
+    def create_veth_pairs(self, dst_namespace):
+        src_ns = self._create_namespace()
+        src_veth = get_rand_veth_name()
+        dst_veth = get_rand_veth_name()
+
+        return src_ns.add_veth(src_veth, dst_veth, dst_namespace)
+
+    def create_bridge(self, br_ns=None):
+        br_ns = br_ns or self._create_namespace()
+        br_name = get_rand_bridge_name()
+        bridge = bridge_lib.BridgeDevice.addbr(br_name, br_ns.namespace)
+        self.addCleanup(bridge.delbr)
+        bridge.link.set_up()
+        self.addCleanup(bridge.link.set_down)
+        return bridge

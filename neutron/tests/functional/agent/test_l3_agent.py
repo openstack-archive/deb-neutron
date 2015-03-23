@@ -147,7 +147,6 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
             expected_device['mac_address'], namespace)
 
     def get_expected_keepalive_configuration(self, router):
-        ha_confs_path = self.agent.conf.ha_confs_path
         router_id = router.router_id
         ha_device_name = router.get_ha_device_name(router.ha_port['id'])
         ha_device_cidr = router.ha_port['ip_cidr']
@@ -191,11 +190,7 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
         0.0.0.0/0 via %(default_gateway_ip)s dev %(external_device_name)s
         8.8.8.0/24 via 19.4.4.4
     }
-    notify_master "%(ha_confs_path)s/%(router_id)s/notify_master.sh"
-    notify_backup "%(ha_confs_path)s/%(router_id)s/notify_backup.sh"
-    notify_fault "%(ha_confs_path)s/%(router_id)s/notify_fault.sh"
 }""" % {
-            'ha_confs_path': ha_confs_path,
             'router_id': router_id,
             'ha_device_name': ha_device_name,
             'ha_device_cidr': ha_device_cidr,
@@ -219,7 +214,8 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
         # then the devices and iptable rules have also been deleted,
         # so there's no need to check that explicitly.
         self.assertFalse(self._namespace_exists(router.ns_name))
-        self.assertFalse(self._metadata_proxy_exists(self.agent.conf, router))
+        utils.wait_until_true(
+            lambda: not self._metadata_proxy_exists(self.agent.conf, router))
 
     def _assert_snat_chains(self, router):
         self.assertFalse(router.iptables_manager.is_chain_empty(
@@ -282,6 +278,25 @@ class L3AgentTestCase(L3AgentTestFramework):
 
     def test_observer_notifications_ha_router(self):
         self._test_observer_notifications(enable_ha=True)
+
+    def test_keepalived_state_change_notification(self):
+        enqueue_mock = mock.patch.object(
+            self.agent, 'enqueue_state_change').start()
+        router_info = self.generate_router_info(enable_ha=True)
+        router = self.manage_router(self.agent, router_info)
+        utils.wait_until_true(lambda: router.ha_state == 'master')
+
+        device_name = router.get_ha_device_name(
+            router.router[l3_constants.HA_INTERFACE_KEY]['id'])
+        ha_device = ip_lib.IPDevice(device_name, router.ns_name)
+        ha_device.link.set_down()
+        utils.wait_until_true(lambda: router.ha_state == 'backup')
+
+        utils.wait_until_true(lambda: enqueue_mock.call_count == 3)
+        calls = [args[0] for args in enqueue_mock.call_args_list]
+        self.assertEqual((router.router_id, 'backup'), calls[0])
+        self.assertEqual((router.router_id, 'master'), calls[1])
+        self.assertEqual((router.router_id, 'backup'), calls[2])
 
     def _test_observer_notifications(self, enable_ha):
         """Test create, update, delete of router and notifications."""
@@ -402,7 +417,8 @@ class L3AgentTestCase(L3AgentTestFramework):
         if enable_ha:
             port = router.get_ex_gw_port()
             interface_name = self.agent.get_external_device_name(port['id'])
-            self._assert_no_ip_addresses_on_interface(router, interface_name)
+            self._assert_no_ip_addresses_on_interface(router.ns_name,
+                                                      interface_name)
             utils.wait_until_true(lambda: router.ha_state == 'master')
 
             # Keepalived notifies of a state transition when it starts,
@@ -418,7 +434,8 @@ class L3AgentTestCase(L3AgentTestFramework):
             utils.wait_until_true(device_exists)
 
         self.assertTrue(self._namespace_exists(router.ns_name))
-        self.assertTrue(self._metadata_proxy_exists(self.agent.conf, router))
+        utils.wait_until_true(
+            lambda: self._metadata_proxy_exists(self.agent.conf, router))
         self._assert_internal_devices(router)
         self._assert_external_device(router)
         if ip_version == 4:
@@ -466,18 +483,28 @@ class L3AgentTestCase(L3AgentTestFramework):
             router.router[l3_constants.HA_INTERFACE_KEY],
             router.get_ha_device_name, router.ns_name))
 
-    def _assert_no_ip_addresses_on_interface(self, router, interface):
-        device = ip_lib.IPDevice(interface, namespace=router.ns_name)
-        self.assertEqual([], device.addr.list())
+    @classmethod
+    def _get_addresses_on_device(cls, namespace, interface):
+        return [address['cidr'] for address in
+                ip_lib.IPDevice(interface, namespace=namespace).addr.list()]
+
+    def _assert_no_ip_addresses_on_interface(self, namespace, interface):
+        self.assertEqual(
+            [], self._get_addresses_on_device(namespace, interface))
 
     def test_ha_router_conf_on_restarted_agent(self):
         router_info = self.generate_router_info(enable_ha=True)
-        router1 = self._create_router(self.agent, router_info)
+        router1 = self.manage_router(self.agent, router_info)
         self._add_fip(router1, '192.168.111.12')
         restarted_agent = neutron_l3_agent.L3NATAgentWithStateReport(
             self.agent.host, self.agent.conf)
         self._create_router(restarted_agent, router1.router)
         utils.wait_until_true(lambda: self.floating_ips_configured(router1))
+        self.assertIn(
+            router1._get_primary_vip(),
+            self._get_addresses_on_device(
+                router1.ns_name,
+                router1.get_ha_device_name(router1.ha_port['id'])))
 
 
 class L3HATestFramework(L3AgentTestFramework):
@@ -527,7 +554,7 @@ class L3HATestFramework(L3AgentTestFramework):
         ha_device.link.set_down()
 
         utils.wait_until_true(lambda: router2.ha_state == 'master')
-        utils.wait_until_true(lambda: router1.ha_state == 'fault')
+        utils.wait_until_true(lambda: router1.ha_state == 'backup')
 
 
 class MetadataFakeProxyHandler(object):
