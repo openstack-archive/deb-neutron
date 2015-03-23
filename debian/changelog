@@ -1,4 +1,4 @@
-neutron (2015.1~b2+git20150317+31fbae6d2b-1) UNRELEASED; urgency=medium
+neutron (2015.1~b3-1) UNRELEASED; urgency=medium
 
   * New upstream release.
   * Updated (build-)depends for this release.
