@@ -57,9 +57,9 @@ override_dh_clean:
 	dh_clean
 	find . -type f -name "*.pyc" -delete
 
-ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 override_dh_auto_test:
-	./run_tests.sh -N -P || true
+ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
+	PYTHONPATH=. ./run_tests.sh -N -P || true
 endif
 
 override_dh_auto_build:
