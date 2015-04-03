@@ -165,7 +165,7 @@ Last-Update: 2015-03-23
  #
 -# service_plugins =
  # Example: service_plugins = router,firewall,lbaas,vpnaas,metering
-+service_plugins = neutron.services.loadbalancer.plugin.LoadBalancerPlugin,neutron.services.metering.metering_plugin.MeteringPlugin,neutron.services.l3_router.l3_router_plugin.L3RouterPlugin
++service_plugins = neutron.services.metering.metering_plugin.MeteringPlugin,neutron.services.l3_router.l3_router_plugin.L3RouterPlugin
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
