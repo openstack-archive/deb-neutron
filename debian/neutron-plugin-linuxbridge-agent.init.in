@@ -18,6 +18,12 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Openstack Neutron LinuxBridge Plugin Agent"
 PROJECT_NAME=neutron
 NAME=${PROJECT_NAME}-linuxbridge-agent
-# --config-file=/etc/neutron/neutron.conf will be happened 
+# --config-file=/etc/neutron/neutron.conf will be happened
 # to DAEMON_ARGS later by openstack-pkg-tools
-DAEMON_ARGS="--config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini"
+
+# Since Juno LB plugin as been deprecated as core_plugin, it has been
+# replaced by ml2 as core_plugin and lb as agent. Making ml2 mandatory
+# to use this agent
+
+DAEMON_ARGS="--config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini --config-file=/etc/neutron/plugins/ml2/ml2_conf.ini"
+
