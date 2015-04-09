@@ -17,7 +17,7 @@
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="Openstack Neutron LinuxBridge Plugin Agent"
 PROJECT_NAME=neutron
-NAME=${PROJECT_NAME}-plugin-linuxbridge-agent
+NAME=${PROJECT_NAME}-linuxbridge-agent
 # --config-file=/etc/neutron/neutron.conf will be happened
 # to DAEMON_ARGS later by openstack-pkg-tools
 

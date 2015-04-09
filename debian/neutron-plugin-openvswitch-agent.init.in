@@ -15,7 +15,7 @@
 
 DESC="Openstack Neutron OpenVSwitch Plugin Agent"
 PROJECT_NAME=neutron
-NAME=${PROJECT_NAME}-plugin-openvswitch-agent
+NAME=${PROJECT_NAME}-openvswitch-agent
 CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
 # Since Juno OVS plugin as been deprecated as core_plugin, it has been
