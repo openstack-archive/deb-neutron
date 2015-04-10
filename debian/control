@@ -30,11 +30,11 @@ Build-Depends-Indep: alembic (>= 0.7.2),
                      python-mock (>= 1.0),
                      python-netaddr (>= 0.7.6),
                      python-netifaces,
+                     python-neutron-lbaas (>= 2015.1~b2),
                      python-neutronclient (>= 2.3.11),
                      python-nose,
                      python-nosexcover,
                      python-novaclient (>= 2:2.18.0),
-                     python-neutron-lbaas (>= 2015.1~b2),
                      python-oslo.concurrency (>= 1.4.1),
                      python-oslo.config (>= 1.9.0),
                      python-oslo.context (>= 0.2.0),
@@ -126,6 +126,10 @@ Depends: alembic (>= 0.7.2),
          ${misc:Depends},
          ${python:Depends}
 Recommends: iputils-arping
+Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+          neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+        neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
 Provides: ${python:Provides}
 Description: OpenStack virtual network service - Python library
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -181,6 +185,10 @@ Provides: neutron-plugin,
           neutron-plugin-plumgrid,
           neutron-plugin-ryu,
           python-argparse
+Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+          neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+        neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
 Description: OpenStack virtual network service - common files
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -282,9 +290,11 @@ Description: OpenStack virtual network service - metering agent
  .
  This package provides the Neutron metering agent.
 
-Package: neutron-plugin-openvswitch-agent
+Package: neutron-openvswitch-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch (>= 1.9)
+Replaces: neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+Breaks: neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
 Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
@@ -300,9 +310,11 @@ Description: OpenStack virtual network service - Open vSwitch agent
  This package provides the Open vSwitch agent. If you choose to use the Open
  vSwitch plugin on neutron-server, this agent should run on each compute node.
 
-Package: neutron-plugin-linuxbridge-agent
+Package: neutron-linuxbridge-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
+Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
+Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
 Depends: bridge-utils,
          neutron-common (= ${source:Version}),
          sudo,
@@ -317,3 +329,25 @@ Description: OpenStack virtual network service - Linux bridge agent
  .
  This package provides the Linux bridge agent. If you choose to use the Linux
  bridge plugin on neutron-server, this agent should run on each compute node.
+
+Package: neutron-plugin-linuxbridge-agent
+Depends: neutron-linuxbridge-agent, ${misc:Depends}
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Section: oldlibs
+description: transitional dummy package for switching to Neutron Linuxbridge agent.
+ This is a transitional dummy package due to the move of the Linuxbridge agent from
+ core plugin to ML2 MechanismDriver.
+ Once you have upgraded, this package can safely be removed. This package provides a
+ transition path from neutron-plugin-linuxbridge-agent to neutron-linuxbridge-agent.
+
+Package: neutron-plugin-openvswitch-agent
+Depends: neutron-openvswitch-agent, ${misc:Depends}
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Section: oldlibs
+description: transitional dummy package for switching to Neutron OpenVswitch agent.
+ This is a transitional dummy package due to the move of the OpenVswitch agent from
+ core plugin to ML2 MechanismDriver.
+ Once you have upgraded, this package can safely be removed. This package provides a
+ transition path from neutron-plugin-openvswitch-agent to neutron-openvswitch-agent.
