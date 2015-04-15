@@ -1,9 +1,14 @@
 neutron (2015.1~rc1-1) UNRELEASED; urgency=medium
 
+  [ Thomas Goirand ]
   * New upstream release.
   * Updated (build-)depends for this release.
   * Removed quantum transition packages, and lbass package (the later is now a
     separated project).
+
+  [ gustavo panizzo ]
+  * Updated ovs agent and lb agent init scripts, since they are deprecated as
+    core_plugin and should be used in conjunction of ml2.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 24 Dec 2014 15:10:00 +0800
 

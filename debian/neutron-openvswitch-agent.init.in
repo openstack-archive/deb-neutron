@@ -1,0 +1,24 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          neutron-openvswitch-agent
+# Required-Start:    $network $local_fs $remote_fs $syslog openvswitch-switch
+# Required-Stop:     $remote_fs openvswitch-switch
+# Should-Start:      mysql postgresql rabbitmq-server keystone
+# Should-Stop:       mysql postgresql rabbitmq-server keystone
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Neutron OpenVSwitch Agent
+# Description:       Agent to use within neutron openswitch client
+### END INIT INFO
+
+# Authors: Julien Danjou <acid@debian.org>, Thomas Goirand <zigo@debian.org>
+
+DESC="Openstack Neutron OpenVSwitch Plugin Agent"
+PROJECT_NAME=neutron
+NAME=${PROJECT_NAME}-openvswitch-agent
+CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+
+# Since Juno OVS plugin as been deprecated as core_plugin, it has been
+# replaced by ml2 as core_plugin and ovs as agent. Making ml2 mandatory
+# to use this agent
+DAEMON_ARGS="--config-file=/etc/neutron/plugins/ml2/ml2_conf.ini"
