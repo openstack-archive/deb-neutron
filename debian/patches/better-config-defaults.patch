@@ -3,16 +3,16 @@ Description: Better config defaults
  minimize the efforts needed to be done by newbies.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
-Last-Update: 2015-03-23
+Last-Update: 2015-04-15
 
---- neutron-2015.1~b3.orig/etc/dhcp_agent.ini
-+++ neutron-2015.1~b3/etc/dhcp_agent.ini
-@@ -9,14 +9,13 @@
+--- neutron-2015.1~rc1.orig/etc/dhcp_agent.ini
++++ neutron-2015.1~rc1/etc/dhcp_agent.ini
+@@ -9,14 +9,12 @@
  
  # The DHCP agent requires an interface driver be set. Choose the one that best
  # matches your plugin.
 -# interface_driver =
- 
+-
  # Example of interface_driver option for OVS based plugins(OVS, Ryu, NEC, NVP,
  # BigSwitch/Floodlight)
 -# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
@@ -24,7 +24,7 @@ Last-Update: 2015-03-23
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-@@ -28,18 +27,18 @@
+@@ -28,20 +26,20 @@
  
  # The agent can use other DHCP drivers.  Dnsmasq is the simplest and requires
  # no additional setup of the DHCP server.
@@ -32,8 +32,12 @@ Last-Update: 2015-03-23
 +dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
  
  # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
- # iproute2 package that supports namespaces).
+ # iproute2 package that supports namespaces). This option is deprecated and
+-# will be removed in a future release, at which point the old behavior of
+-# use_namespaces = True will be enforced.
 -# use_namespaces = True
++# will be removed in a future release, at which point the old behavior
++# of use_namespaces = True will be enforced.
 +use_namespaces = True
  
  # The DHCP server can assist with providing metadata support on isolated
@@ -46,16 +50,7 @@ Last-Update: 2015-03-23
  
  # Allows for serving metadata requests coming from a dedicated metadata
  # access network whose cidr is 169.254.169.254/16 (or larger prefix), and
-@@ -47,7 +46,7 @@
- # request. In this case DHCP Option 121 will not be injected in VMs, as
- # they will be able to reach 169.254.169.254 through a router.
- # This option requires enable_isolated_metadata = True
--# enable_metadata_network = False
-+enable_metadata_network = False
- 
- # Number of threads to use during sync process. Should not exceed connection
- # pool size configured on server.
-@@ -60,7 +59,7 @@
+@@ -62,7 +60,7 @@
  # dhcp_domain = openstacklocal
  
  # Override the default dnsmasq settings with this file
@@ -64,14 +59,14 @@ Last-Update: 2015-03-23
  
  # Comma-separated list of DNS servers which will be used by dnsmasq
  # as forwarders.
---- neutron-2015.1~b3.orig/etc/l3_agent.ini
-+++ neutron-2015.1~b3/etc/l3_agent.ini
-@@ -4,11 +4,10 @@
+--- neutron-2015.1~rc1.orig/etc/l3_agent.ini
++++ neutron-2015.1~rc1/etc/l3_agent.ini
+@@ -4,11 +4,9 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
  # matches your plugin.
 -# interface_driver =
- 
+-
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
  # that supports L3 agent
 -# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
@@ -79,16 +74,20 @@ Last-Update: 2015-03-23
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-@@ -20,7 +19,7 @@
+@@ -20,9 +18,9 @@
  
  # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
- # iproute2 package that supports namespaces).
+ # iproute2 package that supports namespaces). This option is deprecated and
+-# will be removed in a future release, at which point the old behavior of
+-# use_namespaces = True will be enforced.
 -# use_namespaces = True
++# will be removed in a future release, at which point the old behavior
++# of use_namespaces = True will be enforced.
 +use_namespaces = True
  
  # If use_namespaces is set as False then the agent can only configure one router.
  
-@@ -38,12 +37,12 @@
+@@ -54,12 +52,12 @@
  # an external network gateway configured.  This option should be True only
  # for a single agent in a Neutron deployment, and may be False for all agents
  # if all routers must have an external network gateway
@@ -103,7 +102,7 @@ Last-Update: 2015-03-23
  
  # TCP Port used by Neutron metadata server
  # metadata_port = 9697
-@@ -69,7 +68,7 @@
+@@ -77,7 +75,7 @@
  
  # enable_metadata_proxy, which is true by default, can be set to False
  # if the Nova metadata server is not available
@@ -112,7 +111,7 @@ Last-Update: 2015-03-23
  
  # Iptables mangle mark used to mark metadata valid requests
  # metadata_access_mark = 0x1
-@@ -83,7 +82,7 @@
+@@ -91,7 +89,7 @@
  # utility mentioned in https://bugs.launchpad.net/neutron/+bug/1052535 and
  # you are sure that your version of iproute does not suffer from the problem.
  # If True, namespaces will be deleted when a router is destroyed.
@@ -121,7 +120,7 @@ Last-Update: 2015-03-23
  
  # Timeout for ovs-vsctl commands.
  # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
-@@ -98,7 +97,7 @@
+@@ -106,7 +104,7 @@
  # - dvr_snat: this enables centralized SNAT support in conjunction with
  #   DVR. This mode must be used for an L3 agent running on a centralized
  #   node (or in single-host deployments, e.g. devstack).
@@ -130,14 +129,14 @@ Last-Update: 2015-03-23
  
  # Location to store keepalived and all HA configurations
  # ha_confs_path = $state_path/ha_confs
-@@ -111,3 +110,5 @@
+@@ -119,3 +117,5 @@
  
  # The advertisement interval in seconds
  # ha_vrrp_advert_int = 2
 +
-+allow_automatic_l3agent_failover=False
---- neutron-2015.1~b3.orig/etc/metadata_agent.ini
-+++ neutron-2015.1~b3/etc/metadata_agent.ini
++allow_automatic_l3agent_failover = False
+--- neutron-2015.1~rc1.orig/etc/metadata_agent.ini
++++ neutron-2015.1~rc1/etc/metadata_agent.ini
 @@ -23,7 +23,7 @@ admin_password = %SERVICE_PASSWORD%
  # nova_metadata_port = 8775
  
@@ -147,9 +146,9 @@ Last-Update: 2015-03-23
  
  # Whether insecure SSL connection should be accepted for Nova metadata server
  # requests
---- neutron-2015.1~b3.orig/etc/neutron.conf
-+++ neutron-2015.1~b3/etc/neutron.conf
-@@ -60,8 +60,8 @@ lock_path = $state_path/lock
+--- neutron-2015.1~rc1.orig/etc/neutron.conf
++++ neutron-2015.1~rc1/etc/neutron.conf
+@@ -57,8 +57,8 @@
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
  #
@@ -159,17 +158,17 @@ Last-Update: 2015-03-23
  
  # (ListOpt) List of service plugin entrypoints to be loaded from the
  # neutron.service_plugins namespace. See setup.cfg for the entrypoint names of
-@@ -69,8 +69,8 @@ lock_path = $state_path/lock
+@@ -66,8 +66,8 @@
  # with previous versions, the class name of a plugin can be specified instead
  # of its entrypoint name.
  #
 -# service_plugins =
  # Example: service_plugins = router,firewall,lbaas,vpnaas,metering
-+service_plugins = neutron.services.metering.metering_plugin.MeteringPlugin,neutron.services.l3_router.l3_router_plugin.L3RouterPlugin
++service_plugins = = neutron.services.metering.metering_plugin.MeteringPlugin,neutron.services.l3_router.l3_router_plugin.L3RouterPlugin
  
  # Paste configuration file
  # api_paste_config = api-paste.ini
-@@ -84,7 +84,7 @@ lock_path = $state_path/lock
+@@ -81,7 +81,7 @@
  
  # The strategy to be used for auth.
  # Supported values are 'keystone'(default), 'noauth'.
@@ -178,16 +177,17 @@ Last-Update: 2015-03-23
  
  # Base MAC address. The first 3 octets will remain unchanged. If the
  # 4h octet is not 00, it will also be used. The others will be
-@@ -121,7 +121,7 @@ lock_path = $state_path/lock
+@@ -118,7 +118,8 @@
  # Enable or disable overlapping IPs for subnets
  # Attention: the following parameter MUST be set to False if Neutron is
  # being used in conjunction with nova security groups
 -# allow_overlapping_ips = False
 +allow_overlapping_ips = True
++
  # Ensure that configured gateway is on subnet. For IPv6, validate only if
  # gateway is not a link local address. Deprecated, to be removed during the
  # K release, at which point the check will be mandatory.
-@@ -288,20 +288,20 @@ lock_path = $state_path/lock
+@@ -329,20 +330,20 @@
  
  # ======== neutron nova interactions ==========
  # Send notification to nova when port status is active.
@@ -212,38 +212,38 @@ Last-Update: 2015-03-23
  
  # The uuid of the admin nova tenant
  # nova_admin_tenant_id =
-@@ -400,7 +400,7 @@ lock_path = $state_path/lock
+@@ -441,7 +442,7 @@
  
  # The RabbitMQ broker address where a single node is used.
  # (string value)
--#rabbit_host=localhost
+-# rabbit_host=localhost
 +rabbit_host=localhost
  
  # The RabbitMQ broker port where a single node is used.
  # (integer value)
-@@ -413,10 +413,10 @@ lock_path = $state_path/lock
- #rabbit_use_ssl=false
+@@ -454,10 +455,10 @@
+ # rabbit_use_ssl=false
  
  # The RabbitMQ userid. (string value)
--#rabbit_userid=guest
+-# rabbit_userid=guest
 +rabbit_userid=guest
  
  # The RabbitMQ password. (string value)
--#rabbit_password=guest
+-# rabbit_password=guest
 +rabbit_password=guest
  
  # the RabbitMQ login method (string value)
- #rabbit_login_method=AMQPLAIN
-@@ -501,7 +501,7 @@ lock_path = $state_path/lock
+ # rabbit_login_method=AMQPLAIN
+@@ -542,7 +543,7 @@
  
  # The messaging driver to use, defaults to rabbit. Other
  # drivers include qpid and zmq. (string value)
--#rpc_backend=rabbit
+-# rpc_backend=rabbit
 +rpc_backend=rabbit
  
  # The default exchange under which topics are scoped. May be
  # overridden by an exchange name specified in the
-@@ -613,7 +613,7 @@ lock_path = $state_path/lock
+@@ -654,7 +655,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the command directly
@@ -252,11 +252,13 @@ Last-Update: 2015-03-23
  
  # Set to true to add comments to generated iptables rules that describe
  # each rule's purpose. (System must support the iptables comments module.)
-@@ -650,14 +650,13 @@ admin_password = %SERVICE_PASSWORD%
+@@ -702,15 +703,14 @@ admin_password = %SERVICE_PASSWORD%
+ 
  [database]
  # This line MUST be changed to actually run the plugin.
- # Example:
+-# Example:
 -# connection = mysql://root:pass@127.0.0.1:3306/neutron
++# Example: connection = mysql://root:pass@127.0.0.1:3306/neutron
  # Replace 127.0.0.1 above with the IP address of the database used by the
  # main neutron server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
@@ -264,16 +266,17 @@ Last-Update: 2015-03-23
  # be set in the corresponding core plugin '.ini' file. However, it is suggested
  # to put the [database] section and its connection attribute in this
  # configuration file.
-+#connection = sqlite:///var/lib/neutron/neutrondb
++connection = sqlite:///var/lib/neutron/neutrondb
  
  # Database engine for which script will be generated when using offline
  # migration
---- neutron-2015.1~b3.orig/etc/neutron/plugins/ml2/ml2_conf.ini
-+++ neutron-2015.1~b3/etc/neutron/plugins/ml2/ml2_conf.ini
-@@ -2,24 +2,24 @@
+--- neutron-2015.1~rc1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-2015.1~rc1/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -1,25 +1,24 @@
+ [ml2]
  # (ListOpt) List of network type driver entrypoints to be loaded from
  # the neutron.ml2.type_drivers namespace.
- #
+-#
 -# type_drivers = local,flat,vlan,gre,vxlan
 -# Example: type_drivers = flat,vlan,gre,vxlan
 +# Example: type_drivers = local,flat,vlan,gre,vxlan
@@ -299,7 +302,7 @@ Last-Update: 2015-03-23
  
  # (ListOpt) Ordered list of extension driver entrypoints
  # to be loaded from the neutron.ml2.extension_drivers namespace.
-@@ -54,9 +54,9 @@
+@@ -54,9 +53,9 @@
  # can be created. Use * to allow flat networks with arbitrary
  # physical_network names.
  #
@@ -310,7 +313,7 @@ Last-Update: 2015-03-23
  
  [ml2_type_vlan]
  # (ListOpt) List of <physical_network>[:<vlan_min>:<vlan_max>] tuples
-@@ -69,7 +69,7 @@
+@@ -69,7 +68,7 @@
  
  [ml2_type_gre]
  # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
@@ -319,7 +322,7 @@ Last-Update: 2015-03-23
  
  [ml2_type_vxlan]
  # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
-@@ -87,8 +87,8 @@
+@@ -87,8 +86,8 @@
  [securitygroup]
  # Controls if neutron security group is enabled or not.
  # It should be false when you use nova security group.
@@ -330,8 +333,8 @@ Last-Update: 2015-03-23
  # requires that ipset is installed on L2 agent node.
 -# enable_ipset = True
 +enable_ipset = True
---- neutron-2015.1~b3.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2015.1~b3/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+--- neutron-2015.1~rc1.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron-2015.1~rc1/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -5,7 +5,7 @@
  # attached to this bridge and then "patched" according to their network
  # connectivity.
@@ -351,7 +354,7 @@ Last-Update: 2015-03-23
  
  # (BoolOpt) Use veths instead of patch ports to interconnect the integration
  # bridge to physical networks. Support kernel without ovs patch port support
-@@ -42,7 +42,7 @@
+@@ -52,7 +52,7 @@
  
  [agent]
  # Agent's polling interval in seconds
@@ -360,7 +363,7 @@ Last-Update: 2015-03-23
  
  # Minimize polling by monitoring ovsdb for interface changes
  # minimize_polling = True
-@@ -57,10 +57,10 @@
+@@ -67,10 +67,10 @@
  # disable tunneling support in the agent.
  # You can specify as many values here as your compute hosts supports.
  #
@@ -372,7 +375,7 @@ Last-Update: 2015-03-23
  
  # (IntOpt) The port number to utilize if tunnel_types includes 'vxlan'. By
  # default, this will make use of the Open vSwitch default value of '4789' if
-@@ -82,12 +82,12 @@
+@@ -92,12 +92,12 @@
  # RPC calbbacks instead of tunnel_sync/update) on OVS agents in order to
  # optimize tunnel management.
  #
@@ -385,9 +388,9 @@ Last-Update: 2015-03-23
 -# arp_responder = False
 +arp_responder = False
  
- # (BoolOpt) Set or un-set the don't fragment (DF) bit on outgoing IP packet
- # carrying GRE/VXLAN tunnel. The default value is True.
-@@ -97,7 +97,7 @@
+ # Enable suppression of ARP responses that don't match an IP address that
+ # belongs to the port from which they originate.
+@@ -116,7 +116,7 @@
  # (BoolOpt) Set to True on L2 agents to enable support
  # for distributed virtual routing.
  #
@@ -396,18 +399,18 @@ Last-Update: 2015-03-23
  
  # (IntOpt) Set new timeout in seconds for new rpc calls after agent receives
  # SIGTERM. If value is set to 0, rpc timeout won't be changed"
-@@ -106,32 +106,10 @@
+@@ -125,32 +125,9 @@
  
  [securitygroup]
  # Firewall driver for realizing neutron security group function.
 -# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
  # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
-+firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
++# firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
  
  # Controls if neutron security group is enabled or not.
  # It should be false when you use nova security group.
  # enable_security_group = True
- 
+-
 -#-----------------------------------------------------------------------------
 -# Sample Configurations.
 -#-----------------------------------------------------------------------------
