@@ -27,9 +27,9 @@ from neutron.extensions import metering as ext_metering
 from neutron import manager
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
-from neutron.tests.unit.db.metering import test_db_metering
-from neutron.tests.unit import test_db_plugin
-from neutron.tests.unit import test_l3_plugin
+from neutron.tests.unit.db.metering import test_metering_db
+from neutron.tests.unit.db import test_db_base_plugin_v2
+from neutron.tests.unit.extensions import test_l3
 
 
 _uuid = uuidutils.generate_uuid
@@ -58,9 +58,9 @@ class MeteringTestExtensionManager(object):
         return []
 
 
-class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
-                         test_l3_plugin.L3NatTestCaseMixin,
-                         test_db_metering.MeteringPluginDbTestCaseMixin):
+class TestMeteringPlugin(test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
+                         test_l3.L3NatTestCaseMixin,
+                         test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
         (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
@@ -68,7 +68,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
     )
 
     def setUp(self):
-        plugin = 'neutron.tests.unit.test_l3_plugin.TestL3NatIntPlugin'
+        plugin = 'neutron.tests.unit.extensions.test_l3.TestL3NatIntPlugin'
         service_plugins = {'metering_plugin_name':
                            METERING_SERVICE_PLUGIN_KLASS}
         ext_mgr = MeteringTestExtensionManager()
@@ -106,6 +106,18 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
                   '.update_metering_label_rules')
         self.update_patch = mock.patch(update)
         self.mock_update = self.update_patch.start()
+
+        add_rule = ('neutron.api.rpc.agentnotifiers.' +
+                    'metering_rpc_agent_api.MeteringAgentNotifyAPI' +
+                    '.add_metering_label_rule')
+        self.add_rule_patch = mock.patch(add_rule)
+        self.mock_add_rule = self.add_rule_patch.start()
+
+        remove_rule = ('neutron.api.rpc.agentnotifiers.' +
+                       'metering_rpc_agent_api.MeteringAgentNotifyAPI' +
+                       '.remove_metering_label_rule')
+        self.remove_rule_patch = mock.patch(remove_rule)
+        self.mock_remove_rule = self.remove_rule_patch.start()
 
     def test_add_metering_label_rpc_call(self):
         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
@@ -207,7 +219,7 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
                                  label['metering_label']['id'])
                 self.mock_remove.assert_called_with(self.ctx, expected_remove)
 
-    def test_update_metering_label_rules_rpc_call(self):
+    def test_add_and_remove_metering_label_rule_rpc_call(self):
         second_uuid = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
         expected_add = [{'status': 'ACTIVE',
                          'name': 'router1',
@@ -215,17 +227,12 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
                          'admin_state_up': True,
                          'tenant_id': self.tenant_id,
                          '_metering_labels': [
-                             {'rules': [
-                                 {'remote_ip_prefix': '10.0.0.0/24',
-                                  'direction': 'ingress',
-                                  'metering_label_id': self.uuid,
-                                  'excluded': False,
-                                  'id': self.uuid},
-                                 {'remote_ip_prefix': '10.0.0.0/24',
-                                  'direction': 'egress',
-                                  'metering_label_id': self.uuid,
-                                  'excluded': False,
-                                  'id': second_uuid}],
+                             {'rule': {
+                                 'remote_ip_prefix': '10.0.0.0/24',
+                                 'direction': 'ingress',
+                                 'metering_label_id': self.uuid,
+                                 'excluded': False,
+                                 'id': second_uuid},
                              'id': self.uuid}],
                          'id': self.uuid}]
 
@@ -235,12 +242,12 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
                          'admin_state_up': True,
                          'tenant_id': self.tenant_id,
                          '_metering_labels': [
-                             {'rules': [
-                                 {'remote_ip_prefix': '10.0.0.0/24',
+                             {'rule': {
+                                  'remote_ip_prefix': '10.0.0.0/24',
                                   'direction': 'ingress',
                                   'metering_label_id': self.uuid,
                                   'excluded': False,
-                                  'id': self.uuid}],
+                                   'id': second_uuid},
                              'id': self.uuid}],
                          'id': self.uuid}]
 
@@ -248,16 +255,13 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
             with self.metering_label(tenant_id=self.tenant_id,
                                      set_context=True) as label:
                 l = label['metering_label']
+                self.mock_uuid.return_value = second_uuid
                 with self.metering_label_rule(l['id']):
-                    self.mock_uuid.return_value = second_uuid
-                    with self.metering_label_rule(l['id'],
-                                                  direction='egress') as rule:
-                        self.mock_update.assert_called_with(self.ctx,
-                                                            expected_add)
-                        self._delete('metering-label-rules',
-                                     rule['metering_label_rule']['id'])
-                    self.mock_update.assert_called_with(self.ctx,
-                                                        expected_del)
+                    self.mock_add_rule.assert_called_with(self.ctx,
+                                                          expected_add)
+                    self._delete('metering-label-rules', second_uuid)
+                self.mock_remove_rule.assert_called_with(self.ctx,
+                                                         expected_del)
 
     def test_delete_metering_label_does_not_clear_router_tenant_id(self):
         tenant_id = '654f6b9d-0f36-4ae5-bd1b-01616794ca60'
@@ -273,9 +277,9 @@ class TestMeteringPlugin(test_db_plugin.NeutronDbPluginV2TestCase,
 
 class TestMeteringPluginL3AgentScheduler(
         l3_agentschedulers_db.L3AgentSchedulerDbMixin,
-        test_db_plugin.NeutronDbPluginV2TestCase,
-        test_l3_plugin.L3NatTestCaseMixin,
-        test_db_metering.MeteringPluginDbTestCaseMixin):
+        test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
+        test_l3.L3NatTestCaseMixin,
+        test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
         (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
@@ -284,7 +288,7 @@ class TestMeteringPluginL3AgentScheduler(
 
     def setUp(self, plugin_str=None, service_plugins=None, scheduler=None):
         if not plugin_str:
-            plugin_str = ('neutron.tests.unit.test_l3_plugin.'
+            plugin_str = ('neutron.tests.unit.extensions.test_l3.'
                           'TestL3NatIntAgentSchedulingPlugin')
 
         if not service_plugins:
@@ -380,13 +384,13 @@ class TestMeteringPluginL3AgentSchedulerServicePlugin(
     """
 
     def setUp(self):
-        l3_plugin = ('neutron.tests.unit.test_l3_plugin.'
+        l3_plugin = ('neutron.tests.unit.extensions.test_l3.'
                      'TestL3NatAgentSchedulingServicePlugin')
         service_plugins = {'metering_plugin_name':
                            METERING_SERVICE_PLUGIN_KLASS,
                            'l3_plugin_name': l3_plugin}
 
-        plugin_str = ('neutron.tests.unit.test_l3_plugin.'
+        plugin_str = ('neutron.tests.unit.extensions.test_l3.'
                       'TestNoL3NatPlugin')
 
         super(TestMeteringPluginL3AgentSchedulerServicePlugin, self).setUp(
@@ -395,9 +399,9 @@ class TestMeteringPluginL3AgentSchedulerServicePlugin(
 
 
 class TestMeteringPluginRpcFromL3Agent(
-        test_db_plugin.NeutronDbPluginV2TestCase,
-        test_l3_plugin.L3NatTestCaseMixin,
-        test_db_metering.MeteringPluginDbTestCaseMixin):
+        test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
+        test_l3.L3NatTestCaseMixin,
+        test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
         (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
@@ -408,7 +412,7 @@ class TestMeteringPluginRpcFromL3Agent(
         service_plugins = {'metering_plugin_name':
                            METERING_SERVICE_PLUGIN_KLASS}
 
-        plugin = ('neutron.tests.unit.test_l3_plugin.'
+        plugin = ('neutron.tests.unit.extensions.test_l3.'
                   'TestL3NatIntAgentSchedulingPlugin')
 
         ext_mgr = MeteringTestExtensionManager()

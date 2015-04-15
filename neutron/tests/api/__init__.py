@@ -14,10 +14,7 @@ import unittest
 
 
 # Allow the retargetable and tempest api tests to be executed as part
-# of the same job by ensuring that tests from both tests are
-# discovered.
-#
-# TODO(marun) Remove once the tempest tests have been moved to api/
+# of the same job by ensuring that tests from both paths are discovered.
 
 
 def _discover(loader, path, pattern):
@@ -31,7 +28,7 @@ def load_tests(_, tests, pattern):
     loader = unittest.loader.TestLoader()
     suite.addTests(_discover(loader, "./neutron/tests/api", pattern))
     suite.addTests(_discover(loader,
-                             "./neutron/tests/tempest/api/network",
+                             "./neutron/tests/retargetable",
                              pattern))
 
     return suite

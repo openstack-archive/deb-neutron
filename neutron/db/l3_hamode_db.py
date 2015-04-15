@@ -23,6 +23,7 @@ from sqlalchemy import orm
 
 from neutron.api.v2 import attributes
 from neutron.common import constants
+from neutron.common import utils as n_utils
 from neutron.db import agents_db
 from neutron.db import l3_dvr_db
 from neutron.db import model_base
@@ -436,6 +437,12 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
         return query.all()
 
+    def get_l3_bindings_hosting_router_with_ha_states(
+            self, context, router_id):
+        """Return a list of [(agent, ha_state), ...]."""
+        bindings = self.get_ha_router_port_bindings(context, [router_id])
+        return [(binding.agent, binding.state) for binding in bindings]
+
     def _process_sync_ha_data(self, context, routers, host):
         routers_dict = dict((router['id'], router) for router in routers)
 
@@ -452,13 +459,38 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         for router in routers_dict.values():
             interface = router.get(constants.HA_INTERFACE_KEY)
             if interface:
-                self._populate_subnet_for_ports(context, [interface])
+                self._populate_subnets_for_ports(context, [interface])
 
         return routers_dict.values()
 
     def get_ha_sync_data_for_host(self, context, host=None, router_ids=None,
                                   active=None):
-        sync_data = super(L3_HA_NAT_db_mixin, self).get_sync_data(context,
-                                                                  router_ids,
-                                                                  active)
+        if n_utils.is_extension_supported(self,
+                                          constants.L3_DISTRIBUTED_EXT_ALIAS):
+            # DVR has to be handled differently
+            agent = self._get_agent_by_type_and_host(context,
+                                                     constants.AGENT_TYPE_L3,
+                                                     host)
+            sync_data = self.get_dvr_sync_data(context, host, agent,
+                                               router_ids, active)
+        else:
+            sync_data = super(L3_HA_NAT_db_mixin, self).get_sync_data(context,
+                                                            router_ids, active)
         return self._process_sync_ha_data(context, sync_data, host)
+
+    @classmethod
+    def _set_router_states(cls, context, bindings, states):
+        for binding in bindings:
+            try:
+                with context.session.begin(subtransactions=True):
+                    binding.state = states[binding.router_id]
+            except (orm.exc.StaleDataError, orm.exc.ObjectDeletedError):
+                # Take concurrently deleted routers in to account
+                pass
+
+    def update_routers_states(self, context, states, host):
+        """Receive dict of router ID to state and update them all."""
+
+        bindings = self.get_ha_router_port_bindings(
+            context, router_ids=states.keys(), host=host)
+        self._set_router_states(context, bindings, states)

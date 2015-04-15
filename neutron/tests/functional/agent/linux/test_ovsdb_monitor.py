@@ -27,6 +27,8 @@ from oslo_config import cfg
 
 from neutron.agent.linux import ovsdb_monitor
 from neutron.agent.linux import utils
+from neutron.tests import base as tests_base
+from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.linux import base as linux_base
 from neutron.tests.functional import base as functional_base
 
@@ -46,7 +48,6 @@ class BaseMonitorTest(linux_base.BaseOVSLinuxTestCase):
                         root_helper=" ".join([functional_base.SUDO_CMD] * 2))
 
         self._check_test_requirements()
-        self.bridge = self.create_ovs_bridge()
 
     def _check_test_requirements(self):
         self.check_command(['ovsdb-client', 'list-dbs'],
@@ -95,14 +96,17 @@ class TestSimpleInterfaceMonitor(BaseMonitorTest):
 
         self.monitor = ovsdb_monitor.SimpleInterfaceMonitor()
         self.addCleanup(self.monitor.stop)
-        self.monitor.start(block=True, timeout=60)
+        # In case a global test timeout isn't set or disabled, use a
+        # value that will ensure the monitor has time to start.
+        timeout = max(tests_base.get_test_timeout(), 60)
+        self.monitor.start(block=True, timeout=timeout)
 
     def test_has_updates(self):
         self.assertTrue(self.monitor.has_updates,
                         'Initial call should always be true')
         self.assertFalse(self.monitor.has_updates,
                          'has_updates without port addition should be False')
-        self.create_resource('test-port-', self.bridge.add_port)
+        self.useFixture(net_helpers.OVSPortFixture())
         # has_updates after port addition should become True
         while not self.monitor.has_updates:
             eventlet.sleep(0.01)

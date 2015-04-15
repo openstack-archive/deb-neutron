@@ -110,7 +110,7 @@ class KeepalivedVirtualRoute(object):
 class KeepalivedInstance(object):
     """Instance section of a keepalived configuration."""
 
-    def __init__(self, state, interface, vrouter_id, ha_cidr,
+    def __init__(self, state, interface, vrouter_id, ha_cidrs,
                  priority=HA_DEFAULT_PRIORITY, advert_int=None,
                  mcast_src_ip=None, nopreempt=False):
         self.name = 'VR_%s' % vrouter_id
@@ -132,9 +132,7 @@ class KeepalivedInstance(object):
         metadata_cidr = '169.254.169.254/32'
         self.primary_vip_range = get_free_range(
             parent_range='169.254.0.0/16',
-            excluded_ranges=[metadata_cidr,
-                             FIP_LL_SUBNET,
-                             ha_cidr],
+            excluded_ranges=[metadata_cidr, FIP_LL_SUBNET] + ha_cidrs,
             size=PRIMARY_VIP_RANGE_SIZE)
 
     def set_authentication(self, auth_type, password):
@@ -306,7 +304,7 @@ class KeepalivedManager(object):
         conf_dir = os.path.join(confs_dir, self.resource_id)
         return conf_dir
 
-    def _get_full_config_file_path(self, filename, ensure_conf_dir=True):
+    def get_full_config_file_path(self, filename, ensure_conf_dir=True):
         conf_dir = self.get_conf_dir()
         if ensure_conf_dir:
             utils.ensure_dir(conf_dir)
@@ -314,13 +312,13 @@ class KeepalivedManager(object):
 
     def _output_config_file(self):
         config_str = self.config.get_config_str()
-        config_path = self._get_full_config_file_path('keepalived.conf')
+        config_path = self.get_full_config_file_path('keepalived.conf')
         utils.replace_file(config_path, config_str)
 
         return config_path
 
     def get_conf_on_disk(self):
-        config_path = self._get_full_config_file_path('keepalived.conf')
+        config_path = self.get_full_config_file_path('keepalived.conf')
         try:
             with open(config_path) as conf:
                 return conf.read()

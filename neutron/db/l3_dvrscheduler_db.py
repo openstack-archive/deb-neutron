@@ -163,7 +163,7 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
     def dvr_deletens_if_no_port(self, context, port_id):
         """Delete the DVR namespace if no dvr serviced port exists."""
         router_ids = self.get_dvr_routers_by_portid(context, port_id)
-        port_host = ml2_db.get_port_binding_host(port_id)
+        port_host = ml2_db.get_port_binding_host(context.session, port_id)
         if not router_ids:
             LOG.debug('No namespaces available for this DVR port %(port)s '
                       'on host %(host)s', {'port': port_id,
@@ -315,10 +315,21 @@ class L3_DVRsch_db_mixin(l3agent_sch_db.L3AgentSchedulerDbMixin):
                 context, router_id, chosen_agent)
             return chosen_agent
 
+    def _get_active_l3_agent_routers_sync_data(self, context, host, agent,
+                                               router_ids):
+        if n_utils.is_extension_supported(self, q_const.L3_HA_MODE_EXT_ALIAS):
+            return self.get_ha_sync_data_for_host(context, host,
+                                                  router_ids=router_ids,
+                                                  active=True)
+        return self.get_dvr_sync_data(context, host, agent,
+                                      router_ids=router_ids, active=True)
+
 
 def _notify_l3_agent_new_port(resource, event, trigger, **kwargs):
-    LOG.debug('Received %s %s' % (resource, event))
-    port = kwargs['port']
+    LOG.debug('Received %(resource)s %(event)s', {
+        'resource': resource,
+        'event': event})
+    port = kwargs.get('port')
     if not port:
         return
 
@@ -333,8 +344,22 @@ def _notify_l3_agent_new_port(resource, event, trigger, **kwargs):
         l3plugin.dvr_update_router_addvm(context, port)
 
 
+def _notify_port_delete(event, resource, trigger, **kwargs):
+    context = kwargs['context']
+    port = kwargs['port']
+    removed_routers = kwargs['removed_routers']
+    l3plugin = manager.NeutronManager.get_service_plugins().get(
+        service_constants.L3_ROUTER_NAT)
+    l3plugin.dvr_vmarp_table_update(context, port, "del")
+    for router in removed_routers:
+        l3plugin.remove_router_from_l3_agent(
+            context, router['agent_id'], router['router_id'])
+
+
 def subscribe():
     registry.subscribe(
         _notify_l3_agent_new_port, resources.PORT, events.AFTER_UPDATE)
     registry.subscribe(
         _notify_l3_agent_new_port, resources.PORT, events.AFTER_CREATE)
+    registry.subscribe(
+        _notify_port_delete, resources.PORT, events.AFTER_DELETE)

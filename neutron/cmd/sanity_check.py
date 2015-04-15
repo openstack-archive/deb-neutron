@@ -120,12 +120,29 @@ def check_arp_responder():
     return result
 
 
+def check_arp_header_match():
+    result = checks.arp_header_match_supported()
+    if not result:
+        LOG.error(_LE('Check for Open vSwitch support of ARP header matching '
+                      'failed. ARP spoofing suppression will not work. A '
+                      'newer version of OVS is required.'))
+    return result
+
+
 def check_vf_management():
     result = checks.vf_management_supported()
     if not result:
         LOG.error(_LE('Check for VF management support failed. '
                       'Please ensure that the version of ip link '
                       'being used has VF support.'))
+    return result
+
+
+def check_ovsdb_native():
+    cfg.CONF.set_override('ovsdb_interface', 'native', group='OVS')
+    result = checks.ovsdb_native_supported()
+    if not result:
+        LOG.error(_LE('Check for native OVSDB support failed.'))
     return result
 
 
@@ -141,12 +158,16 @@ OPTS = [
                     help=_('Check for nova notification support')),
     BoolOptCallback('arp_responder', check_arp_responder,
                     help=_('Check for ARP responder support')),
+    BoolOptCallback('arp_header_match', check_arp_header_match,
+                    help=_('Check for ARP header match support')),
     BoolOptCallback('vf_management', check_vf_management,
                     help=_('Check for VF management support')),
     BoolOptCallback('read_netns', check_read_netns,
                     help=_('Check netns permission settings')),
     BoolOptCallback('dnsmasq_version', check_dnsmasq_version,
                     help=_('Check minimal dnsmasq version')),
+    BoolOptCallback('ovsdb_native', check_ovsdb_native,
+                    help=_('Check ovsdb native interface support')),
 ]
 
 
@@ -170,12 +191,16 @@ def enable_tests_from_config():
         cfg.CONF.set_override('nova_notify', True)
     if cfg.CONF.AGENT.arp_responder:
         cfg.CONF.set_override('arp_responder', True)
+    if config.AGENT.prevent_arp_spoofing:
+        cfg.CONF.set_override('arp_header_match', True)
     if cfg.CONF.ml2_sriov.agent_required:
         cfg.CONF.set_override('vf_management', True)
     if not cfg.CONF.AGENT.use_helper_for_ns_read:
         cfg.CONF.set_override('read_netns', True)
     if cfg.CONF.dhcp_driver == 'neutron.agent.linux.dhcp.Dnsmasq':
         cfg.CONF.set_override('dnsmasq_version', True)
+    if cfg.CONF.OVS.ovsdb_interface == 'native':
+        cfg.CONF.set_override('ovsdb_native', True)
 
 
 def all_tests_passed():

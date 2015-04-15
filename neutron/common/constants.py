@@ -24,6 +24,7 @@ PORT_STATUS_ACTIVE = 'ACTIVE'
 PORT_STATUS_BUILD = 'BUILD'
 PORT_STATUS_DOWN = 'DOWN'
 PORT_STATUS_ERROR = 'ERROR'
+PORT_STATUS_NOTAPPLICABLE = 'N/A'
 
 FLOATINGIP_STATUS_ACTIVE = 'ACTIVE'
 FLOATINGIP_STATUS_DOWN = 'DOWN'
@@ -114,6 +115,7 @@ DHCP_AGENT_SCHEDULER_EXT_ALIAS = 'dhcp_agent_scheduler'
 LBAAS_AGENT_SCHEDULER_EXT_ALIAS = 'lbaas_agent_scheduler'
 L3_DISTRIBUTED_EXT_ALIAS = 'dvr'
 L3_HA_MODE_EXT_ALIAS = 'l3-ha'
+SUBNET_ALLOCATION_EXT_ALIAS = 'subnet_allocation'
 
 # Protocol names and numbers for Security Groups/Firewalls
 PROTO_NAME_TCP = 'tcp'
@@ -140,6 +142,10 @@ IPV6_SLAAC = 'slaac'
 IPV6_MODES = [DHCPV6_STATEFUL, DHCPV6_STATELESS, IPV6_SLAAC]
 
 IPV6_LLA_PREFIX = 'fe80::/64'
+
+# Human-readable ID to which default_ipv6_subnet_pool should be set to
+# indicate that IPv6 Prefix Delegation should be used to allocate subnet CIDRs
+IPV6_PD_POOL_ID = 'prefix_delegation'
 
 # Linux interface max length
 DEVICE_NAME_MAX_LEN = 15

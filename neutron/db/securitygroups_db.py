@@ -298,7 +298,8 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 rule = rule_dict['security_group_rule']
                 tenant_id = self._get_tenant_id_for_create(context, rule)
                 db = SecurityGroupRule(
-                    id=uuidutils.generate_uuid(), tenant_id=tenant_id,
+                    id=(rule.get('id') or uuidutils.generate_uuid()),
+                    tenant_id=tenant_id,
                     security_group_id=rule['security_group_id'],
                     direction=rule['direction'],
                     remote_group_id=rule.get('remote_group_id'),
@@ -308,7 +309,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                     port_range_max=rule['port_range_max'],
                     remote_ip_prefix=rule.get('remote_ip_prefix'))
                 context.session.add(db)
-            ret.append(self._make_security_group_rule_dict(db))
+                ret.append(self._make_security_group_rule_dict(db))
         return ret
 
     def create_security_group_rule(self, context, security_group_rule):
@@ -529,27 +530,27 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         query = self._model_query(context, DefaultSecurityGroup)
         # the next loop should do 2 iterations at max
         while True:
-            with db_api.autonested_transaction(context.session):
+            try:
+                default_group = query.filter_by(tenant_id=tenant_id).one()
+            except exc.NoResultFound:
+                security_group = {
+                    'security_group':
+                        {'name': 'default',
+                         'tenant_id': tenant_id,
+                         'description': _('Default security group')}
+                }
                 try:
-                    default_group = query.filter_by(tenant_id=tenant_id).one()
-                except exc.NoResultFound:
-                    security_group = {
-                        'security_group':
-                            {'name': 'default',
-                             'tenant_id': tenant_id,
-                             'description': _('Default security group')}
-                    }
-                    try:
+                    with db_api.autonested_transaction(context.session):
                         ret = self.create_security_group(
                             context, security_group, default_sg=True)
-                    except exception.DBDuplicateEntry as ex:
-                        LOG.debug("Duplicate default security group %s was "
-                                  "not created", ex.value)
-                        continue
-                    else:
-                        return ret['id']
+                except exception.DBDuplicateEntry as ex:
+                    LOG.debug("Duplicate default security group %s was "
+                              "not created", ex.value)
+                    continue
                 else:
-                    return default_group['security_group_id']
+                    return ret['id']
+            else:
+                return default_group['security_group_id']
 
     def _get_security_groups_on_port(self, context, port):
         """Check that all security groups on port belong to tenant.
@@ -574,7 +575,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         requested_groups = set(port_sg)
         port_sg_missing = requested_groups - valid_groups
         if port_sg_missing:
-            raise ext_sg.SecurityGroupNotFound(id=str(port_sg_missing[0]))
+            raise ext_sg.SecurityGroupNotFound(id=', '.join(port_sg_missing))
 
         return requested_groups
 

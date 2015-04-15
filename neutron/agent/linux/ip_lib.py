@@ -19,7 +19,7 @@ import os
 from oslo_config import cfg
 from oslo_log import log as logging
 
-from neutron.agent.linux import utils
+from neutron.agent.common import utils
 from neutron.common import exceptions
 from neutron.i18n import _LE
 
@@ -544,6 +544,11 @@ class IpNeighCommand(IpDeviceCommandBase):
                        'lladdr', mac_address,
                        'dev', self.name))
 
+    def show(self):
+        return self._as_root([],
+                      ('show',
+                       'dev', self.name))
+
 
 class IpNetnsCommand(IpCommandBase):
     COMMAND = 'netns'
@@ -559,9 +564,9 @@ class IpNetnsCommand(IpCommandBase):
         self._as_root([], ('delete', name), use_root_namespace=True)
 
     def execute(self, cmds, addl_env=None, check_exit_code=True,
-                extra_ok_codes=None):
+                extra_ok_codes=None, run_as_root=False):
         ns_params = []
-        kwargs = {}
+        kwargs = {'run_as_root': run_as_root}
         if self._parent.namespace:
             kwargs['run_as_root'] = True
             ns_params = ['ip', 'netns', 'exec', self._parent.namespace]
@@ -595,16 +600,18 @@ def device_exists(device_name, namespace=None):
     return bool(address)
 
 
-def device_exists_with_ip_mac(device_name, ip_cidr, mac, namespace=None):
-    """Return True if the device with the given IP and MAC addresses
+def device_exists_with_ips_and_mac(device_name, ip_cidrs, mac, namespace=None):
+    """Return True if the device with the given IP addresses and MAC address
     exists in the namespace.
     """
     try:
         device = IPDevice(device_name, namespace=namespace)
         if mac != device.link.address:
             return False
-        if ip_cidr not in (ip['cidr'] for ip in device.addr.list()):
-            return False
+        device_ip_cidrs = [ip['cidr'] for ip in device.addr.list()]
+        for ip_cidr in ip_cidrs:
+            if ip_cidr not in device_ip_cidrs:
+                return False
     except RuntimeError:
         return False
     else:
@@ -717,3 +724,7 @@ def add_namespace_to_cmd(cmd, namespace=None):
 
 def get_ip_version(ip_or_cidr):
     return netaddr.IPNetwork(ip_or_cidr).version
+
+
+def get_ipv6_lladdr(mac_addr):
+    return '%s/64' % netaddr.EUI(mac_addr).ipv6_link_local()

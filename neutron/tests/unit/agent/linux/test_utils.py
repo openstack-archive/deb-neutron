@@ -12,8 +12,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import os
-
 import mock
 import socket
 import testtools
@@ -198,31 +196,90 @@ class TestPathUtilities(base.BaseTestCase):
         self.assertEqual(['ping', '8.8.8.8'],
                          utils.remove_abs_path(['/usr/bin/ping', '8.8.8.8']))
 
-    def test_cmdlines_are_equal(self):
-        self.assertTrue(utils.cmdlines_are_equal(
-            ['ping', '8.8.8.8'],
-            ['/usr/bin/ping', '8.8.8.8']))
+    def test_cmd_matches_expected_matches_abs_path(self):
+        cmd = ['/bar/../foo']
+        self.assertTrue(utils.cmd_matches_expected(cmd, cmd))
 
-    def test_cmdlines_are_equal_different_commands(self):
-        self.assertFalse(utils.cmdlines_are_equal(
-            ['ping', '8.8.8.8'],
-            ['/usr/bin/ping6', '8.8.8.8']))
+    def test_cmd_matches_expected_matches_script(self):
+        self.assertTrue(utils.cmd_matches_expected(['python', 'script'],
+                                                   ['script']))
+
+    def test_cmd_matches_expected_doesnt_match(self):
+        self.assertFalse(utils.cmd_matches_expected('foo', 'bar'))
+
+
+class FakeUser(object):
+    def __init__(self, name):
+        self.pw_name = name
+
+
+class FakeGroup(object):
+    def __init__(self, name):
+        self.gr_name = name
 
 
 class TestBaseOSUtils(base.BaseTestCase):
-    @mock.patch.object(os.path, 'isdir', return_value=False)
-    @mock.patch.object(os, 'makedirs')
-    def test_ensure_dir_not_exist(self, makedirs, isdir):
-        utils.ensure_dir('/the')
-        isdir.assert_called_once_with('/the')
-        makedirs.assert_called_once_with('/the', 0o755)
 
-    @mock.patch.object(os.path, 'isdir', return_value=True)
-    @mock.patch.object(os, 'makedirs')
-    def test_ensure_dir_exist(self, makedirs, isdir):
-        utils.ensure_dir('/the')
-        isdir.assert_called_once_with('/the')
-        self.assertFalse(makedirs.called)
+    EUID = 123
+    EUNAME = 'user'
+    EGID = 456
+    EGNAME = 'group'
+
+    @mock.patch('os.geteuid', return_value=EUID)
+    @mock.patch('pwd.getpwuid', return_value=FakeUser(EUNAME))
+    def test_is_effective_user_id(self, getpwuid, geteuid):
+        self.assertTrue(utils.is_effective_user(self.EUID))
+        geteuid.assert_called_once_with()
+        self.assertFalse(getpwuid.called)
+
+    @mock.patch('os.geteuid', return_value=EUID)
+    @mock.patch('pwd.getpwuid', return_value=FakeUser(EUNAME))
+    def test_is_effective_user_str_id(self, getpwuid, geteuid):
+        self.assertTrue(utils.is_effective_user(str(self.EUID)))
+        geteuid.assert_called_once_with()
+        self.assertFalse(getpwuid.called)
+
+    @mock.patch('os.geteuid', return_value=EUID)
+    @mock.patch('pwd.getpwuid', return_value=FakeUser(EUNAME))
+    def test_is_effective_user_name(self, getpwuid, geteuid):
+        self.assertTrue(utils.is_effective_user(self.EUNAME))
+        geteuid.assert_called_once_with()
+        getpwuid.assert_called_once_with(self.EUID)
+
+    @mock.patch('os.geteuid', return_value=EUID)
+    @mock.patch('pwd.getpwuid', return_value=FakeUser(EUNAME))
+    def test_is_not_effective_user(self, getpwuid, geteuid):
+        self.assertFalse(utils.is_effective_user('wrong'))
+        geteuid.assert_called_once_with()
+        getpwuid.assert_called_once_with(self.EUID)
+
+    @mock.patch('os.getegid', return_value=EGID)
+    @mock.patch('grp.getgrgid', return_value=FakeGroup(EGNAME))
+    def test_is_effective_group_id(self, getgrgid, getegid):
+        self.assertTrue(utils.is_effective_group(self.EGID))
+        getegid.assert_called_once_with()
+        self.assertFalse(getgrgid.called)
+
+    @mock.patch('os.getegid', return_value=EGID)
+    @mock.patch('grp.getgrgid', return_value=FakeGroup(EGNAME))
+    def test_is_effective_group_str_id(self, getgrgid, getegid):
+        self.assertTrue(utils.is_effective_group(str(self.EGID)))
+        getegid.assert_called_once_with()
+        self.assertFalse(getgrgid.called)
+
+    @mock.patch('os.getegid', return_value=EGID)
+    @mock.patch('grp.getgrgid', return_value=FakeGroup(EGNAME))
+    def test_is_effective_group_name(self, getgrgid, getegid):
+        self.assertTrue(utils.is_effective_group(self.EGNAME))
+        getegid.assert_called_once_with()
+        getgrgid.assert_called_once_with(self.EGID)
+
+    @mock.patch('os.getegid', return_value=EGID)
+    @mock.patch('grp.getgrgid', return_value=FakeGroup(EGNAME))
+    def test_is_not_effective_group(self, getgrgid, getegid):
+        self.assertFalse(utils.is_effective_group('wrong'))
+        getegid.assert_called_once_with()
+        getgrgid.assert_called_once_with(self.EGID)
 
 
 class TestUnixDomainHttpConnection(base.BaseTestCase):

@@ -28,6 +28,7 @@ LOG = logging.getLogger(__name__)
 
 
 def main():
+    cfg.CONF.register_opts(metadata_conf.SHARED_OPTS)
     cfg.CONF.register_opts(metadata_conf.UNIX_DOMAIN_METADATA_PROXY_OPTS)
     cfg.CONF.register_opts(metadata_conf.METADATA_PROXY_HANDLER_OPTS)
     cache.register_oslo_configs(cfg.CONF)
@@ -36,5 +37,7 @@ def main():
     config.init(sys.argv[1:])
     config.setup_logging()
     utils.log_opt_values(LOG)
+    # metadata agent need not connect DB
+    cfg.CONF.set_override("connection", "", "database")
     proxy = agent.UnixDomainMetadataProxy(cfg.CONF)
     proxy.run()

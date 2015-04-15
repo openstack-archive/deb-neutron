@@ -15,22 +15,25 @@
 
 import collections
 
-from neutron.agent.linux import ovs_lib
+from neutron.agent.common import ovs_lib
+from neutron.agent.linux import ip_lib
+from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.linux import base
 
 
-class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
+class OVSBridgeTestBase(base.BaseOVSLinuxTestCase):
     # TODO(twilson) So far, only ovsdb-related tests are written. It would be
     # good to also add the openflow-related functions
     def setUp(self):
-        super(OVSBridgeTestCase, self).setUp()
-        self.br = self.create_ovs_bridge()
+        super(OVSBridgeTestBase, self).setUp()
+        self.ovs = ovs_lib.BaseOVS()
+        self.br = self.useFixture(net_helpers.OVSBridgeFixture()).bridge
 
     def create_ovs_port(self, *interface_attrs):
         # Convert ((a, b), (c, d)) to {a: b, c: d} and add 'type' by default
         attrs = collections.OrderedDict(interface_attrs)
         attrs.setdefault('type', 'internal')
-        port_name = base.get_rand_port_name()
+        port_name = net_helpers.get_rand_port_name()
         return (port_name, self.br.add_port(port_name, *attrs.items()))
 
     def create_ovs_vif_port(self, iface_id=None, mac=None,
@@ -43,6 +46,9 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
         port_name, ofport = self.create_ovs_port(attrs)
         return ovs_lib.VifPort(port_name, ofport, iface_id, mac, self.br)
 
+
+class OVSBridgeTestCase(OVSBridgeTestBase):
+
     def test_port_lifecycle(self):
         (port_name, ofport) = self.create_ovs_port(('type', 'internal'))
         # ofport should always be an integer string with value -1 or > 0.
@@ -54,8 +60,18 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
         self.br.delete_port(port_name)
         self.assertFalse(self.br.port_exists(port_name))
 
+    def test_duplicate_port_may_exist_false(self):
+        port_name, ofport = self.create_ovs_port(('type', 'internal'))
+        cmd = self.br.ovsdb.add_port(self.br.br_name,
+                                     port_name, may_exist=False)
+        self.assertRaises(RuntimeError, cmd.execute, check_error=True)
+
+    def test_delete_port_if_exists_false(self):
+        cmd = self.br.ovsdb.del_port('nonexistantport', if_exists=False)
+        self.assertRaises(RuntimeError, cmd.execute, check_error=True)
+
     def test_replace_port(self):
-        port_name = base.get_rand_port_name()
+        port_name = net_helpers.get_rand_port_name()
         self.br.replace_port(port_name, ('type', 'internal'))
         self.assertTrue(self.br.port_exists(port_name))
         self.assertEqual('internal',
@@ -107,7 +123,7 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
             "OpenFlow10")
 
     def test_get_datapath_id(self):
-        brdev = self.ip.device(self.br.br_name)
+        brdev = ip_lib.IPDevice(self.br.br_name)
         dpid = brdev.link.attributes['link/ether'].replace(':', '')
         self.br.set_db_attribute('Bridge',
                                  self.br.br_name, 'datapath_id', dpid)
@@ -118,7 +134,7 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
             'remote_ip': '192.0.2.1',  # RFC 5737 TEST-NET-1
             'local_ip': '198.51.100.1',  # RFC 5737 TEST-NET-2
         }
-        port_name = base.get_rand_port_name()
+        port_name = net_helpers.get_rand_port_name()
         self.br.add_tunnel_port(port_name, attrs['remote_ip'],
                                 attrs['local_ip'])
         self.assertEqual(self.ovs.db_get_val('Interface', port_name, 'type'),
@@ -128,7 +144,7 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
             self.assertEqual(val, options[attr])
 
     def test_add_patch_port(self):
-        local = base.get_rand_port_name()
+        local = net_helpers.get_rand_port_name()
         peer = 'remotepeer'
         self.br.add_patch_port(local, peer)
         self.assertEqual(self.ovs.db_get_val('Interface', local, 'type'),
@@ -205,8 +221,13 @@ class OVSBridgeTestCase(base.BaseOVSLinuxTestCase):
 
 
 class OVSLibTestCase(base.BaseOVSLinuxTestCase):
+
+    def setUp(self):
+        super(OVSLibTestCase, self).setUp()
+        self.ovs = ovs_lib.BaseOVS()
+
     def test_bridge_lifecycle_baseovs(self):
-        name = base.get_rand_name(prefix=base.BR_PREFIX)
+        name = base.get_rand_name(prefix=net_helpers.BR_PREFIX)
         self.addCleanup(self.ovs.delete_bridge, name)
         br = self.ovs.add_bridge(name)
         self.assertEqual(br.br_name, name)
@@ -215,11 +236,13 @@ class OVSLibTestCase(base.BaseOVSLinuxTestCase):
         self.assertFalse(self.ovs.bridge_exists(name))
 
     def test_get_bridges(self):
-        bridges = {self.create_ovs_bridge().br_name for i in range(5)}
+        bridges = {
+            self.useFixture(net_helpers.OVSBridgeFixture()).bridge.br_name
+            for i in range(5)}
         self.assertTrue(set(self.ovs.get_bridges()).issuperset(bridges))
 
     def test_bridge_lifecycle_ovsbridge(self):
-        name = base.get_rand_name(prefix=base.BR_PREFIX)
+        name = base.get_rand_name(prefix=net_helpers.BR_PREFIX)
         br = ovs_lib.OVSBridge(name)
         self.assertEqual(br.br_name, name)
         # Make sure that instantiating an OVSBridge does not actually create

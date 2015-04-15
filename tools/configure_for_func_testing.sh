@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -163,7 +163,7 @@ EOF
 function _install_agent_deps {
     echo_summary "Installing agent dependencies"
 
-    source $DEVSTACK_PATH/lib/neutron
+    source $DEVSTACK_PATH/lib/neutron-legacy
 
     ENABLED_SERVICES=q-agt,q-dhcp,q-l3
     install_neutron_agent_packages

@@ -17,10 +17,11 @@ import re
 
 import netaddr
 from oslo_log import log as logging
+import six
 
+from neutron.agent.common import ovs_lib
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import ip_link_support
-from neutron.agent.linux import ovs_lib
 from neutron.agent.linux import utils as agent_utils
 from neutron.common import utils
 from neutron.i18n import _LE
@@ -106,6 +107,16 @@ def arp_responder_supported():
                                actions=actions)
 
 
+def arp_header_match_supported():
+    return ofctl_arg_supported(cmd='add-flow',
+                               table=24,
+                               priority=1,
+                               proto='arp',
+                               arp_op='0x2',
+                               arp_spa='1.1.1.1',
+                               actions="NORMAL")
+
+
 def vf_management_supported():
     try:
         vf_section = ip_link_support.IpLinkSupport.get_vf_mgmt_section()
@@ -152,3 +163,19 @@ def dnsmasq_version_supported():
                   "Exception: %s", e)
         return False
     return True
+
+
+def ovsdb_native_supported():
+    # Running the test should ensure we are configured for OVSDB native
+    try:
+        ovs = ovs_lib.BaseOVS()
+        ovs.get_bridges()
+        return True
+    except ImportError as ex:
+        LOG.error(_LE("Failed to import required modules. Ensure that the "
+                      "python-openvswitch package is installed. Error: %s"),
+                  ex.message)
+    except Exception as ex:
+        LOG.exception(six.text_type(ex))
+
+    return False

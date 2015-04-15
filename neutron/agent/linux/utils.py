@@ -15,8 +15,10 @@
 
 import fcntl
 import glob
+import grp
 import httplib
 import os
+import pwd
 import shlex
 import socket
 import struct
@@ -286,23 +288,23 @@ def get_cmdline_from_pid(pid):
         return f.readline().split('\0')[:-1]
 
 
-def cmdlines_are_equal(cmd1, cmd2):
-    """Validate provided lists containing output of /proc/cmdline are equal
-
-    This function ignores absolute paths of executables in order to have
-    correct results in case one list uses absolute path and the other does not.
-    """
-    cmd1 = remove_abs_path(cmd1)
-    cmd2 = remove_abs_path(cmd2)
-    return cmd1 == cmd2
+def cmd_matches_expected(cmd, expected_cmd):
+    abs_cmd = remove_abs_path(cmd)
+    abs_expected_cmd = remove_abs_path(expected_cmd)
+    if abs_cmd != abs_expected_cmd:
+        # Commands executed with #! are prefixed with the script
+        # executable. Check for the expected cmd being a subset of the
+        # actual cmd to cover this possibility.
+        abs_cmd = remove_abs_path(abs_cmd[1:])
+    return abs_cmd == abs_expected_cmd
 
 
 def pid_invoked_with_cmdline(pid, expected_cmd):
     """Validate process with given pid is running with provided parameters
 
     """
-    cmdline = get_cmdline_from_pid(pid)
-    return cmdlines_are_equal(expected_cmd, cmdline)
+    cmd = get_cmdline_from_pid(pid)
+    return cmd_matches_expected(cmd, expected_cmd)
 
 
 def wait_until_true(predicate, timeout=60, sleep=1, exception=None):
@@ -332,6 +334,24 @@ def ensure_directory_exists_without_file(path):
                     ctxt.reraise = False
     else:
         ensure_dir(dirname)
+
+
+def is_effective_user(user_id_or_name):
+    """Returns True if user_id_or_name is effective user (id/name)."""
+    euid = os.geteuid()
+    if str(user_id_or_name) == str(euid):
+        return True
+    effective_user_name = pwd.getpwuid(euid).pw_name
+    return user_id_or_name == effective_user_name
+
+
+def is_effective_group(group_id_or_name):
+    """Returns True if group_id_or_name is effective group (id/name)."""
+    egid = os.getegid()
+    if str(group_id_or_name) == str(egid):
+        return True
+    effective_group_name = grp.getgrgid(egid).gr_name
+    return group_id_or_name == effective_group_name
 
 
 class UnixDomainHTTPConnection(httplib.HTTPConnection):
@@ -365,10 +385,12 @@ class UnixDomainWSGIServer(wsgi.Server):
         self._server = None
         super(UnixDomainWSGIServer, self).__init__(name)
 
-    def start(self, application, file_socket, workers, backlog):
+    def start(self, application, file_socket, workers, backlog, mode=None):
         self._socket = eventlet.listen(file_socket,
                                        family=socket.AF_UNIX,
                                        backlog=backlog)
+        if mode is not None:
+            os.chmod(file_socket, mode)
 
         self._launch(application, workers=workers)
 

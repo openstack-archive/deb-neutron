@@ -17,9 +17,9 @@ import contextlib
 import mock
 
 from neutron.common import constants as l3_const
+from neutron.common import exceptions
 from neutron import context
 from neutron.db import l3_dvr_db
-from neutron.extensions import l3
 from neutron import manager
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as plugin_const
@@ -161,7 +161,7 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             plugin = mock.Mock()
             gp.return_value = plugin
             plugin._get_port.return_value = port
-            self.assertRaises(l3.L3PortInUse,
+            self.assertRaises(exceptions.ServicePortInUse,
                               self.mixin.prevent_l3_port_deletion,
                               self.ctx,
                               port['id'])
@@ -199,7 +199,7 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
                               ) as (cw, cs):
             self.mixin._create_gw_port(
                 self.ctx, router_id, router_db, mock.ANY,
-                mock.ANY, mock.ANY)
+                mock.ANY)
             self.assertFalse(cs.call_count)
 
     def test_build_routers_list_with_gw_port_mismatch(self):
@@ -317,8 +317,11 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
         floatingip = {
             'id': _uuid(),
             'port_id': _uuid(),
-            'router_id': 'foo_router_id'
+            'router_id': 'foo_router_id',
+            'host': hostid
         }
+        if not hostid:
+            hostid = 'not_my_host_id'
         routers = {
             'foo_router_id': router
         }
@@ -334,16 +337,15 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             return_value=fipagent)
         self.mixin.get_fip_sync_interfaces = mock.Mock(
             return_value='fip_interface')
+        agent = mock.Mock()
+        agent.id = fipagent['id']
 
-        self.mixin._process_floating_ips(self.ctx, routers, [floatingip])
+        self.mixin._process_floating_ips_dvr(self.ctx, routers, [floatingip],
+                                             hostid, agent)
         return (router, floatingip)
 
-    def test_floatingip_on_port_no_host(self):
+    def test_floatingip_on_port_not_host(self):
         router, fip = self._floatingip_on_port_test_setup(None)
-
-        self.assertTrue(self.mixin.get_vm_port_hostid.called)
-        self.assertFalse(self.mixin._get_agent_by_type_and_host.called)
-        self.assertFalse(self.mixin.get_fip_sync_interfaces.called)
 
         self.assertNotIn(l3_const.FLOATINGIP_KEY, router)
         self.assertNotIn(l3_const.FLOATINGIP_AGENT_INTF_KEY, router)
@@ -351,8 +353,6 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
     def test_floatingip_on_port_with_host(self):
         router, fip = self._floatingip_on_port_test_setup(_uuid())
 
-        self.assertTrue(self.mixin.get_vm_port_hostid.called)
-        self.assertTrue(self.mixin._get_agent_by_type_and_host.called)
         self.assertTrue(self.mixin.get_fip_sync_interfaces.called)
 
         self.assertIn(l3_const.FLOATINGIP_KEY, router)
@@ -477,47 +477,6 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
         self.assertFalse(create_fip.called)
         self.assertFalse(delete_fip.called)
 
-    def test__validate_router_migration_prevent_check_advanced_svc(self):
-        router = {'name': 'foo_router', 'admin_state_up': True}
-        router_db = self._create_router(router)
-        # make sure the check are invoked, whether they pass or
-        # raise, it does not matter in the context of this test
-        with contextlib.nested(
-            mock.patch.object(self.mixin, 'check_router_has_no_firewall'),
-            mock.patch.object(self.mixin, 'check_router_has_no_vpnaas')
-        ) as (check_fw, check_vpn):
-            self.mixin._validate_router_migration(
-                self.ctx, router_db, {'distributed': True})
-            check_fw.assert_called_once_with(self.ctx, router_db)
-            check_vpn.assert_called_once_with(self.ctx, router_db)
-
-    def test_check_router_has_no_firewall_raises(self):
-        with mock.patch.object(
-            manager.NeutronManager, 'get_service_plugins') as sp:
-            fw_plugin = mock.Mock()
-            sp.return_value = {'FIREWALL': fw_plugin}
-            fw_plugin.get_firewalls.return_value = [mock.ANY]
-            self.assertRaises(
-                l3.RouterInUse,
-                self.mixin.check_router_has_no_firewall,
-                self.ctx, {'id': 'foo_id', 'tenant_id': 'foo_tenant'})
-
-    def test_check_router_has_no_firewall_passes(self):
-        with mock.patch.object(manager.NeutronManager,
-                               'get_service_plugins',
-                               return_value={}):
-            self.assertTrue(
-                self.mixin.check_router_has_no_firewall(mock.ANY, mock.ANY))
-
-    def test_check_router_has_no_vpn(self):
-        with mock.patch.object(
-            manager.NeutronManager, 'get_service_plugins') as sp:
-            vpn_plugin = mock.Mock()
-            sp.return_value = {'VPN': vpn_plugin}
-            self.mixin.check_router_has_no_vpnaas(mock.ANY, {'id': 'foo_id'})
-            vpn_plugin.check_router_in_use.assert_called_once_with(
-                mock.ANY, 'foo_id')
-
     def test_remove_router_interface_delete_router_l3agent_binding(self):
         interface_info = {'subnet_id': '123'}
         router = mock.MagicMock()
@@ -548,7 +507,7 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
                                    mkintf, notify):
             grtr.return_value = router
             gdev.return_value = mock.Mock()
-            rmintf.return_value = (mock.MagicMock(), mock.Mock())
+            rmintf.return_value = (mock.MagicMock(), mock.MagicMock())
             mkintf.return_value = mock.Mock()
             gplugin.return_value = {plugin_const.L3_ROUTER_NAT: plugin}
             delintf.return_value = None
@@ -560,3 +519,13 @@ class L3DvrTestCase(testlib_api.SqlTestCase):
             self.assertTrue(plugin.get_l3_agents_hosting_routers.called)
             self.assertTrue(plugin.check_ports_exist_on_l3agent.called)
             self.assertTrue(plugin.remove_router_from_l3_agent.called)
+
+    def test__validate_router_migration_notify_advanced_services(self):
+        router = {'name': 'foo_router', 'admin_state_up': True}
+        router_db = self._create_router(router)
+        with mock.patch.object(l3_dvr_db.registry, 'notify') as mock_notify:
+            self.mixin._validate_router_migration(
+                self.ctx, router_db, {'distributed': True})
+            kwargs = {'context': self.ctx, 'router': router_db}
+            mock_notify.assert_called_once_with(
+                'router', 'before_update', self.mixin, **kwargs)

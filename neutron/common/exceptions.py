@@ -79,6 +79,10 @@ class SubnetNotFound(NotFound):
     message = _("Subnet %(subnet_id)s could not be found")
 
 
+class SubnetPoolNotFound(NotFound):
+    message = _("Subnet pool %(subnetpool_id)s could not be found")
+
+
 class PortNotFound(NotFound):
     message = _("Port %(port_id)s could not be found")
 
@@ -120,8 +124,13 @@ class SubnetInUse(InUse):
 
 class PortInUse(InUse):
     message = _("Unable to complete operation on port %(port_id)s "
-                "for network %(net_id)s. Port already has an attached"
+                "for network %(net_id)s. Port already has an attached "
                 "device %(device_id)s.")
+
+
+class ServicePortInUse(InUse):
+    message = _("Port %(port_id)s cannot be deleted directly via the "
+                "port API: %(reason)s")
 
 
 class PortBound(InUse):
@@ -225,7 +234,7 @@ class UnsupportedPortDeviceOwner(Conflict):
 
 
 class OverlappingAllocationPools(Conflict):
-    message = _("Found overlapping allocation pools:"
+    message = _("Found overlapping allocation pools: "
                 "%(pool_1)s %(pool_2)s for subnet %(subnet_cidr)s.")
 
 
@@ -397,3 +406,50 @@ class FirewallInternalDriverError(NeutronException):
     raise this exception to the agent
     """
     message = _("%(driver)s: Internal driver error.")
+
+
+class MissingMinSubnetPoolPrefix(BadRequest):
+    message = _("Unspecified minimum subnet pool prefix")
+
+
+class EmptySubnetPoolPrefixList(BadRequest):
+    message = _("Empty subnet pool prefix list")
+
+
+class PrefixVersionMismatch(BadRequest):
+    message = _("Cannot mix IPv4 and IPv6 prefixes in a subnet pool")
+
+
+class UnsupportedMinSubnetPoolPrefix(BadRequest):
+    message = _("Prefix '%(prefix)s' not supported in IPv%(version)s pool")
+
+
+class IllegalSubnetPoolPrefixBounds(BadRequest):
+    message = _("Illegal prefix bounds: %(prefix_type)s=%(prefixlen)s, "
+                "%(base_prefix_type)s=%(base_prefixlen)s")
+
+
+class IllegalSubnetPoolPrefixUpdate(BadRequest):
+    message = _("Illegal update to prefixes: %(msg)s")
+
+
+class SubnetAllocationError(NeutronException):
+    message = _("Failed to allocate subnet: %(reason)s")
+
+
+class MinPrefixSubnetAllocationError(BadRequest):
+    message = _("Unable to allocate subnet with prefix length %(prefixlen)s, "
+                "minimum allowed prefix is %(min_prefixlen)s")
+
+
+class MaxPrefixSubnetAllocationError(BadRequest):
+    message = _("Unable to allocate subnet with prefix length %(prefixlen)s, "
+                "maximum allowed prefix is %(max_prefixlen)s")
+
+
+class SubnetPoolDeleteError(BadRequest):
+    message = _("Unable to delete subnet pool: %(reason)s")
+
+
+class SubnetPoolQuotaExceeded(OverQuota):
+    message = _("Per-tenant subnet pool prefix quota exceeded")

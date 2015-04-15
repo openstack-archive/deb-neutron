@@ -32,7 +32,8 @@ class TestBasicRouterOperations(base.BaseTestCase):
         # NOTE The use_namespaces config will soon be deprecated
         self.agent_conf.use_namespaces = True
         self.router_id = _uuid()
-        return ha_router.HaRouter(self.router_id,
+        return ha_router.HaRouter(mock.sentinel.enqueue_state,
+                                  self.router_id,
                                   router,
                                   self.agent_conf,
                                   mock.sentinel.driver,
@@ -43,5 +44,5 @@ class TestBasicRouterOperations(base.BaseTestCase):
         device = mock.MagicMock()
         device.name.return_value = 'eth2'
         addresses = ['15.1.2.2/24', '15.1.2.3/32']
-        ri._ha_get_existing_cidrs = mock.MagicMock(return_value=addresses)
+        ri._get_cidrs_from_keepalived = mock.MagicMock(return_value=addresses)
         self.assertEqual(set(addresses), ri.get_router_cidrs(device))

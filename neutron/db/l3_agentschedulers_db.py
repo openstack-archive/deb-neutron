@@ -155,9 +155,10 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
 
         is_wrong_type_or_unsuitable_agent = (
             agent['agent_type'] != constants.AGENT_TYPE_L3 or
-            not agent['admin_state_up'] or
-            not self.get_l3_agent_candidates(context, router, [agent])
-        )
+            not agentschedulers_db.services_available(agent['admin_state_up'])
+            or
+            not self.get_l3_agent_candidates(context, router, [agent],
+                                             ignore_admin_state=True))
         if is_wrong_type_or_unsuitable_agent:
             raise l3agentscheduler.InvalidL3Agent(id=agent['id'])
 
@@ -287,7 +288,7 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             self, context, host, router_ids):
         agent = self._get_agent_by_type_and_host(
             context, constants.AGENT_TYPE_L3, host)
-        if not agent.admin_state_up:
+        if not agentschedulers_db.services_available(agent.admin_state_up):
             return []
         query = context.session.query(RouterL3AgentBinding.router_id)
         query = query.filter(
@@ -309,12 +310,10 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         if not router_ids:
             return []
         query = context.session.query(RouterL3AgentBinding)
-        if len(router_ids) > 1:
-            query = query.options(joinedload('l3_agent')).filter(
-                RouterL3AgentBinding.router_id.in_(router_ids))
-        else:
-            query = query.options(joinedload('l3_agent')).filter(
-                RouterL3AgentBinding.router_id == router_ids[0])
+        query = query.options(orm.contains_eager(
+                              RouterL3AgentBinding.l3_agent))
+        query = query.join(RouterL3AgentBinding.l3_agent)
+        query = query.filter(RouterL3AgentBinding.router_id.in_(router_ids))
         if admin_state_up is not None:
             query = (query.filter(agents_db.Agent.admin_state_up ==
                                   admin_state_up))
@@ -330,26 +329,17 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         if not router_ids:
             return []
         query = context.session.query(RouterL3AgentBinding)
-        if len(router_ids) > 1:
-            query = query.options(joinedload('l3_agent')).filter(
-                RouterL3AgentBinding.router_id.in_(router_ids))
-        else:
-            query = query.options(joinedload('l3_agent')).filter(
-                RouterL3AgentBinding.router_id == router_ids[0])
+        query = query.options(joinedload('l3_agent')).filter(
+            RouterL3AgentBinding.router_id.in_(router_ids))
         return query.all()
 
     def list_l3_agents_hosting_router(self, context, router_id):
         with context.session.begin(subtransactions=True):
             bindings = self._get_l3_bindings_hosting_routers(
                 context, [router_id])
-            results = []
-            for binding in bindings:
-                l3_agent_dict = self._make_agent_dict(binding.l3_agent)
-                results.append(l3_agent_dict)
-            if results:
-                return {'agents': results}
-            else:
-                return {'agents': []}
+
+        return {'agents': [self._make_agent_dict(binding.l3_agent) for
+                           binding in bindings]}
 
     def get_l3_agents(self, context, active=None, filters=None):
         query = context.session.query(agents_db.Agent)
@@ -385,6 +375,8 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         ports on the host, running the input l3agent.
         """
         subnet_ids = self.get_subnet_ids_on_router(context, router_id)
+        if not subnet_ids:
+            return False
 
         core_plugin = manager.NeutronManager.get_plugin()
         filter = {'fixed_ips': {'subnet_id': subnet_ids}}
@@ -431,11 +423,14 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             candidates.append(l3_agent)
         return candidates
 
-    def get_l3_agent_candidates(self, context, sync_router, l3_agents):
+    def get_l3_agent_candidates(self, context, sync_router, l3_agents,
+                                ignore_admin_state=False):
         """Get the valid l3 agents for the router from a list of l3_agents."""
         candidates = []
         for l3_agent in l3_agents:
-            if not l3_agent.admin_state_up:
+            if not ignore_admin_state and not l3_agent.admin_state_up:
+                # ignore_admin_state True comes from manual scheduling
+                # where admin_state_up judgement is already done.
                 continue
             agent_conf = self.get_configuration_dict(l3_agent)
             router_id = agent_conf.get('router_id', None)

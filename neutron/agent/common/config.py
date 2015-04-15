@@ -53,7 +53,9 @@ INTERFACE_DRIVER_OPTS = [
 
 USE_NAMESPACES_OPTS = [
     cfg.BoolOpt('use_namespaces', default=True,
-                help=_("Allow overlapping IP.")),
+                help=_("Allow overlapping IP. This option is deprecated and "
+                       "will be removed in a future release."),
+                deprecated_for_removal=True),
 ]
 
 IPTABLES_OPTS = [
@@ -61,17 +63,28 @@ IPTABLES_OPTS = [
                 help=_("Add comments to iptables rules.")),
 ]
 
+IPSET_OPTS = [
+    cfg.IntOpt('ipset_maxelem', default=131072,
+               help=_("Maximum number of elements which can be stored in "
+                      "an IPset. If None is specified, the system default "
+                      "will be used.")),
+    cfg.IntOpt('ipset_hashsize', default=2048,
+               help=_("Initial hash size for an IPset. Must be a power of 2, "
+                      "else the kernel will round it up automatically. If "
+                      "None is specified, the system default will be used.")),
+]
+
 PROCESS_MONITOR_OPTS = [
     cfg.StrOpt('check_child_processes_action', default='respawn',
                choices=['respawn', 'exit'],
                help=_('Action to be executed when a child process dies')),
-    cfg.IntOpt('check_child_processes_interval', default=0,
+    cfg.IntOpt('check_child_processes_interval', default=60,
                help=_('Interval between checks of child process liveness '
                       '(seconds), use 0 to disable')),
 ]
 
 
-def get_log_args(conf, log_file_name):
+def get_log_args(conf, log_file_name, **kwargs):
     cmd_args = []
     if conf.debug:
         cmd_args.append('--debug')
@@ -89,6 +102,8 @@ def get_log_args(conf, log_file_name):
             log_dir = os.path.dirname(conf.log_file)
         if log_dir:
             cmd_args.append('--log-dir=%s' % log_dir)
+        if kwargs.get('metadata_proxy_watch_log') is False:
+            cmd_args.append('--metadata_proxy_watch_log=false')
     else:
         if conf.use_syslog:
             cmd_args.append('--use-syslog')
@@ -116,6 +131,10 @@ def register_use_namespaces_opts_helper(conf):
 
 def register_iptables_opts(conf):
     conf.register_opts(IPTABLES_OPTS, 'AGENT')
+
+
+def register_ipset_opts(conf):
+    conf.register_opts(IPSET_OPTS, 'AGENT')
 
 
 def register_process_monitor_opts(conf):

@@ -71,6 +71,12 @@ core_opts = [
                help=_("Maximum number of host routes per subnet")),
     cfg.IntOpt('max_fixed_ips_per_port', default=5,
                help=_("Maximum number of fixed ips per port")),
+    cfg.StrOpt('default_ipv4_subnet_pool', default=None,
+               help=_("Default IPv4 subnet-pool to be used for automatic "
+                      "subnet CIDR allocation")),
+    cfg.StrOpt('default_ipv6_subnet_pool', default=None,
+               help=_("Default IPv6 subnet-pool to be used for automatic "
+                      "subnet CIDR allocation")),
     cfg.IntOpt('dhcp_lease_duration', default=86400,
                deprecated_name='dhcp_lease_time',
                help=_("DHCP lease duration (in seconds). Use -1 to tell "
@@ -81,7 +87,7 @@ core_opts = [
     cfg.BoolOpt('allow_overlapping_ips', default=False,
                 help=_("Allow overlapping IP support in Neutron")),
     cfg.StrOpt('host', default=utils.get_hostname(),
-               help=_("Hostname to be used by the neutron server, agents and"
+               help=_("Hostname to be used by the neutron server, agents and "
                       "services running on this machine. All the agents and "
                       "services running on this machine must use the same "
                       "host value.")),

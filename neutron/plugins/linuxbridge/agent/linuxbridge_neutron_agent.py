@@ -95,8 +95,8 @@ class LinuxBridgeManager(object):
 
     def get_bridge_name(self, network_id):
         if not network_id:
-            LOG.warning(_LW("Invalid Network ID, will lead to incorrect bridge"
-                            "name"))
+            LOG.warning(_LW("Invalid Network ID, will lead to incorrect "
+                            "bridge name"))
         bridge_name = BRIDGE_NAME_PREFIX + network_id[0:11]
         return bridge_name
 
@@ -613,7 +613,8 @@ class LinuxBridgeManager(object):
         for mac, ip in ports:
             if mac != constants.FLOODING_ENTRY[0]:
                 self.add_fdb_ip_entry(mac, ip, interface)
-                self.add_fdb_bridge_entry(mac, agent_ip, interface)
+                self.add_fdb_bridge_entry(mac, agent_ip, interface,
+                                          operation="replace")
             elif self.vxlan_mode == lconst.VXLAN_UCAST:
                 if self.fdb_bridge_entry_exists(mac, interface):
                     self.add_fdb_bridge_entry(mac, agent_ip, interface,
@@ -722,11 +723,11 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 if agent_ip == self.agent.br_mgr.local_ip:
                     continue
 
-                after = state.get('after')
+                after = state.get('after', [])
                 for mac, ip in after:
                     self.agent.br_mgr.add_fdb_ip_entry(mac, ip, interface)
 
-                before = state.get('before')
+                before = state.get('before', [])
                 for mac, ip in before:
                     self.agent.br_mgr.remove_fdb_ip_entry(mac, ip, interface)
 

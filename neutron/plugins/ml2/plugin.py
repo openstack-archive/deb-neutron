@@ -35,6 +35,7 @@ from neutron.api.rpc.handlers import metadata_rpc
 from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.callbacks import events
+from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.common import constants as const
@@ -52,14 +53,17 @@ from neutron.db import dvr_mac_db
 from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import models_v2
+from neutron.db import netmtu_db
 from neutron.db import quota_db  # noqa
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.db import vlantransparent_db
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
 from neutron.extensions import portsecurity as psec
 from neutron.extensions import providernet as provider
 from neutron.extensions import securitygroup as ext_sg
+from neutron.extensions import vlantransparent
 from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
 from neutron.openstack.common import uuidutils
@@ -88,7 +92,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 sg_db_rpc.SecurityGroupServerRpcMixin,
                 agentschedulers_db.DhcpAgentSchedulerDbMixin,
                 addr_pair_db.AllowedAddressPairsMixin,
-                extradhcpopt_db.ExtraDhcpOptMixin):
+                vlantransparent_db.Vlantransparent_db_mixin,
+                extradhcpopt_db.ExtraDhcpOptMixin,
+                netmtu_db.Netmtu_db_mixin):
 
     """Implement the Neutron L2 abstractions using modules.
 
@@ -111,7 +117,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     "quotas", "security-group", "agent",
                                     "dhcp_agent_scheduler",
                                     "multi-provider", "allowed-address-pairs",
-                                    "extra_dhcp_opt"]
+                                    "extra_dhcp_opt", "subnet_allocation",
+                                    "net-mtu", "vlan-transparent"]
 
     @property
     def supported_extension_aliases(self):
@@ -119,6 +126,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             aliases = self._supported_extension_aliases[:]
             aliases += self.extension_manager.extension_aliases()
             sg_rpc.disable_security_group_extension_by_config(aliases)
+            vlantransparent.disable_extension_by_config(aliases)
             self._aliases = aliases
         return self._aliases
 
@@ -930,7 +938,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _create_port_db(self, context, port):
         attrs = port[attributes.PORT]
-        attrs['status'] = const.PORT_STATUS_DOWN
+        if not attrs.get('status'):
+            attrs['status'] = const.PORT_STATUS_DOWN
 
         session = context.session
         with session.begin(subtransactions=True):
@@ -1185,15 +1194,34 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 self._process_dvr_port_binding(mech_context, context, attrs)
             self._bind_port_if_needed(mech_context)
 
+    def _pre_delete_port(self, context, port_id, port_check):
+        """Do some preliminary operations before deleting the port."""
+        LOG.debug("Deleting port %s", port_id)
+        try:
+            # notify interested parties of imminent port deletion;
+            # a failure here prevents the operation from happening
+            kwargs = {
+                'context': context,
+                'port_id': port_id,
+                'port_check': port_check
+            }
+            registry.notify(
+                resources.PORT, events.BEFORE_DELETE, self, **kwargs)
+        except exceptions.CallbackFailure as e:
+            # NOTE(armax): preserve old check's behavior
+            if len(e.errors) == 1:
+                raise e.errors[0].error
+            raise exc.ServicePortInUse(port_id=port_id, reason=e)
+
     def delete_port(self, context, id, l3_port_check=True):
-        LOG.debug("Deleting port %s", id)
+        self._pre_delete_port(context, id, l3_port_check)
+        # TODO(armax): get rid of the l3 dependency in the with block
         removed_routers = []
+        router_ids = []
         l3plugin = manager.NeutronManager.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
         is_dvr_enabled = utils.is_extension_supported(
             l3plugin, const.L3_DISTRIBUTED_EXT_ALIAS)
-        if l3plugin and l3_port_check:
-            l3plugin.prevent_l3_port_deletion(context, id)
 
         session = context.session
         # REVISIT: Serialize this operation with a semaphore to
@@ -1238,14 +1266,18 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                       {"port_id": id, "owner": device_owner})
             super(Ml2Plugin, self).delete_port(context, id)
 
-        # now that we've left db transaction, we are safe to notify
-        if l3plugin:
-            if is_dvr_enabled:
-                l3plugin.dvr_vmarp_table_update(context, port, "del")
-            l3plugin.notify_routers_updated(context, router_ids)
-            for router in removed_routers:
-                l3plugin.remove_router_from_l3_agent(
-                    context, router['agent_id'], router['router_id'])
+        self._post_delete_port(
+            context, port, router_ids, removed_routers, bound_mech_contexts)
+
+    def _post_delete_port(
+        self, context, port, router_ids, removed_routers, bound_mech_contexts):
+        kwargs = {
+            'context': context,
+            'port': port,
+            'router_ids': router_ids,
+            'removed_routers': removed_routers
+        }
+        registry.notify(resources.PORT, events.AFTER_DELETE, self, **kwargs)
         try:
             # Note that DVR Interface ports will have bindings on
             # multiple hosts, and so will have multiple mech_contexts,
@@ -1257,8 +1289,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             # delete the port.  Ideally we'd notify the caller of the
             # fact that an error occurred.
             LOG.error(_LE("mechanism_manager.delete_port_postcommit failed for"
-                          " port %s"), id)
-        self.notifier.port_delete(context, id)
+                          " port %s"), port['id'])
+        self.notifier.port_delete(context, port['id'])
         self.notify_security_groups_member_updated(context, port)
 
     def get_bound_port_context(self, plugin_context, port_id, host=None,
@@ -1337,7 +1369,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 updated_port = self._make_port_dict(port)
                 network = self.get_network(context,
                                            original_port['network_id'])
-                levels = db.get_binding_levels(session, port_id,
+                levels = db.get_binding_levels(session, port.id,
                                                port.port_binding.host)
                 mech_context = driver_context.PortContext(
                     self, context, updated_port, network, port.port_binding,
@@ -1394,7 +1426,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             LOG.debug("No binding found for DVR port %s", port['id'])
             return False
         else:
-            port_host = db.get_port_binding_host(port_id)
+            port_host = db.get_port_binding_host(context.session, port_id)
             return (port_host == host)
 
     def get_ports_from_devices(self, devices):

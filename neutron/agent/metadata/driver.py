@@ -15,13 +15,16 @@
 
 import os
 
-from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron.agent.common import config
+from neutron.agent.l3 import namespaces
 from neutron.agent.linux import external_process
+from neutron.agent.linux import utils
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import exceptions
-from neutron.services import advanced_service
 
 LOG = logging.getLogger(__name__)
 
@@ -30,62 +33,15 @@ METADATA_ACCESS_MARK_MASK = '0xffffffff'
 METADATA_SERVICE_NAME = 'metadata-proxy'
 
 
-class MetadataDriver(advanced_service.AdvancedService):
-
-    OPTS = [
-        cfg.StrOpt('metadata_proxy_socket',
-                   default='$state_path/metadata_proxy',
-                   help=_('Location of Metadata Proxy UNIX domain '
-                          'socket')),
-        cfg.StrOpt('metadata_proxy_user',
-                   default='',
-                   help=_("User (uid or name) running metadata proxy after "
-                          "its initialization (if empty: agent effective "
-                          "user)")),
-        cfg.StrOpt('metadata_proxy_group',
-                   default='',
-                   help=_("Group (gid or name) running metadata proxy after "
-                          "its initialization (if empty: agent effective "
-                          "group)"))
-    ]
+class MetadataDriver(object):
 
     def __init__(self, l3_agent):
-        super(MetadataDriver, self).__init__(l3_agent)
         self.metadata_port = l3_agent.conf.metadata_port
         self.metadata_access_mark = l3_agent.conf.metadata_access_mark
-
-    def after_router_added(self, router):
-        for c, r in self.metadata_filter_rules(self.metadata_port,
-                                               self.metadata_access_mark):
-            router.iptables_manager.ipv4['filter'].add_rule(c, r)
-        for c, r in self.metadata_mangle_rules(self.metadata_access_mark):
-            router.iptables_manager.ipv4['mangle'].add_rule(c, r)
-        for c, r in self.metadata_nat_rules(self.metadata_port):
-            router.iptables_manager.ipv4['nat'].add_rule(c, r)
-        router.iptables_manager.apply()
-
-        if not router.is_ha:
-            self.spawn_monitored_metadata_proxy(
-                self.l3_agent.process_monitor,
-                router.ns_name,
-                self.metadata_port,
-                self.l3_agent.conf,
-                router_id=router.router_id)
-
-    def before_router_removed(self, router):
-        for c, r in self.metadata_filter_rules(self.metadata_port,
-                                               self.metadata_access_mark):
-            router.iptables_manager.ipv4['filter'].remove_rule(c, r)
-        for c, r in self.metadata_mangle_rules(self.metadata_access_mark):
-            router.iptables_manager.ipv4['mangle'].remove_rule(c, r)
-        for c, r in self.metadata_nat_rules(self.metadata_port):
-            router.iptables_manager.ipv4['nat'].remove_rule(c, r)
-        router.iptables_manager.apply()
-
-        self.destroy_monitored_metadata_proxy(self.l3_agent.process_monitor,
-                                              router.router['id'],
-                                              router.ns_name,
-                                              self.l3_agent.conf)
+        registry.subscribe(
+            after_router_added, resources.ROUTER, events.AFTER_CREATE)
+        registry.subscribe(
+            before_router_removed, resources.ROUTER, events.BEFORE_DELETE)
 
     @classmethod
     def metadata_filter_rules(cls, port, mark):
@@ -104,14 +60,24 @@ class MetadataDriver(advanced_service.AdvancedService):
     @classmethod
     def metadata_nat_rules(cls, port):
         return [('PREROUTING', '-d 169.254.169.254/32 '
+                 '-i %(interface_name)s '
                  '-p tcp -m tcp --dport 80 -j REDIRECT '
-                 '--to-port %s' % port)]
+                 '--to-port %(port)s' %
+                 {'interface_name': namespaces.INTERNAL_DEV_PREFIX + '+',
+                  'port': port})]
 
     @classmethod
-    def _get_metadata_proxy_user_group(cls, conf):
-        user = conf.metadata_proxy_user or os.geteuid()
-        group = conf.metadata_proxy_group or os.getegid()
-        return user, group
+    def _get_metadata_proxy_user_group_watchlog(cls, conf):
+        user = conf.metadata_proxy_user or str(os.geteuid())
+        group = conf.metadata_proxy_group or str(os.getegid())
+
+        watch_log = conf.metadata_proxy_watch_log
+        if watch_log is None:
+            # NOTE(cbrandily): Commonly, log watching can be enabled only
+            # when metadata proxy user is agent effective user (id/name).
+            watch_log = utils.is_effective_user(user)
+
+        return user, group, watch_log
 
     @classmethod
     def _get_metadata_proxy_callback(cls, port, conf, network_id=None,
@@ -127,7 +93,8 @@ class MetadataDriver(advanced_service.AdvancedService):
 
         def callback(pid_file):
             metadata_proxy_socket = conf.metadata_proxy_socket
-            user, group = cls._get_metadata_proxy_user_group(conf)
+            user, group, watch_log = (
+                cls._get_metadata_proxy_user_group_watchlog(conf))
             proxy_cmd = ['neutron-ns-metadata-proxy',
                          '--pid_file=%s' % pid_file,
                          '--metadata_proxy_socket=%s' % metadata_proxy_socket,
@@ -137,7 +104,8 @@ class MetadataDriver(advanced_service.AdvancedService):
                          '--metadata_proxy_user=%s' % user,
                          '--metadata_proxy_group=%s' % group]
             proxy_cmd.extend(config.get_log_args(
-                conf, 'neutron-ns-metadata-proxy-%s.log' % uuid))
+                conf, 'neutron-ns-metadata-proxy-%s.log' % uuid,
+                metadata_proxy_watch_log=watch_log))
             return proxy_cmd
 
         return callback
@@ -167,3 +135,42 @@ class MetadataDriver(advanced_service.AdvancedService):
             uuid=router_id,
             namespace=ns_name,
             default_cmd_callback=callback)
+
+
+def after_router_added(resource, event, l3_agent, **kwargs):
+    router = kwargs['router']
+    proxy = l3_agent.metadata_driver
+    for c, r in proxy.metadata_filter_rules(proxy.metadata_port,
+                                           proxy.metadata_access_mark):
+        router.iptables_manager.ipv4['filter'].add_rule(c, r)
+    for c, r in proxy.metadata_mangle_rules(proxy.metadata_access_mark):
+        router.iptables_manager.ipv4['mangle'].add_rule(c, r)
+    for c, r in proxy.metadata_nat_rules(proxy.metadata_port):
+        router.iptables_manager.ipv4['nat'].add_rule(c, r)
+    router.iptables_manager.apply()
+
+    if not router.is_ha:
+        proxy.spawn_monitored_metadata_proxy(
+            l3_agent.process_monitor,
+            router.ns_name,
+            proxy.metadata_port,
+            l3_agent.conf,
+            router_id=router.router_id)
+
+
+def before_router_removed(resource, event, l3_agent, **kwargs):
+    router = kwargs['router']
+    proxy = l3_agent.metadata_driver
+    for c, r in proxy.metadata_filter_rules(proxy.metadata_port,
+                                           proxy.metadata_access_mark):
+        router.iptables_manager.ipv4['filter'].remove_rule(c, r)
+    for c, r in proxy.metadata_mangle_rules(proxy.metadata_access_mark):
+        router.iptables_manager.ipv4['mangle'].remove_rule(c, r)
+    for c, r in proxy.metadata_nat_rules(proxy.metadata_port):
+        router.iptables_manager.ipv4['nat'].remove_rule(c, r)
+    router.iptables_manager.apply()
+
+    proxy.destroy_monitored_metadata_proxy(l3_agent.process_monitor,
+                                          router.router['id'],
+                                          router.ns_name,
+                                          l3_agent.conf)

@@ -56,8 +56,14 @@ class SanityTestCaseRoot(functional_base.BaseSudoTestCase):
     def test_arp_responder_runs(self):
         checks.arp_responder_supported()
 
+    def test_arp_header_match_runs(self):
+        checks.arp_header_match_supported()
+
     def test_vf_management_runs(self):
         checks.vf_management_supported()
 
     def test_namespace_root_read_detection_runs(self):
         checks.netns_read_requires_helper()
+
+    def test_ovsdb_native_supported_runs(self):
+        checks.ovsdb_native_supported()

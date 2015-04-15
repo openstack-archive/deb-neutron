@@ -12,6 +12,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+
 from oslo_config import cfg
 from six import moves
 
@@ -34,7 +36,6 @@ class BaseTestProcessMonitor(base.BaseTestCase):
         self._process_monitor = None
         self.create_child_processes_manager('respawn')
         self.addCleanup(self.cleanup_spawned_children)
-        self.addCleanup(self._process_monitor.stop)
 
     def create_child_processes_manager(self, action):
         cfg.CONF.set_override('check_child_processes_action', action, 'AGENT')
@@ -78,6 +79,10 @@ class BaseTestProcessMonitor(base.BaseTestCase):
     def wait_for_all_children_respawned(self):
         def all_children_active():
             return all(pm.active for pm in self._child_processes)
+
+        for pm in self._child_processes:
+            directory = os.path.dirname(pm.get_pid_file_name())
+            self.assertEqual(0o755, os.stat(directory).st_mode & 0o777)
 
         # we need to allow extra_time for the check process to happen
         # and properly execute action over the gone processes under

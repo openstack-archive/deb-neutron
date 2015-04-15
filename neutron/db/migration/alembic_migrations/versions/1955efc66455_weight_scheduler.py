@@ -32,8 +32,4 @@ import sqlalchemy as sa
 def upgrade():
     op.add_column('agents',
                   sa.Column('load', sa.Integer(),
-                            default=0, nullable=False))
-
-
-def downgrade():
-    op.drop_column('agents', 'load')
+                            server_default='0', nullable=False))

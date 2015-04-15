@@ -71,11 +71,6 @@ class FloatingIPPortAlreadyAssociated(nexception.InUse):
                 "has a floating IP on external network %(net_id)s.")
 
 
-class L3PortInUse(nexception.InUse):
-    message = _("Port %(port_id)s has owner %(device_owner)s and therefore"
-                " cannot be deleted directly via the port API.")
-
-
 class RouterExternalGatewayInUseByFloatingIp(nexception.InUse):
     message = _("Gateway cannot be updated for router %(router_id)s, since a "
                 "gateway to external network %(net_id)s is required by one or "
@@ -91,7 +86,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
@@ -101,7 +96,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                    'is_visible': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'is_visible': True},
         EXTERNAL_GW_INFO: {'allow_post': True, 'allow_put': True,
                            'is_visible': True, 'default': None,
@@ -144,7 +139,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                              'is_visible': True, 'default': None},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
