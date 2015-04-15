@@ -311,6 +311,7 @@ Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
 Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
+Provides: neutron-plugin-linuxbridge-agent
 Depends: bridge-utils,
          neutron-common (= ${source:Version}),
          sudo,
