@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenStack Neutron Server
+After=mysql.service postgresql.service rabbitmq-server.service keystone.service
+
+[Service]
+User=neutron
+Group=neutron
+WorkingDirectory=/var/lib/neutron
+PermissionsStartOnly=true
+ExecStartPre=/bin/mkdir -p /var/lock/neutron /var/log/neutron /var/lib/neutron
+ExecStartPre=/bin/chown neutron:neutron /var/lock/neutron /var/log/neutron /var/lib/neutron
+ExecStart=/etc/init.d/neutron-server systemd-start
+Restart=on-failure
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
