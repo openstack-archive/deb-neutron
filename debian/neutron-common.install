@@ -7,3 +7,4 @@ etc/neutron/rootwrap.d/* /etc/neutron/rootwrap.d
 etc/policy.json		/etc/neutron
 etc/rootwrap.conf	/etc/neutron
 usr/bin/neutron*
+debian/dnsmasq-neutron.conf	/etc/neutron
