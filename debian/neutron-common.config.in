@@ -65,7 +65,7 @@ chmod 755 /var/lib/neutron
 
 # Configure the SQL connection
 pkgos_dbc_read_conf -pkg neutron-common ${N_CONF} database connection neutron $@
-pkgos_rabbit_read_conf ${N_CONF} DEFAULT neutron
+pkgos_rabbit_read_conf ${N_CONF} oslo_messaging_rabbit neutron
 
 # Configure the keystone_authtoken
 pkgos_read_admin_creds ${N_CONF} keystone_authtoken neutron

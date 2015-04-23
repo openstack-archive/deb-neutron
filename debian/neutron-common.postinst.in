@@ -89,7 +89,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	fi
 
 	# Write the neutron RabbitMQ credentials
-	pkgos_rabbit_write_conf ${N_CONF} DEFAULT neutron
+	pkgos_rabbit_write_conf ${N_CONF} oslo_messaging_rabbit neutron
 
 	# Set the keystone_authtoken directive
 	pkgos_write_admin_creds ${N_CONF} keystone_authtoken neutron
