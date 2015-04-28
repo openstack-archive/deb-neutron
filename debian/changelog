@@ -1,4 +1,4 @@
-neutron (2015.1~rc1-1) UNRELEASED; urgency=medium
+neutron (2015.1~rc2-1) unstable; urgency=medium
 
   [ Thomas Goirand ]
   * New upstream release.
