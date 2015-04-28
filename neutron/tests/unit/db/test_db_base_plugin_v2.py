@@ -20,7 +20,9 @@ import itertools
 import mock
 import netaddr
 from oslo_config import cfg
+from oslo_db import exception as db_exc
 from oslo_utils import importutils
+from sqlalchemy import orm
 from testtools import matchers
 import webob.exc
 
@@ -1337,7 +1339,7 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                                  data['port']['fixed_ips'])
 
     def test_no_more_port_exception(self):
-        with self.subnet(cidr='10.0.0.0/32', gateway_ip=None) as subnet:
+        with self.subnet(cidr='10.0.0.0/32', enable_dhcp=False) as subnet:
             id = subnet['subnet']['network_id']
             res = self._create_port(self.fmt, id)
             data = self.deserialize(self.fmt, res)
@@ -3221,7 +3223,7 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
             self.subnet(cidr='14.129.122.5/22'),
             self.subnet(cidr='15.129.122.5/24'),
             self.subnet(cidr='16.129.122.5/28'),
-            self.subnet(cidr='17.129.122.5/32', gateway_ip=None)
+            self.subnet(cidr='17.129.122.5/32', enable_dhcp=False)
         ) as subs:
             # the API should accept and correct these for users
             self.assertEqual(subs[0]['subnet']['cidr'], '10.0.0.0/8')
@@ -3232,6 +3234,24 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
             self.assertEqual(subs[5]['subnet']['cidr'], '15.129.122.0/24')
             self.assertEqual(subs[6]['subnet']['cidr'], '16.129.122.0/28')
             self.assertEqual(subs[7]['subnet']['cidr'], '17.129.122.5/32')
+
+    def _test_create_subnet_with_invalid_netmask_returns_400(self, *args):
+        with self.network() as network:
+            for cidr in args:
+                ip_version = netaddr.IPNetwork(cidr).version
+                self._create_subnet(self.fmt,
+                                    network['network']['id'],
+                                    cidr,
+                                    webob.exc.HTTPClientError.code,
+                                    ip_version=ip_version)
+
+    def test_create_subnet_with_invalid_netmask_returns_400_ipv4(self):
+        self._test_create_subnet_with_invalid_netmask_returns_400(
+                '10.0.0.0/31', '10.0.0.0/32')
+
+    def test_create_subnet_with_invalid_netmask_returns_400_ipv6(self):
+        self._test_create_subnet_with_invalid_netmask_returns_400(
+                'cafe:cafe::/127', 'cafe:cafe::/128')
 
     def test_create_subnet_bad_ip_version(self):
         with self.network() as network:
@@ -3811,6 +3831,71 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
         self.assertEqual(ctx_manager.exception.code,
                          webob.exc.HTTPClientError.code)
 
+    def _test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            self, addr_mode, device_owner=DEVICE_OWNER_COMPUTE,
+            insert_db_reference_error=False):
+        # Create a network with one IPv4 subnet and one port
+        with self.network() as network,\
+            self.subnet(network=network) as v4_subnet,\
+            self.port(subnet=v4_subnet, device_owner=device_owner) as port:
+            if insert_db_reference_error:
+                def db_ref_err_for_ipalloc(instance):
+                    if instance.__class__.__name__ == 'IPAllocation':
+                        raise db_exc.DBReferenceError(
+                            'dummy_table', 'dummy_constraint',
+                            'dummy_key', 'dummy_key_table')
+                mock.patch.object(orm.Session, 'add',
+                                  side_effect=db_ref_err_for_ipalloc).start()
+            # Add an IPv6 auto-address subnet to the network
+            v6_subnet = self._make_subnet(self.fmt, network, 'fe80::1',
+                                          'fe80::/64', ip_version=6,
+                                          ipv6_ra_mode=addr_mode,
+                                          ipv6_address_mode=addr_mode)
+            if (insert_db_reference_error
+                or device_owner == constants.DEVICE_OWNER_ROUTER_SNAT
+                or device_owner in constants.ROUTER_INTERFACE_OWNERS):
+                # DVR SNAT and router interfaces should not have been
+                # updated with addresses from the new auto-address subnet
+                self.assertEqual(1, len(port['port']['fixed_ips']))
+            else:
+                # Confirm that the port has been updated with an address
+                # from the new auto-address subnet
+                req = self.new_show_request('ports', port['port']['id'],
+                                            self.fmt)
+                sport = self.deserialize(self.fmt, req.get_response(self.api))
+                fixed_ips = sport['port']['fixed_ips']
+                self.assertEqual(2, len(fixed_ips))
+                self.assertIn(v6_subnet['subnet']['id'],
+                              [fixed_ip['subnet_id'] for fixed_ip
+                              in fixed_ips])
+
+    def test_create_subnet_ipv6_slaac_with_port_on_network(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.IPV6_SLAAC)
+
+    def test_create_subnet_dhcpv6_stateless_with_port_on_network(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.DHCPV6_STATELESS)
+
+    def test_create_subnet_ipv6_slaac_with_dhcp_port_on_network(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.IPV6_SLAAC,
+            device_owner=constants.DEVICE_OWNER_DHCP)
+
+    def test_create_subnet_ipv6_slaac_with_router_intf_on_network(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.IPV6_SLAAC,
+            device_owner=constants.DEVICE_OWNER_ROUTER_INTF)
+
+    def test_create_subnet_ipv6_slaac_with_snat_intf_on_network(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.IPV6_SLAAC,
+            device_owner=constants.DEVICE_OWNER_ROUTER_SNAT)
+
+    def test_create_subnet_ipv6_slaac_with_db_reference_error(self):
+        self._test_create_subnet_ipv6_auto_addr_with_port_on_network(
+            constants.IPV6_SLAAC, insert_db_reference_error=True)
+
     def test_update_subnet_no_gateway(self):
         with self.subnet() as subnet:
             data = {'subnet': {'gateway_ip': '10.0.0.1'}}
@@ -4085,6 +4170,36 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
                 res = req.get_response(self.api)
                 self.assertEqual(res.status_int,
                                  webob.exc.HTTPClientError.code)
+
+    def _test_subnet_update_enable_dhcp_no_ip_available_returns_409(
+            self, allocation_pools, cidr):
+        ip_version = netaddr.IPNetwork(cidr).version
+        with self.network() as network:
+            with self.subnet(network=network,
+                             allocation_pools=allocation_pools,
+                             enable_dhcp=False,
+                             cidr=cidr,
+                             ip_version=ip_version) as subnet:
+                id = subnet['subnet']['network_id']
+                self._create_port(self.fmt, id)
+                data = {'subnet': {'enable_dhcp': True}}
+                req = self.new_update_request('subnets', data,
+                                              subnet['subnet']['id'])
+                res = req.get_response(self.api)
+                self.assertEqual(res.status_int,
+                                 webob.exc.HTTPConflict.code)
+
+    def test_subnet_update_enable_dhcp_no_ip_available_returns_409_ipv4(self):
+        allocation_pools = [{'start': '10.0.0.2', 'end': '10.0.0.2'}]
+        cidr = '10.0.0.0/30'
+        self._test_subnet_update_enable_dhcp_no_ip_available_returns_409(
+                allocation_pools, cidr)
+
+    def test_subnet_update_enable_dhcp_no_ip_available_returns_409_ipv6(self):
+        allocation_pools = [{'start': '2001:db8::2', 'end': '2001:db8::2'}]
+        cidr = '2001:db8::/126'
+        self._test_subnet_update_enable_dhcp_no_ip_available_returns_409(
+                allocation_pools, cidr)
 
     def test_show_subnet(self):
         with self.network() as network:
@@ -5330,6 +5445,7 @@ class TestNeutronDbPluginV2(base.BaseTestCase):
                 'enable_dhcp': True,
                 'gateway_ip': u'2001:100::1',
                 'id': u'd1a28edd-bd83-480a-bd40-93d036c89f13',
+                'network_id': 'fbb9b578-95eb-4b79-a116-78e5c4927176',
                 'ip_version': 6,
                 'ipv6_address_mode': None,
                 'ipv6_ra_mode': u'slaac'},
@@ -5338,6 +5454,7 @@ class TestNeutronDbPluginV2(base.BaseTestCase):
                 'enable_dhcp': True,
                 'gateway_ip': u'2001:200::1',
                 'id': u'dc813d3d-ed66-4184-8570-7325c8195e28',
+                'network_id': 'fbb9b578-95eb-4b79-a116-78e5c4927176',
                 'ip_version': 6,
                 'ipv6_address_mode': None,
                 'ipv6_ra_mode': u'slaac'}]
