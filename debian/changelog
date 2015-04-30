@@ -1,3 +1,9 @@
+neutron (2015.1.0-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 30 Apr 2015 21:54:26 +0000
+
 neutron (2015.1~rc2-1) unstable; urgency=medium
 
   [ Thomas Goirand ]
