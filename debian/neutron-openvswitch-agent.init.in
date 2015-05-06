@@ -16,9 +16,9 @@
 DESC="Openstack Neutron OpenVSwitch Plugin Agent"
 PROJECT_NAME=neutron
 NAME=${PROJECT_NAME}-openvswitch-agent
-CONF_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+CONFIG_FILE=/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 
 # Since Juno OVS plugin as been deprecated as core_plugin, it has been
 # replaced by ml2 as core_plugin and ovs as agent. Making ml2 mandatory
 # to use this agent
-DAEMON_ARGS="--config-file=/etc/neutron/plugins/ml2/ml2_conf.ini"
+DAEMON_ARGS="--config-file=/etc/neutron/neutron.conf --config-file=/etc/neutron/plugins/ml2/ml2_conf.ini"
