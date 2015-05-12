@@ -1,3 +1,9 @@
+neutron (2015.1.0-3) UNRELEASED; urgency=medium
+
+  * Updated pt.po translation of debconf messages (Closes: #784589).
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 12 May 2015 23:21:01 +0200
+
 neutron (2015.1.0-2) unstable; urgency=medium
 
   [ gustavo panizzo ]
