@@ -1,5 +1,5 @@
 # Translation of neutron debconf templates to french. 
-# Copyright (C) 2013, French l10n team <debian-l10n-french@lists.debian.org> 
+# Copyright (C) 2013, French l10n team <debian-l10n-french@lists.debian.org>
 # This file is distributed under the same license as the neutron package.
 # Julien Patriarca <leatherface@debian.org>, 2013.
 #
@@ -8,13 +8,14 @@ msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
 "POT-Creation-Date: 2015-02-02 01:45+0100\n"
-"PO-Revision-Date: 2013-10-31 11:05+0100\n"
+"PO-Revision-Date: 2015-05-06 11:59+0100\n"
 "Last-Translator: Julien Patriarca <leatherface@debian.org>\n"
 "Language-Team: FRENCH <debian-l10n-french@lists.debian.org>\n"
 "Language: fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 1.7.6\n"
 
 #. Type: string
 #. Description
@@ -49,21 +50,21 @@ msgstr ""
 #. Description
 #: ../neutron-common.templates:4001
 msgid "Authentication server username:"
-msgstr "Nom d'utilisateur du serveur d'authentification :"
+msgstr "Identifiant sur le serveur d'authentification :"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
-"Veuillez indiquer le nom d'utilisateur à utiliser sur le serveur "
+"Veuillez indiquer l'identifiant à utiliser sur le serveur "
 "d'authentification."
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:5001
 msgid "Authentication server password:"
-msgstr "Mot de passe du serveur d'authentification :"
+msgstr "Mot de passe sur le serveur d'authentification :"
 
 #. Type: password
 #. Description
@@ -177,8 +178,8 @@ msgstr ""
 "réseau. Lors du démarrage du démon du serveur Neutron, le fichier de "
 "configuration, correspondant à l'extension que vous souhaitez utiliser, doit "
 "être chargé en le passant comme paramètre lors du lancement du démon du "
-"serveur Neutron. Il faut également que l'instruction de l'extension centrale "
-"corresponde. Veuillez choisir quelle extension utiliser."
+"serveur Neutron. Il faut également que l'instruction « core_plugin » "
+"corresponde. Veuillez choisir l'extension à utiliser."
 
 #. Type: boolean
 #. Description
@@ -220,7 +221,7 @@ msgid ""
 "with regular SQLite support."
 msgstr ""
 "Si certains de ces prérequis sont manquants, ignorez cette option et "
-"exécutez l'application avec le support SQLite normal."
+"exécutez l'application avec la gestion SQLite normale."
 
 #. Type: boolean
 #. Description
@@ -236,7 +237,7 @@ msgstr ""
 #. Description
 #: ../neutron-common.templates:8001
 msgid "IP address of your RabbitMQ host:"
-msgstr "Adresse IP de votre hôte RabbitMQ :"
+msgstr "Adresse IP de l'hôte RabbitMQ :"
 
 #. Type: string
 #. Description
@@ -263,14 +264,14 @@ msgstr "Veuillez indiquer l'adresse IP de ce serveur."
 #. Description
 #: ../neutron-common.templates:9001
 msgid "Username for connection to the RabbitMQ server:"
-msgstr "Nom d'utilisateur pour la connexion au serveur RabbitMQ :"
+msgstr "Identifiant pour la connexion au serveur RabbitMQ :"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:9001
 msgid "Please specify the username used to connect to the RabbitMQ server."
 msgstr ""
-"Veuillez indiquer le nom d'utilisateur à utiliser pour se connecter au "
+"Veuillez indiquer l'identifiant à utiliser pour la connexion au "
 "serveur RabbitMQ."
 
 #. Type: password
@@ -284,7 +285,7 @@ msgstr "Mot de passe pour la connexion au serveur RabbitMQ :"
 #: ../neutron-common.templates:10001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
-"Veuillez indiquer le mot de passe à utiliser pour se connecter au serveur "
+"Veuillez indiquer le mot de passe à utiliser pour la connexion au serveur "
 "RabbitMQ."
 
 #. Type: select
@@ -362,8 +363,8 @@ msgid ""
 "server and agents. This requires kernel support for OVS patch ports and GRE "
 "tunneling."
 msgstr ""
-"Veuillez décider si la prise en charge des réseaux GRE doit être activé sur "
-"le serveur et les agents. Ceci nécessite que le noyau gère les « patch "
+"Veuillez décider si la prise en charge des réseaux GRE doit être activée sur "
+"le serveur et les agents. Cela nécessite que le noyau gère les « patch "
 "ports » OVS et les tunnels GRE."
 
 #. Type: string
@@ -380,8 +381,8 @@ msgid ""
 "enumerating ranges of GRE tunnel IDs that are available for tenant network "
 "allocation if tenant_network_type is \"gre\"."
 msgstr ""
-"Veuillez indiquer une liste de couples <tun_min>:<tun_max> séparés par des "
-"virgules énumérant les plages d'identifiants des tunnels GRE disponibles "
+"Veuillez indiquer une liste de couples <tun_min>:<tun_max>, séparés par des "
+"virgules, énumérant les plages d'identifiants des tunnels GRE disponibles "
 "pour l'affectation au réseau d'espace client, si le type de réseau d'espace "
 "client est « gre »."
 
@@ -401,37 +402,31 @@ msgstr "Veuillez indiquer l'adresse IP locale de cet hyperviseur."
 #. Description
 #: ../neutron-common.templates:15001
 msgid "Nova server URL:"
-msgstr ""
+msgstr "Adresse URL du serveur Nova :"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:15001
-#, fuzzy
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the URL of the Nova server."
-msgstr "Veuillez indiquer l'adresse IP de ce serveur."
+msgstr "Veuillez indiquer l'adresse URL du serveur Nova.."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#, fuzzy
-#| msgid "Auth server tenant name:"
 msgid "Nova server region name:"
-msgstr "Nom d'espace client du serveur d'authentification :"
+msgstr "Nom de région pour le serveur Nova :"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#, fuzzy
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the region of the Nova server."
-msgstr "Veuillez indiquer l'adresse IP de ce serveur."
+msgstr "Veuillez indiquer la région du serveur Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
 msgid "Nova admin tenant ID:"
-msgstr ""
+msgstr "Identifiant du client administrateur pour Nova :"
 
 #. Type: string
 #. Description
@@ -441,46 +436,39 @@ msgid ""
 "Therefore Neutron needs to know the Nova admin tenant ID, username and "
 "password."
 msgstr ""
+"Neutron doit pouvoir communiquer avec Nova au travers de Keystone. Cependant "
+"Neutron a besoin de connaître l'identifiant du client admin de Nova, nom "
+"d'utilisateur et mot de passe."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
 msgid "Please enter the ID of the admin tenant for Nova."
-msgstr ""
+msgstr "Veuillez indiquer l'identifiant du client administrateur pour Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#, fuzzy
-#| msgid "Auth server username:"
 msgid "Neutron administrator username:"
-msgstr "Nom d'utilisateur du serveur d'authentification :"
+msgstr "Identifiant de l'administrateur de Neutron :"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#, fuzzy
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please enter the username of the Nova administrator."
-msgstr ""
-"Veuillez indiquer le nom d'utilisateur à utiliser sur le serveur "
-"d'authentification."
+msgstr "Veuillez indiquer l'identifiant de l'administrateur pour Nova."
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
 msgid "Nova administrator password:"
-msgstr ""
+msgstr "Mot de passe administrateur pour Nova :"
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please enter the password of the Nova administrator."
-msgstr ""
-"Veuillez indiquer le mot de passe à utiliser sur le serveur "
-"d'authentification."
+msgstr "Veuillez indiquer le mot de passe de l'administrateur pour Nova."
 
 #. Type: boolean
 #. Description
@@ -599,7 +587,7 @@ msgid ""
 "Please specify the URL of your Neutron authentication server. Typically this "
 "is also the URL of your OpenStack Identity Service (Keystone)."
 msgstr ""
-"Veuillez indiquer l'adresse URL de votre serveur d'authentification Neutron. "
+"Veuillez indiquer l'adresse URL du serveur d'authentification Neutron. "
 "En général il s'agit du Service d'Identité d'OpenStack (Keystone)."
 
 #. Type: string
@@ -612,13 +600,13 @@ msgstr "Nom d'espace client du serveur d'authentification :"
 #. Description
 #: ../neutron-metadata-agent.templates:4001
 msgid "Auth server username:"
-msgstr "Nom d'utilisateur du serveur d'authentification :"
+msgstr "Identifiant sur le serveur d'authentification :"
 
 #. Type: password
 #. Description
 #: ../neutron-metadata-agent.templates:5001
 msgid "Auth server password:"
-msgstr "Mot de passe du serveur d'authentification :"
+msgstr "Mot de passe sur le serveur d'authentification :"
 
 #. Type: string
 #. Description
@@ -634,7 +622,7 @@ msgid ""
 "representing a location. Please enter the zone that the metadata server "
 "should use."
 msgstr ""
-"OpenStack supporte l'utilisation de zones disponibles, avec chaque région "
+"OpenStack gère l'utilisation de zones disponibles, avec chaque région "
 "représentant un lieu. Veuillez entrer la zone que le serveur de métadonnées "
 "devra utiliser."
 
@@ -642,7 +630,7 @@ msgstr ""
 #. Description
 #: ../neutron-metadata-agent.templates:7001
 msgid "Metadata proxy shared secret:"
-msgstr ""
+msgstr "Secret partagé pour le relais de métadonnées (« metadata proxy ») :"
 
 #. Type: password
 #. Description
@@ -652,6 +640,9 @@ msgid ""
 "through the Neutron metadata agent, which serves as a proxy to the Nova "
 "metadata REST API server."
 msgstr ""
+"Les machines virtuelles utilisant Neutron pour gérer leur connexion réseau "
+"récupèrent leurs métadonnées grâce à l'agent de métadonnées de Neutron, qui "
+"agit comme un relais pour le serveur de métadonnées de l'API REST Nova."
 
 #. Type: password
 #. Description
@@ -661,6 +652,10 @@ msgid ""
 "between the Neutron metadata proxy agent and the Nova metadata server. The "
 "same shared password should be used when setting up the nova-common package."
 msgstr ""
+"Veuillez indiquer le mot de passe à utiliser pour protéger les "
+"communications entre l'agent relais de métadonnées de Neutron et le serveur "
+"de métadonnées de Nova. Le même mot de passe partagé doit être utilisé lors "
+"de l'installation du paquet nova-common."
 
 #~ msgid "ml2/ml2_conf.ini"
 #~ msgstr "ml2/ml2_conf.ini"
