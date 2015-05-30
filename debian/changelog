@@ -1,6 +1,7 @@
 neutron (2015.1.0-3) UNRELEASED; urgency=medium
 
   * Updated pt.po translation of debconf messages (Closes: #784589).
+  * Updated fr.po thanks to Julien Patriarca (Closes: #785226).
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 12 May 2015 23:21:01 +0200
 
