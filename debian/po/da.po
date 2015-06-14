@@ -1,14 +1,14 @@
 # Danish translation neutron.
-# Copyright (c) 2014 neutron & nedenstående oversættere.
+# Copyright (c) 2015 neutron & nedenstående oversættere.
 # This file is distributed under the same license as the neutron package.
-# Joe Hansen <joedalton2@yahoo.dk>, 2014.
+# Joe Hansen <joedalton2@yahoo.dk>, 2014, 2015.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
 "POT-Creation-Date: 2015-02-02 01:45+0100\n"
-"PO-Revision-Date: 2014-10-18 17:30+01:00\n"
+"PO-Revision-Date: 2015-05-31 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -392,37 +392,31 @@ msgstr "Angiv den lokale IP-adresse for denne hypervisor."
 #. Description
 #: ../neutron-common.templates:15001
 msgid "Nova server URL:"
-msgstr ""
+msgstr "Nova-serveradresse:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:15001
-#, fuzzy
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the URL of the Nova server."
-msgstr "Angiv venligst IP-adressen for den server."
+msgstr "Angiv venligst adressen for Nova-serveren."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#, fuzzy
-#| msgid "Auth server tenant name:"
 msgid "Nova server region name:"
-msgstr "»Tenant«-navn for godkendelseserver:"
+msgstr "Regionsnavn for Novaserver:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#, fuzzy
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the region of the Nova server."
-msgstr "Angiv venligst IP-adressen for den server."
+msgstr "Angiv venligst regionen for Novaserveren."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
 msgid "Nova admin tenant ID:"
-msgstr ""
+msgstr "Tenant-id for Novaadministratoren:"
 
 #. Type: string
 #. Description
@@ -432,42 +426,39 @@ msgid ""
 "Therefore Neutron needs to know the Nova admin tenant ID, username and "
 "password."
 msgstr ""
+"Neutron skal være i stand til at kommunikere med Nova via Keystone. "
+"Derfor skal Neutron kende til tenant-Id'et for Novaadministratoren, "
+"brugernavn og adgangskode."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
 msgid "Please enter the ID of the admin tenant for Nova."
-msgstr ""
+msgstr "Indtast venligst Id'et for admininistratortenanten for Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#, fuzzy
-#| msgid "Auth server username:"
 msgid "Neutron administrator username:"
-msgstr "Brugernavn for godkendelsesserver:"
+msgstr "Neutron-administratorbrugernavn:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#, fuzzy
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please enter the username of the Nova administrator."
-msgstr "Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
+msgstr "Angiv venligst brugernavnet for Novaadministratoren."
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
 msgid "Nova administrator password:"
-msgstr ""
+msgstr "Adgangskode for Novaadministratoren:"
 
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
-#, fuzzy
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please enter the password of the Nova administrator."
-msgstr "Angiv venligst adgangskoden for brug med godkendelsesserveren."
+msgstr "Angiv venligst adgangskoden for Novaadministratoren."
 
 #. Type: boolean
 #. Description
@@ -626,7 +617,7 @@ msgstr ""
 #. Description
 #: ../neutron-metadata-agent.templates:7001
 msgid "Metadata proxy shared secret:"
-msgstr ""
+msgstr "Delt hemmelighed for metadataproxy:"
 
 #. Type: password
 #. Description
@@ -636,6 +627,9 @@ msgid ""
 "through the Neutron metadata agent, which serves as a proxy to the Nova "
 "metadata REST API server."
 msgstr ""
+"VM-instanser, der bruger Neutron til at håndtere netværk, henter deres "
+"metadata via Neutrons metadataagent, som fungerer som en proxy til "
+"Nova metadata REST API-serveren." 
 
 #. Type: password
 #. Description
@@ -645,6 +639,7 @@ msgid ""
 "between the Neutron metadata proxy agent and the Nova metadata server. The "
 "same shared password should be used when setting up the nova-common package."
 msgstr ""
+"Indtast venligst adgangskoden som skal bruges til at beskytte kommunikation "
+"mellem Neutron metadata proxy-agenten og Nova metadata-serveren. Den samme "
+"delte adgangskode skal bruges når pakken nova-common sættes op."
 
-#~ msgid "ml2/ml2_conf.ini"
-#~ msgstr "ml2/ml2_conf.ini"

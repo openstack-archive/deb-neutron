@@ -1,3 +1,9 @@
+neutron (2015.1.0-4) unstable; urgency=medium
+
+  * Updated Danish da.po debconf translation (Closes: #787375).
+
+ -- Thomas Goirand <zigo@debian.org>  Sun, 14 Jun 2015 15:58:35 +0200
+
 neutron (2015.1.0-3) unstable; urgency=medium
 
   * Updated pt.po translation of debconf messages (Closes: #784589).
