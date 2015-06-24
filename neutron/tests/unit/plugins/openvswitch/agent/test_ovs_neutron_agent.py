@@ -212,13 +212,15 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.patch.object(self.agent.int_br, 'add_flow')
         ) as (set_ovs_db_func, get_ovs_db_func, add_flow_func):
             self.agent.port_dead(port)
-        get_ovs_db_func.assert_called_once_with("Port", mock.ANY, "tag")
+        get_ovs_db_func.assert_called_once_with("Port", mock.ANY, "tag",
+                                                log_errors=True)
         if cur_tag == ovs_neutron_agent.DEAD_VLAN_TAG:
             self.assertFalse(set_ovs_db_func.called)
             self.assertFalse(add_flow_func.called)
         else:
             set_ovs_db_func.assert_called_once_with(
-                "Port", mock.ANY, "tag", ovs_neutron_agent.DEAD_VLAN_TAG)
+                "Port", mock.ANY, "tag", ovs_neutron_agent.DEAD_VLAN_TAG,
+                log_errors=True)
             add_flow_func.assert_called_once_with(
                 priority=2, in_port=port.ofport, actions="drop")
 
@@ -523,18 +525,30 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self.assertEqual(set(['123']), self.agent.updated_ports)
 
     def test_port_delete(self):
-        port_id = "123"
-        port_name = "foo"
-        with contextlib.nested(
-            mock.patch.object(self.agent.int_br, 'get_vif_port_by_id',
-                              return_value=mock.MagicMock(
-                                      port_name=port_name)),
-            mock.patch.object(self.agent.int_br, "delete_port")
-        ) as (get_vif_func, del_port_func):
+        vif = FakeVif()
+        with mock.patch.object(self.agent, 'int_br') as int_br:
+            int_br.get_vif_by_port_id.return_value = vif.port_name
+            int_br.get_vif_port_by_id.return_value = vif
             self.agent.port_delete("unused_context",
-                                   port_id=port_id)
-            self.assertTrue(get_vif_func.called)
-            del_port_func.assert_called_once_with(port_name)
+                                   port_id='id')
+            self.agent.process_deleted_ports(port_info={})
+            # the main things we care about are that it gets put in the
+            # dead vlan and gets blocked
+            int_br.set_db_attribute.assert_any_call(
+                'Port', vif.port_name, 'tag', ovs_neutron_agent.DEAD_VLAN_TAG,
+                log_errors=False)
+            int_br.add_flow.assert_any_call(priority=mock.ANY,
+                                            in_port=vif.ofport,
+                                            actions='drop')
+
+    def test_port_delete_removed_port(self):
+        with mock.patch.object(self.agent, 'int_br') as int_br:
+            self.agent.port_delete("unused_context",
+                                   port_id='id')
+            # if it was removed from the bridge, we shouldn't be processing it
+            self.agent.process_deleted_ports(port_info={'removed': {'id', }})
+            self.assertFalse(int_br.set_db_attribute.called)
+            self.assertFalse(int_br.drop_port.called)
 
     def test_setup_physical_bridges(self):
         with contextlib.nested(
@@ -1031,7 +1045,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             self.agent.tunnel_delete(context=None, **kwargs)
             self.assertTrue(clean_tun_fn.called)
 
-    def test_ovs_status(self):
+    def _test_ovs_status(self, *args):
         reply2 = {'current': set(['tap0']),
                   'added': set(['tap2']),
                   'removed': set([])}
@@ -1064,11 +1078,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             scan_ports.side_effect = [reply2, reply3]
             process_network_ports.side_effect = [
                 False, Exception('Fake exception to get out of the loop')]
-            check_ovs_status.side_effect = [constants.OVS_NORMAL,
-                                            constants.OVS_DEAD,
-                                            constants.OVS_RESTARTED]
-
-            # This will exit after the third loop
+            check_ovs_status.side_effect = args
             try:
                 self.agent.daemon_loop()
             except Exception:
@@ -1079,18 +1089,22 @@ class TestOvsNeutronAgent(base.BaseTestCase):
             mock.call(set(), set())
         ])
         process_network_ports.assert_has_calls([
-            mock.call({'current': set(['tap0']),
-                       'removed': set([]),
-                       'added': set(['tap2'])}, False),
-            mock.call({'current': set(['tap2']),
-                       'removed': set(['tap0']),
-                       'added': set([])}, True)
+            mock.call(reply2, False),
+            mock.call(reply3, True)
         ])
         self.assertTrue(update_stale.called)
-        # Verify the second time through the loop we triggered an
-        # OVS restart and re-setup the bridges
+        # Verify the OVS restart we triggered in the loop
+        # re-setup the bridges
         setup_int_br.assert_has_calls([mock.call()])
         setup_phys_br.assert_has_calls([mock.call({})])
+
+    def test_ovs_status(self):
+        self._test_ovs_status(constants.OVS_NORMAL,
+                              constants.OVS_DEAD,
+                              constants.OVS_RESTARTED)
+        # OVS will not DEAD in some exception, like DBConnectionError.
+        self._test_ovs_status(constants.OVS_NORMAL,
+                              constants.OVS_RESTARTED)
 
     def test_set_rpc_timeout(self):
         self.agent._handle_sigterm(None, None)
@@ -1141,13 +1155,11 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         # make sure redirect into spoof table is installed
         int_br.add_flow.assert_any_call(
             table=constants.LOCAL_SWITCHING, in_port=vif.ofport,
-            arp_op=constants.ARP_REPLY, proto='arp', actions=mock.ANY,
-            priority=10)
+            proto='arp', actions=mock.ANY, priority=10)
         # make sure drop rule for replies is installed
         int_br.add_flow.assert_any_call(
             table=constants.ARP_SPOOF_TABLE,
-            proto='arp', arp_op=constants.ARP_REPLY, actions='DROP',
-            priority=mock.ANY)
+            proto='arp', actions='DROP', priority=mock.ANY)
 
     def test_arp_spoofing_fixed_and_allowed_addresses(self):
         vif = FakeVif()
@@ -1165,8 +1177,7 @@ class TestOvsNeutronAgent(base.BaseTestCase):
                      '192.168.44.103/32'):
             int_br.add_flow.assert_any_call(
                 table=constants.ARP_SPOOF_TABLE, in_port=vif.ofport,
-                proto='arp', arp_op=constants.ARP_REPLY, actions='NORMAL',
-                arp_spa=addr, priority=mock.ANY)
+                proto='arp', actions='NORMAL', arp_spa=addr, priority=mock.ANY)
 
     def test__get_ofport_moves(self):
         previous = {'port1': 1, 'port2': 2}

@@ -127,16 +127,17 @@ class BaseOVS(object):
         return self.ovsdb.br_get_external_id(bridge, 'bridge-id').execute()
 
     def set_db_attribute(self, table_name, record, column, value,
-                         check_error=False):
+                         check_error=False, log_errors=True):
         self.ovsdb.db_set(table_name, record, (column, value)).execute(
-            check_error=check_error)
+            check_error=check_error, log_errors=log_errors)
 
     def clear_db_attribute(self, table_name, record, column):
         self.ovsdb.db_clear(table_name, record, column).execute()
 
-    def db_get_val(self, table, record, column, check_error=False):
+    def db_get_val(self, table, record, column, check_error=False,
+                   log_errors=True):
         return self.ovsdb.db_get(table, record, column).execute(
-            check_error=check_error)
+            check_error=check_error, log_errors=log_errors)
 
 
 class OVSBridge(BaseOVS):
@@ -341,7 +342,11 @@ class OVSBridge(BaseOVS):
         for r in results:
             # fall back to basic interface name
             key = self.portid_from_external_ids(r['external_ids']) or r['name']
-            port_map[key] = r['ofport']
+            try:
+                port_map[key] = int(r['ofport'])
+            except TypeError:
+                # port doesn't yet have an ofport entry so we ignore it
+                pass
         return port_map
 
     def get_vif_port_set(self):

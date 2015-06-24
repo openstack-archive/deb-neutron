@@ -30,6 +30,7 @@ INTERNAL_DEV_PREFIX = namespaces.INTERNAL_DEV_PREFIX
 EXTERNAL_DEV_PREFIX = namespaces.EXTERNAL_DEV_PREFIX
 
 EXTERNAL_INGRESS_MARK_MASK = '0xffffffff'
+FLOATINGIP_STATUS_NOCHANGE = object()
 
 
 class RouterInfo(object):
@@ -247,6 +248,10 @@ class RouterInfo(object):
                           {'id': fip['id'],
                            'status': fip_statuses.get(fip['id'])})
 
+                # mark the status as not changed. we can't remove it because
+                # that's how the caller determines that it was removed
+                if fip_statuses[fip['id']] == fip['status']:
+                    fip_statuses[fip['id']] = FLOATINGIP_STATUS_NOCHANGE
         fips_to_remove = (
             ip_cidr for ip_cidr in existing_cidrs - new_cidrs
             if common_utils.is_cidr_host(ip_cidr))
@@ -274,7 +279,7 @@ class RouterInfo(object):
         self.router[l3_constants.INTERFACE_KEY] = []
         self.router[l3_constants.FLOATINGIP_KEY] = []
         self.process(agent)
-        self.radvd.disable()
+        self.disable_radvd()
         if self.router_namespace:
             self.router_namespace.delete()
 
@@ -342,6 +347,21 @@ class RouterInfo(object):
                 if netaddr.IPNetwork(subnet['cidr']).version == 6:
                     return True
 
+    def enable_radvd(self, internal_ports=None):
+        LOG.debug('Spawning radvd daemon in router device: %s', self.router_id)
+        if not internal_ports:
+            internal_ports = self.internal_ports
+        self.radvd.enable(internal_ports)
+
+    def disable_radvd(self):
+        LOG.debug('Terminating radvd daemon in router device: %s',
+                  self.router_id)
+        self.radvd.disable()
+
+    def internal_network_updated(self, interface_name, ip_cidrs):
+        self.driver.init_l3(interface_name, ip_cidrs=ip_cidrs,
+            namespace=self.ns_name)
+
     def _process_internal_ports(self):
         existing_port_ids = set(p['id'] for p in self.internal_ports)
 
@@ -374,13 +394,12 @@ class RouterInfo(object):
                 self.internal_ports[index] = updated_ports[p['id']]
                 interface_name = self.get_internal_device_name(p['id'])
                 ip_cidrs = common_utils.fixed_ip_cidrs(p['fixed_ips'])
-                self.driver.init_l3(interface_name, ip_cidrs=ip_cidrs,
-                        namespace=self.ns_name)
+                self.internal_network_updated(interface_name, ip_cidrs)
                 enable_ra = enable_ra or self._port_has_ipv6_subnet(p)
 
         # Enable RA
         if enable_ra:
-            self.radvd.enable(internal_ports)
+            self.enable_radvd(internal_ports)
 
         existing_devices = self._get_existing_devices()
         current_internal_devs = set(n for n in existing_devices
@@ -413,13 +432,7 @@ class RouterInfo(object):
                              namespace=ns_name,
                              prefix=EXTERNAL_DEV_PREFIX)
 
-    def _external_gateway_added(self, ex_gw_port, interface_name,
-                                ns_name, preserve_ips):
-        self._plug_external_gateway(ex_gw_port, interface_name, ns_name)
-
-        # Build up the interface and gateway IP addresses that
-        # will be added to the interface.
-        ip_cidrs = common_utils.fixed_ip_cidrs(ex_gw_port['fixed_ips'])
+    def _get_external_gw_ips(self, ex_gw_port):
         gateway_ips = []
         enable_ra_on_gw = False
         if 'subnets' in ex_gw_port:
@@ -435,6 +448,17 @@ class RouterInfo(object):
                 # ipv6_gateway is also not configured.
                 # Use RA for default route.
                 enable_ra_on_gw = True
+        return gateway_ips, enable_ra_on_gw
+
+    def _external_gateway_added(self, ex_gw_port, interface_name,
+                                ns_name, preserve_ips):
+        self._plug_external_gateway(ex_gw_port, interface_name, ns_name)
+
+        # Build up the interface and gateway IP addresses that
+        # will be added to the interface.
+        ip_cidrs = common_utils.fixed_ip_cidrs(ex_gw_port['fixed_ips'])
+
+        gateway_ips, enable_ra_on_gw = self._get_external_gw_ips(ex_gw_port)
         self.driver.init_l3(interface_name,
                             ip_cidrs,
                             namespace=ns_name,

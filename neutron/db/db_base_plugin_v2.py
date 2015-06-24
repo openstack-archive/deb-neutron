@@ -458,6 +458,11 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
     def _allocate_fixed_ips(self, context, fixed_ips, mac_address):
         """Allocate IP addresses according to the configured fixed_ips."""
         ips = []
+
+        # we need to start with entries that asked for a specific IP in case
+        # those IPs happen to be next in the line for allocation for ones that
+        # didn't ask for a specific IP
+        fixed_ips.sort(key=lambda x: 'ip_address' not in x)
         for fixed in fixed_ips:
             subnet = self._get_subnet(context, fixed['subnet_id'])
             is_auto_addr = ipv6_utils.is_auto_address_subnet(subnet)
@@ -640,6 +645,16 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                           'subnet_id': subnet.id,
                           'cidr': subnet.cidr})
                 raise n_exc.InvalidInput(error_message=err_msg)
+
+    def _validate_network_subnetpools(self, network,
+                                      new_subnetpool_id, ip_version):
+        """Validate all subnets on the given network have been allocated from
+           the same subnet pool as new_subnetpool_id
+        """
+        for subnet in network.subnets:
+            if (subnet.ip_version == ip_version and
+               new_subnetpool_id != subnet.subnetpool_id):
+                raise n_exc.NetworkSubnetPoolAffinityError()
 
     def _validate_allocation_pools(self, ip_pools, subnet_cidr):
         """Validate IP allocation pools.
@@ -1143,19 +1158,32 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                     pool=pool_range,
                     ip_address=gateway_ip)
 
-    def _update_router_gw_ports(self, context, subnet_id, network_id):
+    def _update_router_gw_ports(self, context, network, subnet):
         l3plugin = manager.NeutronManager.get_service_plugins().get(
                 service_constants.L3_ROUTER_NAT)
         if l3plugin:
             gw_ports = self._get_router_gw_ports_by_network(context,
-                    network_id)
+                    network['id'])
             router_ids = [p['device_id'] for p in gw_ports]
             ctx_admin = ctx.get_admin_context()
+            ext_subnets_dict = {s['id']: s for s in network['subnets']}
             for id in router_ids:
                 router = l3plugin.get_router(ctx_admin, id)
                 external_gateway_info = router['external_gateway_info']
+                # Get all stateful (i.e. non-SLAAC/DHCPv6-stateless) fixed ips
+                fips = [f for f in external_gateway_info['external_fixed_ips']
+                        if not ipv6_utils.is_auto_address_subnet(
+                            ext_subnets_dict[f['subnet_id']])]
+                num_fips = len(fips)
+                # Don't add the fixed IP to the port if it already
+                # has a stateful fixed IP of the same IP version
+                if num_fips > 1:
+                    continue
+                if num_fips == 1 and netaddr.IPAddress(
+                        fips[0]['ip_address']).version == subnet['ip_version']:
+                    continue
                 external_gateway_info['external_fixed_ips'].append(
-                                             {'subnet_id': subnet_id})
+                                             {'subnet_id': subnet['id']})
                 info = {'router': {'external_gateway_info':
                     external_gateway_info}}
                 l3plugin.update_router(context, id, info)
@@ -1178,6 +1206,9 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                                                allocation_pools)
 
         self._validate_subnet_cidr(context, network, subnet_args['cidr'])
+        self._validate_network_subnetpools(network,
+                                           subnet_args['subnetpool_id'],
+                                           subnet_args['ip_version'])
 
         subnet = models_v2.Subnet(**subnet_args)
         context.session.add(subnet)
@@ -1267,6 +1298,15 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
 
         with context.session.begin(subtransactions=True):
             subnetpool = self._get_subnetpool(context, subnetpool_id)
+            ip_version = s.get('ip_version')
+            has_ip_version = attributes.is_attr_set(ip_version)
+            if has_ip_version and ip_version != subnetpool.ip_version:
+                args = {'req_ver': str(s['ip_version']),
+                        'pool_ver': str(subnetpool.ip_version)}
+                reason = _("Cannot allocate IPv%(req_ver)s subnet from "
+                           "IPv%(pool_ver)s subnet pool") % args
+                raise n_exc.BadRequest(resource='subnets', msg=reason)
+
             network = self._get_network(context, s["network_id"])
             allocator = subnet_alloc.SubnetAllocator(subnetpool)
             req = self._make_subnet_request(tenant_id, s, subnetpool)
@@ -1286,8 +1326,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                                        s['allocation_pools'])
         if network.external:
             self._update_router_gw_ports(context,
-                                         subnet['id'],
-                                         subnet['network_id'])
+                                         network,
+                                         subnet)
         return self._make_subnet_dict(subnet)
 
     def _create_subnet_from_implicit_pool(self, context, subnet):
@@ -1312,8 +1352,8 @@ class NeutronDbPluginV2(neutron_plugin_base_v2.NeutronPluginBaseV2,
                                        s['allocation_pools'])
         if network.external:
             self._update_router_gw_ports(context,
-                                         subnet['id'],
-                                         subnet['network_id'])
+                                         network,
+                                         subnet)
         return self._make_subnet_dict(subnet)
 
     def _get_subnetpool_id(self, subnet):

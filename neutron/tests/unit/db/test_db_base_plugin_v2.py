@@ -909,6 +909,16 @@ class TestPortsV2(NeutronDbPluginV2TestCase):
                 self.assertIn('mac_address', port['port'])
                 self._delete('ports', port['port']['id'])
 
+    def test_create_port_anticipating_allocation(self):
+        with self.network(shared=True) as network:
+            with self.subnet(network=network, cidr='10.0.0.0/24') as subnet:
+                fixed_ips = [{'subnet_id': subnet['subnet']['id']},
+                             {'subnet_id': subnet['subnet']['id'],
+                              'ip_address': '10.0.0.2'}]
+                self._create_port(self.fmt, network['network']['id'],
+                                  webob.exc.HTTPCreated.code,
+                                  fixed_ips=fixed_ips)
+
     def test_create_port_public_network_with_invalid_ip_no_subnet_id(self,
             expected_error='InvalidIpForNetwork'):
         with self.network(shared=True) as network:
@@ -5297,6 +5307,21 @@ class TestSubnetPoolsV2(NeutronDbPluginV2TestCase):
             # Assert error
             self.assertEqual(res.status_int, 409)
 
+    def test_allocate_any_ipv4_subnet_ipv6_pool(self):
+        with self.network() as network:
+            sp = self._test_create_subnetpool(['2001:db8:1:2::/63'],
+                                              tenant_id=self._tenant_id,
+                                              name=self._POOL_NAME)
+
+            # Request a specific subnet allocation
+            data = {'subnet': {'network_id': network['network']['id'],
+                               'subnetpool_id': sp['subnetpool']['id'],
+                               'ip_version': 4,
+                               'tenant_id': network['network']['tenant_id']}}
+            req = self.new_create_request('subnets', data)
+            res = req.get_response(self.api)
+            self.assertEqual(res.status_int, 400)
+
 
 class DbModelTestCase(base.BaseTestCase):
     """DB model tests."""
@@ -5505,6 +5530,15 @@ class NeutronDbPluginV2AsMixinTestCase(testlib_api.SqlTestCase):
         self.net_data['network']['status'] = 'BUILD'
         net = self.plugin.create_network(self.context, self.net_data)
         self.assertEqual(net['status'], 'BUILD')
+
+    def test__validate_network_subnetpools(self):
+        network = models_v2.Network()
+        network.subnets = [models_v2.Subnet(subnetpool_id='test_id',
+                                            ip_version=4)]
+        new_subnetpool_id = None
+        self.assertRaises(n_exc.NetworkSubnetPoolAffinityError,
+                          self.plugin._validate_network_subnetpools,
+                          network, new_subnetpool_id, 4)
 
 
 class TestNetworks(testlib_api.SqlTestCase):

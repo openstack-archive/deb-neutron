@@ -48,7 +48,7 @@ from neutron.openstack.common import uuidutils
 from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.linux import base
 from neutron.tests.functional.agent.linux import helpers
-from neutron.tests.unit import test_l3_agent
+from neutron.tests.unit.agent.l3 import test_agent as test_l3_agent
 
 LOG = logging.getLogger(__name__)
 _uuid = uuidutils.generate_uuid
@@ -119,9 +119,6 @@ class L3AgentTestFramework(base.BaseOVSLinuxTestCase):
             enable_fip = False
             extra_routes = False
 
-        if not v6_ext_gw_with_sub:
-            self.agent.conf.set_override('ipv6_gateway',
-                                         'fe80::f816:3eff:fe2e:1')
         return test_l3_agent.prepare_router_data(ip_version=ip_version,
                                                  enable_snat=enable_snat,
                                                  enable_floating_ip=enable_fip,
@@ -399,6 +396,8 @@ class L3AgentTestCase(L3AgentTestFramework):
         self._router_lifecycle(enable_ha=False, dual_stack=True)
 
     def test_legacy_router_lifecycle_with_no_gateway_subnet(self):
+        self.agent.conf.set_override('ipv6_gateway',
+                                     'fe80::f816:3eff:fe2e:1')
         self._router_lifecycle(enable_ha=False, dual_stack=True,
                                v6_ext_gw_with_sub=False)
 
@@ -452,6 +451,18 @@ class L3AgentTestCase(L3AgentTestFramework):
 
     def test_ipv6_ha_router_lifecycle(self):
         self._router_lifecycle(enable_ha=True, ip_version=6)
+
+    def test_ipv6_ha_router_lifecycle_with_no_gw_subnet(self):
+        self.agent.conf.set_override('ipv6_gateway',
+                                     'fe80::f816:3eff:fe2e:1')
+        self._router_lifecycle(enable_ha=True, ip_version=6,
+                               v6_ext_gw_with_sub=False)
+
+    def test_ipv6_ha_router_lifecycle_with_no_gw_subnet_for_router_advts(self):
+        # Verify that router gw interface is configured to receive Router
+        # Advts from upstream router when no external gateway is configured.
+        self._router_lifecycle(enable_ha=True, dual_stack=True,
+                               v6_ext_gw_with_sub=False)
 
     def test_keepalived_configuration(self):
         router_info = self.generate_router_info(enable_ha=True)
@@ -606,6 +617,18 @@ class L3AgentTestCase(L3AgentTestFramework):
             self._assert_floating_ip_chains(router)
             self._assert_extra_routes(router)
         self._assert_metadata_chains(router)
+
+        # Verify router gateway interface is configured to receive Router Advts
+        # when IPv6 is enabled and no IPv6 gateway is configured.
+        if router.use_ipv6 and not v6_ext_gw_with_sub:
+            if not self.agent.conf.ipv6_gateway:
+                external_port = router.get_ex_gw_port()
+                external_device_name = router.get_external_device_name(
+                    external_port['id'])
+                ip_wrapper = ip_lib.IPWrapper(namespace=router.ns_name)
+                ra_state = ip_wrapper.netns.execute(['sysctl', '-b',
+                    'net.ipv6.conf.%s.accept_ra' % external_device_name])
+                self.assertEqual('2', ra_state)
 
         if enable_ha:
             self._assert_ha_device(router)
@@ -763,6 +786,79 @@ class L3HATestFramework(L3AgentTestFramework):
 
         utils.wait_until_true(lambda: router2.ha_state == 'master')
         utils.wait_until_true(lambda: router1.ha_state == 'backup')
+
+    def test_ha_router_ipv6_radvd_status(self):
+        router_info = self.generate_router_info(ip_version=6, enable_ha=True)
+        router1 = self.manage_router(self.agent, router_info)
+        utils.wait_until_true(lambda: router1.ha_state == 'master')
+        utils.wait_until_true(lambda: router1.radvd.enabled)
+
+        def _check_lla_status(router, expected):
+            internal_devices = router.router[l3_constants.INTERFACE_KEY]
+            for device in internal_devices:
+                lladdr = ip_lib.get_ipv6_lladdr(device['mac_address'])
+                exists = ip_lib.device_exists_with_ips_and_mac(
+                    router.get_internal_device_name(device['id']), [lladdr],
+                    device['mac_address'], router.ns_name)
+                self.assertEqual(expected, exists)
+
+        _check_lla_status(router1, True)
+
+        device_name = router1.get_ha_device_name()
+        ha_device = ip_lib.IPDevice(device_name, namespace=router1.ns_name)
+        ha_device.link.set_down()
+
+        utils.wait_until_true(lambda: router1.ha_state == 'backup')
+        utils.wait_until_true(lambda: not router1.radvd.enabled, timeout=10)
+        _check_lla_status(router1, False)
+
+    def test_ha_router_process_ipv6_subnets_to_existing_port(self):
+        router_info = self.generate_router_info(enable_ha=True, ip_version=6)
+        router = self.manage_router(self.agent, router_info)
+
+        def verify_ip_in_keepalived_config(router, iface):
+            config = router.keepalived_manager.config.get_config_str()
+            ip_cidrs = common_utils.fixed_ip_cidrs(iface['fixed_ips'])
+            for ip_addr in ip_cidrs:
+                self.assertIn(ip_addr, config)
+
+        interface_id = router.router[l3_constants.INTERFACE_KEY][0]['id']
+        slaac = l3_constants.IPV6_SLAAC
+        slaac_mode = {'ra_mode': slaac, 'address_mode': slaac}
+
+        # Add a second IPv6 subnet to the router internal interface.
+        self._add_internal_interface_by_subnet(router.router, count=1,
+                ip_version=6, ipv6_subnet_modes=[slaac_mode],
+                interface_id=interface_id)
+        router.process(self.agent)
+        utils.wait_until_true(lambda: router.ha_state == 'master')
+
+        # Verify that router internal interface is present and is configured
+        # with IP address from both the subnets.
+        internal_iface = router.router[l3_constants.INTERFACE_KEY][0]
+        self.assertEqual(2, len(internal_iface['fixed_ips']))
+        self._assert_internal_devices(router)
+
+        # Verify that keepalived config is properly updated.
+        verify_ip_in_keepalived_config(router, internal_iface)
+
+        # Remove one subnet from the router internal iface
+        interfaces = copy.deepcopy(router.router.get(
+            l3_constants.INTERFACE_KEY, []))
+        fixed_ips, subnets = [], []
+        fixed_ips.append(interfaces[0]['fixed_ips'][0])
+        subnets.append(interfaces[0]['subnets'][0])
+        interfaces[0].update({'fixed_ips': fixed_ips, 'subnets': subnets})
+        router.router[l3_constants.INTERFACE_KEY] = interfaces
+        router.process(self.agent)
+
+        # Verify that router internal interface has a single ipaddress
+        internal_iface = router.router[l3_constants.INTERFACE_KEY][0]
+        self.assertEqual(1, len(internal_iface['fixed_ips']))
+        self._assert_internal_devices(router)
+
+        # Verify that keepalived config is properly updated.
+        verify_ip_in_keepalived_config(router, internal_iface)
 
 
 class MetadataFakeProxyHandler(object):
