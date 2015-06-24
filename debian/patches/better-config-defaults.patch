@@ -5,8 +5,10 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2015-04-15
 
---- neutron-2015.1~rc1.orig/etc/dhcp_agent.ini
-+++ neutron-2015.1~rc1/etc/dhcp_agent.ini
+Index: neutron/etc/dhcp_agent.ini
+===================================================================
+--- neutron.orig/etc/dhcp_agent.ini
++++ neutron/etc/dhcp_agent.ini
 @@ -9,14 +9,12 @@
  
  # The DHCP agent requires an interface driver be set. Choose the one that best
@@ -59,8 +61,10 @@ Last-Update: 2015-04-15
  
  # Comma-separated list of DNS servers which will be used by dnsmasq
  # as forwarders.
---- neutron-2015.1~rc1.orig/etc/l3_agent.ini
-+++ neutron-2015.1~rc1/etc/l3_agent.ini
+Index: neutron/etc/l3_agent.ini
+===================================================================
+--- neutron.orig/etc/l3_agent.ini
++++ neutron/etc/l3_agent.ini
 @@ -4,11 +4,9 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -135,8 +139,10 @@ Last-Update: 2015-04-15
  # ha_vrrp_advert_int = 2
 +
 +allow_automatic_l3agent_failover = False
---- neutron-2015.1~rc1.orig/etc/metadata_agent.ini
-+++ neutron-2015.1~rc1/etc/metadata_agent.ini
+Index: neutron/etc/metadata_agent.ini
+===================================================================
+--- neutron.orig/etc/metadata_agent.ini
++++ neutron/etc/metadata_agent.ini
 @@ -23,7 +23,7 @@ admin_password = %SERVICE_PASSWORD%
  # nova_metadata_port = 8775
  
@@ -146,8 +152,10 @@ Last-Update: 2015-04-15
  
  # Whether insecure SSL connection should be accepted for Nova metadata server
  # requests
---- neutron-2015.1~rc1.orig/etc/neutron.conf
-+++ neutron-2015.1~rc1/etc/neutron.conf
+Index: neutron/etc/neutron.conf
+===================================================================
+--- neutron.orig/etc/neutron.conf
++++ neutron/etc/neutron.conf
 @@ -57,8 +57,8 @@
  # previous versions, the class name of a plugin can be specified instead of its
  # entrypoint name.
@@ -252,7 +260,7 @@ Last-Update: 2015-04-15
  
  # Set to true to add comments to generated iptables rules that describe
  # each rule's purpose. (System must support the iptables comments module.)
-@@ -702,15 +703,14 @@ admin_password = %SERVICE_PASSWORD%
+@@ -693,15 +694,14 @@ admin_password = %SERVICE_PASSWORD%
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -270,8 +278,10 @@ Last-Update: 2015-04-15
  
  # Database engine for which script will be generated when using offline
  # migration
---- neutron-2015.1~rc1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
-+++ neutron-2015.1~rc1/etc/neutron/plugins/ml2/ml2_conf.ini
+Index: neutron/etc/neutron/plugins/ml2/ml2_conf.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron/etc/neutron/plugins/ml2/ml2_conf.ini
 @@ -1,25 +1,24 @@
  [ml2]
  # (ListOpt) List of network type driver entrypoints to be loaded from
@@ -333,8 +343,10 @@ Last-Update: 2015-04-15
  # requires that ipset is installed on L2 agent node.
 -# enable_ipset = True
 +enable_ipset = True
---- neutron-2015.1~rc1.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-+++ neutron-2015.1~rc1/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+Index: neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+===================================================================
+--- neutron.orig/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
++++ neutron/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
 @@ -5,7 +5,7 @@
  # attached to this bridge and then "patched" according to their network
  # connectivity.
