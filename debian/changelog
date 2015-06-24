@@ -1,3 +1,11 @@
+neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-1) unstable; urgency=medium
+
+  * New upstream release (based on commit 61 and sha bdf194a0e1):
+    - Fixes CVE-2015-3221: L2 agent DoS through incorrect allowed address pairs
+    (Closes: #789713).
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 24 Jun 2015 07:41:07 +0000
+
 neutron (2015.1.0-4) unstable; urgency=medium
 
   * Updated Danish da.po debconf translation (Closes: #787375).
