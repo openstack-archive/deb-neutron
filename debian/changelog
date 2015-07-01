@@ -1,3 +1,9 @@
+neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-2) unstable; urgency=medium
+
+  * Rebuilt for sqlalchemy 1.0.6.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 01 Jul 2015 02:14:01 +0000
+
 neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-1) unstable; urgency=medium
 
   * New upstream release (based on commit 61 and sha bdf194a0e1).
