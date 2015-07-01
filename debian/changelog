@@ -1,3 +1,9 @@
+neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-3) unstable; urgency=medium
+
+  * Added requirements.txt patch for SQLA version.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 01 Jul 2015 03:02:58 +0000
+
 neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-2) unstable; urgency=medium
 
   * Rebuilt for sqlalchemy 1.0.6.
