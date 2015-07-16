@@ -27,7 +27,6 @@ from neutron.notifiers import batch_notifier
 
 LOG = logging.getLogger(__name__)
 
-HA_DEV_PREFIX = 'ha-'
 KEEPALIVED_STATE_CHANGE_SERVER_BACKLOG = 4096
 
 OPTS = [
@@ -135,7 +134,15 @@ class AgentMixin(object):
         else:
             LOG.debug('Closing metadata proxy for router %s', router_id)
             self.metadata_driver.destroy_monitored_metadata_proxy(
-                self.process_monitor, ri.router_id, ri.ns_name, self.conf)
+                self.process_monitor, ri.router_id, self.conf)
+
+    def _update_radvd_daemon(self, ri, state):
+        # Radvd has to be spawned only on the Master HA Router. If there are
+        # any state transitions, we enable/disable radvd accordingly.
+        if state == 'master':
+            ri.enable_radvd()
+        else:
+            ri.disable_radvd()
 
     def _update_radvd_daemon(self, ri, state):
         # Radvd has to be spawned only on the Master HA Router. If there are

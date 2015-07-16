@@ -14,7 +14,6 @@
 #    under the License.
 
 
-import contextlib
 import os
 import sys
 
@@ -70,33 +69,32 @@ class TestPrivileges(base.BaseTestCase):
                                   daemon.setgid, '321')
                 log_critical.assert_once_with(mock.ANY)
 
-    def test_drop_no_privileges(self):
-        with contextlib.nested(
-                mock.patch.object(os, 'setgroups'),
-                mock.patch.object(daemon, 'setgid'),
-                mock.patch.object(daemon, 'setuid')) as mocks:
-            daemon.drop_privileges()
-            for cursor in mocks:
-                self.assertFalse(cursor.called)
+    @mock.patch.object(os, 'setgroups')
+    @mock.patch.object(daemon, 'setgid')
+    @mock.patch.object(daemon, 'setuid')
+    def test_drop_no_privileges(self, mock_setuid, mock_setgid,
+                                mock_setgroups):
+        daemon.drop_privileges()
+        for cursor in (mock_setuid, mock_setgid, mock_setgroups):
+            self.assertFalse(cursor.called)
 
-    def _test_drop_privileges(self, user=None, group=None):
-        with contextlib.nested(
-                mock.patch.object(os, 'geteuid', return_value=0),
-                mock.patch.object(os, 'setgroups'),
-                mock.patch.object(daemon, 'setgid'),
-                mock.patch.object(daemon, 'setuid')) as (
-                    geteuid, setgroups, setgid, setuid):
-            daemon.drop_privileges(user=user, group=group)
-            if user:
-                setuid.assert_called_once_with(user)
-            else:
-                self.assertFalse(setuid.called)
-            if group:
-                setgroups.assert_called_once_with([])
-                setgid.assert_called_once_with(group)
-            else:
-                self.assertFalse(setgroups.called)
-                self.assertFalse(setgid.called)
+    @mock.patch.object(os, 'geteuid', return_value=0)
+    @mock.patch.object(os, 'setgroups')
+    @mock.patch.object(daemon, 'setgid')
+    @mock.patch.object(daemon, 'setuid')
+    def _test_drop_privileges(self, setuid, setgid, setgroups,
+                              geteuid, user=None, group=None):
+        daemon.drop_privileges(user=user, group=group)
+        if user:
+            setuid.assert_called_once_with(user)
+        else:
+            self.assertFalse(setuid.called)
+        if group:
+            setgroups.assert_called_once_with([])
+            setgid.assert_called_once_with(group)
+        else:
+            self.assertFalse(setgroups.called)
+            self.assertFalse(setgid.called)
 
     def test_drop_user_privileges(self):
         self._test_drop_privileges(user='user')
@@ -227,9 +225,9 @@ class TestDaemon(base.BaseTestCase):
 
     def test_fork_parent(self):
         self.os.fork.return_value = 1
-        with testtools.ExpectedException(SystemExit):
-            d = daemon.Daemon('pidfile')
-            d._fork()
+        d = daemon.Daemon('pidfile')
+        d._fork()
+        self.os._exit.assert_called_once_with(mock.ANY)
 
     def test_fork_child(self):
         self.os.fork.return_value = 0
@@ -237,13 +235,15 @@ class TestDaemon(base.BaseTestCase):
         self.assertIsNone(d._fork())
 
     def test_fork_error(self):
-        self.os.fork.side_effect = lambda: OSError(1)
+        self.os.fork.side_effect = OSError(1)
         with mock.patch.object(daemon.sys, 'stderr'):
             with testtools.ExpectedException(SystemExit):
                 d = daemon.Daemon('pidfile', 'stdin')
                 d._fork()
 
     def test_daemonize(self):
+        self.os.devnull = '/dev/null'
+
         d = daemon.Daemon('pidfile')
         with mock.patch.object(d, '_fork') as fork:
             with mock.patch.object(daemon, 'atexit') as atexit:

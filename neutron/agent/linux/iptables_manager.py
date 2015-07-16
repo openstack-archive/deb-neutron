@@ -18,6 +18,7 @@
 
 """Implements iptables rules using linux utilities."""
 
+import collections
 import contextlib
 import os
 import re
@@ -27,6 +28,7 @@ from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+import six
 
 from neutron.agent.common import config
 from neutron.agent.linux import iptables_comments as ic
@@ -36,6 +38,8 @@ from neutron.common import utils
 from neutron.i18n import _LE, _LW
 
 LOG = logging.getLogger(__name__)
+
+config.register_iptables_opts(cfg.CONF)
 
 
 # NOTE(vish): Iptables supports chain names of up to 28 characters,  and we
@@ -296,7 +300,6 @@ class IptablesManager(object):
         else:
             self.execute = linux_utils.execute
 
-        config.register_iptables_opts(cfg.CONF)
         self.use_ipv6 = use_ipv6
         self.namespace = namespace
         self.iptables_apply_deferred = False
@@ -333,10 +336,11 @@ class IptablesManager(object):
                 {'nat': IptablesTable(binary_name=self.wrap_name)})
             builtin_chains[4].update({'nat': ['PREROUTING',
                                       'OUTPUT', 'POSTROUTING']})
-            self.ipv4.update(
-                {'raw': IptablesTable(binary_name=self.wrap_name)})
-            builtin_chains[4].update({'raw': ['PREROUTING',
-                                      'OUTPUT']})
+
+        self.ipv4.update({'raw': IptablesTable(binary_name=self.wrap_name)})
+        builtin_chains[4].update({'raw': ['PREROUTING', 'OUTPUT']})
+        self.ipv6.update({'raw': IptablesTable(binary_name=self.wrap_name)})
+        builtin_chains[6].update({'raw': ['PREROUTING', 'OUTPUT']})
 
         for ip_version in builtin_chains:
             if ip_version == 4:
@@ -344,7 +348,7 @@ class IptablesManager(object):
             elif ip_version == 6:
                 tables = self.ipv6
 
-            for table, chains in builtin_chains[ip_version].iteritems():
+            for table, chains in six.iteritems(builtin_chains[ip_version]):
                 for chain in chains:
                     tables[table].add_chain(chain)
                     tables[table].add_rule(chain, '-j $%s' %
@@ -419,12 +423,8 @@ class IptablesManager(object):
         if self.namespace:
             lock_name += '-' + self.namespace
 
-        try:
-            with lockutils.lock(lock_name, utils.SYNCHRONIZED_PREFIX, True):
-                LOG.debug('Got semaphore / lock "%s"', lock_name)
-                return self._apply_synchronized()
-        finally:
-            LOG.debug('Semaphore / lock released "%s"', lock_name)
+        with lockutils.lock(lock_name, utils.SYNCHRONIZED_PREFIX, True):
+            return self._apply_synchronized()
 
     def _apply_synchronized(self):
         """Apply the current in-memory set of iptables rules.
@@ -509,12 +509,12 @@ class IptablesManager(object):
 
         return rules_index
 
-    def _find_last_entry(self, filter_list, match_str):
-        # find a matching entry, starting from the bottom
-        for s in reversed(filter_list):
-            s = s.strip()
-            if match_str in s:
-                return s
+    def _find_last_entry(self, filter_map, match_str):
+        # find last matching entry
+        try:
+            return filter_map[match_str][-1]
+        except KeyError:
+            pass
 
     def _modify_rules(self, current_lines, table, table_name):
         # Chains are stored as sets to avoid duplicates.
@@ -539,6 +539,9 @@ class IptablesManager(object):
             (old_filter if self.wrap_name in line else
              new_filter).append(line.strip())
 
+        old_filter_map = make_filter_map(old_filter)
+        new_filter_map = make_filter_map(new_filter)
+
         rules_index = self._find_rules_index(new_filter)
 
         all_chains = [':%s' % name for name in unwrapped_chains]
@@ -550,9 +553,9 @@ class IptablesManager(object):
         for chain in all_chains:
             chain_str = str(chain).strip()
 
-            old = self._find_last_entry(old_filter, chain_str)
+            old = self._find_last_entry(old_filter_map, chain_str)
             if not old:
-                dup = self._find_last_entry(new_filter, chain_str)
+                dup = self._find_last_entry(new_filter_map, chain_str)
             new_filter = [s for s in new_filter if chain_str not in s.strip()]
 
             # if no old or duplicates, use original chain
@@ -573,9 +576,9 @@ class IptablesManager(object):
             # Further down, we weed out duplicates from the bottom of the
             # list, so here we remove the dupes ahead of time.
 
-            old = self._find_last_entry(old_filter, rule_str)
+            old = self._find_last_entry(old_filter_map, rule_str)
             if not old:
-                dup = self._find_last_entry(new_filter, rule_str)
+                dup = self._find_last_entry(new_filter_map, rule_str)
             new_filter = [s for s in new_filter if rule_str not in s.strip()]
 
             # if no old or duplicates, use original rule
@@ -721,3 +724,29 @@ class IptablesManager(object):
                 acc['bytes'] += int(data[1])
 
         return acc
+
+
+def make_filter_map(filter_list):
+    filter_map = collections.defaultdict(list)
+    for data in filter_list:
+        # strip any [packet:byte] counts at start or end of lines,
+        # for example, chains look like ":neutron-foo - [0:0]"
+        # and rules look like "[0:0] -A neutron-foo..."
+        if data.startswith('['):
+            key = data.rpartition('] ')[2]
+        elif data.endswith(']'):
+            key = data.rsplit(' [', 1)[0]
+            if key.endswith(' -'):
+                key = key[:-2]
+        else:
+            # things like COMMIT, *filter, and *nat land here
+            continue
+        filter_map[key].append(data)
+        # regular IP(v6) entries are translated into /32s or /128s so we
+        # include a lookup without the CIDR here to match as well
+        for cidr in ('/32', '/128'):
+            if cidr in key:
+                alt_key = key.replace(cidr, '')
+                filter_map[alt_key].append(data)
+    # return a regular dict so readers don't accidentally add entries
+    return dict(filter_map)

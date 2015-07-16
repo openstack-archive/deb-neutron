@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 2015.1.dev144\n"
+"Project-Id-Version: neutron 2015.2.0.dev464\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-03-29 06:13+0000\n"
+"POT-Creation-Date: 2015-06-11 06:02+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,21 +17,27 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 1.3\n"
 
-#: neutron/policy.py:101
-#, python-format
-msgid ""
-"Found deprecated policy rule:%s. Please consider upgrading your policy "
-"configuration file"
-msgstr ""
-
-#: neutron/policy.py:159
+#: neutron/policy.py:115
 #, python-format
 msgid "Unable to find data type descriptor for attribute %s"
 msgstr ""
 
-#: neutron/quota.py:226
+#: neutron/quota.py:227
+msgid ""
+"The quota driver neutron.quota.ConfDriver is deprecated as of Liberty. "
+"neutron.db.quota_db.DbQuotaDriver should be used in its place"
+msgstr ""
+
+#: neutron/quota.py:241
 #, python-format
 msgid "%s is already registered."
+msgstr ""
+
+#: neutron/quota.py:341
+msgid ""
+"Registering resources to apply quota limits to using the quota_items "
+"option is deprecated as of Liberty.Resource REST controllers should take "
+"care of registering resources with the quota engine."
 msgstr ""
 
 #: neutron/agent/rpc.py:113
@@ -42,34 +48,28 @@ msgstr ""
 msgid "Tunnel synchronization requires a server upgrade."
 msgstr ""
 
-#: neutron/agent/securitygroups_rpc.py:69
-#: neutron/agent/securitygroups_rpc.py:175
+#: neutron/agent/securitygroups_rpc.py:65
+#: neutron/agent/securitygroups_rpc.py:98
 msgid "Driver configuration doesn't match with enable_security_group"
 msgstr ""
 
-#: neutron/agent/securitygroups_rpc.py:127
-msgid ""
-"Security group agent binding currently not set. This should be set by the"
-" end of the init process."
-msgstr ""
-
-#: neutron/agent/securitygroups_rpc.py:202
+#: neutron/agent/securitygroups_rpc.py:142
 msgid ""
 "security_group_info_for_devices rpc call not supported by the server, "
 "falling back to old security_group_rules_for_devices which scales worse."
 msgstr ""
 
-#: neutron/agent/common/ovs_lib.py:343
+#: neutron/agent/common/ovs_lib.py:368
 #, python-format
 msgid "Found not yet ready openvswitch port: %s"
 msgstr ""
 
-#: neutron/agent/common/ovs_lib.py:346
+#: neutron/agent/common/ovs_lib.py:371
 #, python-format
 msgid "Found failed openvswitch port: %s"
 msgstr ""
 
-#: neutron/agent/common/ovs_lib.py:387
+#: neutron/agent/common/ovs_lib.py:417
 #, python-format
 msgid "ofport: %(ofport)s for VIF: %(vif)s is not a positive integer"
 msgstr ""
@@ -82,34 +82,34 @@ msgid ""
 "exist."
 msgstr ""
 
-#: neutron/agent/dhcp/agent.py:127 neutron/agent/dhcp/agent.py:196
+#: neutron/agent/dhcp/agent.py:132 neutron/agent/dhcp/agent.py:201
 #, python-format
 msgid "Network %s has been deleted."
 msgstr ""
 
-#: neutron/agent/dhcp/agent.py:213
+#: neutron/agent/dhcp/agent.py:218
 #, python-format
 msgid ""
 "Network %s may have been deleted and its resources may have already been "
 "disposed."
 msgstr ""
 
-#: neutron/agent/dhcp/agent.py:349
+#: neutron/agent/dhcp/agent.py:367
 #, python-format
 msgid ""
 "%(port_num)d router ports found on the metadata access network. Only the "
 "port %(port_id)s, for router %(router_id)s will be considered"
 msgstr ""
 
-#: neutron/agent/dhcp/agent.py:558 neutron/agent/l3/agent.py:623
-#: neutron/agent/metadata/agent.py:299
+#: neutron/agent/dhcp/agent.py:567 neutron/agent/l3/agent.py:622
+#: neutron/agent/metadata/agent.py:306
 #: neutron/services/metering/agents/metering_agent.py:278
 msgid ""
 "Neutron server does not support state report. State report for this agent"
 " will be disabled."
 msgstr ""
 
-#: neutron/agent/l3/agent.py:191
+#: neutron/agent/l3/agent.py:193
 #, python-format
 msgid ""
 "l3-agent cannot check service plugins enabled at the neutron server when "
@@ -118,56 +118,62 @@ msgid ""
 "warning. Detail message: %s"
 msgstr ""
 
-#: neutron/agent/l3/agent.py:203
+#: neutron/agent/l3/agent.py:205
 #, python-format
 msgid ""
 "l3-agent cannot check service plugins enabled on the neutron server. "
 "Retrying. Detail message: %s"
 msgstr ""
 
-#: neutron/agent/l3/agent.py:314
+#: neutron/agent/l3/agent.py:337
 #, python-format
-msgid "Info for router %s were not found. Skipping router removal"
+msgid "Info for router %s was not found. Skipping router removal"
 msgstr ""
 
-#: neutron/agent/l3/router_info.py:184
+#: neutron/agent/l3/router_info.py:208
 #, python-format
 msgid "Unable to configure IP address for floating IP: %s"
 msgstr ""
 
-#: neutron/agent/linux/dhcp.py:225
+#: neutron/agent/linux/dhcp.py:228
 #, python-format
 msgid "Failed trying to delete interface: %s"
 msgstr ""
 
-#: neutron/agent/linux/dhcp.py:233
+#: neutron/agent/linux/dhcp.py:236
 #, python-format
 msgid "Failed trying to delete namespace: %s"
 msgstr ""
 
-#: neutron/agent/linux/iptables_manager.py:237
+#: neutron/agent/linux/ebtables_manager.py:168
+#, python-format
+msgid "Attempted to remove chain %s which does not exist"
+msgstr ""
+
+#: neutron/agent/linux/ebtables_manager.py:237
+#: neutron/agent/linux/iptables_manager.py:249
 #, python-format
 msgid ""
 "Tried to remove rule that was not there: %(chain)r %(rule)r %(wrap)r "
 "%(top)r"
 msgstr ""
 
-#: neutron/agent/linux/iptables_manager.py:682
+#: neutron/agent/linux/iptables_manager.py:702
 #, python-format
 msgid "Attempted to get traffic counters of chain %s which does not exist"
 msgstr ""
 
-#: neutron/agent/metadata/agent.py:124
+#: neutron/agent/metadata/agent.py:131
 msgid "Server does not support metadata RPC, fallback to using neutron client"
 msgstr ""
 
-#: neutron/agent/metadata/agent.py:237
+#: neutron/agent/metadata/agent.py:244
 msgid ""
 "The remote metadata server responded with Forbidden. This response "
 "usually occurs when shared secrets do not match."
 msgstr ""
 
-#: neutron/api/api_common.py:102
+#: neutron/api/api_common.py:103
 #, python-format
 msgid ""
 "Invalid value for pagination_max_limit: %s. It should be an integer "
@@ -209,22 +215,27 @@ msgid ""
 "inactive agents."
 msgstr ""
 
-#: neutron/api/rpc/handlers/dhcp_rpc.py:94
+#: neutron/api/rpc/handlers/dhcp_rpc.py:100
 #, python-format
 msgid ""
 "Action %(action)s for network %(net_id)s could not complete successfully:"
 " %(reason)s"
 msgstr ""
 
-#: neutron/api/rpc/handlers/dhcp_rpc.py:146
-#: neutron/api/rpc/handlers/dhcp_rpc.py:210
+#: neutron/api/rpc/handlers/dhcp_rpc.py:152
 #, python-format
 msgid "Network %s could not be found, it might have been deleted concurrently."
 msgstr ""
 
-#: neutron/api/rpc/handlers/dhcp_rpc.py:279
+#: neutron/api/rpc/handlers/dhcp_rpc.py:203
 #, python-format
 msgid "Updating lease expiration is now deprecated. Issued  from host %s."
+msgstr ""
+
+#: neutron/api/rpc/handlers/securitygroups_rpc.py:177
+msgid ""
+"Security group agent binding currently not set. This should be set by the"
+" end of the init process."
 msgstr ""
 
 #: neutron/cmd/sanity_check.py:75
@@ -244,7 +255,7 @@ msgstr ""
 msgid "Configuration for agent %(agent_type)s on host %(host)s is invalid."
 msgstr ""
 
-#: neutron/db/agentschedulers_db.py:138
+#: neutron/db/agentschedulers_db.py:142
 #, python-format
 msgid ""
 "Time since last %s agent reschedule check has exceeded the interval "
@@ -252,30 +263,30 @@ msgid ""
 "in case there was a clock adjustment."
 msgstr ""
 
-#: neutron/db/agentschedulers_db.py:264
+#: neutron/db/agentschedulers_db.py:275
 #, python-format
 msgid ""
 "Removing network %(network)s from agent %(agent)s because the agent did "
 "not report to the server in the last %(dead_time)s seconds."
 msgstr ""
 
-#: neutron/db/l3_agentschedulers_db.py:104
+#: neutron/db/l3_agentschedulers_db.py:105
 #, python-format
 msgid ""
 "Rescheduling router %(router)s from agent %(agent)s because the agent did"
 " not report to the server in the last %(dead_time)s seconds."
 msgstr ""
 
-#: neutron/db/l3_dvrscheduler_db.py:303
+#: neutron/db/l3_dvrscheduler_db.py:306
 msgid "No active L3 agents found for SNAT"
 msgstr ""
 
-#: neutron/db/securitygroups_rpc_base.py:371
+#: neutron/db/securitygroups_rpc_base.py:383
 #, python-format
 msgid "No valid gateway port on subnet %s is found for IPv6 RA"
 msgstr ""
 
-#: neutron/db/migration/alembic_migrations/heal_script.py:90
+#: neutron/db/migration/alembic_migrations/heal_script.py:91
 #, python-format
 msgid "Ignoring alembic command %s"
 msgstr ""
@@ -310,17 +321,17 @@ msgstr ""
 msgid "task %(func_name)r run outlasted interval by %(delay).2f sec"
 msgstr ""
 
-#: neutron/openstack/common/service.py:355
+#: neutron/openstack/common/service.py:363
 #, python-format
 msgid "pid %d not in child list"
 msgstr ""
 
-#: neutron/plugins/cisco/db/n1kv_db_v2.py:583
+#: neutron/plugins/cisco/db/n1kv_db_v2.py:584
 #, python-format
 msgid "vlan_id %(vlan)s on physical network %(network)s not found"
 msgstr ""
 
-#: neutron/plugins/cisco/db/n1kv_db_v2.py:660
+#: neutron/plugins/cisco/db/n1kv_db_v2.py:661
 #, python-format
 msgid "vxlan_id %s not found"
 msgstr ""
@@ -344,73 +355,73 @@ msgstr ""
 msgid "Ignoring admin_state_up=False for router=%r.  Overriding with True"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:84
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:85
 msgid "VXLAN is enabled, a valid local_ip must be provided"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:98
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:99
 msgid "Invalid Network ID, will lead to incorrect bridge name"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:105
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:106
 msgid "Invalid VLAN ID, will lead to incorrect subinterface name"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:112
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:113
 msgid "Invalid Interface ID, will lead to incorrect tap device name"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:121
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:122
 #, python-format
 msgid "Invalid Segmentation ID: %s, will lead to incorrect vxlan device name"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:518
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:554
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:527
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:563
 #, python-format
 msgid ""
 "Option \"%(option)s\" must be supported by command \"%(command)s\" to "
 "enable %(mode)s mode"
 msgstr ""
 
-#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:548
+#: neutron/plugins/linuxbridge/agent/linuxbridge_neutron_agent.py:557
 msgid ""
 "VXLAN muticast group must be provided in vxlan_group option to enable "
 "VXLAN MCAST mode"
 msgstr ""
 
-#: neutron/plugins/ml2/driver_context.py:184
+#: neutron/plugins/ml2/driver_context.py:191
 #, python-format
 msgid "Could not expand segment %s"
 msgstr ""
 
-#: neutron/plugins/ml2/plugin.py:513
+#: neutron/plugins/ml2/plugin.py:527
 #, python-format
 msgid ""
 "In _notify_port_updated(), no bound segment for port %(port_id)s on "
 "network %(network_id)s"
 msgstr ""
 
-#: neutron/plugins/ml2/plugin.py:763
+#: neutron/plugins/ml2/plugin.py:778
 msgid "A concurrent port creation has occurred"
 msgstr ""
 
-#: neutron/plugins/ml2/plugin.py:1354
+#: neutron/plugins/ml2/plugin.py:1396
 #, python-format
 msgid "Port %(port)s updated up by agent not found"
 msgstr ""
 
-#: neutron/plugins/ml2/plugin.py:1386
+#: neutron/plugins/ml2/plugin.py:1428
 #, python-format
 msgid "Port %s not found during update"
 msgstr ""
 
-#: neutron/plugins/ml2/rpc.py:75
+#: neutron/plugins/ml2/rpc.py:76
 #, python-format
 msgid "Device %(device)s requested by agent %(agent_id)s not found in database"
 msgstr ""
 
-#: neutron/plugins/ml2/rpc.py:89
+#: neutron/plugins/ml2/rpc.py:90
 #, python-format
 msgid ""
 "Device %(device)s requested by agent %(agent_id)s on network "
@@ -423,33 +434,28 @@ msgstr ""
 msgid "Attempting to bind with dead agent: %s"
 msgstr ""
 
-#: neutron/plugins/ml2/drivers/type_flat.py:134
+#: neutron/plugins/ml2/drivers/type_flat.py:135
 #, python-format
 msgid "No flat network found on physical network %s"
 msgstr ""
 
-#: neutron/plugins/ml2/drivers/type_gre.py:106
+#: neutron/plugins/ml2/drivers/type_gre.py:107
 msgid "Gre allocations were already created."
 msgstr ""
 
-#: neutron/plugins/ml2/drivers/type_gre.py:160
-#, python-format
-msgid "Gre endpoint with ip %s already exists"
-msgstr ""
-
-#: neutron/plugins/ml2/drivers/type_tunnel.py:182
+#: neutron/plugins/ml2/drivers/type_tunnel.py:179
 #, python-format
 msgid "%(type)s tunnel %(id)s not found"
 msgstr ""
 
-#: neutron/plugins/ml2/drivers/type_vlan.py:259
+#: neutron/plugins/ml2/drivers/type_tunnel.py:236
 #, python-format
-msgid "No vlan_id %(vlan_id)s found on physical network %(physical_network)s"
+msgid "Endpoint with ip %s already exists"
 msgstr ""
 
-#: neutron/plugins/ml2/drivers/type_vxlan.py:171
+#: neutron/plugins/ml2/drivers/type_vlan.py:257
 #, python-format
-msgid "Vxlan endpoint with ip %s already exists"
+msgid "No vlan_id %(vlan_id)s found on physical network %(physical_network)s"
 msgstr ""
 
 #: neutron/plugins/ml2/drivers/cisco/apic/apic_sync.py:67
@@ -502,7 +508,7 @@ msgstr ""
 msgid "No Token, Re-login"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_dvr_neutron_agent.py:157
+#: neutron/plugins/openvswitch/agent/ovs_dvr_neutron_agent.py:163
 #, python-format
 msgid ""
 "L2 agent could not get DVR MAC address at startup due to RPC error.  It "
@@ -510,57 +516,57 @@ msgid ""
 " %s"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_dvr_neutron_agent.py:183
+#: neutron/plugins/openvswitch/agent/ovs_dvr_neutron_agent.py:190
 #, python-format
 msgid ""
 "L2 agent could not get DVR MAC address from server. Retrying. Detailed "
 "message: %s"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:491
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:525
 #, python-format
 msgid "Action %s not supported"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:907
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:920
 #, python-format
 msgid ""
 "Creating an interface named %(name)s exceeds the %(limit)d character "
 "limitation. It was shortened to %(new_name)s to fit."
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1067
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1120
 #, python-format
 msgid "VIF port: %s has no ofport configured, and might not be able to transmit"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1184
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1228
 #, python-format
 msgid "Device %s not defined on plugin"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1339
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1388
 #, python-format
 msgid "Invalid remote IP: %s"
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1382
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1431
 msgid "OVS is restarted. OVSNeutronAgent will reset bridges and recover ports."
 msgstr ""
 
-#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1386
+#: neutron/plugins/openvswitch/agent/ovs_neutron_agent.py:1434
 msgid ""
 "OVS is dead. OVSNeutronAgent will keep running and checking OVS status "
 "periodically."
 msgstr ""
 
-#: neutron/plugins/sriovnicagent/eswitch_manager.py:147
-#: neutron/plugins/sriovnicagent/eswitch_manager.py:160
+#: neutron/plugins/sriovnicagent/eswitch_manager.py:148
+#: neutron/plugins/sriovnicagent/eswitch_manager.py:161
 #, python-format
 msgid "Cannot find vf index for pci slot %s"
 msgstr ""
 
-#: neutron/plugins/sriovnicagent/eswitch_manager.py:283
+#: neutron/plugins/sriovnicagent/eswitch_manager.py:284
 #, python-format
 msgid "device pci mismatch: %(device_mac)s - %(pci_slot)s"
 msgstr ""
@@ -584,16 +590,16 @@ msgstr ""
 msgid "No more DHCP agents"
 msgstr ""
 
-#: neutron/scheduler/l3_agent_scheduler.py:156
+#: neutron/scheduler/l3_agent_scheduler.py:157
 #, python-format
 msgid "No routers compatible with L3 agent configuration on host %s"
 msgstr ""
 
-#: neutron/scheduler/l3_agent_scheduler.py:181
+#: neutron/scheduler/l3_agent_scheduler.py:182
 msgid "No active L3 agents"
 msgstr ""
 
-#: neutron/scheduler/l3_agent_scheduler.py:193
+#: neutron/scheduler/l3_agent_scheduler.py:194
 #, python-format
 msgid "No L3 agents can host the router %s"
 msgstr ""

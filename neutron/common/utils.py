@@ -35,9 +35,9 @@ from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+import six
 
 from neutron.common import constants as q_const
-
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG = logging.getLogger(__name__)
@@ -210,7 +210,7 @@ def parse_mappings(mapping_list, unique_values=True):
         if key in mappings:
             raise ValueError(_("Key %(key)s in mapping: '%(mapping)s' not "
                                "unique") % {'key': key, 'mapping': mapping})
-        if unique_values and value in mappings.itervalues():
+        if unique_values and value in mappings.values():
             raise ValueError(_("Value %(value)s in mapping: '%(mapping)s' "
                                "not unique") % {'value': value,
                                                 'mapping': mapping})
@@ -236,7 +236,7 @@ def compare_elements(a, b):
 
 def dict2str(dic):
     return ','.join("%s=%s" % (key, val)
-                    for key, val in sorted(dic.iteritems()))
+                    for key, val in sorted(six.iteritems(dic)))
 
 
 def str2dict(string):
@@ -268,18 +268,6 @@ def is_extension_supported(plugin, ext_alias):
 
 def log_opt_values(log):
     cfg.CONF.log_opt_values(log, std_logging.DEBUG)
-
-
-def is_valid_vlan_tag(vlan):
-    return q_const.MIN_VLAN_TAG <= vlan <= q_const.MAX_VLAN_TAG
-
-
-def is_valid_gre_id(gre_id):
-    return q_const.MIN_GRE_ID <= gre_id <= q_const.MAX_GRE_ID
-
-
-def is_valid_vxlan_vni(vni):
-    return q_const.MIN_VXLAN_VNI <= vni <= q_const.MAX_VXLAN_VNI
 
 
 def get_random_mac(base_mac):

@@ -23,12 +23,13 @@ from webob import exc
 
 from neutron.api.v2 import attributes
 from neutron.common import constants
-from neutron.common import topics
 from neutron import context
 from neutron.db import agents_db
 from neutron.db import db_base_plugin_v2
 from neutron.extensions import agent
 from neutron.openstack.common import uuidutils
+from neutron.tests.common import helpers
+from neutron.tests import tools
 from neutron.tests.unit.api.v2 import test_base
 from neutron.tests.unit.db import test_db_base_plugin_v2
 
@@ -41,7 +42,6 @@ L3_HOSTA = 'hosta'
 DHCP_HOSTA = 'hosta'
 L3_HOSTB = 'hostb'
 DHCP_HOSTC = 'hostc'
-DHCP_HOST1 = 'host1'
 LBAAS_HOSTA = 'hosta'
 LBAAS_HOSTB = 'hostb'
 
@@ -84,55 +84,28 @@ class AgentDBTestMixIn(object):
 
     def _register_agent_states(self, lbaas_agents=False):
         """Register two L3 agents and two DHCP agents."""
-        l3_hosta = {
-            'binary': 'neutron-l3-agent',
-            'host': L3_HOSTA,
-            'topic': topics.L3_AGENT,
-            'configurations': {'use_namespaces': True,
-                               'router_id': None,
-                               'handle_internal_only_routers':
-                               True,
-                               'gateway_external_network_id':
-                               None,
-                               'interface_driver': 'interface_driver',
-                               },
-            'agent_type': constants.AGENT_TYPE_L3}
-        l3_hostb = copy.deepcopy(l3_hosta)
-        l3_hostb['host'] = L3_HOSTB
-        dhcp_hosta = {
-            'binary': 'neutron-dhcp-agent',
-            'host': DHCP_HOSTA,
-            'topic': 'DHCP_AGENT',
-            'configurations': {'dhcp_driver': 'dhcp_driver',
-                               'use_namespaces': True,
-                               },
-            'agent_type': constants.AGENT_TYPE_DHCP}
-        dhcp_hostc = copy.deepcopy(dhcp_hosta)
-        dhcp_hostc['host'] = DHCP_HOSTC
-        lbaas_hosta = {
-            'binary': 'neutron-loadbalancer-agent',
-            'host': LBAAS_HOSTA,
-            'topic': 'LOADBALANCER_AGENT',
-            'configurations': {'device_drivers': ['haproxy_ns']},
-            'agent_type': constants.AGENT_TYPE_LOADBALANCER}
-        lbaas_hostb = copy.deepcopy(lbaas_hosta)
-        lbaas_hostb['host'] = LBAAS_HOSTB
-        callback = agents_db.AgentExtRpcCallback()
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': l3_hosta},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': l3_hostb},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': dhcp_hosta},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': dhcp_hostc},
-                              time=timeutils.strtime())
+        l3_hosta = helpers._get_l3_agent_dict(
+            L3_HOSTA, constants.L3_AGENT_MODE_LEGACY)
+        l3_hostb = helpers._get_l3_agent_dict(
+            L3_HOSTB, constants.L3_AGENT_MODE_LEGACY)
+        dhcp_hosta = helpers._get_dhcp_agent_dict(DHCP_HOSTA)
+        dhcp_hostc = helpers._get_dhcp_agent_dict(DHCP_HOSTC)
+        helpers.register_l3_agent(host=L3_HOSTA)
+        helpers.register_l3_agent(host=L3_HOSTB)
+        helpers.register_dhcp_agent(host=DHCP_HOSTA)
+        helpers.register_dhcp_agent(host=DHCP_HOSTC)
 
         res = [l3_hosta, l3_hostb, dhcp_hosta, dhcp_hostc]
         if lbaas_agents:
+            lbaas_hosta = {
+                'binary': 'neutron-loadbalancer-agent',
+                'host': LBAAS_HOSTA,
+                'topic': 'LOADBALANCER_AGENT',
+                'configurations': {'device_drivers': ['haproxy_ns']},
+                'agent_type': constants.AGENT_TYPE_LOADBALANCER}
+            lbaas_hostb = copy.deepcopy(lbaas_hosta)
+            lbaas_hostb['host'] = LBAAS_HOSTB
+            callback = agents_db.AgentExtRpcCallback()
             callback.report_state(self.adminContext,
                                   agent_state={'agent_state': lbaas_hosta},
                                   time=timeutils.strtime())
@@ -143,41 +116,6 @@ class AgentDBTestMixIn(object):
 
         return res
 
-    def _register_one_dhcp_agent(self):
-        """Register one DHCP agent."""
-        dhcp_host = {
-            'binary': 'neutron-dhcp-agent',
-            'host': DHCP_HOST1,
-            'topic': 'DHCP_AGENT',
-            'configurations': {'dhcp_driver': 'dhcp_driver',
-                               'use_namespaces': True,
-                               },
-            'agent_type': constants.AGENT_TYPE_DHCP}
-        callback = agents_db.AgentExtRpcCallback()
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': dhcp_host},
-                              time=timeutils.strtime())
-        return [dhcp_host]
-
-    def _register_one_l3_agent(self, host=L3_HOSTA, internal_only=True,
-                               ext_net_id='', ext_bridge=''):
-        l3 = {
-            'binary': 'neutron-l3-agent',
-            'host': host,
-            'topic': topics.L3_AGENT,
-            'configurations': {'use_namespaces': True,
-                               'router_id': None,
-                               'handle_internal_only_routers': internal_only,
-                               'external_network_bridge': ext_bridge,
-                               'gateway_external_network_id': ext_net_id,
-                               'interface_driver': 'interface_driver',
-                               },
-            'agent_type': constants.AGENT_TYPE_L3}
-        callback = agents_db.AgentExtRpcCallback()
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': l3},
-                              time=timeutils.strtime())
-
 
 class AgentDBTestCase(AgentDBTestMixIn,
                       test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
@@ -187,18 +125,10 @@ class AgentDBTestCase(AgentDBTestMixIn,
         plugin = 'neutron.tests.unit.extensions.test_agent.TestAgentPlugin'
         # for these tests we need to enable overlapping ips
         cfg.CONF.set_default('allow_overlapping_ips', True)
-        # Save the original RESOURCE_ATTRIBUTE_MAP
-        self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        self.useFixture(tools.AttributeMapMemento())
         ext_mgr = AgentTestExtensionManager()
-        self.addCleanup(self.restore_resource_attribute_map)
         super(AgentDBTestCase, self).setUp(plugin=plugin, ext_mgr=ext_mgr)
         self.adminContext = context.get_admin_context()
-
-    def restore_resource_attribute_map(self):
-        # Restore the originak RESOURCE_ATTRIBUTE_MAP
-        attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
 
     def test_create_agent(self):
         data = {'agent': {}}
@@ -211,13 +141,6 @@ class AgentDBTestCase(AgentDBTestMixIn,
     def test_list_agent(self):
         agents = self._register_agent_states()
         res = self._list('agents')
-        for agt in res['agents']:
-            if (agt['host'] == DHCP_HOSTA and
-                agt['agent_type'] == constants.AGENT_TYPE_DHCP):
-                self.assertEqual(
-                    'dhcp_driver',
-                    agt['configurations']['dhcp_driver'])
-                break
         self.assertEqual(len(agents), len(res['agents']))
 
     def test_show_agent(self):

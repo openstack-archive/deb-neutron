@@ -18,6 +18,7 @@ Neutron base exception handling.
 """
 
 from oslo_utils import excutils
+import six
 
 
 class NeutronException(Exception):
@@ -40,8 +41,9 @@ class NeutronException(Exception):
                     # at least get the core message out if something happened
                     super(NeutronException, self).__init__(self.message)
 
-    def __unicode__(self):
-        return unicode(self.msg)
+    if six.PY2:
+        def __unicode__(self):
+            return unicode(self.msg)
 
     def use_fatal_exceptions(self):
         return False
@@ -119,7 +121,13 @@ class NetworkInUse(InUse):
 
 class SubnetInUse(InUse):
     message = _("Unable to complete operation on subnet %(subnet_id)s. "
-                "One or more ports have an IP allocation from this subnet.")
+                "%(reason)s")
+
+    def __init__(self, **kwargs):
+        if 'reason' not in kwargs:
+            kwargs['reason'] = _("One or more ports have an IP allocation "
+                                 "from this subnet.")
+        super(SubnetInUse, self).__init__(**kwargs)
 
 
 class PortInUse(InUse):
@@ -453,6 +461,10 @@ class SubnetPoolDeleteError(BadRequest):
 
 class SubnetPoolQuotaExceeded(OverQuota):
     message = _("Per-tenant subnet pool prefix quota exceeded")
+
+
+class DeviceNotFoundError(NeutronException):
+    message = _("Device '%(device_name)s' does not exist")
 
 
 class NetworkSubnetPoolAffinityError(BadRequest):

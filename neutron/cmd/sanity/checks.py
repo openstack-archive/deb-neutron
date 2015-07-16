@@ -174,8 +174,19 @@ def ovsdb_native_supported():
     except ImportError as ex:
         LOG.error(_LE("Failed to import required modules. Ensure that the "
                       "python-openvswitch package is installed. Error: %s"),
-                  ex.message)
+                  ex)
     except Exception as ex:
         LOG.exception(six.text_type(ex))
 
     return False
+
+
+def ebtables_supported():
+    try:
+        cmd = ['ebtables', '--version']
+        agent_utils.execute(cmd)
+        return True
+    except (OSError, RuntimeError, IndexError, ValueError) as e:
+        LOG.debug("Exception while checking for installed ebtables. "
+                  "Exception: %s", e)
+        return False

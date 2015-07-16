@@ -83,8 +83,8 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
 
     def initialize(self):
         try:
-            self.pci_vendor_info = self._parse_pci_vendor_config(
-                        cfg.CONF.ml2_sriov.supported_pci_vendor_devs)
+            self.pci_vendor_info = cfg.CONF.ml2_sriov.supported_pci_vendor_devs
+            self._check_pci_vendor_config(self.pci_vendor_info)
             self.agent_required = cfg.CONF.ml2_sriov.agent_required
         except ValueError:
             LOG.exception(_LE("Failed to parse supported PCI vendor devices"))
@@ -121,10 +121,12 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
     def try_to_bind(self, context, agent=None):
         for segment in context.segments_to_bind:
             if self.check_segment(segment, agent):
+                port_status = (constants.PORT_STATUS_ACTIVE if agent is None
+                    else constants.PORT_STATUS_DOWN)
                 context.set_binding(segment[api.ID],
                                     self.vif_type,
                                     self._get_vif_details(segment),
-                                    constants.PORT_STATUS_ACTIVE)
+                                    port_status)
                 LOG.debug("Bound using segment: %s", segment)
                 return True
         return False
@@ -175,20 +177,14 @@ class SriovNicSwitchMechanismDriver(api.MechanismDriver):
         vif_details[portbindings.VIF_DETAILS_VLAN] = str(vlan_id)
         return vif_details
 
-    def _parse_pci_vendor_config(self, pci_vendor_list):
-        parsed_list = []
-        for elem in pci_vendor_list:
-            elem = elem.strip()
-            if not elem:
-                continue
-            split_result = elem.split(':')
-            if len(split_result) != 2:
-                raise ValueError(_("Invalid pci_vendor_info: '%s'") % elem)
-            vendor_id = split_result[0].strip()
-            if not vendor_id:
-                raise ValueError(_("Missing vendor_id in: '%s'") % elem)
-            product_id = split_result[1].strip()
-            if not product_id:
-                raise ValueError(_("Missing product_id in: '%s'") % elem)
-            parsed_list.append(elem)
-        return parsed_list
+    @staticmethod
+    def _check_pci_vendor_config(pci_vendor_list):
+        for pci_vendor_info in pci_vendor_list:
+            try:
+                vendor_id, product_id = [
+                    item.strip() for item in pci_vendor_info.split(':')
+                    if item.strip()]
+            except ValueError:
+                raise ValueError(_('Incorrect pci_vendor_info: "%s", should be'
+                                   ' pair vendor_id:product_id') %
+                                 pci_vendor_info)

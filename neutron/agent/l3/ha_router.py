@@ -92,9 +92,9 @@ class HaRouter(router.RouterInfo):
         self.keepalived_manager = keepalived.KeepalivedManager(
             self.router['id'],
             keepalived.KeepalivedConf(),
+            process_monitor,
             conf_path=self.agent_conf.ha_confs_path,
-            namespace=self.ns_name,
-            process_monitor=process_monitor)
+            namespace=self.ns_name)
 
         config = self.keepalived_manager.config
 
@@ -179,19 +179,14 @@ class HaRouter(router.RouterInfo):
         new_routes = self.router['routes']
 
         instance = self._get_keepalived_instance()
-
-        # Filter out all of the old routes while keeping only the default route
-        default_gw = (n_consts.IPv6_ANY, n_consts.IPv4_ANY)
-        instance.virtual_routes = [route for route in instance.virtual_routes
-                                   if route.destination in default_gw]
-        for route in new_routes:
-            instance.virtual_routes.append(keepalived.KeepalivedVirtualRoute(
-                route['destination'],
-                route['nexthop']))
-
+        instance.virtual_routes.extra_routes = [
+            keepalived.KeepalivedVirtualRoute(
+                route['destination'], route['nexthop'])
+            for route in new_routes]
         self.routes = new_routes
 
     def _add_default_gw_virtual_route(self, ex_gw_port, interface_name):
+        default_gw_rts = []
         gateway_ips, enable_ra_on_gw = self._get_external_gw_ips(ex_gw_port)
         for gw_ip in gateway_ips:
                 # TODO(Carl) This is repeated everywhere.  A method would
@@ -200,12 +195,12 @@ class HaRouter(router.RouterInfo):
                               netaddr.IPAddress(gw_ip).version == 4 else
                               n_consts.IPv6_ANY)
                 instance = self._get_keepalived_instance()
-                instance.virtual_routes = (
-                    [route for route in instance.virtual_routes
-                     if route.destination != default_gw])
-                instance.virtual_routes.append(
-                    keepalived.KeepalivedVirtualRoute(
-                        default_gw, gw_ip, interface_name))
+                default_gw_rts.append(keepalived.KeepalivedVirtualRoute(
+                    default_gw, gw_ip, interface_name))
+        instance.virtual_routes.gateway_routes = default_gw_rts
+
+        if enable_ra_on_gw:
+            self.driver.configure_ipv6_ra(self.ns_name, interface_name)
 
         if enable_ra_on_gw:
             self.driver.configure_ipv6_ra(self.ns_name, interface_name)
@@ -266,13 +261,12 @@ class HaRouter(router.RouterInfo):
         port_id = port['id']
         interface_name = self.get_internal_device_name(port_id)
 
-        if not ip_lib.device_exists(interface_name, namespace=self.ns_name):
-            self.driver.plug(port['network_id'],
-                             port_id,
-                             interface_name,
-                             port['mac_address'],
-                             namespace=self.ns_name,
-                             prefix=router.INTERNAL_DEV_PREFIX)
+        self.driver.plug(port['network_id'],
+                         port_id,
+                         interface_name,
+                         port['mac_address'],
+                         namespace=self.ns_name,
+                         prefix=router.INTERNAL_DEV_PREFIX)
 
         self._disable_ipv6_addressing_on_interface(interface_name)
         for ip_cidr in common_utils.fixed_ip_cidrs(port['fixed_ips']):

@@ -17,6 +17,7 @@ import contextlib
 
 import mock
 import oslo_db.exception as exc
+import six
 import testtools
 import webob.exc
 
@@ -79,8 +80,7 @@ class SecurityGroupsTestCase(test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
                                         'direction': direction,
                                         'protocol': proto,
                                         'ethertype': ethertype,
-                                        'tenant_id': tenant_id,
-                                        'ethertype': ethertype}}
+                                        'tenant_id': tenant_id}}
         if port_range_min:
             data['security_group_rule']['port_range_min'] = port_range_min
 
@@ -161,7 +161,7 @@ class SecurityGroupsTestCase(test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
         """Asserts that the sg rule has expected key/value pairs passed
            in as expected_kvs dictionary
         """
-        for k, v in expected_kvs.iteritems():
+        for k, v in six.iteritems(expected_kvs):
             self.assertEqual(security_group_rule[k], v)
 
 
@@ -373,51 +373,36 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
         self.assertEqual(res.status_int, webob.exc.HTTPConflict.code)
 
     def test_list_security_groups(self):
-        with contextlib.nested(self.security_group(name='sg1',
-                                                   description='sg'),
-                               self.security_group(name='sg2',
-                                                   description='sg'),
-                               self.security_group(name='sg3',
-                                                   description='sg')
-                               ) as security_groups:
+        with self.security_group(name='sg1', description='sg') as v1,\
+                self.security_group(name='sg2', description='sg') as v2,\
+                self.security_group(name='sg3', description='sg') as v3:
+            security_groups = (v1, v2, v3)
             self._test_list_resources('security-group',
                                       security_groups,
                                       query_params='description=sg')
 
     def test_list_security_groups_with_sort(self):
-        with contextlib.nested(self.security_group(name='sg1',
-                                                   description='sg'),
-                               self.security_group(name='sg2',
-                                                   description='sg'),
-                               self.security_group(name='sg3',
-                                                   description='sg')
-                               ) as (sg1, sg2, sg3):
+        with self.security_group(name='sg1', description='sg') as sg1,\
+                self.security_group(name='sg2', description='sg') as sg2,\
+                self.security_group(name='sg3', description='sg') as sg3:
             self._test_list_with_sort('security-group',
                                       (sg3, sg2, sg1),
                                       [('name', 'desc')],
                                       query_params='description=sg')
 
     def test_list_security_groups_with_pagination(self):
-        with contextlib.nested(self.security_group(name='sg1',
-                                                   description='sg'),
-                               self.security_group(name='sg2',
-                                                   description='sg'),
-                               self.security_group(name='sg3',
-                                                   description='sg')
-                               ) as (sg1, sg2, sg3):
+        with self.security_group(name='sg1', description='sg') as sg1,\
+                self.security_group(name='sg2', description='sg') as sg2,\
+                self.security_group(name='sg3', description='sg') as sg3:
             self._test_list_with_pagination('security-group',
                                             (sg1, sg2, sg3),
                                             ('name', 'asc'), 2, 2,
                                             query_params='description=sg')
 
     def test_list_security_groups_with_pagination_reverse(self):
-        with contextlib.nested(self.security_group(name='sg1',
-                                                   description='sg'),
-                               self.security_group(name='sg2',
-                                                   description='sg'),
-                               self.security_group(name='sg3',
-                                                   description='sg')
-                               ) as (sg1, sg2, sg3):
+        with self.security_group(name='sg1', description='sg') as sg1,\
+                self.security_group(name='sg2', description='sg') as sg2,\
+                self.security_group(name='sg3', description='sg') as sg3:
             self._test_list_with_pagination_reverse(
                 'security-group', (sg1, sg2, sg3), ('name', 'asc'), 2, 2,
                 query_params='description=sg')
@@ -454,14 +439,12 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
     def test_create_security_group_rule_invalid_ethertype_for_prefix(self):
         name = 'webservers'
         description = 'my webservers'
-        test_addr = {'192.168.1.1/24': 'ipv4', '192.168.1.1/24': 'IPv6',
-                     '2001:db8:1234::/48': 'ipv6',
-                     '2001:db8:1234::/48': 'IPv4'}
-        for prefix, ether in test_addr.iteritems():
+        test_addr = {'192.168.1.1/24': 'IPv6',
+                     '2001:db8:1234::/48': 'IPv4',
+                     '192.168.2.1/24': 'BadEthertype'}
+        for remote_ip_prefix, ethertype in six.iteritems(test_addr):
             with self.security_group(name, description) as sg:
                 sg_id = sg['security_group']['id']
-                ethertype = ether
-                remote_ip_prefix = prefix
                 rule = self._build_security_group_rule(
                     sg_id,
                     'ingress',
@@ -812,6 +795,35 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
                 for k, v, in keys:
                     self.assertEqual(rule['security_group_rule'][k], v)
 
+    def test_create_security_group_rule_icmpv6_with_type_only(self):
+        name = 'webservers'
+        description = 'my webservers'
+        with self.security_group(name, description) as sg:
+            security_group_id = sg['security_group']['id']
+            direction = "ingress"
+            ethertype = const.IPv6
+            remote_ip_prefix = "2001::f401:56ff:fefe:d3dc/128"
+            protocol = const.PROTO_NAME_ICMP_V6
+            # ICMPV6 type
+            port_range_min = const.ICMPV6_TYPE_RA
+            # ICMPV6 code
+            port_range_max = None
+            keys = [('remote_ip_prefix', remote_ip_prefix),
+                    ('security_group_id', security_group_id),
+                    ('direction', direction),
+                    ('ethertype', ethertype),
+                    ('protocol', protocol),
+                    ('port_range_min', port_range_min),
+                    ('port_range_max', port_range_max)]
+            with self.security_group_rule(security_group_id, direction,
+                                          protocol, port_range_min,
+                                          port_range_max,
+                                          remote_ip_prefix,
+                                          None, None,
+                                          ethertype) as rule:
+                for k, v, in keys:
+                    self.assertEqual(rule['security_group_rule'][k], v)
+
     def test_create_security_group_source_group_ip_and_ip_prefix(self):
         security_group_id = "4cd70774-cc67-4a87-9b39-7d1db38eb087"
         direction = "ingress"
@@ -1040,19 +1052,18 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
     def test_list_security_group_rules(self):
         with self.security_group(name='sg') as sg:
             security_group_id = sg['security_group']['id']
-            with contextlib.nested(self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=22,
-                                                            port_range_max=22),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=23,
-                                                            port_range_max=23),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=24,
-                                                            port_range_max=24)
-                                   ) as (sgr1, sgr2, sgr3):
+            with self.security_group_rule(security_group_id,
+                                          direction='egress',
+                                          port_range_min=22,
+                                          port_range_max=22) as sgr1,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=23,
+                                             port_range_max=23) as sgr2,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=24,
+                                             port_range_max=24) as sgr3:
 
                 # Delete default rules as they would fail the following
                 # assertion at the end.
@@ -1067,19 +1078,18 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
     def test_list_security_group_rules_with_sort(self):
         with self.security_group(name='sg') as sg:
             security_group_id = sg['security_group']['id']
-            with contextlib.nested(self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=22,
-                                                            port_range_max=22),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=23,
-                                                            port_range_max=23),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=24,
-                                                            port_range_max=24)
-                                   ) as (sgr1, sgr2, sgr3):
+            with self.security_group_rule(security_group_id,
+                                          direction='egress',
+                                          port_range_min=22,
+                                          port_range_max=22) as sgr1,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=23,
+                                             port_range_max=23) as sgr2,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=24,
+                                             port_range_max=24) as sgr3:
 
                 # Delete default rules as they would fail the following
                 # assertion at the end.
@@ -1095,19 +1105,18 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
     def test_list_security_group_rules_with_pagination(self):
         with self.security_group(name='sg') as sg:
             security_group_id = sg['security_group']['id']
-            with contextlib.nested(self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=22,
-                                                            port_range_max=22),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=23,
-                                                            port_range_max=23),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=24,
-                                                            port_range_max=24)
-                                   ) as (sgr1, sgr2, sgr3):
+            with self.security_group_rule(security_group_id,
+                                          direction='egress',
+                                          port_range_min=22,
+                                          port_range_max=22) as sgr1,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=23,
+                                             port_range_max=23) as sgr2,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=24,
+                                             port_range_max=24) as sgr3:
 
                 # Delete default rules as they would fail the following
                 # assertion at the end.
@@ -1123,19 +1132,18 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
     def test_list_security_group_rules_with_pagination_reverse(self):
         with self.security_group(name='sg') as sg:
             security_group_id = sg['security_group']['id']
-            with contextlib.nested(self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=22,
-                                                            port_range_max=22),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=23,
-                                                            port_range_max=23),
-                                   self.security_group_rule(security_group_id,
-                                                            direction='egress',
-                                                            port_range_min=24,
-                                                            port_range_max=24)
-                                   ) as (sgr1, sgr2, sgr3):
+            with self.security_group_rule(security_group_id,
+                                          direction='egress',
+                                          port_range_min=22,
+                                          port_range_max=22) as sgr1,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=23,
+                                             port_range_max=23) as sgr2,\
+                    self.security_group_rule(security_group_id,
+                                             direction='egress',
+                                             port_range_min=24,
+                                             port_range_max=24) as sgr3:
                 self._test_list_with_pagination_reverse(
                     'security-group-rule', (sgr3, sgr2, sgr1),
                     ('port_range_max', 'desc'), 2, 2,
@@ -1494,7 +1502,7 @@ class TestConvertIPPrefixToCIDR(base.BaseTestCase):
 
     def test_convert_ip_prefix_no_netmask_to_cidr(self):
         addr = {'10.1.2.3': '32', 'fe80::2677:3ff:fe7d:4c': '128'}
-        for k, v in addr.iteritems():
+        for k, v in six.iteritems(addr):
             self.assertEqual(ext_sg.convert_ip_prefix_to_cidr(k),
                              '%s/%s' % (k, v))
 

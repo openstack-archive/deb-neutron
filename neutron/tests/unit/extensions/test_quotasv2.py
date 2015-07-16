@@ -22,7 +22,7 @@ from webob import exc
 import webtest
 
 from neutron.api import extensions
-from neutron.api.v2 import attributes
+from neutron.api.v2 import router
 from neutron.common import config
 from neutron.common import constants
 from neutron.common import exceptions
@@ -30,6 +30,7 @@ from neutron import context
 from neutron.db import quota_db
 from neutron import quota
 from neutron.tests import base
+from neutron.tests import tools
 from neutron.tests.unit.api.v2 import test_base
 from neutron.tests.unit import testlib_api
 
@@ -45,10 +46,7 @@ class QuotaExtensionTestCase(testlib_api.WebTestCase):
         # Ensure existing ExtensionManager is not used
         extensions.PluginAwareExtensionManager._instance = None
 
-        # Save the global RESOURCE_ATTRIBUTE_MAP
-        self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        self.useFixture(tools.AttributeMapMemento())
 
         # Create the default configurations
         self.config_parse()
@@ -71,12 +69,13 @@ class QuotaExtensionTestCase(testlib_api.WebTestCase):
         app = config.load_paste_app('extensions_test_app')
         ext_middleware = extensions.ExtensionMiddleware(app, ext_mgr=ext_mgr)
         self.api = webtest.TestApp(ext_middleware)
+        # Initialize the router for the core API in order to ensure core quota
+        # resources are registered
+        router.APIRouter()
 
     def tearDown(self):
         self.api = None
         self.plugin = None
-        # Restore the global RESOURCE_ATTRIBUTE_MAP
-        attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
         super(QuotaExtensionTestCase, self).tearDown()
 
     def _test_quota_default_values(self, expected_values):
@@ -323,7 +322,7 @@ class QuotaExtensionDbTestCase(QuotaExtensionTestCase):
         tenant_id = 'tenant_id1'
         self.assertRaises(exceptions.QuotaResourceUnknown,
                           quota.QUOTAS.limit_check,
-                          context.get_admin_context(load_admin_roles=False),
+                          context.get_admin_context(),
                           tenant_id,
                           foobar=1)
 

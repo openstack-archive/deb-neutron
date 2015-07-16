@@ -34,7 +34,7 @@ class ConfigDict(base.AttributeDict):
 
         :param other: dictionary to be directly modified.
         """
-        for key, value in other.iteritems():
+        for key, value in six.iteritems(other):
             if isinstance(value, dict):
                 if not isinstance(value, base.AttributeDict):
                     other[key] = base.AttributeDict(value)
@@ -97,7 +97,7 @@ class ConfigFixture(fixtures.Fixture):
 
 class NeutronConfigFixture(ConfigFixture):
 
-    def __init__(self, temp_dir, connection):
+    def __init__(self, temp_dir, connection, rabbitmq_environment):
         super(NeutronConfigFixture, self).__init__(
             temp_dir, base_filename='neutron.conf')
 
@@ -105,13 +105,17 @@ class NeutronConfigFixture(ConfigFixture):
             'DEFAULT': {
                 'host': self._generate_host(),
                 'state_path': self._generate_state_path(temp_dir),
+                'lock_path': '$state_path/lock',
                 'bind_port': self._generate_port(),
                 'api_paste_config': self._generate_api_paste(),
                 'policy_file': self._generate_policy_json(),
                 'core_plugin': 'neutron.plugins.ml2.plugin.Ml2Plugin',
-                'rabbit_userid': 'stackrabbit',
-                'rabbit_password': 'secretrabbit',
+                'service_plugins': ('neutron.services.l3_router.'
+                                    'l3_router_plugin.L3RouterPlugin'),
+                'rabbit_userid': rabbitmq_environment.user,
+                'rabbit_password': rabbitmq_environment.password,
                 'rabbit_hosts': '127.0.0.1',
+                'rabbit_virtual_host': rabbitmq_environment.vhost,
                 'auth_strategy': 'noauth',
                 'verbose': 'True',
                 'debug': 'True',
@@ -169,6 +173,10 @@ class ML2ConfigFixture(ConfigFixture):
                 'local_ip': '127.0.0.1',
                 'bridge_mappings': self._generate_bridge_mappings(),
                 'integration_bridge': self._generate_integration_bridge(),
+            },
+            'securitygroup': {
+                'firewall_driver': ('neutron.agent.linux.iptables_firewall.'
+                                    'OVSHybridIptablesFirewallDriver'),
             }
         })
 
@@ -181,3 +189,31 @@ class ML2ConfigFixture(ConfigFixture):
     def _generate_integration_bridge(self):
         return base.get_rand_name(prefix='br-int',
                                   max_length=constants.DEVICE_NAME_MAX_LEN)
+
+
+class L3ConfigFixture(ConfigFixture):
+
+    def __init__(self, temp_dir, integration_bridge):
+        super(L3ConfigFixture, self).__init__(
+            temp_dir, base_filename='l3_agent.ini')
+
+        self.config.update({
+            'DEFAULT': {
+                'l3_agent_manager': ('neutron.agent.l3_agent.'
+                                     'L3NATAgentWithStateReport'),
+                'interface_driver': ('neutron.agent.linux.interface.'
+                                     'OVSInterfaceDriver'),
+                'ovs_integration_bridge': integration_bridge,
+                'external_network_bridge': self._generate_external_bridge(),
+                'debug': 'True',
+                'verbose': 'True',
+                'test_namespace_suffix': self._generate_namespace_suffix(),
+            }
+        })
+
+    def _generate_external_bridge(self):
+        return base.get_rand_name(prefix='br-ex',
+                                  max_length=constants.DEVICE_NAME_MAX_LEN)
+
+    def _generate_namespace_suffix(self):
+        return base.get_rand_name(prefix='test')

@@ -12,8 +12,10 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import datetime
 import mock
 from oslo_config import cfg
+from oslo_utils import timeutils
 
 from neutron.api.v2 import attributes
 from neutron.common import constants
@@ -27,6 +29,7 @@ from neutron.extensions import l3_ext_ha_mode
 from neutron import manager
 from neutron.openstack.common import uuidutils
 from neutron.scheduler import l3_agent_scheduler
+from neutron.tests.common import helpers
 from neutron.tests.unit import testlib_api
 
 _uuid = uuidutils.generate_uuid
@@ -52,22 +55,16 @@ class L3HATestFramework(testlib_api.SqlTestCase):
         cfg.CONF.set_override('allow_overlapping_ips', True)
 
         self.plugin = FakeL3PluginWithAgents()
-        self._register_agents()
+        self.agent1 = helpers.register_l3_agent()
+        self.agent2 = helpers.register_l3_agent(
+            'host_2', constants.L3_AGENT_MODE_DVR_SNAT)
 
-    def _register_agents(self):
-        agent_status = {
-            'agent_type': constants.AGENT_TYPE_L3,
-            'binary': 'neutron-l3-agent',
-            'host': 'l3host',
-            'topic': 'N/A',
-            'configurations': {'agent_mode': 'legacy'}
-        }
-
-        self.plugin.create_or_update_agent(self.admin_ctx, agent_status)
-        agent_status['host'] = 'l3host_2'
-        agent_status['configurations'] = {'agent_mode': 'dvr_snat'}
-        self.plugin.create_or_update_agent(self.admin_ctx, agent_status)
-        self.agent1, self.agent2 = self.plugin.get_agents(self.admin_ctx)
+    def _bring_down_agent(self, agent_id):
+        update = {
+            'agent': {
+                'heartbeat_timestamp':
+                timeutils.utcnow() - datetime.timedelta(hours=1)}}
+        self.plugin.update_agent(self.admin_ctx, agent_id, update)
 
     def _create_router(self, ha=True, tenant_id='tenant1', distributed=None,
                        ctx=None):
@@ -94,7 +91,7 @@ class L3HATestFramework(testlib_api.SqlTestCase):
         with self.admin_ctx.session.begin(subtransactions=True):
             scheduler = l3_agent_scheduler.ChanceScheduler()
             agents_db = self.plugin.get_agents_db(self.admin_ctx)
-            scheduler.bind_ha_router_to_agents(
+            scheduler._bind_ha_router_to_agents(
                 self.plugin,
                 self.admin_ctx,
                 router_id,
@@ -466,17 +463,18 @@ class L3HATestCase(L3HATestFramework):
         # Test setup registers two l3 agents.
         # Register another l3 agent with dvr mode and assert that
         # get_number_of_ha_agent_candidates return 2.
-        dvr_agent_status = {
-            'agent_type': constants.AGENT_TYPE_L3,
-            'binary': 'neutron-l3-agent',
-            'host': 'l3host_3',
-            'topic': 'N/A',
-            'configurations': {'agent_mode': 'dvr'}
-        }
-        self.plugin.create_or_update_agent(self.admin_ctx, dvr_agent_status)
+        helpers.register_l3_agent('host_3', constants.L3_AGENT_MODE_DVR)
         num_ha_candidates = self.plugin.get_number_of_agents_for_scheduling(
             self.admin_ctx)
         self.assertEqual(2, num_ha_candidates)
+
+    def test_get_number_of_agents_for_scheduling_not_enough_agents(self):
+        cfg.CONF.set_override('min_l3_agents_per_router', 3)
+        agent_to_bring_down = helpers.register_l3_agent(host='l3host_3')
+        self._bring_down_agent(agent_to_bring_down['id'])
+        self.assertRaises(l3_ext_ha_mode.HANotEnoughAvailableAgents,
+                          self.plugin.get_number_of_agents_for_scheduling,
+                          self.admin_ctx)
 
 
 class L3HAModeDbTestCase(L3HATestFramework):

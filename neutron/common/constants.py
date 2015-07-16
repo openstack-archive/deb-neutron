@@ -39,6 +39,7 @@ DEVICE_OWNER_DVR_INTERFACE = "network:router_interface_distributed"
 DEVICE_OWNER_AGENT_GW = "network:floatingip_agent_gateway"
 DEVICE_OWNER_ROUTER_SNAT = "network:router_centralized_snat"
 DEVICE_OWNER_LOADBALANCER = "neutron:LOADBALANCER"
+DEVICE_OWNER_LOADBALANCERV2 = "neutron:LOADBALANCERV2"
 
 # Collection used to identify devices owned by router interfaces.
 # DEVICE_OWNER_ROUTER_HA_INTF is a special case and so is not included.
@@ -75,17 +76,6 @@ IPv4_ANY = '0.0.0.0/0'
 IPv6_ANY = '::/0'
 
 DHCP_RESPONSE_PORT = 68
-
-MIN_VLAN_TAG = 1
-MAX_VLAN_TAG = 4094
-
-# For GRE Tunnel
-MIN_GRE_ID = 1
-MAX_GRE_ID = 2 ** 32 - 1
-
-# For VXLAN Tunnel
-MIN_VXLAN_VNI = 1
-MAX_VXLAN_VNI = 2 ** 24 - 1
 
 FLOODING_ENTRY = ('00:00:00:00:00:00', '0.0.0.0')
 
@@ -152,6 +142,16 @@ DEVICE_NAME_MAX_LEN = 15
 
 # Device names start with "tap"
 TAP_DEVICE_PREFIX = 'tap'
+# The vswitch side of a veth pair for a nova iptables filter setup
+VETH_DEVICE_PREFIX = 'qvo'
+# prefix for SNAT interface in DVR
+SNAT_INT_DEV_PREFIX = 'sg-'
+
+# Possible prefixes to partial port IDs in interface names used by the OVS,
+# Linux Bridge, and IVS VIF drivers in Nova and the neutron agents. See the
+# 'get_ovs_interfaceid' method in Nova (nova/virt/libvirt/vif.py) for details.
+INTERFACE_PREFIXES = (TAP_DEVICE_PREFIX, VETH_DEVICE_PREFIX,
+                      SNAT_INT_DEV_PREFIX)
 
 ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
 

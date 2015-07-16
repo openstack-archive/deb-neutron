@@ -44,6 +44,7 @@ from neutron.common import utils as q_utils
 from neutron import context
 from neutron.i18n import _LE, _LI, _LW
 from neutron.openstack.common import loopingcall
+from neutron.openstack.common import service
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.linuxbridge.common import config  # noqa
 from neutron.plugins.linuxbridge.common import constants as lconst
@@ -77,10 +78,12 @@ class LinuxBridgeManager(object):
         self.local_ip = cfg.CONF.VXLAN.local_ip
         self.vxlan_mode = lconst.VXLAN_NONE
         if cfg.CONF.VXLAN.enable_vxlan:
-            self.local_int = self.get_interface_by_ip(self.local_ip)
-            if self.local_int:
+            device = self.ip.get_device_by_ip(self.local_ip)
+            if device:
+                self.local_int = device.name
                 self.check_vxlan_support()
             else:
+                self.local_int = None
                 LOG.warning(_LW('VXLAN is enabled, a valid local_ip '
                                 'must be provided'))
         # Store network mapping to segments
@@ -115,7 +118,7 @@ class LinuxBridgeManager(object):
         return tap_device_name
 
     def get_vxlan_device_name(self, segmentation_id):
-        if 0 <= int(segmentation_id) <= constants.MAX_VXLAN_VNI:
+        if 0 <= int(segmentation_id) <= p_const.MAX_VXLAN_VNI:
             return VXLAN_INTERFACE_PREFIX + str(segmentation_id)
         else:
             LOG.warning(_LW("Invalid Segmentation ID: %s, will lead to "
@@ -146,11 +149,6 @@ class LinuxBridgeManager(object):
                             interface.startswith(constants.TAP_DEVICE_PREFIX)])
             except OSError:
                 return 0
-
-    def get_interface_by_ip(self, ip):
-        for device in self.ip.get_devices():
-            if device.addr.list(to=ip):
-                return device.name
 
     def get_bridge_for_tap_device(self, tap_device_name):
         bridges = self.get_all_neutron_bridges()
@@ -384,11 +382,14 @@ class LinuxBridgeManager(object):
         bridge_name = self.get_bridge_name(network_id)
         if network_type == p_const.TYPE_LOCAL:
             self.ensure_local_bridge(network_id)
-        elif not self.ensure_physical_in_bridge(network_id,
-                                                network_type,
-                                                physical_network,
-                                                segmentation_id):
-            return False
+        else:
+            phy_dev_name = self.ensure_physical_in_bridge(network_id,
+                                                          network_type,
+                                                          physical_network,
+                                                          segmentation_id)
+            if not phy_dev_name:
+                return False
+            self.ensure_tap_mtu(tap_device_name, phy_dev_name)
 
         # Check if device needs to be added to bridge
         tap_device_in_bridge = self.get_bridge_for_tap_device(tap_device_name)
@@ -406,6 +407,11 @@ class LinuxBridgeManager(object):
             LOG.debug("%(tap_device_name)s already exists on bridge "
                       "%(bridge_name)s", data)
         return True
+
+    def ensure_tap_mtu(self, tap_dev_name, phy_dev_name):
+        """Ensure the MTU on the tap is the same as the physical device."""
+        phy_dev_mtu = ip_lib.IPDevice(phy_dev_name).link.mtu
+        ip_lib.IPDevice(tap_dev_name).link.set_mtu(phy_dev_mtu)
 
     def add_interface(self, network_id, network_type, physical_network,
                       segmentation_id, port_id):
@@ -427,7 +433,7 @@ class LinuxBridgeManager(object):
                     self.delete_vxlan(interface)
                     continue
 
-                for physical_interface in self.interface_mappings.itervalues():
+                for physical_interface in self.interface_mappings.values():
                     if (interface.startswith(physical_interface)):
                         ips, gateway = self.get_interface_details(bridge_name)
                         if ips:
@@ -454,7 +460,7 @@ class LinuxBridgeManager(object):
                       bridge_name)
 
     def remove_empty_bridges(self):
-        for network_id in self.network_map.keys():
+        for network_id in list(self.network_map.keys()):
             bridge_name = self.get_bridge_name(network_id)
             if not self.get_tap_devices_count(bridge_name):
                 self.delete_vlan_bridge(bridge_name)
@@ -523,7 +529,7 @@ class LinuxBridgeManager(object):
             return False
 
         test_iface = None
-        for seg_id in moves.xrange(1, constants.MAX_VXLAN_VNI + 1):
+        for seg_id in moves.range(1, p_const.MAX_VXLAN_VNI + 1):
             if not ip_lib.device_exists(
                     self.get_vxlan_device_name(seg_id)):
                 test_iface = self.ensure_vxlan(seg_id)
@@ -637,7 +643,8 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
     # Set RPC API version to 1.0 by default.
     # history
     #   1.1 Support Security Group RPC
-    target = oslo_messaging.Target(version='1.1')
+    #   1.3 Added param devices_to_update to security_groups_provider_updated
+    target = oslo_messaging.Target(version='1.3')
 
     def __init__(self, context, agent, sg_agent):
         super(LinuxBridgeRpcCallbacks, self).__init__()
@@ -741,12 +748,26 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             getattr(self, method)(context, values)
 
 
-class LinuxBridgeNeutronAgentRPC(object):
+class LinuxBridgeNeutronAgentRPC(service.Service):
 
-    def __init__(self, interface_mappings, polling_interval):
+    def __init__(self, interface_mappings, polling_interval,
+                 quitting_rpc_timeout):
+        """Constructor.
+
+        :param interface_mappings: dict mapping physical_networks to
+               physical_interfaces.
+        :param polling_interval: interval (secs) to poll DB.
+        :param quitting_rpc_timeout: timeout in seconds for rpc calls after
+               stop is called.
+        """
+        super(LinuxBridgeNeutronAgentRPC, self).__init__()
+        self.interface_mappings = interface_mappings
         self.polling_interval = polling_interval
-        self.setup_linux_bridge(interface_mappings)
-        configurations = {'interface_mappings': interface_mappings}
+        self.quitting_rpc_timeout = quitting_rpc_timeout
+
+    def start(self):
+        self.setup_linux_bridge(self.interface_mappings)
+        configurations = {'interface_mappings': self.interface_mappings}
         if self.br_mgr.vxlan_mode != lconst.VXLAN_NONE:
             configurations['tunneling_ip'] = self.br_mgr.local_ip
             configurations['tunnel_types'] = [p_const.TYPE_VXLAN]
@@ -766,7 +787,17 @@ class LinuxBridgeNeutronAgentRPC(object):
         self.sg_plugin_rpc = sg_rpc.SecurityGroupServerRpcApi(topics.PLUGIN)
         self.sg_agent = sg_rpc.SecurityGroupAgentRpc(self.context,
                 self.sg_plugin_rpc)
-        self.setup_rpc(interface_mappings.values())
+        self.setup_rpc(self.interface_mappings.values())
+        self.daemon_loop()
+
+    def stop(self, graceful=True):
+        LOG.info(_LI("Stopping linuxbridge agent."))
+        if graceful and self.quitting_rpc_timeout:
+            self.set_rpc_timeout(self.quitting_rpc_timeout)
+        super(LinuxBridgeNeutronAgentRPC, self).stop(graceful)
+
+    def reset(self):
+        common_config.setup_logging()
 
     def _report_state(self):
         try:
@@ -997,6 +1028,11 @@ class LinuxBridgeNeutronAgentRPC(object):
                           {'polling_interval': self.polling_interval,
                            'elapsed': elapsed})
 
+    def set_rpc_timeout(self, timeout):
+        for rpc_api in (self.plugin_rpc, self.sg_plugin_rpc,
+                        self.state_rpc):
+            rpc_api.client.timeout = timeout
+
 
 def main():
     common_config.init(sys.argv[1:])
@@ -1012,11 +1048,13 @@ def main():
     LOG.info(_LI("Interface mappings: %s"), interface_mappings)
 
     polling_interval = cfg.CONF.AGENT.polling_interval
+    quitting_rpc_timeout = cfg.CONF.AGENT.quitting_rpc_timeout
     agent = LinuxBridgeNeutronAgentRPC(interface_mappings,
-                                       polling_interval)
+                                       polling_interval,
+                                       quitting_rpc_timeout)
     LOG.info(_LI("Agent initialized successfully, now running... "))
-    agent.daemon_loop()
-    sys.exit(0)
+    launcher = service.launch(agent)
+    launcher.wait()
 
 
 if __name__ == "__main__":

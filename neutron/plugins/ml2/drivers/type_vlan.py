@@ -20,9 +20,7 @@ from oslo_log import log
 from six import moves
 import sqlalchemy as sa
 
-from neutron.common import constants as q_const
 from neutron.common import exceptions as exc
-from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.db import model_base
 from neutron.i18n import _LE, _LI, _LW
@@ -117,7 +115,7 @@ class VlanTypeDriver(helpers.SegmentTypeDriver):
                 # this physical network
                 vlan_ids = set()
                 for vlan_min, vlan_max in vlan_ranges:
-                    vlan_ids |= set(moves.xrange(vlan_min, vlan_max + 1))
+                    vlan_ids |= set(moves.range(vlan_min, vlan_max + 1))
 
                 # remove from table unallocated vlans not currently
                 # allocatable
@@ -148,7 +146,7 @@ class VlanTypeDriver(helpers.SegmentTypeDriver):
 
             # remove from table unallocated vlans for any unconfigured
             # physical networks
-            for allocs in allocations.itervalues():
+            for allocs in allocations.values():
                 for alloc in allocs:
                     if not alloc.allocated:
                         LOG.debug("Removing vlan %(vlan_id)s on physical "
@@ -177,11 +175,11 @@ class VlanTypeDriver(helpers.SegmentTypeDriver):
                          " for VLAN provider network") % physical_network)
                 raise exc.InvalidInput(error_message=msg)
             if segmentation_id:
-                if not utils.is_valid_vlan_tag(segmentation_id):
+                if not plugin_utils.is_valid_vlan_tag(segmentation_id):
                     msg = (_("segmentation_id out of range (%(min)s through "
                              "%(max)s)") %
-                           {'min': q_const.MIN_VLAN_TAG,
-                            'max': q_const.MAX_VLAN_TAG})
+                           {'min': p_const.MIN_VLAN_TAG,
+                            'max': p_const.MAX_VLAN_TAG})
                     raise exc.InvalidInput(error_message=msg)
         elif segmentation_id:
             msg = _("segmentation_id requires physical_network for VLAN "

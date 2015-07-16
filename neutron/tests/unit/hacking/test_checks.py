@@ -18,6 +18,13 @@ from neutron.tests import base
 
 class HackingTestCase(base.BaseTestCase):
 
+    def assertLinePasses(self, func, line):
+        with testtools.ExpectedException(StopIteration):
+            next(func(line))
+
+    def assertLineFails(self, func, line):
+        self.assertIsInstance(next(func(line)), tuple)
+
     def test_log_translations(self):
         expected_marks = {
             'error': '_LE',
@@ -92,10 +99,20 @@ class HackingTestCase(base.BaseTestCase):
                mock.method(1, 2, 3, test='wow')
                mock.method.assertCalledOnceWith()
                """
+        fail_code3 = """
+               mock = Mock()
+               mock.method(1, 2, 3, test='wow')
+               mock.method.assert_has_called()
+               """
         pass_code = """
                mock = Mock()
                mock.method(1, 2, 3, test='wow')
                mock.method.assert_called_once_with()
+               """
+        pass_code2 = """
+               mock = Mock()
+               mock.method(1, 2, 3, test='wow')
+               mock.method.assert_has_calls()
                """
         self.assertEqual(
             1, len(list(checks.check_assert_called_once_with(fail_code1,
@@ -106,18 +123,34 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assert_called_once_with(pass_code,
                                             "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            1, len(list(checks.check_assert_called_once_with(fail_code3,
+                                            "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assert_called_once_with(pass_code2,
+                                            "neutron/tests/test_assert.py"))))
 
     def test_check_oslo_namespace_imports(self):
-        def check(s, fail=True):
-            func = checks.check_oslo_namespace_imports
-            if fail:
-                self.assertIsInstance(next(func(s)), tuple)
-            else:
-                with testtools.ExpectedException(StopIteration):
-                    next(func(s))
+        f = checks.check_oslo_namespace_imports
+        self.assertLinePasses(f, 'from oslo_utils import importutils')
+        self.assertLinePasses(f, 'import oslo_messaging')
+        self.assertLineFails(f, 'from oslo.utils import importutils')
+        self.assertLineFails(f, 'from oslo import messaging')
+        self.assertLineFails(f, 'import oslo.messaging')
 
-        check('from oslo_utils import importutils', fail=False)
-        check('import oslo_messaging', fail=False)
-        check('from oslo.utils import importutils')
-        check('from oslo import messaging')
-        check('import oslo.messaging')
+    def test_check_python3_xrange(self):
+        f = checks.check_python3_xrange
+        self.assertLineFails(f, 'a = xrange(1000)')
+        self.assertLineFails(f, 'b =xrange   (   42 )')
+        self.assertLineFails(f, 'c = xrange(1, 10, 2)')
+        self.assertLinePasses(f, 'd = range(1000)')
+        self.assertLinePasses(f, 'e = six.moves.range(1337)')
+
+    def test_no_basestring(self):
+        self.assertEqual(1,
+            len(list(checks.check_no_basestring("isinstance(x, basestring)"))))
+
+    def test_check_python3_iteritems(self):
+        f = checks.check_python3_no_iteritems
+        self.assertLineFails(f, "d.iteritems()")
+        self.assertLinePasses(f, "six.iteritems(d)")

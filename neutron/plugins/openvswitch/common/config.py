@@ -44,6 +44,8 @@ ovs_opts = [
     cfg.BoolOpt('use_veth_interconnection', default=False,
                 help=_("Use veths instead of patch ports to interconnect the "
                        "integration bridge to physical bridges.")),
+    cfg.StrOpt('of_interface', default='ovs-ofctl', choices=['ovs-ofctl'],
+               help=_("OpenFlow interface to use.")),
 ]
 
 agent_opts = [
@@ -74,7 +76,7 @@ agent_opts = [
                        "Allows the switch (when supporting an overlay) "
                        "to respond to an ARP request locally without "
                        "performing a costly ARP broadcast into the overlay.")),
-    cfg.BoolOpt('prevent_arp_spoofing', default=False,
+    cfg.BoolOpt('prevent_arp_spoofing', default=True,
                 help=_("Enable suppression of ARP responses that don't match "
                        "an IP address that belongs to the port from which "
                        "they originate. Note: This prevents the VMs attached "

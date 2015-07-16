@@ -16,6 +16,7 @@
 import netaddr
 import random
 
+import six
 from tempest_lib.common.utils import data_utils
 from tempest_lib import exceptions as lib_exc
 
@@ -97,9 +98,9 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
 
     @test.idempotent_id('e5517e62-6f16-430d-a672-f80875493d4c')
     def test_dhcpv6_stateless_eui64(self):
-        """When subnets configured with RAs SLAAC (AOM=100) and DHCP stateless
-        (AOM=110) both for radvd and dnsmasq, port shall receive IP address
-        calculated from its MAC.
+        """When subnets configured with IPv6 SLAAC (AOM=100) and DHCPv6
+        stateless (AOM=110) both for radvd and dnsmasq, port shall receive IP
+        address calculated from its MAC.
         """
         for ra_mode, add_mode in (
                 ('slaac', 'slaac'),
@@ -116,7 +117,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
 
     @test.idempotent_id('ae2f4a5d-03ff-4c42-a3b0-ce2fcb7ea832')
     def test_dhcpv6_stateless_no_ra(self):
-        """When subnets configured with dnsmasq SLAAC and DHCP stateless
+        """When subnets configured with IPv6 SLAAC and DHCPv6 stateless
         and there is no radvd, port shall receive IP address calculated
         from its MAC and mask of subnet.
         """
@@ -126,7 +127,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         ):
             kwargs = {'ipv6_ra_mode': ra_mode,
                       'ipv6_address_mode': add_mode}
-            kwargs = {k: v for k, v in kwargs.iteritems() if v}
+            kwargs = {k: v for k, v in six.iteritems(kwargs) if v}
             real_ip, eui_ip = self._get_ips_from_subnet(**kwargs)
             self._clean_network()
             self.assertEqual(eui_ip, real_ip,
@@ -169,9 +170,9 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
 
     @test.idempotent_id('4544adf7-bb5f-4bdc-b769-b3e77026cef2')
     def test_dhcpv6_two_subnets(self):
-        """When one IPv6 subnet configured with dnsmasq SLAAC or DHCP stateless
-        and other IPv6 is with DHCP stateful, port shall receive EUI-64 IP
-        addresses from first subnet and DHCP address from second one.
+        """When one IPv6 subnet configured with IPv6 SLAAC or DHCPv6 stateless
+        and other IPv6 is with DHCPv6 stateful, port shall receive EUI-64 IP
+        addresses from first subnet and DHCPv6 address from second one.
         Order of subnet creating should be unimportant.
         """
         for order in ("slaac_first", "dhcp_first"):
@@ -223,10 +224,13 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
 
     @test.idempotent_id('4256c61d-c538-41ea-9147-3c450c36669e')
     def test_dhcpv6_64_subnets(self):
-        """When one IPv6 subnet configured with dnsmasq SLAAC or DHCP stateless
-        and other IPv4 is with DHCP of IPv4, port shall receive EUI-64 IP
-        addresses from first subnet and IPv4 DHCP address from second one.
-        Order of subnet creating should be unimportant.
+        """When a Network contains two subnets, one being an IPv6 subnet
+        configured with ipv6_ra_mode either as slaac or dhcpv6-stateless,
+        and the other subnet being an IPv4 subnet, a port attached to the
+        network shall recieve IP addresses from the subnets as follows: An
+        IPv6 address calculated using EUI-64 from the first subnet, and an
+        IPv4 address from the second subnet. The ordering of the subnets
+        that the port is associated with should not affect this behavior.
         """
         for order in ("slaac_first", "dhcp_first"):
             for ra_mode, add_mode in (
@@ -283,7 +287,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         ):
             kwargs = {'ipv6_ra_mode': ra_mode,
                       'ipv6_address_mode': add_mode}
-            kwargs = {k: v for k, v in kwargs.iteritems() if v}
+            kwargs = {k: v for k, v in six.iteritems(kwargs) if v}
             subnet = self.create_subnet(self.network, **kwargs)
             port = self.create_port(self.network)
             port_ip = next(iter(port['fixed_ips']), None)['ip_address']
@@ -301,7 +305,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
     def test_dhcp_stateful_fixedips(self):
         """With all options below, port shall be able to get
         requested IP from fixed IP range not depending on
-        DHCP stateful (not SLAAC!) settings configured.
+        DHCPv6 stateful (not SLAAC!) settings configured.
         """
         for ra_mode, add_mode in (
                 ('dhcpv6-stateful', 'dhcpv6-stateful'),
@@ -310,7 +314,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         ):
             kwargs = {'ipv6_ra_mode': ra_mode,
                       'ipv6_address_mode': add_mode}
-            kwargs = {k: v for k, v in kwargs.iteritems() if v}
+            kwargs = {k: v for k, v in six.iteritems(kwargs) if v}
             subnet = self.create_subnet(self.network, **kwargs)
             ip_range = netaddr.IPRange(subnet["allocation_pools"][0]["start"],
                                        subnet["allocation_pools"][0]["end"])
@@ -388,7 +392,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         ):
             kwargs = {'ipv6_ra_mode': ra_mode,
                       'ipv6_address_mode': add_mode}
-            kwargs = {k: v for k, v in kwargs.iteritems() if v}
+            kwargs = {k: v for k, v in six.iteritems(kwargs) if v}
             subnet, port = self._create_subnet_router(kwargs)
             port_ip = next(iter(port['fixed_ips']), None)['ip_address']
             self._clean_network()

@@ -17,6 +17,9 @@ import os
 
 import mock
 from oslo_config import cfg
+from oslo_policy import policy as oslo_policy
+import six
+from six import moves
 import six.moves.urllib.parse as urlparse
 import webob
 from webob import exc
@@ -31,12 +34,12 @@ from neutron.api.v2 import router
 from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron import manager
-from neutron.openstack.common import policy as common_policy
 from neutron.openstack.common import uuidutils
 from neutron import policy
 from neutron import quota
 from neutron.tests import base
 from neutron.tests import fake_notifier
+from neutron.tests import tools
 from neutron.tests.unit import testlib_api
 
 
@@ -545,7 +548,7 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
             output_dict = res['networks'][0]
             input_dict['shared'] = False
             self.assertEqual(len(input_dict), len(output_dict))
-            for k, v in input_dict.iteritems():
+            for k, v in six.iteritems(input_dict):
                 self.assertEqual(v, output_dict[k])
         else:
             # expect no results
@@ -830,6 +833,14 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         data = {'whoa': None}
         self._test_create_failure_bad_request('networks', data)
 
+    def test_create_body_string_not_json(self):
+        data = 'a string'
+        self._test_create_failure_bad_request('networks', data)
+
+    def test_create_body_boolean_not_json(self):
+        data = True
+        self._test_create_failure_bad_request('networks', data)
+
     def test_create_no_resource(self):
         data = {}
         self._test_create_failure_bad_request('networks', data)
@@ -918,7 +929,9 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         return_value.update(initial_input['port'])
 
         instance = self.plugin.return_value
-        instance.get_network.return_value = {'tenant_id': unicode(tenant_id)}
+        instance.get_network.return_value = {
+            'tenant_id': six.text_type(tenant_id)
+        }
         instance.get_ports_count.return_value = 1
         instance.create_port.return_value = return_value
         res = self.api.post(_get_path('ports', fmt=self.fmt),
@@ -1036,8 +1049,8 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
     def test_get_keystone_strip_admin_only_attribute(self):
         tenant_id = _uuid()
         # Inject rule in policy engine
-        rules = {'get_network:name': common_policy.parse_rule(
-            "rule:admin_only")}
+        rules = oslo_policy.Rules.from_dict(
+            {'get_network:name': "rule:admin_only"})
         policy.set_rules(rules, overwrite=False)
         res = self._test_get(tenant_id, tenant_id, 200)
         res = self.deserialize(res)
@@ -1106,10 +1119,7 @@ class SubresourceTest(base.BaseTestCase):
         plugin = 'neutron.tests.unit.api.v2.test_base.TestSubresourcePlugin'
         extensions.PluginAwareExtensionManager._instance = None
 
-        # Save the global RESOURCE_ATTRIBUTE_MAP
-        self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        self.useFixture(tools.AttributeMapMemento())
 
         self.config_parse()
         self.setup_coreplugin(plugin)
@@ -1136,8 +1146,6 @@ class SubresourceTest(base.BaseTestCase):
 
     def tearDown(self):
         router.SUB_RESOURCES = {}
-        # Restore the global RESOURCE_ATTRIBUTE_MAP
-        attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
         super(SubresourceTest, self).tearDown()
 
     def test_index_sub_resource(self):
@@ -1306,7 +1314,7 @@ class DHCPNotificationTest(APIv2TestBase):
                 resource += 's'
             num = len(initial_input[resource]) if initial_input and isinstance(
                 initial_input[resource], list) else 1
-            expected = [expected_item for x in xrange(num)]
+            expected = [expected_item for x in moves.range(num)]
             self.assertEqual(expected, dhcp_notifier.call_args_list)
             self.assertEqual(num, dhcp_notifier.call_count)
         self.assertEqual(expected_code, res.status_int)
@@ -1382,10 +1390,7 @@ class ExtensionTestCase(base.BaseTestCase):
         # Ensure existing ExtensionManager is not used
         extensions.PluginAwareExtensionManager._instance = None
 
-        # Save the global RESOURCE_ATTRIBUTE_MAP
-        self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        self.useFixture(tools.AttributeMapMemento())
 
         # Create the default configurations
         self.config_parse()
@@ -1412,8 +1417,6 @@ class ExtensionTestCase(base.BaseTestCase):
         super(ExtensionTestCase, self).tearDown()
         self.api = None
         self.plugin = None
-        # Restore the global RESOURCE_ATTRIBUTE_MAP
-        attributes.RESOURCE_ATTRIBUTE_MAP = self.saved_attr_map
 
     def test_extended_create(self):
         net_id = _uuid()

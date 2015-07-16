@@ -26,7 +26,6 @@ import netaddr
 from neutron.agent.common import config
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
-from neutron.tests import tools
 
 CHILD_PROCESS_TIMEOUT = os.environ.get('OS_TEST_CHILD_PROCESS_TIMEOUT', 20)
 CHILD_PROCESS_SLEEP = os.environ.get('OS_TEST_CHILD_PROCESS_SLEEP', 0.5)
@@ -52,15 +51,8 @@ class RecursivePermDirFixture(fixtures.Fixture):
             perms = os.stat(current_directory).st_mode
             if perms & self.least_perms != self.least_perms:
                 os.chmod(current_directory, perms | self.least_perms)
-                self.addCleanup(self.safe_chmod, current_directory, perms)
             previous_directory = current_directory
             current_directory = os.path.dirname(current_directory)
-
-    def safe_chmod(self, path, mode):
-        try:
-            os.chmod(path, mode)
-        except OSError:
-            pass
 
 
 def get_free_namespace_port(tcp=True, namespace=None):
@@ -100,51 +92,23 @@ def get_unused_port(used, start=1024, end=65535):
     return random.choice(list(candidates - used))
 
 
-class Pinger(object):
-    def __init__(self, namespace, timeout=1, max_attempts=1):
-        self.namespace = namespace
-        self._timeout = timeout
-        self._max_attempts = max_attempts
-
-    def _ping_destination(self, dest_address):
-        ipversion = netaddr.IPAddress(dest_address).version
-        ping_command = 'ping' if ipversion == 4 else 'ping6'
-        self.namespace.netns.execute([ping_command, '-c', self._max_attempts,
-                                      '-W', self._timeout, dest_address])
-
-    def assert_ping(self, dst_ip):
-        self._ping_destination(dst_ip)
-
-    def assert_no_ping(self, dst_ip):
-        try:
-            self._ping_destination(dst_ip)
-            tools.fail("destination ip %(dst_ip)s is replying to ping"
-                       "from namespace %(ns)s, but it shouldn't" %
-                       {'ns': self.namespace.namespace, 'dst_ip': dst_ip})
-        except RuntimeError:
-            pass
-
-
 class RootHelperProcess(subprocess.Popen):
     def __init__(self, cmd, *args, **kwargs):
         for arg in ('stdin', 'stdout', 'stderr'):
             kwargs.setdefault(arg, subprocess.PIPE)
         self.namespace = kwargs.pop('namespace', None)
-        self.run_as_root = kwargs.pop('run_as_root', False)
         self.cmd = cmd
         if self.namespace is not None:
             cmd = ['ip', 'netns', 'exec', self.namespace] + cmd
-        if self.run_as_root:
-            root_helper = config.get_root_helper(utils.cfg.CONF)
-            cmd = shlex.split(root_helper) + cmd
+        root_helper = config.get_root_helper(utils.cfg.CONF)
+        cmd = shlex.split(root_helper) + cmd
         self.child_pid = None
         super(RootHelperProcess, self).__init__(cmd, *args, **kwargs)
-        if self.run_as_root:
-            self._wait_for_child_process()
+        self._wait_for_child_process()
 
     def kill(self):
         pid = self.child_pid or str(self.pid)
-        utils.execute(['kill', '-9', pid], run_as_root=self.run_as_root)
+        utils.execute(['kill', '-9', pid], run_as_root=True)
 
     def read_stdout(self, timeout=None):
         return self._read_stream(self.stdout, timeout)
@@ -168,7 +132,7 @@ class RootHelperProcess(subprocess.Popen):
                                 sleep=CHILD_PROCESS_SLEEP):
         def child_is_running():
             child_pid = utils.get_root_helper_child_pid(
-                self.pid, run_as_root=self.run_as_root)
+                self.pid, run_as_root=True)
             if utils.pid_invoked_with_cmdline(child_pid, self.cmd):
                 return True
 
@@ -178,14 +142,14 @@ class RootHelperProcess(subprocess.Popen):
             exception=RuntimeError("Process %s hasn't been spawned "
                                    "in %d seconds" % (self.cmd, timeout)))
         self.child_pid = utils.get_root_helper_child_pid(
-            self.pid, run_as_root=self.run_as_root)
+            self.pid, run_as_root=True)
 
 
 class NetcatTester(object):
     TESTING_STRING = 'foo'
 
     def __init__(self, client_namespace, server_namespace, server_address,
-                 port, client_address=None, run_as_root=False, udp=False):
+                 port, client_address=None, udp=False):
         self.client_namespace = client_namespace
         self.server_namespace = server_namespace
         self._client_process = None
@@ -196,7 +160,6 @@ class NetcatTester(object):
         self.client_address = client_address or server_address
         self.server_address = server_address
         self.port = str(port)
-        self.run_as_root = run_as_root
         self.udp = udp
 
     @property
@@ -205,7 +168,7 @@ class NetcatTester(object):
             if not self._server_process:
                 self._spawn_server_process()
             self._client_process = self._spawn_nc_in_namespace(
-                self.client_namespace.namespace,
+                self.client_namespace,
                 address=self.client_address)
         return self._client_process
 
@@ -217,7 +180,7 @@ class NetcatTester(object):
 
     def _spawn_server_process(self):
         self._server_process = self._spawn_nc_in_namespace(
-            self.server_namespace.namespace,
+            self.server_namespace,
             address=self.server_address,
             listen=True)
 
@@ -244,8 +207,7 @@ class NetcatTester(object):
                 cmd.append('-k')
         else:
             cmd.extend(['-w', '20'])
-        proc = RootHelperProcess(cmd, namespace=namespace,
-                                 run_as_root=self.run_as_root)
+        proc = RootHelperProcess(cmd, namespace=namespace)
         return proc
 
     def stop_processes(self):

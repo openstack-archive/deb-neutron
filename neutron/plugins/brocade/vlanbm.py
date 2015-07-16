@@ -17,12 +17,11 @@
 """A Vlan Bitmap class to handle allocation/de-allocation of vlan ids."""
 from six import moves
 
-from neutron.common import constants
 from neutron.plugins.brocade.db import models as brocade_db
+from neutron.plugins.common import constants as p_const
 
-
-MIN_VLAN = constants.MIN_VLAN_TAG + 1
-MAX_VLAN = constants.MAX_VLAN_TAG
+MIN_VLAN = p_const.MIN_VLAN_TAG + 1
+MAX_VLAN = p_const.MAX_VLAN_TAG
 
 
 class VlanBitmap(object):
@@ -43,7 +42,7 @@ class VlanBitmap(object):
         min_vlan_search = vlan_id or MIN_VLAN
         max_vlan_search = (vlan_id + 1) if vlan_id else MAX_VLAN
 
-        for vlan in moves.xrange(min_vlan_search, max_vlan_search):
+        for vlan in moves.range(min_vlan_search, max_vlan_search):
             if vlan not in self.vlans:
                 self.vlans.add(vlan)
                 return vlan

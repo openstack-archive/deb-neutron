@@ -17,6 +17,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_serialization import jsonutils
+import six
 
 from neutron.common import constants
 from neutron.common import exceptions
@@ -115,7 +116,7 @@ class L3RpcCallback(object):
                                               router['id'])
 
     def _ensure_host_set_on_port(self, context, host, port, router_id=None):
-        if (port and
+        if (port and host is not None and
             (port.get('device_owner') !=
              constants.DEVICE_OWNER_DVR_INTERFACE and
              port.get(portbindings.HOST_ID) != host or
@@ -146,7 +147,7 @@ class L3RpcCallback(object):
     def get_external_network_id(self, context, **kwargs):
         """Get one external network id for l3 agent.
 
-        l3 agent expects only on external network when it performs
+        l3 agent expects only one external network when it performs
         this query.
         """
         context = neutron_context.get_admin_context()
@@ -162,7 +163,7 @@ class L3RpcCallback(object):
     def update_floatingip_statuses(self, context, router_id, fip_statuses):
         """Update operational status for a floating IP."""
         with context.session.begin(subtransactions=True):
-            for (floatingip_id, status) in fip_statuses.iteritems():
+            for (floatingip_id, status) in six.iteritems(fip_statuses):
                 LOG.debug("New status for floating IP %(floatingip_id)s: "
                           "%(status)s", {'floatingip_id': floatingip_id,
                                          'status': status})

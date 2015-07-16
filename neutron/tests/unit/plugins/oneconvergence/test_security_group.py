@@ -16,10 +16,10 @@ import uuid
 
 import mock
 
-from neutron.api.v2 import attributes
 from neutron.extensions import securitygroup as ext_sg
 from neutron import manager
 from neutron.plugins.oneconvergence import plugin as nvsd_plugin
+from neutron.tests import tools
 from neutron.tests.unit.agent import test_securitygroups_rpc as test_sg_rpc
 from neutron.tests.unit.extensions import test_securitygroup as test_sg
 
@@ -49,11 +49,7 @@ class OneConvergenceSecurityGroupsTestCase(test_sg.SecurityGroupDBTestCase):
         notifier_cls = mock.patch(AGENTNOTIFIER).start()
         self.notifier = mock.Mock()
         notifier_cls.return_value = self.notifier
-        self._attribute_map_bk_ = {}
-        for item in attributes.RESOURCE_ATTRIBUTE_MAP:
-            self._attribute_map_bk_[item] = (attributes.
-                                             RESOURCE_ATTRIBUTE_MAP[item].
-                                             copy())
+        self.useFixture(tools.AttributeMapMemento())
         with mock.patch.object(nvsd_plugin.OneConvergencePluginV2,
                                'oneconvergence_init',
                                new=mocked_oneconvergence_init):
@@ -62,7 +58,6 @@ class OneConvergenceSecurityGroupsTestCase(test_sg.SecurityGroupDBTestCase):
 
     def tearDown(self):
         super(OneConvergenceSecurityGroupsTestCase, self).tearDown()
-        attributes.RESOURCE_ATTRIBUTE_MAP = self._attribute_map_bk_
 
 
 class TestOneConvergenceSGServerRpcCallBack(
@@ -94,7 +89,8 @@ class TestOneConvergenceSecurityGroups(OneConvergenceSecurityGroupsTestCase,
                                            req.get_response(self.api))
                     port_id = res['port']['id']
                     plugin = manager.NeutronManager.get_plugin()
-                    port_dict = plugin.get_port_from_device(port_id)
+                    port_dict = plugin.get_port_from_device(mock.Mock(),
+                                                            port_id)
                     self.assertEqual(port_id, port_dict['id'])
                     self.assertEqual([security_group_id],
                                      port_dict[ext_sg.SECURITYGROUPS])
@@ -106,5 +102,5 @@ class TestOneConvergenceSecurityGroups(OneConvergenceSecurityGroupsTestCase,
     def test_security_group_get_port_from_device_with_no_port(self):
 
         plugin = manager.NeutronManager.get_plugin()
-        port_dict = plugin.get_port_from_device('bad_device_id')
+        port_dict = plugin.get_port_from_device(mock.Mock(), 'bad_device_id')
         self.assertIsNone(port_dict)

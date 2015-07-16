@@ -16,15 +16,16 @@
 import os
 import socket
 import ssl
-import urllib2
 
 import mock
 from oslo_config import cfg
+import six.moves.urllib.request as urlrequest
 import testtools
 import webob
 import webob.exc
 
 from neutron.common import exceptions as exception
+from neutron.db import api
 from neutron.tests import base
 from neutron import wsgi
 
@@ -40,30 +41,48 @@ def open_no_proxy(*args, **kwargs):
     # introduced in python 2.7.9 under PEP-0476
     # https://github.com/python/peps/blob/master/pep-0476.txt
     if hasattr(ssl, "_create_unverified_context"):
-        opener = urllib2.build_opener(
-            urllib2.ProxyHandler({}),
-            urllib2.HTTPSHandler(context=ssl._create_unverified_context())
+        opener = urlrequest.build_opener(
+            urlrequest.ProxyHandler({}),
+            urlrequest.HTTPSHandler(context=ssl._create_unverified_context())
         )
     else:
-        opener = urllib2.build_opener(urllib2.ProxyHandler({}))
+        opener = urlrequest.build_opener(urlrequest.ProxyHandler({}))
     return opener.open(*args, **kwargs)
 
 
-class TestWorkerService(base.BaseTestCase):
+class TestServiceBase(base.BaseTestCase):
+    """Service tests base."""
+
+    @mock.patch("neutron.policy.refresh")
+    @mock.patch("neutron.common.config.setup_logging")
+    def _test_reset(self, worker_service, setup_logging_mock, refresh_mock):
+        worker_service.reset()
+
+        setup_logging_mock.assert_called_once_with()
+        refresh_mock.assert_called_once_with()
+
+
+class TestWorkerService(TestServiceBase):
     """WorkerService tests."""
 
-    @mock.patch('neutron.db.api')
+    @mock.patch('neutron.db.api.get_engine')
     def test_start_withoutdb_call(self, apimock):
+        # clear engine from other tests
+        api._FACADE = None
         _service = mock.Mock()
-        _service.pool = mock.Mock()
-        _service.pool.spawn = mock.Mock()
         _service.pool.spawn.return_value = None
 
         _app = mock.Mock()
-        cfg.CONF.set_override("connection", "", "database")
         workerservice = wsgi.WorkerService(_service, _app)
         workerservice.start()
-        self.assertFalse(apimock.get_engine.called)
+        self.assertFalse(apimock.called)
+
+    def test_reset(self):
+        _service = mock.Mock()
+        _app = mock.Mock()
+
+        worker_service = wsgi.WorkerService(_service, _app)
+        self._test_reset(worker_service)
 
 
 class TestWSGIServer(base.BaseTestCase):
@@ -132,7 +151,7 @@ class TestWSGIServer(base.BaseTestCase):
                         mock.call(
                             server._run,
                             None,
-                            mock_listen.return_value)
+                            mock_listen.return_value.dup.return_value)
                     ])
 
     def test_app(self):
@@ -339,14 +358,14 @@ class RequestTest(base.BaseTestCase):
 
     def test_content_type_missing(self):
         request = wsgi.Request.blank('/tests/123', method='POST')
-        request.body = "<body />"
+        request.body = b"<body />"
 
         self.assertIsNone(request.get_content_type())
 
     def test_content_type_unsupported(self):
         request = wsgi.Request.blank('/tests/123', method='POST')
         request.headers["Content-Type"] = "text/html"
-        request.body = "fake<br />"
+        request.body = b"fake<br />"
 
         self.assertIsNone(request.get_content_type())
 
@@ -599,7 +618,7 @@ class ResourceTest(base.BaseTestCase):
     def test_malformed_request_body_throws_bad_request(self):
         resource = wsgi.Resource(None, self.my_fault_body_function)
         request = wsgi.Request.blank(
-            "/", body="{mal:formed", method='POST',
+            "/", body=b"{mal:formed", method='POST',
             headers={'Content-Type': "application/json"})
 
         response = resource(request)
@@ -608,7 +627,7 @@ class ResourceTest(base.BaseTestCase):
     def test_wrong_content_type_throws_unsupported_media_type_error(self):
         resource = wsgi.Resource(None, self.my_fault_body_function)
         request = wsgi.Request.blank(
-            "/", body="{some:json}", method='POST',
+            "/", body=b"{some:json}", method='POST',
             headers={'Content-Type': "xxx"})
 
         response = resource(request)
@@ -697,6 +716,69 @@ class FaultTest(base.BaseTestCase):
 
 class TestWSGIServerWithSSL(base.BaseTestCase):
     """WSGI server tests."""
+
+    @mock.patch("exceptions.RuntimeError")
+    @mock.patch("os.path.exists")
+    def test__check_ssl_settings(self, exists_mock, runtime_error_mock):
+        exists_mock.return_value = True
+        CONF.set_default('use_ssl', True)
+        CONF.set_default("ssl_cert_file", 'certificate.crt')
+        CONF.set_default("ssl_key_file", 'privatekey.key')
+        CONF.set_default("ssl_ca_file", 'cacert.pem')
+        wsgi.Server("test_app")
+        self.assertFalse(runtime_error_mock.called)
+
+    @mock.patch("os.path.exists")
+    def test__check_ssl_settings_no_ssl_cert_file_fails(self, exists_mock):
+        exists_mock.side_effect = [False]
+        CONF.set_default('use_ssl', True)
+        CONF.set_default("ssl_cert_file", "/no/such/file")
+        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
+
+    @mock.patch("os.path.exists")
+    def test__check_ssl_settings_no_ssl_key_file_fails(self, exists_mock):
+        exists_mock.side_effect = [True, False]
+        CONF.set_default('use_ssl', True)
+        CONF.set_default("ssl_cert_file", 'certificate.crt')
+        CONF.set_default("ssl_key_file", "/no/such/file")
+        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
+
+    @mock.patch("os.path.exists")
+    def test__check_ssl_settings_no_ssl_ca_file_fails(self, exists_mock):
+        exists_mock.side_effect = [True, True, False]
+        CONF.set_default('use_ssl', True)
+        CONF.set_default("ssl_cert_file", 'certificate.crt')
+        CONF.set_default("ssl_key_file", 'privatekey.key')
+        CONF.set_default("ssl_ca_file", "/no/such/file")
+        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
+
+    @mock.patch("ssl.wrap_socket")
+    @mock.patch("os.path.exists")
+    def _test_wrap_ssl(self, exists_mock, wrap_socket_mock, **kwargs):
+        exists_mock.return_value = True
+        sock = mock.Mock()
+        CONF.set_default("ssl_cert_file", 'certificate.crt')
+        CONF.set_default("ssl_key_file", 'privatekey.key')
+        ssl_kwargs = {'server_side': True,
+                      'certfile': CONF.ssl_cert_file,
+                      'keyfile': CONF.ssl_key_file,
+                      'cert_reqs': ssl.CERT_NONE,
+                      }
+        if kwargs:
+            ssl_kwargs.update(**kwargs)
+        server = wsgi.Server("test_app")
+        server.wrap_ssl(sock)
+        wrap_socket_mock.assert_called_once_with(sock, **ssl_kwargs)
+
+    def test_wrap_ssl(self):
+        self._test_wrap_ssl()
+
+    def test_wrap_ssl_ca_file(self):
+        CONF.set_default("ssl_ca_file", 'cacert.pem')
+        ssl_kwargs = {'ca_certs': CONF.ssl_ca_file,
+                      'cert_reqs': ssl.CERT_REQUIRED
+                      }
+        self._test_wrap_ssl(**ssl_kwargs)
 
     def test_app_using_ssl(self):
         CONF.set_default('use_ssl', True)

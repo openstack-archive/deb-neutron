@@ -18,22 +18,28 @@ import sys
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_log import versionutils
 from oslo_utils import importutils
+import six
 import webob
 
 from neutron.common import exceptions
 from neutron.i18n import _LI, _LW
 
+
 LOG = logging.getLogger(__name__)
 QUOTA_DB_MODULE = 'neutron.db.quota_db'
 QUOTA_DB_DRIVER = 'neutron.db.quota_db.DbQuotaDriver'
 QUOTA_CONF_DRIVER = 'neutron.quota.ConfDriver'
+default_quota_items = ['network', 'subnet', 'port']
 
 quota_opts = [
     cfg.ListOpt('quota_items',
-                default=['network', 'subnet', 'port'],
+                default=default_quota_items,
+                deprecated_for_removal=True,
                 help=_('Resource name(s) that are supported in quota '
-                       'features')),
+                       'features. This option is now deprecated for '
+                       'removal.')),
     cfg.IntOpt('default_quota',
                default=-1,
                help=_('Default number of resource allowed per tenant. '
@@ -214,8 +220,14 @@ class QuotaEngine(object):
                 _driver_class = QUOTA_CONF_DRIVER
                 LOG.info(_LI("ConfDriver is used as quota_driver because the "
                              "loaded plugin does not support 'quotas' table."))
-            if isinstance(_driver_class, basestring):
+            if isinstance(_driver_class, six.string_types):
                 _driver_class = importutils.import_object(_driver_class)
+            if isinstance(_driver_class, ConfDriver):
+                versionutils.report_deprecated_feature(
+                    LOG, _LW("The quota driver neutron.quota.ConfDriver is "
+                             "deprecated as of Liberty. "
+                             "neutron.db.quota_db.DbQuotaDriver should be "
+                             "used in its place"))
             self._driver = _driver_class
             LOG.info(_LI('Loaded quota_driver: %s.'), _driver_class)
         return self._driver
@@ -322,8 +334,17 @@ def _count_resource(context, plugin, resources, tenant_id):
 
 
 def register_resources_from_config():
+    # This operation is now deprecated. All the neutron core and extended
+    # resource for which  quota limits are enforced explicitly register
+    # themselves with the quota engine.
+    versionutils.report_deprecated_feature(
+        LOG, _LW("Registering resources to apply quota limits to using the "
+                 "quota_items option is deprecated as of Liberty."
+                 "Resource REST controllers should take care of registering "
+                 "resources with the quota engine."))
     resources = []
-    for resource_item in cfg.CONF.QUOTAS.quota_items:
+    for resource_item in (set(cfg.CONF.QUOTAS.quota_items) -
+                          set(default_quota_items)):
         resources.append(CountableResource(resource_item, _count_resource,
                                            'quota_' + resource_item))
     QUOTAS.register_resources(resources)

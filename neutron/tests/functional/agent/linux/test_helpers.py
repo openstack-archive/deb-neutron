@@ -12,21 +12,21 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.tests.functional.agent.linux import base
 from neutron.tests.functional.agent.linux import helpers
+from neutron.tests.functional import base
 
 
-class TestRootHelperProcess(base.BaseLinuxTestCase):
+class TestRootHelperProcess(base.BaseSudoTestCase):
 
     def test_process_read_write(self):
-        proc = helpers.RootHelperProcess(['tee'], run_as_root=True)
+        proc = helpers.RootHelperProcess(['tee'])
         proc.writeline('foo')
         output = proc.read_stdout(helpers.READ_TIMEOUT)
         self.assertEqual('foo\n', output)
 
     def test_process_kill(self):
         with self.assert_max_execution_time(100):
-            proc = helpers.RootHelperProcess(['tee'], run_as_root=True)
+            proc = helpers.RootHelperProcess(['tee'])
             proc.kill()
             proc.wait()
             # sudo returns 137 and

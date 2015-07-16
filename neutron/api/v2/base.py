@@ -18,7 +18,9 @@ import copy
 import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_policy import policy as oslo_policy
 from oslo_utils import excutils
+import six
 import webob.exc
 
 from neutron.api import api_common
@@ -29,7 +31,6 @@ from neutron.common import constants as const
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import policy as common_policy
 from neutron import policy
 from neutron import quota
 
@@ -43,7 +44,7 @@ FAULT_MAP = {exceptions.NotFound: webob.exc.HTTPNotFound,
              exceptions.ServiceUnavailable: webob.exc.HTTPServiceUnavailable,
              exceptions.NotAuthorized: webob.exc.HTTPForbidden,
              netaddr.AddrFormatError: webob.exc.HTTPBadRequest,
-             common_policy.PolicyNotAuthorized: webob.exc.HTTPForbidden
+             oslo_policy.PolicyNotAuthorized: webob.exc.HTTPForbidden
              }
 
 
@@ -109,7 +110,7 @@ class Controller(object):
                                                          self._resource)
 
     def _get_primary_key(self, default_primary_key='id'):
-        for key, value in self._attr_info.iteritems():
+        for key, value in six.iteritems(self._attr_info):
             if value.get('primary_key', False):
                 return key
         return default_primary_key
@@ -170,7 +171,7 @@ class Controller(object):
     def _filter_attributes(self, context, data, fields_to_strip=None):
         if not fields_to_strip:
             return data
-        return dict(item for item in data.iteritems()
+        return dict(item for item in six.iteritems(data)
                     if (item[0] not in fields_to_strip))
 
     def _do_field_list(self, original_fields):
@@ -191,7 +192,7 @@ class Controller(object):
                 # Fetch the resource and verify if the user can access it
                 try:
                     resource = self._item(request, id, True)
-                except common_policy.PolicyNotAuthorized:
+                except oslo_policy.PolicyNotAuthorized:
                     msg = _('The resource could not be found.')
                     raise webob.exc.HTTPNotFound(msg)
                 body = kwargs.pop('body', None)
@@ -337,7 +338,7 @@ class Controller(object):
                                           field_list=field_list,
                                           parent_id=parent_id),
                                fields_to_strip=added_fields)}
-        except common_policy.PolicyNotAuthorized:
+        except oslo_policy.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
             msg = _('The resource could not be found.')
@@ -480,7 +481,7 @@ class Controller(object):
                            action,
                            obj,
                            pluralized=self._collection)
-        except common_policy.PolicyNotAuthorized:
+        except oslo_policy.PolicyNotAuthorized:
             # To avoid giving away information, pretend that it
             # doesn't exist
             msg = _('The resource could not be found.')
@@ -517,7 +518,7 @@ class Controller(object):
         # Load object to check authz
         # but pass only attributes in the original body and required
         # by the policy engine to the policy 'brain'
-        field_list = [name for (name, value) in self._attr_info.iteritems()
+        field_list = [name for (name, value) in six.iteritems(self._attr_info)
                       if (value.get('required_by_policy') or
                           value.get('primary_key') or
                           'default' not in value)]
@@ -536,7 +537,7 @@ class Controller(object):
                            action,
                            orig_obj,
                            pluralized=self._collection)
-        except common_policy.PolicyNotAuthorized:
+        except oslo_policy.PolicyNotAuthorized:
             with excutils.save_and_reraise_exception() as ctxt:
                 # If a tenant is modifying it's own object, it's safe to return
                 # a 403. Otherwise, pretend that it doesn't exist to avoid
@@ -595,21 +596,24 @@ class Controller(object):
             raise webob.exc.HTTPBadRequest(_("Resource body required"))
 
         LOG.debug("Request body: %(body)s", {'body': body})
-        if collection in body:
-            if not allow_bulk:
-                raise webob.exc.HTTPBadRequest(_("Bulk operation "
-                                                 "not supported"))
-            if not body[collection]:
-                raise webob.exc.HTTPBadRequest(_("Resources required"))
-            bulk_body = [
-                Controller.prepare_request_body(
-                    context, item if resource in item else {resource: item},
-                    is_create, resource, attr_info, allow_bulk
-                ) for item in body[collection]
-            ]
-            return {collection: bulk_body}
-
-        res_dict = body.get(resource)
+        try:
+            if collection in body:
+                if not allow_bulk:
+                    raise webob.exc.HTTPBadRequest(_("Bulk operation "
+                                                     "not supported"))
+                if not body[collection]:
+                    raise webob.exc.HTTPBadRequest(_("Resources required"))
+                bulk_body = [
+                    Controller.prepare_request_body(
+                        context, item if resource in item
+                        else {resource: item}, is_create, resource, attr_info,
+                        allow_bulk) for item in body[collection]
+                ]
+                return {collection: bulk_body}
+            res_dict = body.get(resource)
+        except (AttributeError, TypeError):
+            msg = _("Body contains invalid data")
+            raise webob.exc.HTTPBadRequest(msg)
         if res_dict is None:
             msg = _("Unable to find '%s' in request body") % resource
             raise webob.exc.HTTPBadRequest(msg)
@@ -618,7 +622,7 @@ class Controller(object):
         Controller._verify_attributes(res_dict, attr_info)
 
         if is_create:  # POST
-            for attr, attr_vals in attr_info.iteritems():
+            for attr, attr_vals in six.iteritems(attr_info):
                 if attr_vals['allow_post']:
                     if ('default' not in attr_vals and
                         attr not in res_dict):
@@ -632,12 +636,12 @@ class Controller(object):
                         msg = _("Attribute '%s' not allowed in POST") % attr
                         raise webob.exc.HTTPBadRequest(msg)
         else:  # PUT
-            for attr, attr_vals in attr_info.iteritems():
+            for attr, attr_vals in six.iteritems(attr_info):
                 if attr in res_dict and not attr_vals['allow_put']:
                     msg = _("Cannot update read-only attribute %s") % attr
                     raise webob.exc.HTTPBadRequest(msg)
 
-        for attr, attr_vals in attr_info.iteritems():
+        for attr, attr_vals in six.iteritems(attr_info):
             if (attr not in res_dict or
                 res_dict[attr] is attributes.ATTR_NOT_SPECIFIED):
                 continue

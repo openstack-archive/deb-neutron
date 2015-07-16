@@ -11,7 +11,6 @@
 #    under the License.
 
 import collections
-import weakref
 
 from oslo_log import log as logging
 from oslo_utils import reflection
@@ -19,7 +18,7 @@ from oslo_utils import reflection
 from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import resources
-from neutron.i18n import _LE, _LI
+from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class CallbacksManager(object):
             raise exceptions.Invalid(element='event', value=event)
 
         callback_id = _get_id(callback)
-        self._callbacks[resource][event][callback_id] = weakref.proxy(callback)
+        self._callbacks[resource][event][callback_id] = callback
         # We keep a copy of callbacks to speed the unsubscribe operation.
         if callback_id not in self._index:
             self._index[callback_id] = collections.defaultdict(set)
@@ -132,14 +131,14 @@ class CallbacksManager(object):
 
     def _notify_loop(self, resource, event, trigger, **kwargs):
         """The notification loop."""
-        LOG.info(_LI("Notify callbacks for %(resource)s, %(event)s"),
-                 {'resource': resource, 'event': event})
+        LOG.debug("Notify callbacks for %(resource)s, %(event)s",
+                  {'resource': resource, 'event': event})
 
         errors = []
         # TODO(armax): consider using a GreenPile
         for callback_id, callback in self._callbacks[resource][event].items():
             try:
-                LOG.info(_LI("Calling callback %s"), callback_id)
+                LOG.debug("Calling callback %s", callback_id)
                 callback(resource, event, trigger, **kwargs)
             except Exception as e:
                 LOG.exception(_LE("Error during notification for "

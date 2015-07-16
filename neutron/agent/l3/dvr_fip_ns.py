@@ -39,7 +39,7 @@ FIP_PR_END = FIP_PR_START + 40000
 class FipNamespace(namespaces.Namespace):
 
     def __init__(self, ext_net_id, agent_conf, driver, use_ipv6):
-        name = FIP_NS_PREFIX + ext_net_id
+        name = self._get_ns_name(ext_net_id)
         super(FipNamespace, self).__init__(
             name, agent_conf, driver, use_ipv6)
 
@@ -57,8 +57,12 @@ class FipNamespace(namespaces.Namespace):
         self.local_subnets = lla.LinkLocalAllocator(path, FIP_LL_SUBNET)
         self.destroyed = False
 
+    @classmethod
+    def _get_ns_name(cls, ext_net_id):
+        return namespaces.build_ns_name(FIP_NS_PREFIX, ext_net_id)
+
     def get_name(self):
-        return (FIP_NS_PREFIX + self._ext_net_id)
+        return self._get_ns_name(self._ext_net_id)
 
     def get_ext_device_name(self, port_id):
         return (FIP_EXT_DEV_PREFIX + port_id)[:self.driver.DEV_NAME_LEN]
@@ -90,23 +94,23 @@ class FipNamespace(namespaces.Namespace):
     def _gateway_added(self, ex_gw_port, interface_name):
         """Add Floating IP gateway port."""
         ns_name = self.get_name()
-        if not ip_lib.device_exists(interface_name, namespace=ns_name):
-            self.driver.plug(ex_gw_port['network_id'],
-                             ex_gw_port['id'],
-                             interface_name,
-                             ex_gw_port['mac_address'],
-                             bridge=self.agent_conf.external_network_bridge,
-                             namespace=ns_name,
-                             prefix=FIP_EXT_DEV_PREFIX)
+        self.driver.plug(ex_gw_port['network_id'],
+                         ex_gw_port['id'],
+                         interface_name,
+                         ex_gw_port['mac_address'],
+                         bridge=self.agent_conf.external_network_bridge,
+                         namespace=ns_name,
+                         prefix=FIP_EXT_DEV_PREFIX)
 
         ip_cidrs = common_utils.fixed_ip_cidrs(ex_gw_port['fixed_ips'])
-        self.driver.init_l3(interface_name, ip_cidrs, namespace=ns_name)
+        self.driver.init_l3(interface_name, ip_cidrs, namespace=ns_name,
+                            clean_connections=True)
 
         for fixed_ip in ex_gw_port['fixed_ips']:
-            ip_lib.send_gratuitous_arp(ns_name,
-                                       interface_name,
-                                       fixed_ip['ip_address'],
-                                       self.agent_conf.send_arp_for_ha)
+            ip_lib.send_ip_addr_adv_notif(ns_name,
+                                          interface_name,
+                                          fixed_ip['ip_address'],
+                                          self.agent_conf)
 
         for subnet in ex_gw_port['subnets']:
             gw_ip = subnet.get('gateway_ip')
@@ -123,6 +127,10 @@ class FipNamespace(namespaces.Namespace):
     def create(self):
         # TODO(Carl) Get this functionality from mlavelle's namespace baseclass
         ip_wrapper_root = ip_lib.IPWrapper()
+        ip_wrapper_root.netns.execute(['sysctl',
+                                       '-w',
+                                       'net.ipv4.ip_nonlocal_bind=1'],
+                                      run_as_root=True)
         ip_wrapper = ip_wrapper_root.ensure_namespace(self.get_name())
         ip_wrapper.netns.execute(['sysctl', '-w', 'net.ipv4.ip_forward=1'])
         if self.use_ipv6:

@@ -18,6 +18,7 @@ import logging as std_logging
 import os
 import random
 
+from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_messaging import server as rpc_server
@@ -40,8 +41,9 @@ service_opts = [
                default=40,
                help=_('Seconds between running periodic tasks')),
     cfg.IntOpt('api_workers',
-               default=0,
-               help=_('Number of separate API worker processes for service')),
+               help=_('Number of separate API worker processes for service. '
+                      'If not specified, the default is equal to the number '
+                      'of CPUs available for best performance.')),
     cfg.IntOpt('rpc_workers',
                default=0,
                help=_('Number of RPC worker processes for service')),
@@ -127,7 +129,10 @@ class RpcWorker(object):
         for server in self._servers:
             if isinstance(server, rpc_server.MessageHandlingServer):
                 server.stop()
-            self._servers = []
+
+    @staticmethod
+    def reset():
+        config.reset_service()
 
 
 def serve_rpc():
@@ -155,7 +160,7 @@ def serve_rpc():
             # dispose the whole pool before os.fork, otherwise there will
             # be shared DB connections in child processes which may cause
             # DB errors.
-            session.get_engine().pool.dispose()
+            session.dispose()
             launcher = common_service.ProcessLauncher(wait_interval=1.0)
             launcher.launch_service(rpc, workers=cfg.CONF.rpc_workers)
             return launcher
@@ -165,6 +170,13 @@ def serve_rpc():
                               'details.'))
 
 
+def _get_api_workers():
+    workers = cfg.CONF.api_workers
+    if workers is None:
+        workers = processutils.get_worker_count()
+    return workers
+
+
 def _run_wsgi(app_name):
     app = config.load_paste_app(app_name)
     if not app:
@@ -172,7 +184,7 @@ def _run_wsgi(app_name):
         return
     server = wsgi.Server("Neutron")
     server.start(app, cfg.CONF.bind_port, cfg.CONF.bind_host,
-                 workers=cfg.CONF.api_workers)
+                 workers=_get_api_workers())
     # Dump all option values here after all options are parsed
     cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
     LOG.info(_LI("Neutron service started, listening on %(host)s:%(port)s"),
@@ -285,6 +297,9 @@ class Service(n_rpc.Service):
                 x.wait()
             except Exception:
                 LOG.exception(_LE("Exception occurs when waiting for timer"))
+
+    def reset(self):
+        config.reset_service()
 
     def periodic_tasks(self, raise_on_error=False):
         """Tasks to be run at a periodic interval."""

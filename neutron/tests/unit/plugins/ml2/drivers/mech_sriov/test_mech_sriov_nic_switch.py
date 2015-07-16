@@ -196,15 +196,15 @@ class SriovSwitchMechProfileFailTestCase(SriovNicSwitchMechanismBaseTestCase):
 
 
 class SriovSwitchMechVifDetailsTestCase(SriovNicSwitchMechanismBaseTestCase):
-    def test_vif_details_contains_vlan_id(self):
-        VLAN_SEGMENTS = [{api.ID: 'vlan_segment_id',
-                          api.NETWORK_TYPE: 'vlan',
-                          api.PHYSICAL_NETWORK: 'fake_physical_network',
-                          api.SEGMENTATION_ID: 1234}]
+    VLAN_SEGMENTS = [{api.ID: 'vlan_segment_id',
+                      api.NETWORK_TYPE: 'vlan',
+                      api.PHYSICAL_NETWORK: 'fake_physical_network',
+                      api.SEGMENTATION_ID: 1234}]
 
+    def test_vif_details_contains_vlan_id(self):
         context = TestFakePortContext(self.AGENT_TYPE,
                                       self.AGENTS,
-                                      VLAN_SEGMENTS,
+                                      self.VLAN_SEGMENTS,
                                       portbindings.VNIC_DIRECT)
 
         self.driver.bind_port(context)
@@ -223,6 +223,27 @@ class SriovSwitchMechVifDetailsTestCase(SriovNicSwitchMechanismBaseTestCase):
         segment = {api.NETWORK_TYPE: 'foo'}
         with testtools.ExpectedException(exc.SriovUnsupportedNetworkType):
             self.driver._get_vif_details(segment)
+
+    def test_get_vif_details_without_agent(self):
+        cfg.CONF.set_override('agent_required', False, 'ml2_sriov')
+        self.driver = mech_driver.SriovNicSwitchMechanismDriver()
+        self.driver.initialize()
+        context = TestFakePortContext(self.AGENT_TYPE,
+                                      self.AGENTS,
+                                      self.VLAN_SEGMENTS,
+                                      portbindings.VNIC_DIRECT)
+
+        self.driver.bind_port(context)
+        self.assertEqual(constants.PORT_STATUS_ACTIVE, context._bound_state)
+
+    def test_get_vif_details_with_agent(self):
+        context = TestFakePortContext(self.AGENT_TYPE,
+                                      self.AGENTS,
+                                      self.VLAN_SEGMENTS,
+                                      portbindings.VNIC_DIRECT)
+
+        self.driver.bind_port(context)
+        self.assertEqual(constants.PORT_STATUS_DOWN, context._bound_state)
 
 
 class SriovSwitchMechConfigTestCase(SriovNicSwitchMechanismBaseTestCase):
@@ -248,5 +269,21 @@ class SriovSwitchMechConfigTestCase(SriovNicSwitchMechanismBaseTestCase):
                          self.driver.pci_vendor_info)
 
     def test_pci_vendor_config_wrong_entry(self):
-        self._set_config('wrong_entry')
+        self._set_config(['wrong_entry'])
+        self.assertRaises(cfg.Error, self.driver.initialize)
+
+    def test_initialize_missing_product_id(self):
+        self._set_config(['vendor_id:'])
+        self.assertRaises(cfg.Error, self.driver.initialize)
+
+    def test_initialize_missing_vendor_id(self):
+        self._set_config([':product_id'])
+        self.assertRaises(cfg.Error, self.driver.initialize)
+
+    def test_initialize_multiple_colons(self):
+        self._set_config(['foo:bar:baz'])
+        self.assertRaises(cfg.Error, self.driver.initialize)
+
+    def test_initialize_empty_string(self):
+        self._set_config([''])
         self.assertRaises(cfg.Error, self.driver.initialize)

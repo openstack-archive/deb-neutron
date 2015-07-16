@@ -22,13 +22,14 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 import retrying
 import six
+import uuid
 
 from neutron.agent.common import utils
 from neutron.agent.linux import ip_lib
 from neutron.agent.ovsdb import api as ovsdb
 from neutron.common import exceptions
 from neutron.i18n import _LE, _LI, _LW
-from neutron.plugins.common import constants
+from neutron.plugins.common import constants as p_const
 
 # Default timeout for ovs-vsctl command
 DEFAULT_OVS_VSCTL_TIMEOUT = 10
@@ -39,6 +40,7 @@ UNASSIGNED_OFPORT = []
 
 # OVS bridge fail modes
 FAILMODE_SECURE = 'secure'
+FAILMODE_STANDALONE = 'standalone'
 
 OPTS = [
     cfg.IntOpt('ovs_vsctl_timeout',
@@ -156,9 +158,14 @@ class OVSBridge(BaseOVS):
         return self.ovsdb.get_controller(self.br_name).execute(
             check_error=True)
 
+    def _set_bridge_fail_mode(self, mode):
+        self.ovsdb.set_fail_mode(self.br_name, mode).execute(check_error=True)
+
     def set_secure_mode(self):
-        self.ovsdb.set_fail_mode(self.br_name, FAILMODE_SECURE).execute(
-            check_error=True)
+        self._set_bridge_fail_mode(FAILMODE_SECURE)
+
+    def set_standalone_mode(self):
+        self._set_bridge_fail_mode(FAILMODE_STANDALONE)
 
     def set_protocols(self, protocols):
         self.set_db_attribute('Bridge', self.br_name, 'protocols', protocols,
@@ -265,15 +272,15 @@ class OVSBridge(BaseOVS):
         return DeferredOVSBridge(self, **kwargs)
 
     def add_tunnel_port(self, port_name, remote_ip, local_ip,
-                        tunnel_type=constants.TYPE_GRE,
-                        vxlan_udp_port=constants.VXLAN_UDP_PORT,
+                        tunnel_type=p_const.TYPE_GRE,
+                        vxlan_udp_port=p_const.VXLAN_UDP_PORT,
                         dont_fragment=True):
         attrs = [('type', tunnel_type)]
         # TODO(twilson) This is an OrderedDict solely to make a test happy
         options = collections.OrderedDict()
         vxlan_uses_custom_udp_port = (
-            tunnel_type == constants.TYPE_VXLAN and
-            vxlan_udp_port != constants.VXLAN_UDP_PORT
+            tunnel_type == p_const.TYPE_VXLAN and
+            vxlan_udp_port != p_const.VXLAN_UDP_PORT
         )
         if vxlan_uses_custom_udp_port:
             options['dst_port'] = vxlan_udp_port
@@ -393,7 +400,8 @@ class OVSBridge(BaseOVS):
 
         """
         port_names = self.get_port_name_list()
-        cmd = self.ovsdb.db_list('Port', port_names, columns=['name', 'tag'])
+        cmd = self.ovsdb.db_list('Port', port_names, columns=['name', 'tag'],
+                                 if_exists=True)
         results = cmd.execute(check_error=True)
         return {p['name']: p['tag'] for p in results}
 
@@ -432,6 +440,20 @@ class OVSBridge(BaseOVS):
         else:
             msg = _('Unable to determine mac address for %s') % self.br_name
             raise Exception(msg)
+
+    def set_controllers_connection_mode(self, connection_mode):
+        """Set bridge controllers connection mode.
+
+        :param connection_mode: "out-of-band" or "in-band"
+        """
+        attr = [('connection_mode', connection_mode)]
+        controllers = self.db_get_val('Bridge', self.br_name, 'controller')
+        controllers = [controllers] if isinstance(
+            controllers, uuid.UUID) else controllers
+        with self.ovsdb.transaction(check_error=True) as txn:
+            for controller_uuid in controllers:
+                txn.add(self.ovsdb.db_set('Controller',
+                                          controller_uuid, *attr))
 
     def __enter__(self):
         self.create()
@@ -534,7 +556,7 @@ def _build_flow_expr_str(flow_dict, cmd):
             raise exceptions.InvalidInput(error_message=msg)
         actions = "actions=%s" % flow_dict.pop('actions')
 
-    for key, value in flow_dict.iteritems():
+    for key, value in six.iteritems(flow_dict):
         if key == 'proto':
             flow_expr_arr.append(value)
         else:

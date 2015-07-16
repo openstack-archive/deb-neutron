@@ -21,6 +21,10 @@ from sqlalchemy.orm import exc
 from sqlalchemy.orm import scoped_session
 
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2
@@ -125,6 +129,21 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         a given tenant if it does not exist.
         """
         s = security_group['security_group']
+        kwargs = {
+            'context': context,
+            'security_group': s,
+            'is_default': default_sg,
+        }
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(
+                resources.SECURITY_GROUP, events.BEFORE_CREATE, self,
+                **kwargs)
+        except exceptions.CallbackFailure as e:
+            raise ext_sg.SecurityGroupConflict(reason=e)
+
         tenant_id = self._get_tenant_id_for_create(context, s)
 
         if not default_sg:
@@ -159,7 +178,12 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                     ethertype=ethertype)
                 context.session.add(egress_rule)
 
-        return self._make_security_group_dict(security_group_db)
+        secgroup_dict = self._make_security_group_dict(security_group_db)
+
+        kwargs['security_group'] = secgroup_dict
+        registry.notify(resources.SECURITY_GROUP, events.AFTER_CREATE, self,
+                        **kwargs)
+        return secgroup_dict
 
     def get_security_groups(self, context, filters=None, fields=None,
                             sorts=None, limit=None,
@@ -229,17 +253,58 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
         if sg['name'] == 'default' and not context.is_admin:
             raise ext_sg.SecurityGroupCannotRemoveDefault()
+        kwargs = {
+            'context': context,
+            'security_group_id': id,
+            'security_group': sg,
+        }
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(
+                resources.SECURITY_GROUP, events.BEFORE_DELETE, self,
+                **kwargs)
+        except exceptions.CallbackFailure as e:
+            reason = _('cannot be deleted due to %s') % e
+            raise ext_sg.SecurityGroupInUse(id=id, reason=reason)
+
         with context.session.begin(subtransactions=True):
             context.session.delete(sg)
 
+        kwargs.pop('security_group')
+        registry.notify(resources.SECURITY_GROUP, events.AFTER_DELETE, self,
+                        **kwargs)
+
     def update_security_group(self, context, id, security_group):
         s = security_group['security_group']
+
+        kwargs = {
+            'context': context,
+            'security_group_id': id,
+            'security_group': s,
+        }
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(
+                resources.SECURITY_GROUP, events.BEFORE_UPDATE, self,
+                **kwargs)
+        except exceptions.CallbackFailure as e:
+            raise ext_sg.SecurityGroupConflict(reason=e)
+
         with context.session.begin(subtransactions=True):
             sg = self._get_security_group(context, id)
             if sg['name'] == 'default' and 'name' in s:
                 raise ext_sg.SecurityGroupCannotUpdateDefault()
             sg.update(s)
-        return self._make_security_group_dict(sg)
+        sg_dict = self._make_security_group_dict(sg)
+
+        kwargs['security_group'] = sg_dict
+        registry.notify(resources.SECURITY_GROUP, events.AFTER_UPDATE, self,
+                        **kwargs)
+        return sg_dict
 
     def _make_security_group_dict(self, security_group, fields=None):
         res = {'id': security_group['id'],
@@ -277,45 +342,72 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             for binding in bindings:
                 context.session.delete(binding)
 
-    def create_security_group_rule_bulk(self, context, security_group_rule):
+    def create_security_group_rule_bulk(self, context, security_group_rules):
         return self._create_bulk('security_group_rule', context,
-                                 security_group_rule)
+                                 security_group_rules)
 
     def create_security_group_rule_bulk_native(self, context,
-                                               security_group_rule):
-        r = security_group_rule['security_group_rules']
-
+                                               security_group_rules):
+        rules = security_group_rules['security_group_rules']
         scoped_session(context.session)
         security_group_id = self._validate_security_group_rules(
-            context, security_group_rule)
+            context, security_group_rules)
         with context.session.begin(subtransactions=True):
             if not self.get_security_group(context, security_group_id):
                 raise ext_sg.SecurityGroupNotFound(id=security_group_id)
 
-            self._check_for_duplicate_rules(context, r)
+            self._check_for_duplicate_rules(context, rules)
             ret = []
-            for rule_dict in r:
-                rule = rule_dict['security_group_rule']
-                tenant_id = self._get_tenant_id_for_create(context, rule)
-                db = SecurityGroupRule(
-                    id=(rule.get('id') or uuidutils.generate_uuid()),
-                    tenant_id=tenant_id,
-                    security_group_id=rule['security_group_id'],
-                    direction=rule['direction'],
-                    remote_group_id=rule.get('remote_group_id'),
-                    ethertype=rule['ethertype'],
-                    protocol=rule['protocol'],
-                    port_range_min=rule['port_range_min'],
-                    port_range_max=rule['port_range_max'],
-                    remote_ip_prefix=rule.get('remote_ip_prefix'))
-                context.session.add(db)
-                ret.append(self._make_security_group_rule_dict(db))
-        return ret
+            for rule_dict in rules:
+                res_rule_dict = self._create_security_group_rule(
+                    context, rule_dict, validate=False)
+                ret.append(res_rule_dict)
+            return ret
 
     def create_security_group_rule(self, context, security_group_rule):
-        bulk_rule = {'security_group_rules': [security_group_rule]}
-        return self.create_security_group_rule_bulk_native(context,
-                                                           bulk_rule)[0]
+        return self._create_security_group_rule(context, security_group_rule)
+
+    def _create_security_group_rule(self, context, security_group_rule,
+                                    validate=True):
+        if validate:
+            self._validate_security_group_rule(context, security_group_rule)
+            self._check_for_duplicate_rules_in_db(context, security_group_rule)
+
+        rule_dict = security_group_rule['security_group_rule']
+        kwargs = {
+            'context': context,
+            'security_group_rule': rule_dict
+        }
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(
+                resources.SECURITY_GROUP_RULE, events.BEFORE_CREATE, self,
+                **kwargs)
+        except exceptions.CallbackFailure as e:
+            raise ext_sg.SecurityGroupConflict(reason=e)
+
+        tenant_id = self._get_tenant_id_for_create(context, rule_dict)
+        with context.session.begin(subtransactions=True):
+            db = SecurityGroupRule(
+                id=(rule_dict.get('id') or uuidutils.generate_uuid()),
+                tenant_id=tenant_id,
+                security_group_id=rule_dict['security_group_id'],
+                direction=rule_dict['direction'],
+                remote_group_id=rule_dict.get('remote_group_id'),
+                ethertype=rule_dict['ethertype'],
+                protocol=rule_dict['protocol'],
+                port_range_min=rule_dict['port_range_min'],
+                port_range_max=rule_dict['port_range_max'],
+                remote_ip_prefix=rule_dict.get('remote_ip_prefix'))
+            context.session.add(db)
+        res_rule_dict = self._make_security_group_rule_dict(db)
+        kwargs['security_group_rule'] = res_rule_dict
+        registry.notify(
+            resources.SECURITY_GROUP_RULE, events.AFTER_CREATE, self,
+            **kwargs)
+        return res_rule_dict
 
     def _get_ip_proto_number(self, protocol):
         if protocol is None:
@@ -351,44 +443,49 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 raise ext_sg.SecurityGroupMissingIcmpType(
                     value=rule['port_range_max'])
 
-    def _validate_security_group_rules(self, context, security_group_rule):
-        """Check that rules being installed.
-
-        Check that all rules belong to the same security
-        group, remote_group_id/security_group_id belong to the same tenant,
-        and rules are valid.
+    def _validate_single_tenant_and_group(self, security_group_rules):
+        """Check that all rules belong to the same security group and tenant
         """
-        new_rules = set()
-        tenant_ids = set()
-        for rules in security_group_rule['security_group_rules']:
-            rule = rules.get('security_group_rule')
-            new_rules.add(rule['security_group_id'])
+        sg_groups = set()
+        tenants = set()
+        for rule_dict in security_group_rules['security_group_rules']:
+            rule = rule_dict['security_group_rule']
+            sg_groups.add(rule['security_group_id'])
+            if len(sg_groups) > 1:
+                raise ext_sg.SecurityGroupNotSingleGroupRules()
 
-            self._validate_port_range(rule)
-            self._validate_ip_prefix(rule)
+            tenants.add(rule['tenant_id'])
+            if len(tenants) > 1:
+                raise ext_sg.SecurityGroupRulesNotSingleTenant()
+        return sg_groups.pop()
 
-            if rule['remote_ip_prefix'] and rule['remote_group_id']:
-                raise ext_sg.SecurityGroupRemoteGroupAndRemoteIpPrefix()
+    def _validate_security_group_rule(self, context, security_group_rule):
+        rule = security_group_rule['security_group_rule']
+        self._validate_port_range(rule)
+        self._validate_ip_prefix(rule)
 
-            if rule['tenant_id'] not in tenant_ids:
-                tenant_ids.add(rule['tenant_id'])
-            remote_group_id = rule.get('remote_group_id')
-            # Check that remote_group_id exists for tenant
-            if remote_group_id:
-                self.get_security_group(context, remote_group_id,
-                                        tenant_id=rule['tenant_id'])
-        if len(new_rules) > 1:
-            raise ext_sg.SecurityGroupNotSingleGroupRules()
-        security_group_id = new_rules.pop()
+        if rule['remote_ip_prefix'] and rule['remote_group_id']:
+            raise ext_sg.SecurityGroupRemoteGroupAndRemoteIpPrefix()
 
-        # Confirm single tenant and that the tenant has permission
+        remote_group_id = rule['remote_group_id']
+        # Check that remote_group_id exists for tenant
+        if remote_group_id:
+            self.get_security_group(context, remote_group_id,
+                                    tenant_id=rule['tenant_id'])
+
+        security_group_id = rule['security_group_id']
+
+        # Confirm that the tenant has permission
         # to add rules to this security group.
-        if len(tenant_ids) > 1:
-            raise ext_sg.SecurityGroupRulesNotSingleTenant()
-        for tenant_id in tenant_ids:
-            self.get_security_group(context, security_group_id,
-                                    tenant_id=tenant_id)
+        self.get_security_group(context, security_group_id,
+                                tenant_id=rule['tenant_id'])
         return security_group_id
+
+    def _validate_security_group_rules(self, context, security_group_rules):
+        sg_id = self._validate_single_tenant_and_group(security_group_rules)
+        for rule in security_group_rules['security_group_rules']:
+            self._validate_security_group_rule(context, rule)
+        return sg_id
 
     def _make_security_group_rule_dict(self, security_group_rule, fields=None):
         res = {'id': security_group_rule['id'],
@@ -428,23 +525,27 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                         raise ext_sg.DuplicateSecurityGroupRuleInPost(rule=i)
                     found_self = True
 
-            # Check in database if rule exists
-            filters = self._make_security_group_rule_filter_dict(i)
-            db_rules = self.get_security_group_rules(context, filters)
-            # Note(arosen): the call to get_security_group_rules wildcards
-            # values in the filter that have a value of [None]. For
-            # example, filters = {'remote_group_id': [None]} will return
-            # all security group rules regardless of their value of
-            # remote_group_id. Therefore it is not possible to do this
-            # query unless the behavior of _get_collection()
-            # is changed which cannot be because other methods are already
-            # relying on this behavior. Therefore, we do the filtering
-            # below to check for these corner cases.
-            for db_rule in db_rules:
-                # need to remove id from db_rule for matching
-                id = db_rule.pop('id')
-                if (i['security_group_rule'] == db_rule):
-                    raise ext_sg.SecurityGroupRuleExists(id=id)
+            self._check_for_duplicate_rules_in_db(context, i)
+
+    def _check_for_duplicate_rules_in_db(self, context, security_group_rule):
+        # Check in database if rule exists
+        filters = self._make_security_group_rule_filter_dict(
+            security_group_rule)
+        db_rules = self.get_security_group_rules(context, filters)
+        # Note(arosen): the call to get_security_group_rules wildcards
+        # values in the filter that have a value of [None]. For
+        # example, filters = {'remote_group_id': [None]} will return
+        # all security group rules regardless of their value of
+        # remote_group_id. Therefore it is not possible to do this
+        # query unless the behavior of _get_collection()
+        # is changed which cannot be because other methods are already
+        # relying on this behavior. Therefore, we do the filtering
+        # below to check for these corner cases.
+        for db_rule in db_rules:
+            # need to remove id from db_rule for matching
+            id = db_rule.pop('id')
+            if (security_group_rule['security_group_rule'] == db_rule):
+                raise ext_sg.SecurityGroupRuleExists(id=id)
 
     def _validate_ip_prefix(self, rule):
         """Check that a valid cidr was specified as remote_ip_prefix
@@ -494,9 +595,29 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         return sgr
 
     def delete_security_group_rule(self, context, id):
+        kwargs = {
+            'context': context,
+            'security_group_rule_id': id
+        }
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(
+                resources.SECURITY_GROUP_RULE, events.BEFORE_DELETE, self,
+                **kwargs)
+        except exceptions.CallbackFailure as e:
+            reason = _('cannot be deleted due to %s') % e
+            raise ext_sg.SecurityGroupRuleInUse(id=id, reason=reason)
+
         with context.session.begin(subtransactions=True):
-            rule = self._get_security_group_rule(context, id)
-            context.session.delete(rule)
+            query = self._model_query(context, SecurityGroupRule)
+            if query.filter(SecurityGroupRule.id == id).delete() == 0:
+                raise ext_sg.SecurityGroupRuleNotFound(id=id)
+
+        registry.notify(
+            resources.SECURITY_GROUP_RULE, events.AFTER_DELETE, self,
+            **kwargs)
 
     def _extend_port_dict_security_group(self, port_res, port_db):
         # Security group bindings will be retrieved from the sqlalchemy
@@ -604,8 +725,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         return False
 
     def _check_update_has_security_groups(self, port):
-        """Return True if port has as a security group and False if the
-        security_group field is is_attr_set or [].
+        """Return True if port has security_groups attribute set and
+        its not empty, or False otherwise.
+        This method is called both for port create and port update.
         """
         if (ext_sg.SECURITYGROUPS in port['port'] and
             (attributes.is_attr_set(port['port'][ext_sg.SECURITYGROUPS]) and

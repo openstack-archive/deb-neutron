@@ -13,17 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
 import testtools
 
 import mock
-from oslo_utils import timeutils
 
 from neutron.agent import l2population_rpc
 from neutron.common import constants
 from neutron.common import topics
 from neutron import context
-from neutron.db import agents_db
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron import manager
@@ -35,67 +32,15 @@ from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
 from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import rpc
 from neutron.tests import base
+from neutron.tests.common import helpers
 from neutron.tests.unit.plugins.ml2 import test_plugin
 
 HOST = 'my_l2_host'
-L2_AGENT = {
-    'binary': 'neutron-openvswitch-agent',
-    'host': HOST,
-    'topic': constants.L2_AGENT_TOPIC,
-    'configurations': {'tunneling_ip': '20.0.0.1',
-                       'tunnel_types': ['vxlan']},
-    'agent_type': constants.AGENT_TYPE_OVS,
-    'tunnel_type': [],
-    'start_flag': True
-}
+HOST_2 = HOST + '_2'
+HOST_3 = HOST + '_3'
+HOST_4 = HOST + '_4'
+HOST_5 = HOST + '_5'
 
-L2_AGENT_2 = {
-    'binary': 'neutron-openvswitch-agent',
-    'host': HOST + '_2',
-    'topic': constants.L2_AGENT_TOPIC,
-    'configurations': {'tunneling_ip': '20.0.0.2',
-                       'tunnel_types': ['vxlan']},
-    'agent_type': constants.AGENT_TYPE_OVS,
-    'tunnel_type': [],
-    'start_flag': True
-}
-
-L2_AGENT_3 = {
-    'binary': 'neutron-openvswitch-agent',
-    'host': HOST + '_3',
-    'topic': constants.L2_AGENT_TOPIC,
-    'configurations': {'tunneling_ip': '20.0.0.3',
-                       'tunnel_types': []},
-    'agent_type': constants.AGENT_TYPE_OVS,
-    'tunnel_type': [],
-    'start_flag': True
-}
-
-L2_AGENT_4 = {
-    'binary': 'neutron-openvswitch-agent',
-    'host': HOST + '_4',
-    'topic': constants.L2_AGENT_TOPIC,
-    'configurations': {'tunneling_ip': '20.0.0.4',
-                       'tunnel_types': ['vxlan']},
-    'agent_type': constants.AGENT_TYPE_OVS,
-    'tunnel_type': [],
-    'start_flag': True
-}
-
-L2_AGENT_5 = {
-    'binary': 'neutron-fake-agent',
-    'host': HOST + '_5',
-    'topic': constants.L2_AGENT_TOPIC,
-    'configurations': {'tunneling_ip': '20.0.0.5',
-                       'tunnel_types': [],
-                       'interface_mappings': {'physnet1': 'eth9'},
-                       'l2pop_network_types': ['vlan']},
-    # NOTE(yamamoto): mech_fake_agent has a comment to explain why
-    # OFA is used here.
-    'agent_type': constants.AGENT_TYPE_OFA,
-    'tunnel_type': [],
-    'start_flag': True
-}
 
 NOTIFIER = 'neutron.plugins.ml2.rpc.AgentNotifierApi'
 DEVICE_OWNER_COMPUTE = 'compute:None'
@@ -158,22 +103,17 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
         uptime_patch.start()
 
     def _register_ml2_agents(self):
-        callback = agents_db.AgentExtRpcCallback()
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': L2_AGENT},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': L2_AGENT_2},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': L2_AGENT_3},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': L2_AGENT_4},
-                              time=timeutils.strtime())
-        callback.report_state(self.adminContext,
-                              agent_state={'agent_state': L2_AGENT_5},
-                              time=timeutils.strtime())
+        helpers.register_ovs_agent(host=HOST, tunneling_ip='20.0.0.1')
+        helpers.register_ovs_agent(host=HOST_2, tunneling_ip='20.0.0.2')
+        helpers.register_ovs_agent(host=HOST_3, tunneling_ip='20.0.0.3',
+                                   tunnel_types=[])
+        helpers.register_ovs_agent(host=HOST_4, tunneling_ip='20.0.0.4')
+        helpers.register_ovs_agent(host=HOST_5, tunneling_ip='20.0.0.5',
+                                   binary='neutron-fake-agent',
+                                   tunnel_types=[],
+                                   interface_mappings={'physnet1': 'eth9'},
+                                   agent_type=constants.AGENT_TYPE_OFA,
+                                   l2pop_network_types=['vlan'])
 
     def test_port_info_compare(self):
         # An assumption the code makes is that PortInfo compares equal to
@@ -781,121 +721,80 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                 self.assertFalse(mock_fanout.called)
                 fanout_patch.stop()
 
-    def test_host_changed(self):
+    def test_get_device_details_port_id(self):
+        self._register_ml2_agents()
+        host_arg = {portbindings.HOST_ID: HOST}
+        with self.port(arg_list=(portbindings.HOST_ID,),
+                       **host_arg) as port:
+            port_id = port['port']['id']
+            # ensure various formats all result in correct port_id
+            formats = ['tap' + port_id[0:8], port_id,
+                       port['port']['mac_address']]
+            for device in formats:
+                details = self.callbacks.get_device_details(
+                    self.adminContext, device=device,
+                    agent_id=HOST_2)
+                self.assertEqual(port_id, details['port_id'])
+
+    def _update_and_check_portbinding(self, port_id, host_id):
+        data = {'port': {'binding:host_id': host_id}}
+        req = self.new_update_request('ports', data, port_id)
+        res = self.deserialize(self.fmt,
+                               req.get_response(self.api))
+        self.assertEqual(host_id, res['port']['binding:host_id'])
+
+    def _test_host_changed(self, twice):
         self._register_ml2_agents()
         with self.subnet(network=self._network) as subnet:
-            host_arg = {portbindings.HOST_ID: L2_AGENT['host']}
-            host2_arg = {portbindings.HOST_ID: L2_AGENT_2['host']}
+            host_arg = {portbindings.HOST_ID: HOST}
             with self.port(subnet=subnet, cidr='10.0.0.0/24',
                            device_owner=DEVICE_OWNER_COMPUTE,
                            arg_list=(portbindings.HOST_ID,),
                            **host_arg) as port1:
-                with self.port(subnet=subnet, cidr='10.0.0.0/24',
-                               device_owner=DEVICE_OWNER_COMPUTE,
-                               arg_list=(portbindings.HOST_ID,),
-                               **host2_arg) as port2:
-                    p1 = port1['port']
-                    device1 = 'tap' + p1['id']
-                    self.callbacks.update_device_up(
-                        self.adminContext,
-                        agent_id=L2_AGENT['host'],
-                        device=device1)
-                    p2 = port2['port']
-                    device2 = 'tap' + p2['id']
-                    self.callbacks.update_device_up(
-                        self.adminContext,
-                        agent_id=L2_AGENT_2['host'],
-                        device=device2)
-                    data2 = {'port': {'binding:host_id': L2_AGENT_2['host']}}
-                    req = self.new_update_request('ports', data2, p1['id'])
-                    res = self.deserialize(self.fmt,
-                                           req.get_response(self.api))
-                    self.assertEqual(res['port']['binding:host_id'],
-                                     L2_AGENT_2['host'])
-                    self.mock_fanout.reset_mock()
-                    self.callbacks.get_device_details(
-                        self.adminContext,
-                        device=device1,
-                        agent_id=L2_AGENT_2['host'])
-                    p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
-                    expected = {p1['network_id']:
-                                {'ports':
-                                 {'20.0.0.1': [constants.FLOODING_ENTRY,
-                                               l2pop_rpc.PortInfo(
-                                                   p1['mac_address'],
-                                                   p1_ips[0])]},
-                                 'network_type': 'vxlan',
-                                 'segment_id': 1}}
+                p1 = port1['port']
+                device1 = 'tap' + p1['id']
+                self.callbacks.update_device_up(
+                    self.adminContext,
+                    agent_id=HOST,
+                    device=device1)
+                if twice:
+                    self._update_and_check_portbinding(p1['id'], HOST_4)
+                self._update_and_check_portbinding(p1['id'], HOST_2)
+                self.mock_fanout.reset_mock()
+                # NOTE(yamamoto): see bug #1441488
+                self.adminContext.session.expire_all()
+                self.callbacks.get_device_details(
+                    self.adminContext,
+                    device=device1,
+                    agent_id=HOST_2)
+                p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
+                expected = {p1['network_id']:
+                            {'ports':
+                             {'20.0.0.1': [constants.FLOODING_ENTRY,
+                                           l2pop_rpc.PortInfo(
+                                               p1['mac_address'],
+                                               p1_ips[0])]},
+                             'network_type': 'vxlan',
+                             'segment_id': 1}}
 
-                    self.mock_fanout.assert_called_with(
-                        mock.ANY, 'remove_fdb_entries', expected)
+                self.mock_fanout.assert_called_with(
+                    mock.ANY, 'remove_fdb_entries', expected)
+
+    def test_host_changed(self):
+        self._test_host_changed(twice=False)
 
     def test_host_changed_twice(self):
-        self._register_ml2_agents()
-        with self.subnet(network=self._network) as subnet:
-            host_arg = {portbindings.HOST_ID: L2_AGENT['host']}
-            host2_arg = {portbindings.HOST_ID: L2_AGENT_2['host']}
-            with self.port(subnet=subnet, cidr='10.0.0.0/24',
-                           device_owner=DEVICE_OWNER_COMPUTE,
-                           arg_list=(portbindings.HOST_ID,),
-                           **host_arg) as port1:
-                with self.port(subnet=subnet, cidr='10.0.0.0/24',
-                               device_owner=DEVICE_OWNER_COMPUTE,
-                               arg_list=(portbindings.HOST_ID,),
-                               **host2_arg) as port2:
-                    p1 = port1['port']
-                    device1 = 'tap' + p1['id']
-                    self.callbacks.update_device_up(
-                        self.adminContext,
-                        agent_id=L2_AGENT['host'],
-                        device=device1)
-                    p2 = port2['port']
-                    device2 = 'tap' + p2['id']
-                    self.callbacks.update_device_up(
-                        self.adminContext,
-                        agent_id=L2_AGENT_2['host'],
-                        device=device2)
-                    data2 = {'port': {'binding:host_id': L2_AGENT_2['host']}}
-                    req = self.new_update_request('ports', data2, p1['id'])
-                    res = self.deserialize(self.fmt,
-                                           req.get_response(self.api))
-                    self.assertEqual(res['port']['binding:host_id'],
-                                     L2_AGENT_2['host'])
-                    data4 = {'port': {'binding:host_id': L2_AGENT_4['host']}}
-                    req = self.new_update_request('ports', data4, p1['id'])
-                    res = self.deserialize(self.fmt,
-                                           req.get_response(self.api))
-                    self.assertEqual(res['port']['binding:host_id'],
-                                     L2_AGENT_4['host'])
-                    self.mock_fanout.reset_mock()
-                    self.callbacks.get_device_details(
-                        self.adminContext,
-                        device=device1,
-                        agent_id=L2_AGENT_4['host'])
-                    p1_ips = [p['ip_address'] for p in p1['fixed_ips']]
-                    expected = {p1['network_id']:
-                                {'ports':
-                                 {'20.0.0.1': [constants.FLOODING_ENTRY,
-                                               l2pop_rpc.PortInfo(
-                                                   p1['mac_address'],
-                                                   p1_ips[0])]},
-                                 'network_type': 'vxlan',
-                                 'segment_id': 1}}
-
-                    self.mock_fanout.assert_called_with(
-                        mock.ANY, 'remove_fdb_entries', expected)
+        self._test_host_changed(twice=True)
 
     def test_delete_port_invokes_update_device_down(self):
         l2pop_mech = l2pop_mech_driver.L2populationMechanismDriver()
         l2pop_mech.L2PopulationAgentNotify = mock.Mock()
         l2pop_mech.rpc_ctx = mock.Mock()
-        with contextlib.nested(
-                mock.patch.object(l2pop_mech,
-                           '_update_port_down',
-                           return_value=None),
+        with mock.patch.object(l2pop_mech,
+                               '_update_port_down',
+                               return_value=None) as upd_port_down,\
                 mock.patch.object(l2pop_mech.L2PopulationAgentNotify,
-                                  'remove_fdb_entries')) as (upd_port_down,
-                                                             rem_fdb_entries):
+                                  'remove_fdb_entries'):
             l2pop_mech.delete_port_postcommit(mock.Mock())
             self.assertTrue(upd_port_down.called)
 
@@ -934,16 +833,15 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
         def agent_ip_side_effect(agent):
             return agent_ips[agent]
 
-        with contextlib.nested(
-                mock.patch.object(l2pop_db.L2populationDbMixin,
-                                  'get_agent_ip',
-                                  side_effect=agent_ip_side_effect),
+        with mock.patch.object(l2pop_db.L2populationDbMixin,
+                               'get_agent_ip',
+                               side_effect=agent_ip_side_effect),\
                 mock.patch.object(l2pop_db.L2populationDbMixin,
                                   'get_nondvr_active_network_ports',
-                                  new=fdb_network_ports_query),
+                                  new=fdb_network_ports_query),\
                 mock.patch.object(l2pop_db.L2populationDbMixin,
                                   'get_dvr_active_network_ports',
-                                  new=tunnel_network_ports_query)):
+                                  new=tunnel_network_ports_query):
             session = mock.Mock()
             agent = mock.Mock()
             agent.host = HOST

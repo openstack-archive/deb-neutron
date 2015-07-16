@@ -24,7 +24,6 @@ from neutron.plugins.common import constants
 from neutron.services import service_base
 
 
-DUMMY_PLUGIN_NAME = "dummy_plugin"
 RESOURCE_NAME = "dummy"
 COLLECTION_NAME = "%ss" % RESOURCE_NAME
 
@@ -64,10 +63,6 @@ class Dummy(object):
         return "Dummy stuff"
 
     @classmethod
-    def get_namespace(cls):
-        return "http://docs.openstack.org/ext/neutron/dummy/api/v1.0"
-
-    @classmethod
     def get_updated(cls):
         return "2012-11-20T10:00:00-00:00"
 
@@ -100,9 +95,6 @@ class DummyServicePlugin(service_base.ServicePluginBase):
 
     def get_plugin_type(self):
         return constants.DUMMY
-
-    def get_plugin_name(self):
-        return DUMMY_PLUGIN_NAME
 
     def get_plugin_description(self):
         return "Neutron Dummy Service Plugin"

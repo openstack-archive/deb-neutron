@@ -17,6 +17,7 @@ import copy
 
 import mock
 from oslo_config import cfg
+import six
 
 from neutron.agent.common import config as a_cfg
 from neutron.agent.linux import ipset_manager
@@ -46,7 +47,6 @@ class BaseIptablesFirewallTestCase(base.BaseTestCase):
         super(BaseIptablesFirewallTestCase, self).setUp()
         cfg.CONF.register_opts(a_cfg.ROOT_HELPER_OPTS, 'AGENT')
         cfg.CONF.register_opts(sg_cfg.security_group_opts, 'SECURITYGROUP')
-        cfg.CONF.register_opts(a_cfg.IPTABLES_OPTS, 'AGENT')
         cfg.CONF.set_override('comment_iptables_rules', False, 'AGENT')
         self.utils_exec_p = mock.patch(
             'neutron.agent.linux.utils.execute')
@@ -57,8 +57,12 @@ class BaseIptablesFirewallTestCase(base.BaseTestCase):
         self.iptables_inst = mock.Mock()
         self.v4filter_inst = mock.Mock()
         self.v6filter_inst = mock.Mock()
-        self.iptables_inst.ipv4 = {'filter': self.v4filter_inst}
-        self.iptables_inst.ipv6 = {'filter': self.v6filter_inst}
+        self.iptables_inst.ipv4 = {'filter': self.v4filter_inst,
+                                   'raw': self.v4filter_inst
+                                   }
+        self.iptables_inst.ipv6 = {'filter': self.v6filter_inst,
+                                   'raw': self.v6filter_inst
+                                   }
         iptables_cls.return_value = self.iptables_inst
 
         self.firewall = iptables_firewall.IptablesFirewallDriver()
@@ -70,6 +74,7 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
     def _fake_port(self):
         return {'device': 'tapfake_dev',
                 'mac_address': 'ff:ff:ff:ff:ff:ff',
+                'network_id': 'fake_net',
                 'fixed_ips': [FAKE_IP['IPv4'],
                               FAKE_IP['IPv6']]}
 
@@ -894,7 +899,11 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
         if ethertype == 'IPv6':
             filter_inst = self.v6filter_inst
 
-            dhcp_rule = [mock.call.add_rule('ofake_dev',
+            dhcp_rule = [mock.call.add_rule('ofake_dev', '-p icmpv6 '
+                                            '--icmpv6-type %s -j DROP'
+                                            % constants.ICMPV6_TYPE_RA,
+                                            comment=None),
+                         mock.call.add_rule('ofake_dev',
                                             '-p icmpv6 -j RETURN',
                                             comment=None),
                          mock.call.add_rule('ofake_dev', '-p udp -m udp '
@@ -919,7 +928,7 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
                                     '-m physdev --physdev-out tapfake_dev '
                                     '--physdev-is-bridged '
                                     '-j $ifake_dev',
-                                    comment=ic.SG_TO_VM_SG),
+                                    comment=ic.SG_TO_VM_SG)
                  ]
         if ethertype == 'IPv6':
             for icmp6_type in constants.ICMPV6_ALLOWED_TYPES:
@@ -1245,8 +1254,8 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
 
     def test_defer_chain_apply_coalesce_multiple_ports(self):
         chain_applies = self._mock_chain_applies()
-        port1 = {'device': 'd1', 'mac_address': 'mac1'}
-        port2 = {'device': 'd2', 'mac_address': 'mac2'}
+        port1 = {'device': 'd1', 'mac_address': 'mac1', 'network_id': 'net1'}
+        port2 = {'device': 'd2', 'mac_address': 'mac2', 'network_id': 'net1'}
         device2port = {'d1': port1, 'd2': port2}
         with self.firewall.defer_apply():
             self.firewall.prepare_port_filter(port1)
@@ -1257,6 +1266,7 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
     def test_ip_spoofing_filter_with_multiple_ips(self):
         port = {'device': 'tapfake_dev',
                 'mac_address': 'ff:ff:ff:ff:ff:ff',
+                'network_id': 'fake_net',
                 'fixed_ips': ['10.0.0.1', 'fe80::1', '10.0.0.2']}
         self.firewall.prepare_port_filter(port)
         calls = [mock.call.add_chain('sg-fallback'),
@@ -1336,6 +1346,7 @@ class IptablesFirewallTestCase(BaseIptablesFirewallTestCase):
     def test_ip_spoofing_no_fixed_ips(self):
         port = {'device': 'tapfake_dev',
                 'mac_address': 'ff:ff:ff:ff:ff:ff',
+                'network_id': 'fake_net',
                 'fixed_ips': []}
         self.firewall.prepare_port_filter(port)
         calls = [mock.call.add_chain('sg-fallback'),
@@ -1419,6 +1430,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
     def _fake_port(self, sg_id=FAKE_SGID):
         return {'device': 'tapfake_dev',
                 'mac_address': 'ff:ff:ff:ff:ff:ff',
+                'network_id': 'fake_net',
                 'fixed_ips': [FAKE_IP['IPv4'],
                               FAKE_IP['IPv6']],
                 'security_groups': [sg_id],
@@ -1432,7 +1444,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
         remote_groups = remote_groups or {_IPv4: [FAKE_SGID],
                                           _IPv6: [FAKE_SGID]}
         rules = []
-        for ip_version, remote_group_list in remote_groups.iteritems():
+        for ip_version, remote_group_list in six.iteritems(remote_groups):
             for remote_group in remote_group_list:
                 rules.append(self._fake_sg_rule_for_ethertype(ip_version,
                                                               remote_group))
@@ -1454,7 +1466,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
             mock.call.set_members('fake_sgid', 'IPv6',
                                   ['fe80::1'])
         ]
-        self.firewall.ipset.assert_has_calls(calls)
+        self.firewall.ipset.assert_has_calls(calls, any_order=True)
 
     def _setup_fake_firewall_members_and_rules(self, firewall):
         firewall.sg_rules = self._fake_sg_rules()
@@ -1494,6 +1506,17 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
         self.assertEqual(
             {_IPv4: set([FAKE_SGID]), _IPv6: set([OTHER_SGID])},
             self.firewall._get_remote_sg_ids_sets_by_ipversion(ports))
+
+    def test_get_remote_sg_ids(self):
+        self.firewall.sg_rules = self._fake_sg_rules(
+            remote_groups={_IPv4: [FAKE_SGID, FAKE_SGID, FAKE_SGID],
+                           _IPv6: [OTHER_SGID, OTHER_SGID, OTHER_SGID]})
+
+        port = self._fake_port()
+
+        self.assertEqual(
+            {_IPv4: set([FAKE_SGID]), _IPv6: set([OTHER_SGID])},
+            self.firewall._get_remote_sg_ids(port))
 
     def test_determine_sg_rules_to_remove(self):
         self.firewall.pre_sg_rules = self._fake_sg_rules(sg_id=OTHER_SGID)
@@ -1604,7 +1627,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
             mock.call.destroy('fake_sgid', 'IPv4'),
             mock.call.destroy('fake_sgid', 'IPv6')]
 
-        self.firewall.ipset.assert_has_calls(calls)
+        self.firewall.ipset.assert_has_calls(calls, any_order=True)
 
     def test_prepare_port_filter_with_sg_no_member(self):
         self.firewall.sg_rules = self._fake_sg_rules()
@@ -1622,7 +1645,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
                                        ['10.0.0.1', '10.0.0.2']),
                  mock.call.set_members('fake_sgid', 'IPv6', ['fe80::1'])]
 
-        self.firewall.ipset.assert_has_calls(calls)
+        self.firewall.ipset.assert_has_calls(calls, any_order=True)
 
     def test_filter_defer_apply_off_with_sg_only_ipv6_rule(self):
         self.firewall.sg_rules = self._fake_sg_rules()
@@ -1660,6 +1683,34 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
         rules = self.firewall._expand_sg_rule_with_remote_ips(
             rule, port, 'ingress')
         self.assertEqual(list(rules),
-                         [dict(rule.items() +
+                         [dict(list(rule.items()) +
                                [('source_ip_prefix', '%s/32' % ip)])
                           for ip in other_ips])
+
+    def test_build_ipv4v6_mac_ip_list(self):
+        mac_oth = 'ffff-ffff-ffff'
+        mac_unix = 'ff:ff:ff:ff:ff:ff'
+        ipv4 = FAKE_IP['IPv4']
+        ipv6 = FAKE_IP['IPv6']
+        fake_ipv4_pair = []
+        fake_ipv4_pair.append((mac_unix, ipv4))
+        fake_ipv6_pair = []
+        fake_ipv6_pair.append((mac_unix, ipv6))
+
+        mac_ipv4_pairs = []
+        mac_ipv6_pairs = []
+
+        self.firewall._build_ipv4v6_mac_ip_list(mac_oth, ipv4,
+                                                mac_ipv4_pairs, mac_ipv6_pairs)
+        self.assertEqual(fake_ipv4_pair, mac_ipv4_pairs)
+        self.firewall._build_ipv4v6_mac_ip_list(mac_oth, ipv6,
+                                                mac_ipv4_pairs, mac_ipv6_pairs)
+        self.assertEqual(fake_ipv6_pair, mac_ipv6_pairs)
+
+    def test_update_ipset_members(self):
+        self.firewall.sg_members[FAKE_SGID][_IPv4] = []
+        self.firewall.sg_members[FAKE_SGID][_IPv6] = []
+        sg_info = {constants.IPv4: [FAKE_SGID]}
+        self.firewall._update_ipset_members(sg_info)
+        calls = [mock.call.set_members(FAKE_SGID, constants.IPv4, [])]
+        self.firewall.ipset.assert_has_calls(calls)

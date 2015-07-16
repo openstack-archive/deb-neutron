@@ -12,13 +12,79 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import collections
 import os
 import time
+import uuid
 
 from ovs.db import idl
 from ovs import jsonrpc
 from ovs import poller
 from ovs import stream
+
+from neutron.common import exceptions
+
+
+RowLookup = collections.namedtuple('RowLookup',
+                                   ['table', 'column', 'uuid_column'])
+
+# Tables with no index in OVSDB and special record lookup rules
+_LOOKUP_TABLE = {
+    'Controller': RowLookup('Bridge', 'name', 'controller'),
+    'Flow_Table': RowLookup('Flow_Table', 'name', None),
+    'IPFIX': RowLookup('Bridge', 'name', 'ipfix'),
+    'Mirror': RowLookup('Mirror', 'name', None),
+    'NetFlow': RowLookup('Bridge', 'name', 'netflow'),
+    'QoS': RowLookup('Port', 'name', 'qos'),
+    'Queue': RowLookup(None, None, None),
+    'sFlow': RowLookup('Bridge', 'name', 'sflow'),
+    'SSL': RowLookup('Open_vSwitch', None, 'ssl'),
+}
+
+_NO_DEFAULT = object()
+
+
+class RowNotFound(exceptions.NeutronException):
+    message = _("Cannot find %(table)s with %(col)s=%(match)s")
+
+
+def row_by_value(idl_, table, column, match, default=_NO_DEFAULT):
+    """Lookup an IDL row in a table by column/value"""
+    tab = idl_.tables[table]
+    for r in tab.rows.values():
+        if getattr(r, column) == match:
+            return r
+    if default is not _NO_DEFAULT:
+        return default
+    raise RowNotFound(table=table, col=column, match=match)
+
+
+def row_by_record(idl_, table, record):
+    t = idl_.tables[table]
+    try:
+        if isinstance(record, uuid.UUID):
+            return t.rows[record]
+        uuid_ = uuid.UUID(record)
+        return t.rows[uuid_]
+    except ValueError:
+        # Not a UUID string, continue lookup by other means
+        pass
+    except KeyError:
+        raise RowNotFound(table=table, col='uuid', match=record)
+
+    rl = _LOOKUP_TABLE.get(table, RowLookup(table, get_index_column(t), None))
+    # no table means uuid only, no column is just SSL which we don't need
+    if rl.table is None:
+        raise ValueError(_("Table %s can only be queried by UUID") % table)
+    if rl.column is None:
+        raise NotImplementedError(_("'.' searches are not implemented"))
+    row = row_by_value(idl_, rl.table, rl.column, record)
+    if rl.uuid_column:
+        rows = getattr(row, rl.uuid_column)
+        if len(rows) != 1:
+            raise RowNotFound(table=table, col=_('record'), match=record)
+        row = rows[0]
+    return row
 
 
 class ExceptionResult(object):
@@ -27,14 +93,14 @@ class ExceptionResult(object):
         self.tb = tb
 
 
-def get_schema_helper(connection):
+def get_schema_helper(connection, schema_name):
     err, strm = stream.Stream.open_block(
         stream.Stream.open(connection))
     if err:
         raise Exception("Could not connect to %s" % (
             connection,))
     rpc = jsonrpc.Connection(strm)
-    req = jsonrpc.Message.create_request('get_schema', ['Open_vSwitch'])
+    req = jsonrpc.Message.create_request('get_schema', [schema_name])
     err, resp = rpc.transact_block(req)
     rpc.close()
     if err:
@@ -103,10 +169,12 @@ def condition_match(row, condition):
     elif isinstance(match, list):
         raise NotImplementedError()
     else:
-        if op == '==' and val != match:
-            matched = False
-        elif op == '!=' and val == match:
-            matched = False
+        if op == '=':
+            if val != match:
+                matched = False
+        elif op == '!=':
+            if val == match:
+                matched = False
         else:
             raise NotImplementedError()
     return matched

@@ -50,7 +50,12 @@ class SecurityGroupMissingIcmpType(nexception.InvalidInput):
 
 
 class SecurityGroupInUse(nexception.InUse):
-    message = _("Security Group %(id)s in use.")
+    message = _("Security Group %(id)s %(reason)s.")
+
+    def __init__(self, **kwargs):
+        if 'reason' not in kwargs:
+            kwargs['reason'] = _("in use")
+        super(SecurityGroupInUse, self).__init__(**kwargs)
 
 
 class SecurityGroupCannotRemoveDefault(nexception.InUse):
@@ -67,8 +72,8 @@ class SecurityGroupDefaultAlreadyExists(nexception.InUse):
 
 class SecurityGroupRuleInvalidProtocol(nexception.InvalidInput):
     message = _("Security group rule protocol %(protocol)s not supported. "
-                "Only protocol values %(values)s and their integer "
-                "representation (0 to 255) are supported.")
+                "Only protocol values %(values)s and integer representations "
+                "[0 to 255] are supported.")
 
 
 class SecurityGroupRulesNotSingleTenant(nexception.InvalidInput):
@@ -106,8 +111,21 @@ class SecurityGroupRuleExists(nexception.InUse):
     message = _("Security group rule already exists. Rule id is %(id)s.")
 
 
+class SecurityGroupRuleInUse(nexception.InUse):
+    message = _("Security Group Rule %(id)s %(reason)s.")
+
+    def __init__(self, **kwargs):
+        if 'reason' not in kwargs:
+            kwargs['reason'] = _("in use")
+        super(SecurityGroupRuleInUse, self).__init__(**kwargs)
+
+
 class SecurityGroupRuleParameterConflict(nexception.InvalidInput):
     message = _("Conflicting value ethertype %(ethertype)s for CIDR %(cidr)s")
+
+
+class SecurityGroupConflict(nexception.Conflict):
+    message = _("Error %(reason)s while attempting the operation.")
 
 
 def convert_protocol(value):
@@ -133,7 +151,7 @@ def convert_protocol(value):
 
 
 def convert_ethertype_to_case_insensitive(value):
-    if isinstance(value, basestring):
+    if isinstance(value, six.string_types):
         for ethertype in sg_supported_ethertypes:
             if ethertype.lower() == value.lower():
                 return ethertype
@@ -180,8 +198,8 @@ def _validate_name_not_default(data, valid_values=None):
 
 attr.validators['type:name_not_default'] = _validate_name_not_default
 
-sg_supported_protocols = [None, const.PROTO_NAME_TCP,
-                          const.PROTO_NAME_UDP, const.PROTO_NAME_ICMP]
+sg_supported_protocols = [None, const.PROTO_NAME_TCP, const.PROTO_NAME_UDP,
+                          const.PROTO_NAME_ICMP, const.PROTO_NAME_ICMP_V6]
 sg_supported_ethertypes = ['IPv4', 'IPv6']
 
 # Attribute Map
@@ -274,11 +292,6 @@ class Securitygroup(extensions.ExtensionDescriptor):
         return "The security groups extension."
 
     @classmethod
-    def get_namespace(cls):
-        # todo
-        return "http://docs.openstack.org/ext/securitygroups/api/v2.0"
-
-    @classmethod
     def get_updated(cls):
         return "2012-10-05T10:00:00-00:00"
 
@@ -308,8 +321,8 @@ class Securitygroup(extensions.ExtensionDescriptor):
 
     def get_extended_resources(self, version):
         if version == "2.0":
-            return dict(EXTENDED_ATTRIBUTES_2_0.items() +
-                        RESOURCE_ATTRIBUTE_MAP.items())
+            return dict(list(EXTENDED_ATTRIBUTES_2_0.items()) +
+                        list(RESOURCE_ATTRIBUTE_MAP.items()))
         else:
             return {}
 

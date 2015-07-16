@@ -19,6 +19,7 @@ from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
 from oslo_utils import excutils
+import six
 
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.v2 import attributes
@@ -158,7 +159,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         with context.session.begin(subtransactions=True):
             # pre-generate id so it will be available when
             # configuring external gw port
-            router_db = Router(id=uuidutils.generate_uuid(),
+            router_db = Router(id=(router.get('id') or
+                                   uuidutils.generate_uuid()),
                                tenant_id=tenant_id,
                                name=router['name'],
                                admin_state_up=router['admin_state_up'],
@@ -1012,7 +1014,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         marker_obj = self._get_marker_obj(context, 'floatingip', limit,
                                           marker)
         if filters is not None:
-            for key, val in API_TO_DB_COLUMN_MAP.iteritems():
+            for key, val in six.iteritems(API_TO_DB_COLUMN_MAP):
                 if key in filters:
                     filters[val] = filters.pop(key)
 
@@ -1085,12 +1087,15 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         return router_ids
 
     def _build_routers_list(self, context, routers, gw_ports):
-        for router in routers:
-            gw_port_id = router['gw_port_id']
-            # Collect gw ports only if available
-            if gw_port_id and gw_ports.get(gw_port_id):
-                router['gw_port'] = gw_ports[gw_port_id]
+        """Subclasses can override this to add extra gateway info"""
         return routers
+
+    def _make_router_dict_with_gw_port(self, router, fields):
+        result = self._make_router_dict(router, fields)
+        if router.get('gw_port'):
+            result['gw_port'] = self._core_plugin._make_port_dict(
+                router['gw_port'], None)
+        return result
 
     def _get_sync_routers(self, context, router_ids=None, active=None):
         """Query routers and their gw ports for l3 agent.
@@ -1108,24 +1113,14 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         filters = {'id': router_ids} if router_ids else {}
         if active is not None:
             filters['admin_state_up'] = [active]
-        router_dicts = self.get_routers(context, filters=filters)
-        gw_port_ids = []
+        router_dicts = self._get_collection(
+            context, Router, self._make_router_dict_with_gw_port,
+            filters=filters)
         if not router_dicts:
             return []
-        for router_dict in router_dicts:
-            gw_port_id = router_dict['gw_port_id']
-            if gw_port_id:
-                gw_port_ids.append(gw_port_id)
-        gw_ports = []
-        if gw_port_ids:
-            gw_ports = dict((gw_port['id'], gw_port)
-                            for gw_port in
-                            self.get_sync_gw_ports(context, gw_port_ids))
-        # NOTE(armando-migliaccio): between get_routers and get_sync_gw_ports
-        # gw ports may get deleted, which means that router_dicts may contain
-        # ports that gw_ports does not; we should rebuild router_dicts, but
-        # letting the callee check for missing gw_ports sounds like a good
-        # defensive approach regardless
+        gw_ports = dict((r['gw_port']['id'], r['gw_port'])
+                        for r in router_dicts
+                        if r.get('gw_port'))
         return self._build_routers_list(context, router_dicts, gw_ports)
 
     def _get_sync_floating_ips(self, context, router_ids):
@@ -1134,16 +1129,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             return []
         return self.get_floatingips(context, {'router_id': router_ids})
 
-    def get_sync_gw_ports(self, context, gw_port_ids):
-        if not gw_port_ids:
-            return []
-        filters = {'id': gw_port_ids}
-        gw_ports = self._core_plugin.get_ports(context, filters)
-        if gw_ports:
-            self._populate_subnets_for_ports(context, gw_ports)
-        return gw_ports
-
-    def get_sync_interfaces(self, context, router_ids, device_owners=None):
+    def _get_sync_interfaces(self, context, router_ids, device_owners=None):
         """Query router interfaces that relate to list of router_ids."""
         device_owners = device_owners or [DEVICE_OWNER_ROUTER_INTF]
         if not router_ids:
@@ -1156,8 +1142,6 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
         interfaces = [self._core_plugin._make_port_dict(rp.port, None)
                       for rp in qry]
-        if interfaces:
-            self._populate_subnets_for_ports(context, interfaces)
         return interfaces
 
     def _populate_subnets_for_ports(self, context, ports):
@@ -1239,7 +1223,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                                              router_ids=router_ids,
                                              active=active)
             router_ids = [router['id'] for router in routers]
-            interfaces = self.get_sync_interfaces(
+            interfaces = self._get_sync_interfaces(
                 context, router_ids, device_owners)
             floating_ips = self._get_sync_floating_ips(context, router_ids)
             return (routers, interfaces, floating_ips)
@@ -1247,6 +1231,9 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
     def get_sync_data(self, context, router_ids=None, active=None):
         routers, interfaces, floating_ips = self._get_router_info_list(
             context, router_ids=router_ids, active=active)
+        ports_to_populate = [router['gw_port'] for router in routers
+                             if router.get('gw_port')] + interfaces
+        self._populate_subnets_for_ports(context, ports_to_populate)
         routers_dict = dict((router['id'], router) for router in routers)
         self._process_floating_ips(context, routers_dict, floating_ips)
         self._process_interfaces(routers_dict, interfaces)

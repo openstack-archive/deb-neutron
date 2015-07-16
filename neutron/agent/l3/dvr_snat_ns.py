@@ -14,10 +14,11 @@ from oslo_log import log as logging
 
 from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
+from neutron.common import constants
 
 LOG = logging.getLogger(__name__)
 SNAT_NS_PREFIX = 'snat-'
-SNAT_INT_DEV_PREFIX = 'sg-'
+SNAT_INT_DEV_PREFIX = constants.SNAT_INT_DEV_PREFIX
 
 
 class SnatNamespace(namespaces.Namespace):
@@ -30,7 +31,7 @@ class SnatNamespace(namespaces.Namespace):
 
     @classmethod
     def get_snat_ns_name(cls, router_id):
-        return (SNAT_NS_PREFIX + router_id)
+        return namespaces.build_ns_name(SNAT_NS_PREFIX, router_id)
 
     def delete(self):
         ns_ip = ip_lib.IPWrapper(namespace=self.name)

@@ -21,6 +21,7 @@ import mock
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as n_exc
 from neutron.tests import base
+from neutron.tests import tools
 
 
 class TestAttributes(base.BaseTestCase):
@@ -328,6 +329,12 @@ class TestAttributes(base.BaseTestCase):
         ns_pools = [['1.1.1.2', '1.1.1.2'],
                     ['www.hostname.com', 'www.hostname.com'],
                     ['1000.0.0.1'],
+                    ['www.hostname.com'],
+                    ['www.great.marathons.to.travel'],
+                    ['valid'],
+                    ['77.hostname.com'],
+                    ['1' * 59],
+                    ['www.internal.hostname.com'],
                     None]
 
         for ns in ns_pools:
@@ -335,12 +342,7 @@ class TestAttributes(base.BaseTestCase):
             self.assertIsNotNone(msg)
 
         ns_pools = [['100.0.0.2'],
-                    ['www.hostname.com'],
-                    ['www.great.marathons.to.travel'],
-                    ['valid'],
-                    ['77.hostname.com'],
-                    ['1' * 59],
-                    ['www.internal.hostname.com']]
+                    ['1.1.1.1', '1.1.1.2']]
 
         for ns in ns_pools:
             msg = attributes._validate_nameservers(ns, None)
@@ -388,21 +390,6 @@ class TestAttributes(base.BaseTestCase):
         ip_addr = '1111.1.1.1'
         msg = attributes._validate_ip_address_or_none(ip_addr)
         self.assertEqual("'%s' is not a valid IP address" % ip_addr, msg)
-
-    def test_hostname_pattern(self):
-        bad_values = ['@openstack', 'ffff.abcdefg' * 26, 'f' * 80, '-hello',
-                      'goodbye-', 'example..org']
-        for data in bad_values:
-            msg = attributes._validate_hostname(data)
-            self.assertIsNotNone(msg)
-
-        # All numeric hostnames are allowed per RFC 1123 section 2.1
-        good_values = ['www.openstack.org', '1234x', '1234',
-                       'openstack-1', 'v.xyz', '1' * 50, 'a1a',
-                       'x.x1x', 'x.yz', 'example.org.']
-        for data in good_values:
-            msg = attributes._validate_hostname(data)
-            self.assertIsNone(msg)
 
     def test_uuid_pattern(self):
         data = 'garbage'
@@ -812,6 +799,35 @@ class TestConvertToInt(base.BaseTestCase):
                 value, attributes.convert_none_to_empty_list(value))
 
 
+class TestConvertToFloat(base.BaseTestCase):
+    # NOTE: the routine being tested here is a plugin-specific extension
+    # module. As the plugin split proceed towards its second phase this
+    # test should either be remove, or the validation routine moved into
+    # neutron.api.v2.attributes
+
+    def test_convert_to_float_positve_value(self):
+        self.assertEqual(
+            1.111, attributes.convert_to_positive_float_or_none(1.111))
+        self.assertEqual(1, attributes.convert_to_positive_float_or_none(1))
+        self.assertEqual(0, attributes.convert_to_positive_float_or_none(0))
+
+    def test_convert_to_float_negative_value(self):
+        self.assertRaises(n_exc.InvalidInput,
+                          attributes.convert_to_positive_float_or_none,
+                          -1.11)
+
+    def test_convert_to_float_string(self):
+        self.assertEqual(4, attributes.convert_to_positive_float_or_none('4'))
+        self.assertEqual(
+            4.44, attributes.convert_to_positive_float_or_none('4.44'))
+        self.assertRaises(n_exc.InvalidInput,
+                          attributes.convert_to_positive_float_or_none,
+                          'garbage')
+
+    def test_convert_to_float_none_value(self):
+        self.assertIsNone(attributes.convert_to_positive_float_or_none(None))
+
+
 class TestConvertKvp(base.BaseTestCase):
 
     def test_convert_kvp_list_to_dict_succeeds_for_missing_values(self):
@@ -821,7 +837,8 @@ class TestConvertKvp(base.BaseTestCase):
     def test_convert_kvp_list_to_dict_succeeds_for_multiple_values(self):
         result = attributes.convert_kvp_list_to_dict(
             ['a=b', 'a=c', 'a=c', 'b=a'])
-        self.assertEqual({'a': ['c', 'b'], 'b': ['a']}, result)
+        expected = {'a': tools.UnorderedList(['c', 'b']), 'b': ['a']}
+        self.assertEqual(expected, result)
 
     def test_convert_kvp_list_to_dict_succeeds_for_values(self):
         result = attributes.convert_kvp_list_to_dict(['a=b', 'c=d'])

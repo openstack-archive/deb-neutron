@@ -66,12 +66,12 @@ code tree, e.g. ::
 
 Unit test modules should have the same path under neutron/tests/unit/
 as the module they target has under neutron/, and their name should be
-the name of the target module prefixed by 'test_'.  This requirement
+the name of the target module prefixed by `test_`.  This requirement
 is intended to make it easier for developers to find the unit tests
 for a given module.
 
 Similarly, when a test module targets a package, that module's name
-should be the name of the package prefixed by 'test_' with the same
+should be the name of the package prefixed by `test_` with the same
 path as when a test targets a module, e.g. ::
 
  - target package: neutron.ipam
@@ -194,6 +194,11 @@ To run only pep8::
 
     tox -e pep8
 
+Since pep8 includes running pylint on all files, it can take quite some time to run.
+To restrict the pylint check to only the files altered by the latest patch changes::
+
+    tox -e pep8 HEAD~1
+
 To run only the unit tests::
 
     tox -e py27
@@ -237,10 +242,10 @@ dependencies as the functional tests, using the configuration script
 tools/configure_for_func_testing.sh is advised (as described above).
 When running full-stack tests on a clean VM for the first time, we
 advise to run ./stack.sh successfully to make sure all Neutron's
-dependencies are met.  Also note that in order to preserve resources
-on the gate, running the dsvm-functional suite will also run all
-full-stack tests (and a new worker won't be assigned specifically for
-dsvm-fullstack).
+dependencies are met. Full-stack based Neutron daemons produce logs to a
+sub-folder in /tmp/fullstack-logs (for example, a test named
+"test_example" will produce logs to /tmp/fullstack-logs/test_example/),
+so that will be a good place to look if your test is failing.
 
 API Tests
 =========
@@ -259,7 +264,7 @@ TEMPEST_CONFIG_DIR before invoking tox: ::
 
 
 Running individual tests
-~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------
 
 For running individual test modules or cases, you just need to pass
 the dot-separated path to the module you want as an argument to it.

@@ -18,6 +18,7 @@ import netaddr
 import os
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import excutils
 
 from neutron.agent.common import utils
 from neutron.common import exceptions
@@ -35,6 +36,11 @@ OPTS = [
 LOOPBACK_DEVNAME = 'lo'
 
 SYS_NET_PATH = '/sys/class/net'
+
+
+class AddressNotReady(exceptions.NeutronException):
+    message = _("Failure waiting for address %(address)s to "
+                "become ready: %(reason)s")
 
 
 class SubProcessBase(object):
@@ -113,6 +119,12 @@ class IPWrapper(SubProcessBase):
             retval.append(IPDevice(name, namespace=self.namespace))
 
         return retval
+
+    def get_device_by_ip(self, ip):
+        """Get the IPDevice from system which has ip configured."""
+        for device in self.get_devices():
+            if device.addr.list(to=ip):
+                return device
 
     def add_tuntap(self, name, mode='tap'):
         self._as_root([], 'tuntap', ('add', name, 'mode', mode))
@@ -204,6 +216,41 @@ class IPDevice(SubProcessBase):
 
     def __str__(self):
         return self.name
+
+    def delete_addr_and_conntrack_state(self, cidr):
+        """Delete an address along with its conntrack state
+
+        This terminates any active connections through an IP.
+
+        cidr: the IP address for which state should be removed.  This can be
+            passed as a string with or without /NN.  A netaddr.IPAddress or
+            netaddr.Network representing the IP address can also be passed.
+        """
+        self.addr.delete(cidr)
+
+        ip_str = str(netaddr.IPNetwork(cidr).ip)
+        ip_wrapper = IPWrapper(namespace=self.namespace)
+
+        # Delete conntrack state for ingress traffic
+        # If 0 flow entries have been deleted
+        # conntrack -D will return 1
+        try:
+            ip_wrapper.netns.execute(["conntrack", "-D", "-d", ip_str],
+                                     check_exit_code=True,
+                                     extra_ok_codes=[1])
+
+        except RuntimeError:
+            LOG.exception(_LE("Failed deleting ingress connection state of"
+                              " floatingip %s"), ip_str)
+
+        # Delete conntrack state for egress traffic
+        try:
+            ip_wrapper.netns.execute(["conntrack", "-D", "-q", ip_str],
+                                     check_exit_code=True,
+                                     extra_ok_codes=[1])
+        except RuntimeError:
+            LOG.exception(_LE("Failed deleting egress connection state of"
+                              " floatingip %s"), ip_str)
 
 
 class IpCommandBase(object):
@@ -382,8 +429,33 @@ class IpAddrCommand(IpDeviceCommandBase):
 
             retval.append(dict(cidr=parts[1],
                                scope=scope,
-                               dynamic=('dynamic' == parts[-1])))
+                               dynamic=('dynamic' == parts[-1]),
+                               tentative=('tentative' in line),
+                               dadfailed=('dadfailed' == parts[-1])))
         return retval
+
+    def wait_until_address_ready(self, address, wait_time=30):
+        """Wait until an address is no longer marked 'tentative'
+
+        raises AddressNotReady if times out or address not present on interface
+        """
+        def is_address_ready():
+            try:
+                addr_info = self.list(to=address)[0]
+            except IndexError:
+                raise AddressNotReady(
+                    address=address,
+                    reason=_LE('Address not present on interface'))
+            if not addr_info['tentative']:
+                return True
+            if addr_info['dadfailed']:
+                raise AddressNotReady(
+                    address=address, reason=_LE('Duplicate adddress detected'))
+        errmsg = _LE("Exceeded %s second limit waiting for "
+                     "address to leave the tentative state.") % wait_time
+        utils.utils.wait_until_true(
+            is_address_ready, timeout=wait_time, sleep=0.20,
+            exception=AddressNotReady(address=address, reason=errmsg))
 
 
 class IpRouteCommand(IpDeviceCommandBase):
@@ -406,7 +478,14 @@ class IpRouteCommand(IpDeviceCommandBase):
                 'dev', self.name]
         if table:
             args += ['table', table]
-        self._as_root([ip_version], tuple(args))
+        try:
+            self._as_root([ip_version], tuple(args))
+        except RuntimeError as rte:
+            with (excutils.save_and_reraise_exception()) as ctx:
+                if "Cannot find device" in str(rte):
+                    ctx.reraise = False
+                    raise exceptions.DeviceNotFoundError(
+                        device_name=self.name)
 
     def list_onlink_routes(self, ip_version):
         def iterate_routes():
@@ -461,12 +540,13 @@ class IpRouteCommand(IpDeviceCommandBase):
 
         return retval
 
-    def pullup_route(self, interface_name):
+    def pullup_route(self, interface_name, ip_version):
         """Ensures that the route entry for the interface is before all
         others on the same subnet.
         """
+        options = [ip_version]
         device_list = []
-        device_route_list_lines = self._run([],
+        device_route_list_lines = self._run(options,
                                             ('list',
                                              'proto', 'kernel',
                                              'dev', interface_name)
@@ -476,20 +556,20 @@ class IpRouteCommand(IpDeviceCommandBase):
                 subnet = device_route_line.split()[0]
             except Exception:
                 continue
-            subnet_route_list_lines = self._run([],
+            subnet_route_list_lines = self._run(options,
                                                 ('list',
                                                  'proto', 'kernel',
                                                  'match', subnet)
                                                 ).split('\n')
             for subnet_route_line in subnet_route_list_lines:
                 i = iter(subnet_route_line.split())
-                while(i.next() != 'dev'):
+                while(next(i) != 'dev'):
                     pass
-                device = i.next()
+                device = next(i)
                 try:
-                    while(i.next() != 'src'):
+                    while(next(i) != 'src'):
                         pass
-                    src = i.next()
+                    src = next(i)
                 except Exception:
                     src = ''
                 if device != interface_name:
@@ -498,15 +578,15 @@ class IpRouteCommand(IpDeviceCommandBase):
                     break
 
             for (device, src) in device_list:
-                self._as_root([], ('del', subnet, 'dev', device))
+                self._as_root(options, ('del', subnet, 'dev', device))
                 if (src != ''):
-                    self._as_root([],
+                    self._as_root(options,
                                   ('append', subnet,
                                    'proto', 'kernel',
                                    'src', src,
                                    'dev', device))
                 else:
-                    self._as_root([],
+                    self._as_root(options,
                                   ('append', subnet,
                                    'proto', 'kernel',
                                    'dev', device))
@@ -544,10 +624,11 @@ class IpNeighCommand(IpDeviceCommandBase):
                        'lladdr', mac_address,
                        'dev', self.name))
 
-    def show(self):
-        return self._as_root([],
-                      ('show',
-                       'dev', self.name))
+    def show(self, ip_version):
+        options = [ip_version]
+        return self._as_root(options,
+                             ('show',
+                              'dev', self.name))
 
 
 class IpNetnsCommand(IpCommandBase):
@@ -663,7 +744,7 @@ def ensure_device_is_ready(device_name, namespace=None):
 def iproute_arg_supported(command, arg):
     command += ['help']
     stdout, stderr = utils.execute(command, check_exit_code=False,
-                                   return_stderr=True)
+                                   return_stderr=True, log_fail_as_error=False)
     return any(arg in line for line in stderr.split('\n'))
 
 
@@ -682,38 +763,24 @@ def _arping(ns_name, iface_name, address, count):
                             'ns': ns_name})
 
 
-def send_gratuitous_arp(ns_name, iface_name, address, count):
-    """Send a gratuitous arp using given namespace, interface, and address."""
+def send_ip_addr_adv_notif(ns_name, iface_name, address, config):
+    """Send advance notification of an IP address assignment.
+
+    If the address is in the IPv4 family, send gratuitous ARP.
+
+    If the address is in the IPv6 family, no advance notification is
+    necessary, since the Neighbor Discovery Protocol (NDP), Duplicate
+    Address Discovery (DAD), and (for stateless addresses) router
+    advertisements (RAs) are sufficient for address resolution and
+    duplicate address detection.
+    """
+    count = config.send_arp_for_ha
 
     def arping():
         _arping(ns_name, iface_name, address, count)
 
-    if count > 0:
+    if count > 0 and netaddr.IPAddress(address).version == 4:
         eventlet.spawn_n(arping)
-
-
-def send_garp_for_proxyarp(ns_name, iface_name, address, count):
-    """
-    Send a gratuitous arp using given namespace, interface, and address
-
-    This version should be used when proxy arp is in use since the interface
-    won't actually have the address configured.  We actually need to configure
-    the address on the interface and then remove it when the proxy arp has been
-    sent.
-    """
-    def arping_with_temporary_address():
-        # Configure the address on the interface
-        device = IPDevice(iface_name, namespace=ns_name)
-        net = netaddr.IPNetwork(str(address))
-        device.addr.add(str(net))
-
-        _arping(ns_name, iface_name, address, count)
-
-        # Delete the address from the interface
-        device.addr.delete(str(net))
-
-    if count > 0:
-        eventlet.spawn_n(arping_with_temporary_address)
 
 
 def add_namespace_to_cmd(cmd, namespace=None):

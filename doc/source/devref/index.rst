@@ -21,7 +21,8 @@ Developer Guide
 In the Developer Guide, you will find information on Neutron's lower level
 programming APIs. There are sections that cover the core pieces of Neutron,
 including its database, message queue, and scheduler components. There are
-also subsections that describe specific plugins inside Neutron.
+also subsections that describe specific plugins inside Neutron. Finally,
+the developer guide includes information about Neutron testing infrastructure.
 
 
 Programming HowTos and Tutorials
@@ -31,6 +32,7 @@ Programming HowTos and Tutorials
 
     development.environment
     contribute
+    sub_projects
 
 
 Neutron Internals
@@ -50,6 +52,12 @@ Neutron Internals
    oslo-incubator
    callbacks
 
+Testing
+-------
+.. toctree::
+   :maxdepth: 3
+
+   fullstack_testing
 
 Module Reference
 ----------------

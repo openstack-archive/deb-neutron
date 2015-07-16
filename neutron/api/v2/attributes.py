@@ -17,6 +17,7 @@ import re
 
 import netaddr
 from oslo_log import log as logging
+import six
 
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
@@ -105,7 +106,7 @@ def _validate_string_or_none(data, max_len=None):
 
 
 def _validate_string(data, max_len=None):
-    if not isinstance(data, basestring):
+    if not isinstance(data, six.string_types):
         msg = _("'%s' is not a valid string") % data
         LOG.debug(msg)
         return msg
@@ -259,20 +260,6 @@ def _validate_fixed_ips(data, valid_values=None):
                 return msg
 
 
-def _validate_ip_or_hostname(host):
-    ip_err = _validate_ip_address(host)
-    if not ip_err:
-        return
-    name_err = _validate_hostname(host)
-    if not name_err:
-        return
-    msg = _("%(host)s is not a valid IP or hostname. Details: "
-            "%(ip_err)s, %(name_err)s") % {'ip_err': ip_err, 'host': host,
-                                           'name_err': name_err}
-    LOG.debug(msg)
-    return msg
-
-
 def _validate_nameservers(data, valid_values=None):
     if not hasattr(data, '__iter__'):
         msg = _("Invalid data format for nameserver: '%s'") % data
@@ -281,8 +268,8 @@ def _validate_nameservers(data, valid_values=None):
 
     hosts = []
     for host in data:
-        # This may be an IP or a hostname
-        msg = _validate_ip_or_hostname(host)
+        # This must be an IP address only
+        msg = _validate_ip_address(host)
         if msg:
             msg = _("'%(host)s' is not a valid nameserver. %(msg)s") % {
                 'host': host, 'msg': msg}
@@ -366,41 +353,6 @@ def _validate_subnet_or_none(data, valid_values=None):
     return _validate_subnet(data, valid_values)
 
 
-def _validate_hostname(data):
-    # NOTE: An individual name regex instead of an entire FQDN was used
-    # because its easier to make correct. Feel free to replace with a
-    # full regex solution. The logic should validate that the hostname
-    # matches RFC 1123 (section 2.1) and RFC 952.
-    hostname_pattern = "[a-zA-Z0-9-]{1,63}$"
-    try:
-        # Trailing periods are allowed to indicate that a name is fully
-        # qualified per RFC 1034 (page 7).
-        trimmed = data if data[-1] != '.' else data[:-1]
-        if len(trimmed) > 255:
-            raise TypeError(
-                _("'%s' exceeds the 255 character hostname limit") % trimmed)
-        names = trimmed.split('.')
-        for name in names:
-            if not name:
-                raise TypeError(_("Encountered an empty component."))
-            if name[-1] == '-' or name[0] == '-':
-                raise TypeError(
-                    _("Name '%s' must not start or end with a hyphen.") % name)
-            if not re.match(hostname_pattern, name):
-                raise TypeError(
-                    _("Name '%s' must be 1-63 characters long, each of "
-                      "which can only be alphanumeric or a hyphen.") % name)
-        # RFC 1123 hints that a TLD can't be all numeric. last is a TLD if
-        # it's an FQDN.
-        if len(names) > 1 and re.match("^[0-9]+$", names[-1]):
-            raise TypeError(_("TLD '%s' must not be all numeric") % names[-1])
-    except TypeError as e:
-        msg = _("'%(data)s' is not a valid hostname. Reason: %(reason)s") % {
-            'data': data, 'reason': e.message}
-        LOG.debug(msg)
-        return msg
-
-
 def _validate_regex(data, valid_values=None):
     try:
         if re.match(valid_values, data):
@@ -457,7 +409,7 @@ def _validate_dict_item(key, key_validator, data):
     # TODO(salv-orlando): Structure of dict attributes should be improved
     # to avoid iterating over items
     val_func = val_params = None
-    for (k, v) in key_validator.iteritems():
+    for (k, v) in six.iteritems(key_validator):
         if k.startswith('type:'):
             # ask forgiveness, not permission
             try:
@@ -483,7 +435,7 @@ def _validate_dict(data, key_specs=None):
         return
 
     # Check whether all required keys are present
-    required_keys = [key for key, spec in key_specs.iteritems()
+    required_keys = [key for key, spec in six.iteritems(key_specs)
                      if spec.get('required')]
 
     if required_keys:
@@ -493,7 +445,7 @@ def _validate_dict(data, key_specs=None):
 
     # Perform validation and conversion of all values
     # according to the specifications.
-    for key, key_validator in [(k, v) for k, v in key_specs.iteritems()
+    for key, key_validator in [(k, v) for k, v in six.iteritems(key_specs)
                                if k in data]:
         msg = _validate_dict_item(key, key_validator, data)
         if msg:
@@ -530,7 +482,7 @@ def _validate_non_negative(data, valid_values=None):
 
 
 def convert_to_boolean(data):
-    if isinstance(data, basestring):
+    if isinstance(data, six.string_types):
         val = data.lower()
         if val == "true" or val == "1":
             return True
@@ -566,6 +518,24 @@ def convert_to_int_if_not_none(data):
     return data
 
 
+def convert_to_positive_float_or_none(val):
+    # NOTE(salv-orlando): This conversion function is currently used by
+    # a vendor specific extension only at the moment  It is used for
+    # port's RXTX factor in neutron.plugins.vmware.extensions.qos.
+    # It is deemed however generic enough to be in this module as it
+    # might be used in future for other API attributes.
+    if val is None:
+        return
+    try:
+        val = float(val)
+        if val < 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        msg = _("'%s' must be a non negative decimal.") % val
+        raise n_exc.InvalidInput(error_message=msg)
+    return val
+
+
 def convert_kvp_str_to_list(data):
     """Convert a value of the form 'key=value' to ['key', 'value'].
 
@@ -594,7 +564,7 @@ def convert_kvp_list_to_dict(kvp_list):
         key, value = convert_kvp_str_to_list(kvp_str)
         kvp_map.setdefault(key, set())
         kvp_map[key].add(value)
-    return dict((x, list(y)) for x, y in kvp_map.iteritems())
+    return dict((x, list(y)) for x, y in six.iteritems(kvp_map))
 
 
 def convert_none_to_empty_list(value):
@@ -864,23 +834,23 @@ RESOURCE_ATTRIBUTE_MAP = {
                        'allow_put': False,
                        'is_visible': True},
         'default_prefixlen': {'allow_post': True,
-                           'allow_put': True,
-                           'validate': {'type:non_negative': None},
-                           'convert_to': convert_to_int,
-                           'default': ATTR_NOT_SPECIFIED,
-                           'is_visible': True},
+                              'allow_put': True,
+                              'validate': {'type:non_negative': None},
+                              'convert_to': convert_to_int,
+                              'default': ATTR_NOT_SPECIFIED,
+                              'is_visible': True},
         'min_prefixlen': {'allow_post': True,
-                       'allow_put': True,
-                       'default': ATTR_NOT_SPECIFIED,
-                       'validate': {'type:non_negative': None},
-                       'convert_to': convert_to_int,
-                       'is_visible': True},
+                          'allow_put': True,
+                          'default': ATTR_NOT_SPECIFIED,
+                          'validate': {'type:non_negative': None},
+                          'convert_to': convert_to_int,
+                          'is_visible': True},
         'max_prefixlen': {'allow_post': True,
-                       'allow_put': True,
-                       'default': ATTR_NOT_SPECIFIED,
-                       'validate': {'type:non_negative': None},
-                       'convert_to': convert_to_int,
-                       'is_visible': True},
+                          'allow_put': True,
+                          'default': ATTR_NOT_SPECIFIED,
+                          'validate': {'type:non_negative': None},
+                          'convert_to': convert_to_int,
+                          'is_visible': True},
         SHARED: {'allow_post': True,
                  'allow_put': False,
                  'default': False,

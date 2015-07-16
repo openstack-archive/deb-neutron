@@ -15,10 +15,12 @@
 
 from oslo_config import cfg
 from oslo_log import log
+import six
 import stevedore
 
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as exc
+from neutron.extensions import external_net
 from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
@@ -49,6 +51,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         LOG.info(_LI("Loaded type driver names: %s"), self.names())
         self._register_types()
         self._check_tenant_network_types(cfg.CONF.ml2.tenant_network_types)
+        self._check_external_network_type(cfg.CONF.ml2.external_network_type)
 
     def _register_types(self):
         for ext in self:
@@ -74,6 +77,12 @@ class TypeManager(stevedore.named.NamedExtensionManager):
                               "Service terminated!"), network_type)
                 raise SystemExit(1)
         LOG.info(_LI("Tenant network_types: %s"), self.tenant_network_types)
+
+    def _check_external_network_type(self, ext_network_type):
+        if ext_network_type and ext_network_type not in self.drivers:
+            LOG.error(_LE("No type driver for external network_type: %s. "
+                          "Service terminated!"), ext_network_type)
+            raise SystemExit(1)
 
     def _process_provider_segment(self, segment):
         (network_type, physical_network,
@@ -102,9 +111,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         elif attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
             segments = [self._process_provider_segment(s)
                         for s in network[mpnet.SEGMENTS]]
-            mpnet.check_duplicate_segments(
-                segments,
-                self.is_partial_segment)
+            mpnet.check_duplicate_segments(segments, self.is_partial_segment)
             return segments
 
     def _match_segment(self, segment, filters):
@@ -158,9 +165,15 @@ class TypeManager(stevedore.named.NamedExtensionManager):
             network[provider.SEGMENTATION_ID] = segment[api.SEGMENTATION_ID]
 
     def initialize(self):
-        for network_type, driver in self.drivers.iteritems():
+        for network_type, driver in six.iteritems(self.drivers):
             LOG.info(_LI("Initializing driver for type '%s'"), network_type)
             driver.obj.initialize()
+
+    def _add_network_segment(self, session, network_id, segment, mtu,
+                             segment_index=0):
+        db.add_network_segment(session, network_id, segment, segment_index)
+        if segment.get(api.MTU) > 0:
+            mtu.append(segment[api.MTU])
 
     def create_network_segments(self, context, network, tenant_id):
         """Call type drivers to create network segments."""
@@ -173,15 +186,15 @@ class TypeManager(stevedore.named.NamedExtensionManager):
                 for segment_index, segment in enumerate(segments):
                     segment = self.reserve_provider_segment(
                         session, segment)
-                    db.add_network_segment(session, network_id,
-                                           segment, segment_index)
-                    if segment.get(api.MTU) > 0:
-                        mtu.append(segment[api.MTU])
+                    self._add_network_segment(session, network_id, segment,
+                                              mtu, segment_index)
+            elif (cfg.CONF.ml2.external_network_type and
+                  self._get_attribute(network, external_net.EXTERNAL)):
+                segment = self._allocate_ext_net_segment(session)
+                self._add_network_segment(session, network_id, segment, mtu)
             else:
-                segment = self.allocate_tenant_segment(session)
-                db.add_network_segment(session, network_id, segment)
-                if segment.get(api.MTU) > 0:
-                    mtu.append(segment[api.MTU])
+                segment = self._allocate_tenant_net_segment(session)
+                self._add_network_segment(session, network_id, segment, mtu)
         network[api.MTU] = min(mtu) if mtu else 0
 
     def is_partial_segment(self, segment):
@@ -207,12 +220,22 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         driver = self.drivers.get(network_type)
         return driver.obj.reserve_provider_segment(session, segment)
 
-    def allocate_tenant_segment(self, session):
+    def _allocate_segment(self, session, network_type):
+        driver = self.drivers.get(network_type)
+        return driver.obj.allocate_tenant_segment(session)
+
+    def _allocate_tenant_net_segment(self, session):
         for network_type in self.tenant_network_types:
-            driver = self.drivers.get(network_type)
-            segment = driver.obj.allocate_tenant_segment(session)
+            segment = self._allocate_segment(session, network_type)
             if segment:
                 return segment
+        raise exc.NoNetworkAvailable()
+
+    def _allocate_ext_net_segment(self, session):
+        network_type = cfg.CONF.ml2.external_network_type
+        segment = self._allocate_segment(session, network_type)
+        if segment:
+            return segment
         raise exc.NoNetworkAvailable()
 
     def release_network_segments(self, session, network_id):
@@ -619,7 +642,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
 
     def _bind_port_level(self, context, level, segments_to_bind):
         binding = context._binding
-        port_id = context._port['id']
+        port_id = context.current['id']
         LOG.debug("Attempting to bind port %(port)s on host %(host)s "
                   "at level %(level)s using segments %(segments)s",
                   {'port': port_id,
@@ -676,7 +699,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
                               driver.name)
         binding.vif_type = portbindings.VIF_TYPE_BINDING_FAILED
         LOG.error(_LE("Failed to bind port %(port)s on host %(host)s"),
-                  {'port': context._port['id'],
+                  {'port': context.current['id'],
                    'host': binding.host})
 
     def _check_driver_to_bind(self, driver, segments_to_bind, binding_levels):

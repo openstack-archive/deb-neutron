@@ -46,6 +46,8 @@ EXTRADHCPOPTS = 'extra_dhcp_opts'
 DHCP_OPT_NAME_MAX_LEN = 64
 DHCP_OPT_VALUE_MAX_LEN = 255
 
+CLIENT_ID = "client-id"
+
 EXTENDED_ATTRIBUTES_2_0 = {
     'ports': {
         EXTRADHCPOPTS:
@@ -81,10 +83,6 @@ class Extra_dhcp_opt(extensions.ExtensionDescriptor):
                 "For example PXE boot options to DHCP clients can "
                 "be specified (e.g. tftp-server, server-ip-address, "
                 "bootfile-name)")
-
-    @classmethod
-    def get_namespace(cls):
-        return "http://docs.openstack.org/ext/neutron/extra_dhcp_opt/api/v1.0"
 
     @classmethod
     def get_updated(cls):

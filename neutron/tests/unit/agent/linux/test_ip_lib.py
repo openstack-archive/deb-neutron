@@ -15,6 +15,7 @@
 
 import mock
 import netaddr
+import testtools
 
 from neutron.agent.common import utils  # noqa
 from neutron.agent.linux import ip_lib
@@ -80,6 +81,10 @@ ADDR_SAMPLE = ("""
     inet 172.16.77.240/24 brd 172.16.77.255 scope global eth0
     inet6 2001:470:9:1224:5595:dd51:6ba2:e788/64 scope global temporary dynamic
        valid_lft 14187sec preferred_lft 3387sec
+    inet6 fe80::3023:39ff:febc:22ae/64 scope link tentative
+        valid_lft forever preferred_lft forever
+    inet6 fe80::3023:39ff:febc:22af/64 scope link tentative dadfailed
+        valid_lft forever preferred_lft forever
     inet6 2001:470:9:1224:fd91:272:581e:3a32/64 scope global temporary """
                """deprecated dynamic
        valid_lft 14187sec preferred_lft 0sec
@@ -98,6 +103,10 @@ ADDR_SAMPLE2 = ("""
     inet 172.16.77.240/24 scope global eth0
     inet6 2001:470:9:1224:5595:dd51:6ba2:e788/64 scope global temporary dynamic
        valid_lft 14187sec preferred_lft 3387sec
+    inet6 fe80::3023:39ff:febc:22ae/64 scope link tentative
+        valid_lft forever preferred_lft forever
+    inet6 fe80::3023:39ff:febc:22af/64 scope link tentative dadfailed
+        valid_lft forever preferred_lft forever
     inet6 2001:470:9:1224:fd91:272:581e:3a32/64 scope global temporary """
                 """deprecated dynamic
        valid_lft 14187sec preferred_lft 0sec
@@ -687,29 +696,53 @@ class TestIpAddrCommand(TestIPCmdBase):
 
     def test_list(self):
         expected = [
-            dict(scope='global',
+            dict(scope='global', dadfailed=False, tentative=False,
                  dynamic=False, cidr='172.16.77.240/24'),
-            dict(scope='global',
+            dict(scope='global', dadfailed=False, tentative=False,
                  dynamic=True, cidr='2001:470:9:1224:5595:dd51:6ba2:e788/64'),
-            dict(scope='global',
+            dict(scope='link', dadfailed=False, tentative=True,
+                 dynamic=False, cidr='fe80::3023:39ff:febc:22ae/64'),
+            dict(scope='link', dadfailed=True, tentative=True,
+                 dynamic=False, cidr='fe80::3023:39ff:febc:22af/64'),
+            dict(scope='global', dadfailed=False, tentative=False,
                  dynamic=True, cidr='2001:470:9:1224:fd91:272:581e:3a32/64'),
-            dict(scope='global',
+            dict(scope='global', dadfailed=False, tentative=False,
                  dynamic=True, cidr='2001:470:9:1224:4508:b885:5fb:740b/64'),
-            dict(scope='global',
+            dict(scope='global', dadfailed=False, tentative=False,
                  dynamic=True, cidr='2001:470:9:1224:dfcc:aaff:feb9:76ce/64'),
-            dict(scope='link',
+            dict(scope='link', dadfailed=False, tentative=False,
                  dynamic=False, cidr='fe80::dfcc:aaff:feb9:76ce/64')]
 
         test_cases = [ADDR_SAMPLE, ADDR_SAMPLE2]
 
         for test_case in test_cases:
             self.parent._run = mock.Mock(return_value=test_case)
-            self.assertEqual(self.addr_cmd.list(), expected)
+            self.assertEqual(expected, self.addr_cmd.list())
             self._assert_call([], ('show', 'tap0'))
+
+    def test_wait_until_address_ready(self):
+        self.parent._run.return_value = ADDR_SAMPLE
+        # this address is not tentative or failed so it should return
+        self.assertIsNone(self.addr_cmd.wait_until_address_ready(
+            '2001:470:9:1224:fd91:272:581e:3a32'))
+
+    def test_wait_until_address_ready_non_existent_address(self):
+        self.addr_cmd.list = mock.Mock(return_value=[])
+        with testtools.ExpectedException(ip_lib.AddressNotReady):
+            self.addr_cmd.wait_until_address_ready('abcd::1234')
+
+    def test_wait_until_address_ready_timeout(self):
+        tentative_address = 'fe80::3023:39ff:febc:22ae'
+        self.addr_cmd.list = mock.Mock(return_value=[
+            dict(scope='link', dadfailed=False, tentative=True, dynamic=False,
+                 cidr=tentative_address + '/64')])
+        with testtools.ExpectedException(ip_lib.AddressNotReady):
+            self.addr_cmd.wait_until_address_ready(tentative_address,
+                                                   wait_time=1)
 
     def test_list_filtered(self):
         expected = [
-            dict(scope='global',
+            dict(scope='global', tentative=False, dadfailed=False,
                  dynamic=False, cidr='172.16.77.240/24')]
 
         test_cases = [ADDR_SAMPLE, ADDR_SAMPLE2]
@@ -760,13 +793,27 @@ class TestIpRouteCommand(TestIPCmdBase):
                            'dev', self.parent.name,
                            'table', self.table))
 
-    def test_del_gateway(self):
+    def test_del_gateway_success(self):
         self.route_cmd.delete_gateway(self.gateway, table=self.table)
         self._assert_sudo([self.ip_version],
                           ('del', 'default',
                            'via', self.gateway,
                            'dev', self.parent.name,
                            'table', self.table))
+
+    def test_del_gateway_cannot_find_device(self):
+        self.parent._as_root.side_effect = RuntimeError("Cannot find device")
+
+        exc = self.assertRaises(exceptions.DeviceNotFoundError,
+                          self.route_cmd.delete_gateway,
+                          self.gateway, table=self.table)
+        self.assertIn(self.parent.name, str(exc))
+
+    def test_del_gateway_other_error(self):
+        self.parent._as_root.side_effect = RuntimeError()
+
+        self.assertRaises(RuntimeError, self.route_cmd.delete_gateway,
+                          self.gateway, table=self.table)
 
     def test_get_gateway(self):
         for test_case in self.test_cases:
@@ -788,10 +835,10 @@ class TestIpRouteCommand(TestIPCmdBase):
             return result
 
         self.parent._run = mock.Mock(side_effect=pullup_side_effect)
-        self.route_cmd.pullup_route('tap1d7888a7-10')
-        self._assert_sudo([], ('del', '10.0.0.0/24', 'dev', 'qr-23380d11-d2'))
-        self._assert_sudo([], ('append', '10.0.0.0/24', 'proto', 'kernel',
-                               'src', '10.0.0.1', 'dev', 'qr-23380d11-d2'))
+        self.route_cmd.pullup_route('tap1d7888a7-10', ip_version=4)
+        self._assert_sudo([4], ('del', '10.0.0.0/24', 'dev', 'qr-23380d11-d2'))
+        self._assert_sudo([4], ('append', '10.0.0.0/24', 'proto', 'kernel',
+                                'src', '10.0.0.1', 'dev', 'qr-23380d11-d2'))
 
     def test_pullup_route_first(self):
         # NOTE(brian-haley) Currently we do not have any IPv6-specific usecase
@@ -806,7 +853,7 @@ class TestIpRouteCommand(TestIPCmdBase):
             return result
 
         self.parent._run = mock.Mock(side_effect=pullup_side_effect)
-        self.route_cmd.pullup_route('tap1d7888a7-10')
+        self.route_cmd.pullup_route('tap1d7888a7-10', ip_version=4)
         # Check two calls - device get and subnet get
         self.assertEqual(len(self.parent._run.mock_calls), 2)
 
@@ -980,13 +1027,18 @@ class TestIpNeighCommand(TestIPCmdBase):
 
 
 class TestArpPing(TestIPCmdBase):
-    def _test_arping(self, function, address, spawn_n, mIPWrapper):
+    @mock.patch.object(ip_lib, 'IPWrapper')
+    @mock.patch('eventlet.spawn_n')
+    def test_send_ipv4_addr_adv_notif(self, spawn_n, mIPWrapper):
         spawn_n.side_effect = lambda f: f()
         ARPING_COUNT = 3
-        function(mock.sentinel.ns_name,
-                 mock.sentinel.iface_name,
-                 address,
-                 ARPING_COUNT)
+        address = '20.0.0.1'
+        config = mock.Mock()
+        config.send_arp_for_ha = ARPING_COUNT
+        ip_lib.send_ip_addr_adv_notif(mock.sentinel.ns_name,
+                                      mock.sentinel.iface_name,
+                                      address,
+                                      config)
 
         self.assertTrue(spawn_n.called)
         mIPWrapper.assert_called_once_with(namespace=mock.sentinel.ns_name)
@@ -1002,43 +1054,16 @@ class TestArpPing(TestIPCmdBase):
         ip_wrapper.netns.execute.assert_any_call(arping_cmd,
                                                  check_exit_code=True)
 
-    @mock.patch.object(ip_lib, 'IPWrapper')
     @mock.patch('eventlet.spawn_n')
-    def test_send_gratuitous_arp(self, spawn_n, mIPWrapper):
-        self._test_arping(
-            ip_lib.send_gratuitous_arp, '20.0.0.1', spawn_n, mIPWrapper)
-
-    @mock.patch.object(ip_lib, 'IPDevice')
-    @mock.patch.object(ip_lib, 'IPWrapper')
-    @mock.patch('eventlet.spawn_n')
-    def test_send_garp_for_proxy_arp(self, spawn_n, mIPWrapper, mIPDevice):
-        addr = '20.0.0.1'
-        ip_wrapper = mIPWrapper(namespace=mock.sentinel.ns_name)
-        mIPWrapper.reset_mock()
-        device = mIPDevice(mock.sentinel.iface_name,
-                           namespace=mock.sentinel.ns_name)
-        mIPDevice.reset_mock()
-
-        # Check that the address was added to the interface before arping
-        def check_added_address(*args, **kwargs):
-            mIPDevice.assert_called_once_with(mock.sentinel.iface_name,
-                                              namespace=mock.sentinel.ns_name)
-            device.addr.add.assert_called_once_with(addr + '/32')
-            self.assertFalse(device.addr.delete.called)
-            device.addr.reset_mock()
-
-        ip_wrapper.netns.execute.side_effect = check_added_address
-
-        self._test_arping(
-            ip_lib.send_garp_for_proxyarp, addr, spawn_n, mIPWrapper)
-
-        # Test that the address was removed after arping
-        device = mIPDevice(mock.sentinel.iface_name,
-                           namespace=mock.sentinel.ns_name)
-        device.addr.delete.assert_called_once_with(addr + '/32')
-
-        # If this was called then check_added_address probably had a assert
-        self.assertFalse(device.addr.add.called)
+    def test_no_ipv6_addr_notif(self, spawn_n):
+        ipv6_addr = 'fd00::1'
+        config = mock.Mock()
+        config.send_arp_for_ha = 3
+        ip_lib.send_ip_addr_adv_notif(mock.sentinel.ns_name,
+                                      mock.sentinel.iface_name,
+                                      ipv6_addr,
+                                      config)
+        self.assertFalse(spawn_n.called)
 
 
 class TestAddNamespaceToCmd(base.BaseTestCase):

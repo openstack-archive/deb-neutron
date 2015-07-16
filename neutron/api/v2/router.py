@@ -16,6 +16,7 @@
 from oslo_config import cfg
 from oslo_log import log as logging
 import routes as routes_mapper
+import six
 import six.moves.urllib.parse as urlparse
 import webob
 import webob.dec
@@ -26,6 +27,7 @@ from neutron.api.v2 import attributes
 from neutron.api.v2 import base
 from neutron import manager
 from neutron import policy
+from neutron import quota
 from neutron import wsgi
 
 
@@ -50,7 +52,7 @@ class Index(wsgi.Application):
         metadata = {}
 
         layout = []
-        for name, collection in self.resources.iteritems():
+        for name, collection in six.iteritems(self.resources):
             href = urlparse.urljoin(req.path_url, collection)
             resource = {'name': name,
                         'collection': collection,
@@ -104,6 +106,7 @@ class APIRouter(wsgi.Router):
             _map_resource(RESOURCES[resource], resource,
                           attributes.RESOURCE_ATTRIBUTE_MAP.get(
                               RESOURCES[resource], dict()))
+            quota.QUOTAS.register_resource_by_name(resource)
 
         for resource in SUB_RESOURCES:
             _map_resource(SUB_RESOURCES[resource]['collection_name'], resource,

@@ -17,8 +17,8 @@ from oslo_log import log
 import oslo_messaging
 from sqlalchemy.orm import exc
 
-from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.handlers import dvr_rpc
+from neutron.api.rpc.handlers import securitygroups_rpc as sg_rpc
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
@@ -67,7 +67,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                   {'device': device, 'agent_id': agent_id, 'host': host})
 
         plugin = manager.NeutronManager.get_plugin()
-        port_id = plugin._device_to_port_id(device)
+        port_id = plugin._device_to_port_id(rpc_context, device)
         port_context = plugin.get_bound_port_context(rpc_context,
                                                      port_id,
                                                      host,
@@ -93,7 +93,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                         {'device': device,
                          'agent_id': agent_id,
                          'network_id': port['network_id'],
-                         'vif_type': port[portbindings.VIF_TYPE]})
+                         'vif_type': port_context.vif_type})
             return {'device': device}
 
         if (not host or host == port_context.host):
@@ -103,11 +103,12 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                 plugin.update_port_status(rpc_context,
                                           port_id,
                                           new_status,
-                                          host)
+                                          host,
+                                          port_context.network.current)
 
         entry = {'device': device,
                  'network_id': port['network_id'],
-                 'port_id': port_id,
+                 'port_id': port['id'],
                  'mac_address': port['mac_address'],
                  'admin_state_up': port['admin_state_up'],
                  'network_type': segment[api.NETWORK_TYPE],
@@ -144,7 +145,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                   "%(agent_id)s",
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
-        port_id = plugin._device_to_port_id(device)
+        port_id = plugin._device_to_port_id(rpc_context, device)
         port_exists = True
         if (host and not plugin.port_bound_to_host(rpc_context,
                                                    port_id, host)):
@@ -173,7 +174,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
         LOG.debug("Device %(device)s up at agent %(agent_id)s",
                   {'device': device, 'agent_id': agent_id})
         plugin = manager.NeutronManager.get_plugin()
-        port_id = plugin._device_to_port_id(device)
+        port_id = plugin._device_to_port_id(rpc_context, device)
         if (host and not plugin.port_bound_to_host(rpc_context,
                                                    port_id, host)):
             LOG.debug("Device %(device)s not bound to the"

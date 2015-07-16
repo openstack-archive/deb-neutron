@@ -32,9 +32,12 @@ from oslo_concurrency.fixture import lockutils
 from oslo_config import cfg
 from oslo_messaging import conffixture as messaging_conffixture
 from oslo_utils import strutils
+import six
 import testtools
 
 from neutron.agent.linux import external_process
+from neutron.callbacks import manager as registry_manager
+from neutron.callbacks import registry
 from neutron.common import config
 from neutron.common import rpc as n_rpc
 from neutron.db import agentschedulers_db
@@ -42,6 +45,7 @@ from neutron import manager
 from neutron import policy
 from neutron.tests import fake_notifier
 from neutron.tests import post_mortem_debug
+from neutron.tests import tools
 
 
 CONF = cfg.CONF
@@ -65,8 +69,23 @@ def fake_consume_in_threads(self):
 
 
 def get_rand_name(max_length=None, prefix='test'):
-    name = prefix + str(random.randint(1, 0x7fffffff))
-    return name[:max_length] if max_length is not None else name
+    """Return a random string.
+
+    The string will start with 'prefix' and will be exactly 'max_length'.
+    If 'max_length' is None, then exactly 8 random characters, each
+    hexadecimal, will be added. In case len(prefix) <= len(max_length),
+    ValueError will be raised to indicate the problem.
+    """
+
+    if max_length:
+        length = max_length - len(prefix)
+        if length <= 0:
+            raise ValueError("'max_length' must be bigger than 'len(prefix)'.")
+
+        suffix = ''.join(str(random.randint(0, 9)) for i in range(length))
+    else:
+        suffix = hex(random.randint(0x10000000, 0x7fffffff))[2:]
+    return prefix + suffix
 
 
 def bool_from_env(key, strict=False, default=False):
@@ -108,6 +127,9 @@ class DietTestCase(testtools.TestCase):
             self.addOnException(post_mortem_debug.get_exception_handler(
                 debugger))
 
+        # Make sure we see all relevant deprecation warnings when running tests
+        self.useFixture(tools.WarningsFixture())
+
         if bool_from_env('OS_DEBUG'):
             _level = std_logging.DEBUG
         else:
@@ -142,9 +164,13 @@ class DietTestCase(testtools.TestCase):
             self.useFixture(fixtures.MonkeyPatch('sys.stderr', stderr))
 
         self.addOnException(self.check_for_systemexit)
+        self.orig_pid = os.getpid()
 
     def check_for_systemexit(self, exc_info):
         if isinstance(exc_info[1], SystemExit):
+            if os.getpid() != self.orig_pid:
+                # Subprocess - let it just exit
+                raise
             self.fail("A SystemExit was raised during the test. %s"
                       % traceback.format_exception(*exc_info))
 
@@ -161,7 +187,7 @@ class DietTestCase(testtools.TestCase):
         self.assertEqual(expect_val, actual_val)
 
     def sort_dict_lists(self, dic):
-        for key, value in dic.iteritems():
+        for key, value in six.iteritems(dic):
             if isinstance(value, list):
                 dic[key] = sorted(value)
             elif isinstance(value, dict):
@@ -216,10 +242,10 @@ class BaseTestCase(DietTestCase):
     @staticmethod
     def config_parse(conf=None, args=None):
         """Create the default configurations."""
-        # neutron.conf.test includes rpc_backend which needs to be cleaned up
+        # neutron.conf includes rpc_backend which needs to be cleaned up
         if args is None:
             args = []
-        args += ['--config-file', etcdir('neutron.conf.test')]
+        args += ['--config-file', etcdir('neutron.conf')]
         if conf is None:
             config.init(args=args)
         else:
@@ -255,6 +281,7 @@ class BaseTestCase(DietTestCase):
 
         self.setup_rpc_mocks()
         self.setup_config()
+        self.setup_test_registry_instance()
 
         policy.init()
         self.addCleanup(policy.reset)
@@ -316,6 +343,12 @@ class BaseTestCase(DietTestCase):
         self.addCleanup(n_rpc.cleanup)
         n_rpc.init(CONF)
 
+    def setup_test_registry_instance(self):
+        """Give a private copy of the registry to each test."""
+        self._callback_manager = registry_manager.CallbacksManager()
+        mock.patch.object(registry, '_get_callback_manager',
+                          return_value=self._callback_manager).start()
+
     def setup_config(self, args=None):
         """Tests that need a non-default config can override this method."""
         self.config_parse(args=args)
@@ -333,7 +366,7 @@ class BaseTestCase(DietTestCase):
         test by the fixtures cleanup process.
         """
         group = kw.pop('group', None)
-        for k, v in kw.iteritems():
+        for k, v in six.iteritems(kw):
             CONF.set_override(k, v, group)
 
     def setup_coreplugin(self, core_plugin=None):

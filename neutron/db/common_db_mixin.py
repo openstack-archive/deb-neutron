@@ -15,10 +15,30 @@
 
 import weakref
 
+import six
 from sqlalchemy import sql
 
 from neutron.common import exceptions as n_exc
 from neutron.db import sqlalchemyutils
+
+
+def model_query_scope(context, model):
+    # Unless a context has 'admin' or 'advanced-service' rights the
+    # query will be scoped to a single tenant_id
+    return ((not context.is_admin and hasattr(model, 'tenant_id')) and
+            (not context.is_advsvc and hasattr(model, 'tenant_id')))
+
+
+def model_query(context, model):
+    query = context.session.query(model)
+    # define basic filter condition for model query
+    query_filter = None
+    if model_query_scope(context, model):
+        query_filter = (model.tenant_id == context.tenant_id)
+
+    if query_filter is not None:
+        query = query.filter(query_filter)
+    return query
 
 
 class CommonDbMixin(object):
@@ -71,11 +91,7 @@ class CommonDbMixin(object):
         return weakref.proxy(self)
 
     def model_query_scope(self, context, model):
-        # NOTE(jkoelker) non-admin queries are scoped to their tenant_id
-        # NOTE(salvatore-orlando): unless the model allows for shared objects
-        # NOTE(mestery): Or the user has the advsvc role
-        return ((not context.is_admin and hasattr(model, 'tenant_id')) and
-                (not context.is_advsvc and hasattr(model, 'tenant_id')))
+        return model_query_scope(context, model)
 
     def _model_query(self, context, model):
         query = context.session.query(model)
@@ -88,16 +104,16 @@ class CommonDbMixin(object):
             else:
                 query_filter = (model.tenant_id == context.tenant_id)
         # Execute query hooks registered from mixins and plugins
-        for _name, hooks in self._model_query_hooks.get(model,
-                                                        {}).iteritems():
+        for _name, hooks in six.iteritems(self._model_query_hooks.get(model,
+                                                                      {})):
             query_hook = hooks.get('query')
-            if isinstance(query_hook, basestring):
+            if isinstance(query_hook, six.string_types):
                 query_hook = getattr(self, query_hook, None)
             if query_hook:
                 query = query_hook(context, model, query)
 
             filter_hook = hooks.get('filter')
-            if isinstance(filter_hook, basestring):
+            if isinstance(filter_hook, six.string_types):
                 filter_hook = getattr(self, filter_hook, None)
             if filter_hook:
                 query_filter = filter_hook(context, model, query_filter)
@@ -131,17 +147,17 @@ class CommonDbMixin(object):
 
     def _apply_filters_to_query(self, query, model, filters):
         if filters:
-            for key, value in filters.iteritems():
+            for key, value in six.iteritems(filters):
                 column = getattr(model, key, None)
                 if column:
                     if not value:
                         query = query.filter(sql.false())
                         return query
                     query = query.filter(column.in_(value))
-            for _name, hooks in self._model_query_hooks.get(model,
-                                                            {}).iteritems():
+            for _nam, hooks in six.iteritems(self._model_query_hooks.get(model,
+                                                                         {})):
                 result_filter = hooks.get('result_filters', None)
-                if isinstance(result_filter, basestring):
+                if isinstance(result_filter, six.string_types):
                     result_filter = getattr(self, result_filter, None)
 
                 if result_filter:
@@ -153,7 +169,7 @@ class CommonDbMixin(object):
         for func in self._dict_extend_functions.get(
             resource_type, []):
             args = (response, db_object)
-            if isinstance(func, basestring):
+            if isinstance(func, six.string_types):
                 func = getattr(self, func, None)
             else:
                 # must call unbound method - use self as 1st argument
@@ -200,4 +216,4 @@ class CommonDbMixin(object):
         """
         columns = [c.name for c in model.__table__.columns]
         return dict((k, v) for (k, v) in
-                    data.iteritems() if k in columns)
+                    six.iteritems(data) if k in columns)

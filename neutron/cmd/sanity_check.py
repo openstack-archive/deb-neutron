@@ -146,7 +146,15 @@ def check_ovsdb_native():
     return result
 
 
-# Define CLI opts to test specific features, with a calback for the test
+def check_ebtables():
+    result = checks.ebtables_supported()
+    if not result:
+        LOG.error(_LE('Cannot run ebtables. Please ensure that it '
+                      'is installed.'))
+    return result
+
+
+# Define CLI opts to test specific features, with a callback for the test
 OPTS = [
     BoolOptCallback('ovs_vxlan', check_ovs_vxlan, default=False,
                     help=_('Check for OVS vxlan support')),
@@ -168,6 +176,8 @@ OPTS = [
                     help=_('Check minimal dnsmasq version')),
     BoolOptCallback('ovsdb_native', check_ovsdb_native,
                     help=_('Check ovsdb native interface support')),
+    BoolOptCallback('ebtables_installed', check_ebtables,
+                    help=_('Check ebtables installation')),
 ]
 
 
@@ -191,7 +201,7 @@ def enable_tests_from_config():
         cfg.CONF.set_override('nova_notify', True)
     if cfg.CONF.AGENT.arp_responder:
         cfg.CONF.set_override('arp_responder', True)
-    if config.AGENT.prevent_arp_spoofing:
+    if cfg.CONF.AGENT.prevent_arp_spoofing:
         cfg.CONF.set_override('arp_header_match', True)
     if cfg.CONF.ml2_sriov.agent_required:
         cfg.CONF.set_override('vf_management', True)

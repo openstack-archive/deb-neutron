@@ -12,7 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import Queue
+from six.moves import queue as Queue
 import time
 
 from oslo_config import cfg
@@ -39,18 +39,16 @@ cfg.CONF.import_opt('ovs_vsctl_timeout', 'neutron.agent.common.ovs_lib')
 LOG = logging.getLogger(__name__)
 
 
-ovsdb_connection = connection.Connection(cfg.CONF.OVS.ovsdb_connection,
-                                         cfg.CONF.ovs_vsctl_timeout)
-
-
 class Transaction(api.Transaction):
-    def __init__(self, context, api, check_error=False, log_errors=False):
-        self.context = context
+    def __init__(self, api, ovsdb_connection, timeout,
+                 check_error=False, log_errors=False):
         self.api = api
         self.check_error = check_error
         self.log_errors = log_errors
         self.commands = []
         self.results = Queue.Queue(1)
+        self.ovsdb_connection = ovsdb_connection
+        self.timeout = timeout
 
     def add(self, command):
         """Add a command to the transaction
@@ -62,7 +60,7 @@ class Transaction(api.Transaction):
         return command
 
     def commit(self):
-        ovsdb_connection.queue_txn(self)
+        self.ovsdb_connection.queue_txn(self)
         result = self.results.get()
         if self.check_error:
             if isinstance(result, idlutils.ExceptionResult):
@@ -76,7 +74,7 @@ class Transaction(api.Transaction):
         attempts = 0
         while True:
             elapsed_time = time.time() - start_time
-            if attempts > 0 and elapsed_time > self.context.vsctl_timeout:
+            if attempts > 0 and elapsed_time > self.timeout:
                 raise RuntimeError("OVS transaction timed out")
             attempts += 1
             # TODO(twilson) Make sure we don't loop longer than vsctl_timeout
@@ -95,11 +93,8 @@ class Transaction(api.Transaction):
             status = txn.commit_block()
             if status == txn.TRY_AGAIN:
                 LOG.debug("OVSDB transaction returned TRY_AGAIN, retrying")
-                if self.api.idl._session.rpc.status != 0:
-                    LOG.debug("Lost connection to OVSDB, reconnecting!")
-                    self.api.idl.force_reconnect()
                 idlutils.wait_for_change(
-                    self.api.idl, self.context.vsctl_timeout - elapsed_time,
+                    self.api.idl, self.timeout - elapsed_time,
                     seqno)
                 continue
             elif status == txn.ERROR:
@@ -120,10 +115,15 @@ class Transaction(api.Transaction):
 
 
 class OvsdbIdl(api.API):
+
+    ovsdb_connection = connection.Connection(cfg.CONF.OVS.ovsdb_connection,
+                                             cfg.CONF.ovs_vsctl_timeout,
+                                             'Open_vSwitch')
+
     def __init__(self, context):
         super(OvsdbIdl, self).__init__(context)
-        ovsdb_connection.start()
-        self.idl = ovsdb_connection.idl
+        OvsdbIdl.ovsdb_connection.start()
+        self.idl = OvsdbIdl.ovsdb_connection.idl
 
     @property
     def _tables(self):
@@ -131,10 +131,12 @@ class OvsdbIdl(api.API):
 
     @property
     def _ovs(self):
-        return self._tables['Open_vSwitch'].rows.values()[0]
+        return list(self._tables['Open_vSwitch'].rows.values())[0]
 
     def transaction(self, check_error=False, log_errors=True, **kwargs):
-        return Transaction(self.context, self, check_error, log_errors)
+        return Transaction(self, OvsdbIdl.ovsdb_connection,
+                           self.context.vsctl_timeout,
+                           check_error, log_errors)
 
     def add_br(self, name, may_exist=True):
         return cmd.AddBridgeCommand(self, name, may_exist)

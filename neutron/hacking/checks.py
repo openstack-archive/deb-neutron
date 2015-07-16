@@ -15,6 +15,7 @@
 import re
 
 import pep8
+import six
 
 # Guidelines for writing new hacking checks
 #
@@ -48,11 +49,12 @@ def _regex_for_level(level, hint):
 
 log_translation_hint = re.compile(
     '|'.join('(?:%s)' % _regex_for_level(level, hint)
-             for level, hint in _all_log_levels.iteritems()))
+             for level, hint in six.iteritems(_all_log_levels)))
 
 oslo_namespace_imports_dot = re.compile(r"import[\s]+oslo[.][^\s]+")
 oslo_namespace_imports_from_dot = re.compile(r"from[\s]+oslo[.]")
 oslo_namespace_imports_from_root = re.compile(r"from[\s]+oslo[\s]+import[\s]+")
+contextlib_nested = re.compile(r"^with (contextlib\.)?nested\(")
 
 
 def validate_log_translations(logical_line, physical_line, filename):
@@ -107,12 +109,20 @@ def check_assert_called_once_with(logical_line, filename):
     # Try to detect unintended calls of nonexistent mock methods like:
     #    assert_called_once
     #    assertCalledOnceWith
+    #    assert_has_called
     if 'neutron/tests/' in filename:
         if '.assert_called_once_with(' in logical_line:
             return
-        if '.assertcalledonce' in logical_line.lower().replace('_', ''):
+        uncased_line = logical_line.lower().replace('_', '')
+
+        if '.assertcalledonce' in uncased_line:
             msg = ("N322: Possible use of no-op mock method. "
                    "please use assert_called_once_with.")
+            yield (0, msg)
+
+        if '.asserthascalled' in uncased_line:
+            msg = ("N322: Possible use of no-op mock method. "
+                   "please use assert_has_calls.")
             yield (0, msg)
 
 
@@ -134,9 +144,42 @@ def check_oslo_namespace_imports(logical_line):
         yield(0, msg)
 
 
+def check_no_contextlib_nested(logical_line, filename):
+    msg = ("N324: contextlib.nested is deprecated. With Python 2.7 and later "
+           "the with-statement supports multiple nested objects. See https://"
+           "docs.python.org/2/library/contextlib.html#contextlib.nested for "
+           "more information.")
+
+    if contextlib_nested.match(logical_line):
+        yield(0, msg)
+
+
+def check_python3_xrange(logical_line):
+    if re.search(r"\bxrange\s*\(", logical_line):
+        yield(0, "N325: Do not use xrange. Use range, or six.moves.range for "
+                 "large loops.")
+
+
+def check_no_basestring(logical_line):
+    if re.search(r"\bbasestring\b", logical_line):
+        msg = ("N326: basestring is not Python3-compatible, use "
+               "six.string_types instead.")
+        yield(0, msg)
+
+
+def check_python3_no_iteritems(logical_line):
+    if re.search(r".*\.iteritems\(\)", logical_line):
+        msg = ("N327: Use six.iteritems() instead of dict.iteritems().")
+        yield(0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
     register(check_assert_called_once_with)
     register(no_translate_debug_logs)
     register(check_oslo_namespace_imports)
+    register(check_no_contextlib_nested)
+    register(check_python3_xrange)
+    register(check_no_basestring)
+    register(check_python3_no_iteritems)
