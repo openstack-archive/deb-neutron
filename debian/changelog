@@ -1,3 +1,9 @@
+neutron (7.0.0~b1-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 16 Jul 2015 15:06:54 +0200
+
 neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-3) unstable; urgency=medium
 
   * Added requirements.txt patch for SQLA version.
