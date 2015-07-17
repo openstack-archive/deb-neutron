@@ -1,6 +1,7 @@
 neutron (7.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 16 Jul 2015 15:06:54 +0200
 

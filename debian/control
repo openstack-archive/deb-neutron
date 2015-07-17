@@ -2,58 +2,63 @@ Source: neutron
 Section: net
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
-Uploaders: Thomas Goirand <zigo@debian.org>, Gustavo Panizzo <gfa@zumbi.com.ar>,
+Uploaders: Thomas Goirand <zigo@debian.org>,
+           Gustavo Panizzo <gfa@zumbi.com.ar>,
+           ,
 Build-Depends: debhelper (>= 9),
                dh-python,
                dh-systemd,
                openstack-pkg-tools (>= 23~),
                po-debconf,
                python-all,
-               python-pbr,
+               python-pbr (>= 0.11),
                python-setuptools,
                python-sphinx,
 Build-Depends-Indep: alembic (>= 0.7.2),
                      bridge-utils,
                      python-cliff (>= 1.10.0),
                      python-coverage,
-                     python-eventlet (>= 0.16.1),
+                     python-ddt (>= 0.7.0),
+                     python-debtcollector (>= 0.3.0),
+                     python-eventlet (>= 0.17.3),
                      python-fixtures,
                      python-gflags,
                      python-greenlet,
                      python-hacking,
                      python-httplib2,
                      python-jinja2,
-                     python-jsonrpclib,
-                     python-keystoneclient (>= 1:1.1.0),
+                     python-keystoneclient (>= 1:1.6.0),
                      python-keystonemiddleware (>= 1.5.0),
                      python-mock,
                      python-netaddr,
-                     python-neutronclient (>= 2.3.11),
+                     python-neutronclient (>= 1:2.3.11),
                      python-novaclient (>= 2:2.22.0),
-                     python-oslo.concurrency (>= 1.8.0),
-                     python-oslo.config (>= 1:1.9.3),
+                     python-os-testr,
+                     python-oslo.concurrency (>= 2.0.0),
+                     python-oslo.config (>= 1:1.11.0),
                      python-oslo.context (>= 0.2.0),
-                     python-oslo.db (>= 1.7.0),
+                     python-oslo.db (>= 1.10.0),
                      python-oslo.i18n (>= 1.5.0),
-                     python-oslo.log (>= 1.0.0),
+                     python-oslo.log (>= 1.2.0),
                      python-oslo.messaging (>= 1.8.0),
-                     python-oslo.middleware (>= 1.0.0),
-                     python-oslo.rootwrap (>= 1.6.0),
+                     python-oslo.middleware (>= 1.2.0),
+                     python-oslo.policy (>= 0.5.0),
+                     python-oslo.rootwrap (>= 2.0.0),
                      python-oslo.serialization (>= 1.4.0),
-                     python-oslo.utils (>= 1.4.0),
+                     python-oslo.utils (>= 1.6.0),
                      python-oslosphinx (>= 2.5.0),
                      python-oslotest (>= 1.5.1),
                      python-paste,
                      python-pastedeploy,
                      python-pyudev,
-                     python-requests,
+                     python-requests (>= 2.5.2),
                      python-requests-mock (>= 0.6.0),
                      python-retrying,
                      python-routes,
                      python-six (>= 1.9.0),
                      python-sqlalchemy,
-                     python-stevedore (>= 1.3.0),
-                     python-tempest-lib (>= 0.4.0),
+                     python-stevedore (>= 1.5.0),
+                     python-tempest-lib (>= 0.5.0),
                      python-testscenarios,
                      python-testtools,
                      python-unittest2,
@@ -69,54 +74,54 @@ Vcs-Git: git://anonscm.debian.org/openstack/neutron.git
 Package: python-neutron
 Architecture: all
 Section: python
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: alembic (>= 0.7.2),
          conntrack,
          iproute2,
          ipset,
-         python-eventlet (>= 0.16.1),
+         python-debtcollector (>= 0.3.0),
+         python-eventlet (>= 0.17.3),
          python-gflags,
          python-greenlet,
          python-httplib2,
          python-jinja2,
-         python-jsonrpclib,
-         python-keystoneclient (>= 1:1.1.0),
+         python-keystoneclient (>= 1:1.6.0),
          python-keystonemiddleware (>= 1.5.0),
          python-mysqldb,
          python-netaddr,
-         python-neutronclient (>= 2.3.11),
+         python-neutronclient (>= 1:2.3.11),
          python-novaclient (>= 2:2.22.0),
-         python-oslo.concurrency (>= 1.8.0),
-         python-oslo.config (>= 1:1.9.3),
+         python-oslo.concurrency (>= 2.0.0),
+         python-oslo.config (>= 1:1.11.0),
          python-oslo.context (>= 0.2.0),
-         python-oslo.db (>= 1.7.0),
+         python-oslo.db (>= 1.10.0),
          python-oslo.i18n (>= 1.5.0),
-         python-oslo.log (>= 1.0.0),
+         python-oslo.log (>= 1.2.0),
          python-oslo.messaging (>= 1.8.0),
-         python-oslo.middleware (>= 1.0.0),
-         python-oslo.rootwrap (>= 1.6.0),
+         python-oslo.middleware (>= 1.2.0),
+         python-oslo.policy (>= 0.5.0),
+         python-oslo.rootwrap (>= 2.0.0),
          python-oslo.serialization (>= 1.4.0),
-         python-oslo.utils (>= 1.4.0),
+         python-oslo.utils (>= 1.6.0),
          python-paste,
          python-pastedeploy,
          python-pbr,
          python-psycopg2,
          python-pyudev,
-         python-requests,
+         python-requests (>= 2.5.2),
          python-retrying,
          python-routes,
          python-six (>= 1.9.0),
          python-sqlalchemy,
-         python-stevedore (>= 1.3.0),
+         python-stevedore (>= 1.5.0),
          python-webob,
          ${misc:Depends},
          ${python:Depends},
-Recommends: iputils-arping
+Recommends: iputils-arping,
 Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
-          neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+          neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
 Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
-        neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
-Provides: ${python:Provides}
+        neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
+Provides: ${python:Provides},
 Description: OpenStack virtual network service - Python library
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -127,14 +132,13 @@ Description: OpenStack virtual network service - Python library
 
 Package: neutron-server
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          debconf,
          lsb-base,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - server
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -145,7 +149,6 @@ Description: OpenStack virtual network service - server
 
 Package: neutron-common
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          dbconfig-common,
          debconf,
@@ -156,7 +159,7 @@ Depends: adduser,
          python-sqlalchemy,
          sqlite3,
          ${misc:Depends},
-         ${python:Depends}
+         ${python:Depends},
 Provides: neutron-plugin,
           neutron-plugin-bigswitch,
           neutron-plugin-brocade,
@@ -170,11 +173,11 @@ Provides: neutron-plugin,
           neutron-plugin-openvswitch,
           neutron-plugin-plumgrid,
           neutron-plugin-ryu,
-          python-argparse
+          python-argparse,
 Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
-          neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+          neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
 Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
-        neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
+        neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
 Description: OpenStack virtual network service - common files
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -185,13 +188,12 @@ Description: OpenStack virtual network service - common files
 
 Package: neutron-plugin-nec-agent
 Architecture: all
-Provides: neutron-plugin
-Pre-Depends: dpkg (>= 1.15.6~)
+Provides: neutron-plugin,
 Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - NEC agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -202,7 +204,6 @@ Description: OpenStack virtual network service - NEC agent
 
 Package: neutron-l3-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          debconf,
          iputils-arping,
@@ -211,9 +212,9 @@ Depends: adduser,
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
-Recommends: openvswitch-switch
-Conflicts: neutron-vpn-agent
+         ${shlibs:Depends},
+Recommends: openvswitch-switch,
+Conflicts: neutron-vpn-agent,
 Description: OpenStack virtual network service - l3 agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -224,7 +225,6 @@ Description: OpenStack virtual network service - l3 agent
 
 Package: neutron-dhcp-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          dnsmasq-base (>= 2.63),
          dnsmasq-utils (>= 2.63),
@@ -232,7 +232,7 @@ Depends: adduser,
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - DHCP agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -243,12 +243,11 @@ Description: OpenStack virtual network service - DHCP agent
 
 Package: neutron-metadata-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - metadata agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -259,15 +258,14 @@ Description: OpenStack virtual network service - metadata agent
 
 Package: neutron-metering-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
          debconf,
          lsb-base,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
-Provides: neutron-plugin-metering-agent
+         ${shlibs:Depends},
+Provides: neutron-plugin-metering-agent,
 Description: OpenStack virtual network service - metering agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -278,16 +276,16 @@ Description: OpenStack virtual network service - metering agent
 
 Package: neutron-openvswitch-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~), openvswitch-switch (>= 1.9)
-Replaces: neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
-Breaks: neutron-plugin-openvswitch-agent (<<2015.1~b3-1)
-Provides: neutron-plugin-openvswitch-agent
+Pre-Depends: openvswitch-switch (>= 1.9),
+Replaces: neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
+Breaks: neutron-plugin-openvswitch-agent (<<2015.1~b3-1),
+Provides: neutron-plugin-openvswitch-agent,
 Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
-Recommends: openvswitch-datapath-dkms
+         ${shlibs:Depends},
+Recommends: openvswitch-datapath-dkms,
 Description: OpenStack virtual network service - Open vSwitch agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -299,16 +297,15 @@ Description: OpenStack virtual network service - Open vSwitch agent
 
 Package: neutron-linuxbridge-agent
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
-Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
-Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1)
-Provides: neutron-plugin-linuxbridge-agent
+Replaces: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+Breaks: neutron-plugin-linuxbridge-agent (<<2015.1~b3-1),
+Provides: neutron-plugin-linuxbridge-agent,
 Depends: bridge-utils,
          neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - Linux bridge agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -319,9 +316,9 @@ Description: OpenStack virtual network service - Linux bridge agent
  bridge plugin on neutron-server, this agent should run on each compute node.
 
 Package: neutron-plugin-linuxbridge-agent
-Depends: neutron-linuxbridge-agent, ${misc:Depends}
+Depends: neutron-linuxbridge-agent,
+         ${misc:Depends},
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Section: oldlibs
 description: transitional dummy package for switching to Neutron Linuxbridge agent.
  This is a transitional dummy package due to the move of the Linuxbridge agent from
@@ -330,9 +327,9 @@ description: transitional dummy package for switching to Neutron Linuxbridge age
  transition path from neutron-plugin-linuxbridge-agent to neutron-linuxbridge-agent.
 
 Package: neutron-plugin-openvswitch-agent
-Depends: neutron-openvswitch-agent, ${misc:Depends}
+Depends: neutron-openvswitch-agent,
+         ${misc:Depends},
 Architecture: all
-Pre-Depends: dpkg (>= 1.15.6~)
 Section: oldlibs
 description: transitional dummy package for switching to Neutron OpenVswitch agent.
  This is a transitional dummy package due to the move of the OpenVswitch agent from
