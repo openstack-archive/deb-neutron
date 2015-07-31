@@ -145,14 +145,6 @@ class AgentMixin(object):
         else:
             ri.disable_radvd()
 
-    def _update_radvd_daemon(self, ri, state):
-        # Radvd has to be spawned only on the Master HA Router. If there are
-        # any state transitions, we enable/disable radvd accordingly.
-        if state == 'master':
-            ri.enable_radvd()
-        else:
-            ri.disable_radvd()
-
     def notify_server(self, batched_events):
         translation_map = {'master': 'active',
                            'backup': 'standby',

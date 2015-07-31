@@ -15,7 +15,6 @@
 import os
 
 import fixtures
-import netaddr
 
 
 class RecursivePermDirFixture(fixtures.Fixture):

@@ -944,7 +944,6 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             {'id': _uuid(),
              'floating_ip_address': '20.0.0.3',
              'fixed_ip_address': '192.168.0.1',
-             'status': 'DOWN',
              'floating_network_id': _uuid(),
              'port_id': _uuid(),
              'host': HOSTNAME}]}

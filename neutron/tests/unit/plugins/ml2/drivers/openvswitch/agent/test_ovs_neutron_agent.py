@@ -1041,14 +1041,6 @@ class TestOvsNeutronAgent(object):
         self._test_ovs_status(constants.OVS_NORMAL,
                               constants.OVS_RESTARTED)
 
-    def test_ovs_status(self):
-        self._test_ovs_status(constants.OVS_NORMAL,
-                              constants.OVS_DEAD,
-                              constants.OVS_RESTARTED)
-        # OVS will not DEAD in some exception, like DBConnectionError.
-        self._test_ovs_status(constants.OVS_NORMAL,
-                              constants.OVS_RESTARTED)
-
     def test_set_rpc_timeout(self):
         self.agent._handle_sigterm(None, None)
         for rpc_client in (self.agent.plugin_rpc.client,
