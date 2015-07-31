@@ -21,7 +21,7 @@ course your public IP address of the router which will deliver network to your
 virtual machines.
 
 With this setup, using tenant_network_type = gre and enable_tunneling = True
-in /etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini, which is the
+in /etc/neutron/plugins/ml2/openvswitch_agent.ini, which is the
 default in this package, should work.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 03 Nov 2012 14:01:32 +0000

@@ -29,14 +29,14 @@ override_dh_install:
 	rm -rf $(CURDIR)/debian/neutron-common/usr/bin/quantum*
 	rm -rf $(CURDIR)/debian/neutron-common/usr/etc
 
-	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini       $(CURDIR)/debian/neutron-common/usr/share/neutron-common/ovs_neutron_plugin.ini
+	install -D -m 0640 etc/neutron/plugins/ml2/openvswitch_agent.ini		$(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
 
 	install -D -m 0640 etc/metadata_agent.ini					$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 	sed -i -e 's|^# nova_metadata_ip = 127.0.0.1|nova_metadata_ip = 127.0.0.1|'	$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 
 	# Move the OVS config file, since we use debconf for it
-	rm $(CURDIR)/debian/neutron-common/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
-	install -D -m 0640 etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini $(CURDIR)/debian/neutron-common/usr/share/neutron-common/ovs_neutron_plugin.ini
+	rm $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/openvswitch_agent.ini
+	install -D -m 0640 etc/neutron/plugins/ml2/openvswitch_agent.ini $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
 
 override_dh_auto_clean:
 	dh_auto_clean

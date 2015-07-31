@@ -59,7 +59,7 @@ neutron_plugin_ini_path () {
 	PLUG_INI_BASE=/etc/neutron/plugins/
 	case ${1} in
 	"OpenVSwitch")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}openvswitch/ovs_neutron_plugin.ini
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ml2/openvswitch_agent.ini
 	;;
 	"LinuxBridge")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}linuxbridge/linuxbridge_conf.ini
