@@ -35,13 +35,13 @@ class AttributeMapMemento(fixtures.Fixture):
         - Inheritance is a bit of overkill for this facility and it's a
         stretch to rationalize the "is a" criteria.
     """
-    def setUp(self):
+
+    def _setUp(self):
         # Shallow copy is not a proper choice for keeping a backup copy as
         # the RESOURCE_ATTRIBUTE_MAP map is modified in place through the
         # 0th level keys. Ideally deepcopy() would be used but this seems
         # to result in test failures. A compromise is to copy one level
         # deeper than a shallow copy.
-        super(AttributeMapMemento, self).setUp()
         self.contents_backup = {}
         for res, attrs in six.iteritems(attributes.RESOURCE_ATTRIBUTE_MAP):
             self.contents_backup[res] = attrs.copy()
@@ -58,12 +58,11 @@ class WarningsFixture(fixtures.Fixture):
         DeprecationWarning, PendingDeprecationWarning, ImportWarning
     )
 
-    def setUp(self):
-        super(WarningsFixture, self).setUp()
+    def _setUp(self):
+        self.addCleanup(warnings.resetwarnings)
         for wtype in self.warning_types:
             warnings.filterwarnings(
                 "always", category=wtype, module='^neutron\\.')
-        self.addCleanup(warnings.resetwarnings)
 
 
 """setup_mock_calls and verify_mock_calls are convenient methods

@@ -19,9 +19,9 @@ from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron import context
-from neutron import ipam
 from neutron.ipam.drivers.neutrondb_ipam import driver
 from neutron.ipam import exceptions as ipam_exc
+from neutron.ipam import requests as ipam_req
 from neutron import manager
 
 from neutron.tests.unit.db import test_db_base_plugin_v2 as test_db_plugin
@@ -102,7 +102,7 @@ class TestNeutronDbIpamPool(testlib_api.SqlTestCase,
         cidr = '10.0.0.0/24'
         allocation_pools = [netaddr.IPRange('10.0.0.100', '10.0.0.150'),
                             netaddr.IPRange('10.0.0.200', '10.0.0.250')]
-        subnet_req = ipam.SpecificSubnetRequest(
+        subnet_req = ipam_req.SpecificSubnetRequest(
             self._tenant_id,
             None,
             cidr,
@@ -118,7 +118,7 @@ class TestNeutronDbIpamPool(testlib_api.SqlTestCase,
     def _prepare_specific_subnet_request(self, cidr):
         subnet = self._create_subnet(
             self.plugin, self.ctx, self.net_id, cidr)
-        subnet_req = ipam.SpecificSubnetRequest(
+        subnet_req = ipam_req.SpecificSubnetRequest(
             self._tenant_id,
             subnet['id'],
             cidr,
@@ -138,16 +138,16 @@ class TestNeutronDbIpamPool(testlib_api.SqlTestCase,
         self.assertRaises(
             ipam_exc.InvalidSubnetRequestType,
             self.ipam_pool.allocate_subnet,
-            ipam.AnySubnetRequest(self._tenant_id, 'meh', constants.IPv4, 24))
+            ipam_req.AnySubnetRequest(self._tenant_id, 'meh',
+                                      constants.IPv4, 24))
 
     def test_update_subnet_pools(self):
         cidr = '10.0.0.0/24'
         subnet, subnet_req = self._prepare_specific_subnet_request(cidr)
-        ipam_subnet = self.ipam_pool.allocate_subnet(subnet_req)
-        ipam_subnet.associate_neutron_subnet(subnet['id'])
+        self.ipam_pool.allocate_subnet(subnet_req)
         allocation_pools = [netaddr.IPRange('10.0.0.100', '10.0.0.150'),
                             netaddr.IPRange('10.0.0.200', '10.0.0.250')]
-        update_subnet_req = ipam.SpecificSubnetRequest(
+        update_subnet_req = ipam_req.SpecificSubnetRequest(
             self._tenant_id,
             subnet['id'],
             cidr,
@@ -161,8 +161,7 @@ class TestNeutronDbIpamPool(testlib_api.SqlTestCase,
     def test_get_subnet(self):
         cidr = '10.0.0.0/24'
         subnet, subnet_req = self._prepare_specific_subnet_request(cidr)
-        ipam_subnet = self.ipam_pool.allocate_subnet(subnet_req)
-        ipam_subnet.associate_neutron_subnet(subnet['id'])
+        self.ipam_pool.allocate_subnet(subnet_req)
         # Retrieve the subnet
         ipam_subnet = self.ipam_pool.get_subnet(subnet['id'])
         self._verify_ipam_subnet_details(
@@ -174,6 +173,30 @@ class TestNeutronDbIpamPool(testlib_api.SqlTestCase,
         self.assertRaises(n_exc.SubnetNotFound,
                           self.ipam_pool.get_subnet,
                           'boo')
+
+    def test_remove_ipam_subnet(self):
+        cidr = '10.0.0.0/24'
+        subnet, subnet_req = self._prepare_specific_subnet_request(cidr)
+        self.ipam_pool.allocate_subnet(subnet_req)
+        # Remove ipam subnet by neutron subnet id
+        self.ipam_pool.remove_subnet(subnet['id'])
+
+    def test_remove_non_existent_subnet_fails(self):
+        self.assertRaises(n_exc.SubnetNotFound,
+                          self.ipam_pool.remove_subnet,
+                          'non-existent-id')
+
+    def test_get_details_for_invalid_subnet_id_fails(self):
+        cidr = '10.0.0.0/24'
+        subnet_req = ipam_req.SpecificSubnetRequest(
+            self._tenant_id,
+            'non-existent-id',
+            cidr)
+        self.ipam_pool.allocate_subnet(subnet_req)
+        # Neutron subnet does not exist, so get_subnet should fail
+        self.assertRaises(n_exc.SubnetNotFound,
+                          self.ipam_pool.get_subnet,
+                          'non-existent-id')
 
 
 class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
@@ -206,14 +229,13 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
         allocation_pool_ranges = [netaddr.IPRange(
             pool['start'], pool['end']) for pool in
             subnet['allocation_pools']]
-        subnet_req = ipam.SpecificSubnetRequest(
+        subnet_req = ipam_req.SpecificSubnetRequest(
             tenant_id,
             subnet['id'],
             cidr,
             gateway_ip=subnet['gateway_ip'],
             allocation_pools=allocation_pool_ranges)
         ipam_subnet = self.ipam_pool.allocate_subnet(subnet_req)
-        ipam_subnet.associate_neutron_subnet(subnet['id'])
         return ipam_subnet, subnet
 
     def setUp(self):
@@ -312,8 +334,8 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
         cidr = '10.0.0.0/24'
         subnet = self._create_subnet(
             self.plugin, self.ctx, self.net_id, cidr)
-        subnet_req = ipam.SpecificSubnetRequest(
-            'tenant_id', subnet, cidr, gateway_ip=subnet['gateway_ip'])
+        subnet_req = ipam_req.SpecificSubnetRequest(
+            'tenant_id', subnet['id'], cidr, gateway_ip=subnet['gateway_ip'])
         ipam_subnet = self.ipam_pool.allocate_subnet(subnet_req)
         with self.ctx.session.begin():
             ranges = ipam_subnet._allocate_specific_ip(
@@ -333,7 +355,7 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
 
     def test_allocate_any_v4_address_succeeds(self):
         ip_address = self._allocate_address(
-            '10.0.0.0/24', 4, ipam.AnyAddressRequest)
+            '10.0.0.0/24', 4, ipam_req.AnyAddressRequest)
         # As the DB IPAM driver allocation logic is strictly sequential, we can
         # expect this test to allocate the .2 address as .1 is used by default
         # as subnet gateway
@@ -341,7 +363,7 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
 
     def test_allocate_any_v6_address_succeeds(self):
         ip_address = self._allocate_address(
-            'fde3:abcd:4321:1::/64', 6, ipam.AnyAddressRequest)
+            'fde3:abcd:4321:1::/64', 6, ipam_req.AnyAddressRequest)
         # As the DB IPAM driver allocation logic is strictly sequential, we can
         # expect this test to allocate the .2 address as .1 is used by default
         # as subnet gateway
@@ -349,32 +371,32 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
 
     def test_allocate_specific_v4_address_succeeds(self):
         ip_address = self._allocate_address(
-            '10.0.0.0/24', 4, ipam.SpecificAddressRequest('10.0.0.33'))
+            '10.0.0.0/24', 4, ipam_req.SpecificAddressRequest('10.0.0.33'))
         self.assertEqual('10.0.0.33', ip_address)
 
     def test_allocate_specific_v6_address_succeeds(self):
         ip_address = self._allocate_address(
             'fde3:abcd:4321:1::/64', 6,
-            ipam.SpecificAddressRequest('fde3:abcd:4321:1::33'))
+            ipam_req.SpecificAddressRequest('fde3:abcd:4321:1::33'))
         self.assertEqual('fde3:abcd:4321:1::33', ip_address)
 
     def test_allocate_specific_v4_address_out_of_range_fails(self):
         self.assertRaises(ipam_exc.InvalidIpForSubnet,
                           self._allocate_address,
                           '10.0.0.0/24', 4,
-                          ipam.SpecificAddressRequest('192.168.0.1'))
+                          ipam_req.SpecificAddressRequest('192.168.0.1'))
 
     def test_allocate_specific_v6_address_out_of_range_fails(self):
         self.assertRaises(ipam_exc.InvalidIpForSubnet,
                           self._allocate_address,
                           'fde3:abcd:4321:1::/64', 6,
-                          ipam.SpecificAddressRequest(
+                          ipam_req.SpecificAddressRequest(
                               'fde3:abcd:eeee:1::33'))
 
     def test_allocate_specific_address_in_use_fails(self):
         ipam_subnet = self._create_and_allocate_ipam_subnet(
             'fde3:abcd:4321:1::/64', ip_version=6)[0]
-        addr_req = ipam.SpecificAddressRequest('fde3:abcd:4321:1::33')
+        addr_req = ipam_req.SpecificAddressRequest('fde3:abcd:4321:1::33')
         ipam_subnet.allocate(addr_req)
         self.assertRaises(ipam_exc.IpAddressAlreadyAllocated,
                           ipam_subnet.allocate,
@@ -384,16 +406,16 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
         # Same as above, the ranges will be recalculated always
         ipam_subnet = self._create_and_allocate_ipam_subnet(
             '192.168.0.0/30', ip_version=4)[0]
-        ipam_subnet.allocate(ipam.AnyAddressRequest)
+        ipam_subnet.allocate(ipam_req.AnyAddressRequest)
         # The second address generation request on a /30 for v4 net must fail
         self.assertRaises(ipam_exc.IpAddressGenerationFailure,
                           ipam_subnet.allocate,
-                          ipam.AnyAddressRequest)
+                          ipam_req.AnyAddressRequest)
 
     def _test_deallocate_address(self, cidr, ip_version):
         ipam_subnet = self._create_and_allocate_ipam_subnet(
             cidr, ip_version=ip_version)[0]
-        ip_address = ipam_subnet.allocate(ipam.AnyAddressRequest)
+        ip_address = ipam_subnet.allocate(ipam_req.AnyAddressRequest)
         ipam_subnet.deallocate(ip_address)
 
     def test_deallocate_v4_address(self):
@@ -415,28 +437,10 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
         # This test instead might be made to pass, but for the wrong reasons!
         pass
 
-    def _test_allocate_subnet(self, subnet_id):
-        subnet_req = ipam.SpecificSubnetRequest(
-            'tenant_id', subnet_id, '192.168.0.0/24')
-        return self.ipam_pool.allocate_subnet(subnet_req)
-
     def test_allocate_subnet_for_non_existent_subnet_pass(self):
-        # This test should pass because neutron subnet is not checked
-        # until associate neutron subnet step
-        subnet_req = ipam.SpecificSubnetRequest(
+        # This test should pass because ipam subnet is no longer
+        # have foreign key relationship with neutron subnet.
+        # Creating ipam subnet before neutron subnet is a valid case.
+        subnet_req = ipam_req.SpecificSubnetRequest(
             'tenant_id', 'meh', '192.168.0.0/24')
         self.ipam_pool.allocate_subnet(subnet_req)
-
-    def test_associate_neutron_subnet(self):
-        ipam_subnet, subnet = self._create_and_allocate_ipam_subnet(
-            '192.168.0.0/24', ip_version=4)
-        details = ipam_subnet.get_details()
-        self.assertEqual(subnet['id'], details.subnet_id)
-
-    def test_associate_non_existing_neutron_subnet_fails(self):
-        subnet_req = ipam.SpecificSubnetRequest(
-            'tenant_id', 'meh', '192.168.0.0/24')
-        ipam_subnet = self.ipam_pool.allocate_subnet(subnet_req)
-        self.assertRaises(n_exc.SubnetNotFound,
-                          ipam_subnet.associate_neutron_subnet,
-                          'meh')

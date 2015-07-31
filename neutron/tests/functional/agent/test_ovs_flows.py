@@ -21,8 +21,9 @@ from oslo_utils import importutils
 
 from neutron.agent.linux import ip_lib
 from neutron.cmd.sanity import checks
-from neutron.plugins.openvswitch.agent import ovs_neutron_agent as ovsagt
-from neutron.plugins.openvswitch.common import constants
+from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants
+from neutron.plugins.ml2.drivers.openvswitch.agent \
+    import ovs_neutron_agent as ovsagt
 from neutron.tests.common import base as common_base
 from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent import test_ovs_lib
@@ -30,7 +31,8 @@ from neutron.tests.functional import base
 from neutron.tests import tools
 
 
-cfg.CONF.import_group('OVS', 'neutron.plugins.openvswitch.common.config')
+cfg.CONF.import_group('OVS', 'neutron.plugins.ml2.drivers.openvswitch.agent.'
+                      'common.config')
 
 
 class _OVSAgentTestBase(test_ovs_lib.OVSBridgeTestBase,
@@ -81,7 +83,8 @@ class _OVSAgentTestBase(test_ovs_lib.OVSBridgeTestBase,
 
 
 class _OVSAgentOFCtlTestBase(_OVSAgentTestBase):
-    _MAIN_MODULE = 'neutron.plugins.openvswitch.agent.openflow.ovs_ofctl.main'
+    _MAIN_MODULE = ('neutron.plugins.ml2.drivers.openvswitch.agent.'
+                    'openflow.ovs_ofctl.main')
 
 
 class _ARPSpoofTestCase(object):
@@ -180,6 +183,13 @@ class _ARPSpoofTestCase(object):
     def test_arp_spoof_allowed_address_pairs(self):
         self._setup_arp_spoof_for_port(self.dst_p.name, ['192.168.0.3',
                                                          self.dst_addr])
+        self.src_p.addr.add('%s/24' % self.src_addr)
+        self.dst_p.addr.add('%s/24' % self.dst_addr)
+        net_helpers.assert_ping(self.src_namespace, self.dst_addr, count=2)
+
+    def test_arp_spoof_allowed_address_pairs_0cidr(self):
+        self._setup_arp_spoof_for_port(self.dst_p.name, ['9.9.9.9/0',
+                                                         '1.2.3.4'])
         self.src_p.addr.add('%s/24' % self.src_addr)
         self.dst_p.addr.add('%s/24' % self.dst_addr)
         net_helpers.assert_ping(self.src_namespace, self.dst_addr, count=2)

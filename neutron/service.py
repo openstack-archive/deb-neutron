@@ -14,7 +14,6 @@
 #    under the License.
 
 import inspect
-import logging as std_logging
 import os
 import random
 
@@ -22,6 +21,8 @@ from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_messaging import server as rpc_server
+from oslo_service import loopingcall
+from oslo_service import service as common_service
 from oslo_utils import excutils
 from oslo_utils import importutils
 
@@ -31,8 +32,6 @@ from neutron import context
 from neutron.db import api as session
 from neutron.i18n import _LE, _LI
 from neutron import manager
-from neutron.openstack.common import loopingcall
-from neutron.openstack.common import service as common_service
 from neutron import wsgi
 
 
@@ -92,8 +91,6 @@ class NeutronApiService(WsgiService):
         # Log the options used when starting if we're in debug mode...
 
         config.setup_logging()
-        # Dump the initial option values
-        cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
         service = cls(app_name)
         return service
 
@@ -111,7 +108,7 @@ def serve_wsgi(cls):
     return service
 
 
-class RpcWorker(object):
+class RpcWorker(common_service.ServiceBase):
     """Wraps a worker to be handled by ProcessLauncher"""
     def __init__(self, plugin):
         self._plugin = plugin
@@ -161,7 +158,8 @@ def serve_rpc():
             # be shared DB connections in child processes which may cause
             # DB errors.
             session.dispose()
-            launcher = common_service.ProcessLauncher(wait_interval=1.0)
+            launcher = common_service.ProcessLauncher(cfg.CONF,
+                                                      wait_interval=1.0)
             launcher.launch_service(rpc, workers=cfg.CONF.rpc_workers)
             return launcher
     except Exception:
@@ -185,8 +183,6 @@ def _run_wsgi(app_name):
     server = wsgi.Server("Neutron")
     server.start(app, cfg.CONF.bind_port, cfg.CONF.bind_host,
                  workers=_get_api_workers())
-    # Dump all option values here after all options are parsed
-    cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
     LOG.info(_LI("Neutron service started, listening on %(host)s:%(port)s"),
              {'host': cfg.CONF.bind_host, 'port': cfg.CONF.bind_port})
     return server

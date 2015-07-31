@@ -13,10 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_utils import uuidutils
+
 from neutron import context
 from neutron.ipam.drivers.neutrondb_ipam import db_api
 from neutron.ipam.drivers.neutrondb_ipam import db_models
-from neutron.openstack.common import uuidutils
 from neutron.tests.unit import testlib_api
 
 
@@ -42,12 +43,18 @@ class TestIpamSubnetManager(testlib_api.SqlTestCase):
             id=self.ipam_subnet_id).all()
         self.assertEqual(1, len(subnets))
 
-    def test_associate_neutron_id(self):
-        self.subnet_manager.associate_neutron_id(self.ctx.session,
-                                                 'test-id')
-        subnet = self.ctx.session.query(db_models.IpamSubnet).filter_by(
-            id=self.ipam_subnet_id).first()
-        self.assertEqual('test-id', subnet['neutron_subnet_id'])
+    def test_remove(self):
+        count = db_api.IpamSubnetManager.delete(self.ctx.session,
+                                                self.neutron_subnet_id)
+        self.assertEqual(1, count)
+        subnets = self.ctx.session.query(db_models.IpamSubnet).filter_by(
+            id=self.ipam_subnet_id).all()
+        self.assertEqual(0, len(subnets))
+
+    def test_remove_non_existent_subnet(self):
+        count = db_api.IpamSubnetManager.delete(self.ctx.session,
+                                                'non-existent')
+        self.assertEqual(0, count)
 
     def _create_pools(self, pools):
         db_pools = []

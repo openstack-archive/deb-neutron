@@ -14,8 +14,8 @@
 
 import mock
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
-from neutron.openstack.common import uuidutils
 from neutron.services.metering.agents import metering_agent
 from neutron.tests import base
 from neutron.tests import fake_notifier
@@ -63,11 +63,11 @@ class TestMeteringOperations(base.BaseTestCase):
         self.metering_rpc_patch = mock.patch(metering_rpc, return_value=[])
         self.metering_rpc_patch.start()
 
-        self.driver_patch = mock.patch(self.noop_driver, autospec=True)
+        self.driver_patch = mock.patch(self.noop_driver, spec=True)
         self.driver_patch.start()
 
         loopingcall_patch = mock.patch(
-            'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
+            'oslo_service.loopingcall.FixedIntervalLoopingCall')
         loopingcall_patch.start()
 
         self.agent = metering_agent.MeteringAgent('my agent', cfg.CONF)
@@ -172,7 +172,7 @@ class TestMeteringDriver(base.BaseTestCase):
                                               'add_metering_label'})
 
     def test_init_chain(self):
-        with mock.patch('neutron.openstack.common.'
+        with mock.patch('oslo_service.'
                         'periodic_task.PeriodicTasks.__init__') as init:
             metering_agent.MeteringAgent('my agent', cfg.CONF)
-        init.assert_called_once_with()
+        init.assert_called_once_with(cfg.CONF)

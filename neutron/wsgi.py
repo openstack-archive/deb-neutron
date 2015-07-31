@@ -19,6 +19,7 @@ Utility methods for working with WSGI servers
 from __future__ import print_function
 
 import errno
+import logging as std_logging
 import os
 import socket
 import ssl
@@ -31,6 +32,8 @@ import oslo_i18n
 from oslo_log import log as logging
 from oslo_log import loggers
 from oslo_serialization import jsonutils
+from oslo_service import service as common_service
+from oslo_service import systemd
 from oslo_utils import excutils
 import routes.middleware
 import six
@@ -42,8 +45,6 @@ from neutron.common import exceptions as exception
 from neutron import context
 from neutron.db import api
 from neutron.i18n import _LE, _LI
-from neutron.openstack.common import service as common_service
-from neutron.openstack.common import systemd
 
 socket_opts = [
     cfg.IntOpt('backlog',
@@ -92,7 +93,7 @@ CONF.register_opts(socket_opts)
 LOG = logging.getLogger(__name__)
 
 
-class WorkerService(object):
+class WorkerService(common_service.ServiceBase):
     """Wraps a worker to be handled by ProcessLauncher"""
     def __init__(self, service, application):
         self._service = service
@@ -238,6 +239,8 @@ class Server(object):
         if workers < 1:
             # The API service should run in the current process.
             self._server = service
+            # Dump the initial option values
+            cfg.CONF.log_opt_values(LOG, std_logging.DEBUG)
             service.start()
             systemd.notify_once()
         else:
@@ -248,7 +251,8 @@ class Server(object):
             # The API service runs in a number of child processes.
             # Minimize the cost of checking for child exit by extending the
             # wait interval past the default of 0.01s.
-            self._server = common_service.ProcessLauncher(wait_interval=1.0)
+            self._server = common_service.ProcessLauncher(cfg.CONF,
+                                                          wait_interval=1.0)
             self._server.launch_service(service, workers=workers)
 
     @property

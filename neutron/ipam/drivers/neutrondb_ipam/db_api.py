@@ -14,9 +14,9 @@
 #    under the License.
 
 from oslo_log import log
+from oslo_utils import uuidutils
 
 from neutron.ipam.drivers.neutrondb_ipam import db_models
-from neutron.openstack.common import uuidutils
 
 LOG = log.getLogger(__name__)
 # Database operations for Neutron's DB-backed IPAM driver
@@ -54,11 +54,18 @@ class IpamSubnetManager(object):
         session.add(ipam_subnet)
         return self._ipam_subnet_id
 
-    def associate_neutron_id(self, session, neutron_subnet_id):
-        session.query(db_models.IpamSubnet).filter_by(
-            id=self._ipam_subnet_id).update(
-            {'neutron_subnet_id': neutron_subnet_id})
-        self._neutron_subnet_id = neutron_subnet_id
+    @classmethod
+    def delete(cls, session, neutron_subnet_id):
+        """Delete IPAM subnet.
+
+        IPAM subnet no longer has foreign key to neutron subnet,
+        so need to perform delete manually
+
+        :param session: database sesssion
+        :param neutron_subnet_id: neutron subnet id associated with ipam subnet
+        """
+        return session.query(db_models.IpamSubnet).filter_by(
+            neutron_subnet_id=neutron_subnet_id).delete()
 
     def create_pool(self, session, pool_start, pool_end):
         """Create an allocation pool and availability ranges for the subnet.

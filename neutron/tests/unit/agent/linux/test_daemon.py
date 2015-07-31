@@ -49,7 +49,7 @@ class TestPrivileges(base.BaseTestCase):
             with mock.patch.object(daemon.LOG, 'critical') as log_critical:
                 self.assertRaises(exceptions.FailToDropPrivilegesExit,
                                   daemon.setuid, '321')
-                log_critical.assert_once_with(mock.ANY)
+                log_critical.assert_called_once_with(mock.ANY)
 
     def test_setgid_with_name(self):
         with mock.patch('grp.getgrnam', return_value=FakeEntry('gr_gid', 123)):
@@ -67,7 +67,7 @@ class TestPrivileges(base.BaseTestCase):
             with mock.patch.object(daemon.LOG, 'critical') as log_critical:
                 self.assertRaises(exceptions.FailToDropPrivilegesExit,
                                   daemon.setgid, '321')
-                log_critical.assert_once_with(mock.ANY)
+                log_critical.assert_called_once_with(mock.ANY)
 
     @mock.patch.object(os, 'setgroups')
     @mock.patch.object(daemon, 'setgid')
@@ -113,7 +113,7 @@ class TestPrivileges(base.BaseTestCase):
             with mock.patch.object(daemon.LOG, 'critical') as log_critical:
                 self.assertRaises(exceptions.FailToDropPrivilegesExit,
                                   daemon.drop_privileges, 'user')
-                log_critical.assert_once_with(mock.ANY)
+                log_critical.assert_called_once_with(mock.ANY)
 
 
 class TestPidfile(base.BaseTestCase):
@@ -171,7 +171,7 @@ class TestPidfile(base.BaseTestCase):
         self.assertEqual(34, p.read())
 
     def test_is_running(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python')
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
@@ -184,7 +184,7 @@ class TestPidfile(base.BaseTestCase):
             mock_open.assert_called_once_with('/proc/34/cmdline', 'r')
 
     def test_is_running_uuid_true(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python', uuid='1234')
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
@@ -197,7 +197,7 @@ class TestPidfile(base.BaseTestCase):
             mock_open.assert_called_once_with('/proc/34/cmdline', 'r')
 
     def test_is_running_uuid_false(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             p = daemon.Pidfile('thefile', 'python', uuid='6789')
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
@@ -222,6 +222,11 @@ class TestDaemon(base.BaseTestCase):
     def test_init(self):
         d = daemon.Daemon('pidfile')
         self.assertEqual(d.procname, 'python')
+
+    def test_init_nopidfile(self):
+        d = daemon.Daemon(pidfile=None)
+        self.assertEqual(d.procname, 'python')
+        self.assertFalse(self.pidfile.called)
 
     def test_fork_parent(self):
         self.os.fork.return_value = 1

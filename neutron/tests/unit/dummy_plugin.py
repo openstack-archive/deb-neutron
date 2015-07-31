@@ -13,13 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_utils import uuidutils
+
 from neutron.api import extensions
 from neutron.api.v2 import base
 from neutron.common import exceptions
 from neutron.db import servicetype_db
 from neutron.extensions import servicetype
 from neutron import manager
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.services import service_base
 
@@ -69,8 +70,8 @@ class Dummy(object):
     @classmethod
     def get_resources(cls):
         """Returns Extended Resource for dummy management."""
-        q_mgr = manager.NeutronManager.get_instance()
-        dummy_inst = q_mgr.get_service_plugins()['DUMMY']
+        n_mgr = manager.NeutronManager.get_instance()
+        dummy_inst = n_mgr.get_service_plugins()['DUMMY']
         controller = base.create_resource(
             COLLECTION_NAME, RESOURCE_NAME, dummy_inst,
             RESOURCE_ATTRIBUTE_MAP[COLLECTION_NAME])
@@ -87,6 +88,7 @@ class DummyServicePlugin(service_base.ServicePluginBase):
     """
 
     supported_extension_aliases = ['dummy', servicetype.EXT_ALIAS]
+    path_prefix = "/dummy_svc"
     agent_notifiers = {'dummy': 'dummy_agent_notifier'}
 
     def __init__(self):

@@ -21,6 +21,7 @@ import mock
 import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import uuidutils
 import six
 import testtools
 import webob
@@ -44,7 +45,6 @@ from neutron.callbacks import resources
 from neutron.common import config as common_config
 from neutron.common import constants as l3_constants
 from neutron.common import utils as common_utils
-from neutron.openstack.common import uuidutils
 from neutron.tests.common import l3_test_common
 from neutron.tests.common import machine_fixtures
 from neutron.tests.common import net_helpers
@@ -104,7 +104,6 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
                           get_temp_file_path('external/pids'))
         conf.set_override('host', host)
         agent = neutron_l3_agent.L3NATAgentWithStateReport(host, conf)
-        mock.patch.object(ip_lib, '_arping').start()
 
         return agent
 
@@ -192,12 +191,14 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
         floating_ip_cidr = common_utils.ip_to_cidr(
             router.get_floating_ips()[0]['floating_ip_address'])
         default_gateway_ip = external_port['subnets'][0].get('gateway_ip')
-
+        extra_subnet_cidr = external_port['extra_subnets'][0].get('cidr')
         return """vrrp_instance VR_1 {
     state BACKUP
     interface %(ha_device_name)s
     virtual_router_id 1
     priority 50
+    garp_master_repeat 5
+    garp_master_refresh 10
     nopreempt
     advert_int 2
     track_interface {
@@ -216,6 +217,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
     virtual_routes {
         0.0.0.0/0 via %(default_gateway_ip)s dev %(external_device_name)s
         8.8.8.0/24 via 19.4.4.4
+        %(extra_subnet_cidr)s dev %(external_device_name)s scope link
     }
 }""" % {
             'ha_device_name': ha_device_name,
@@ -226,7 +228,8 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
             'floating_ip_cidr': floating_ip_cidr,
             'default_gateway_ip': default_gateway_ip,
             'int_port_ipv6': int_port_ipv6,
-            'ex_port_ipv6': ex_port_ipv6
+            'ex_port_ipv6': ex_port_ipv6,
+            'extra_subnet_cidr': extra_subnet_cidr,
         }
 
     def _get_rule(self, iptables_manager, table, chain, predicate):
@@ -272,12 +275,23 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
                 device, router.get_internal_device_name, router.ns_name))
 
     def _assert_extra_routes(self, router):
-        routes = ip_lib.get_routing_table(namespace=router.ns_name)
+        routes = ip_lib.get_routing_table(4, namespace=router.ns_name)
         routes = [{'nexthop': route['nexthop'],
                    'destination': route['destination']} for route in routes]
 
         for extra_route in router.router['routes']:
             self.assertIn(extra_route, routes)
+
+    def _assert_onlink_subnet_routes(self, router, ip_versions):
+        routes = []
+        for ip_version in ip_versions:
+            _routes = ip_lib.get_routing_table(ip_version,
+                                               namespace=router.ns_name)
+            routes.extend(_routes)
+        routes = set(route['destination'] for route in routes)
+        extra_subnets = router.get_ex_gw_port()['extra_subnets']
+        for extra_subnet in (route['cidr'] for route in extra_subnets):
+            self.assertIn(extra_subnet, routes)
 
     def _assert_interfaces_deleted_from_ovs(self):
         def assert_ovs_bridge_empty(bridge_name):
@@ -400,7 +414,8 @@ class L3AgentTestCase(L3AgentTestFramework):
         router_info = self.generate_router_info(enable_ha=False)
         router = self.manage_router(self.agent, router_info)
 
-        port = helpers.get_free_namespace_port(router.ns_name)
+        port = net_helpers.get_free_namespace_port(l3_constants.PROTO_NAME_TCP,
+                                                   router.ns_name)
         client_address = '19.4.4.3'
         server_address = '35.4.0.4'
 
@@ -412,10 +427,9 @@ class L3AgentTestCase(L3AgentTestFramework):
         router.process(self.agent)
 
         router_ns = ip_lib.IPWrapper(namespace=router.ns_name)
-        netcat = helpers.NetcatTester(router.ns_name, router.ns_name,
-                                      server_address, port,
-                                      client_address=client_address,
-                                      udp=False)
+        netcat = net_helpers.NetcatTester(
+            router.ns_name, router.ns_name, client_address, port,
+            protocol=net_helpers.NetcatTester.TCP)
         self.addCleanup(netcat.stop_processes)
 
         def assert_num_of_conntrack_rules(n):
@@ -498,26 +512,24 @@ class L3AgentTestCase(L3AgentTestFramework):
                       (new_external_device_ip, external_device_name),
                       new_config)
 
-    def test_periodic_sync_routers_task(self):
-        routers_to_keep = []
-        routers_to_delete = []
+    def _test_periodic_sync_routers_task(self,
+                                         routers_to_keep,
+                                         routers_deleted,
+                                         routers_deleted_during_resync):
         ns_names_to_retrieve = set()
-        routers_info_to_delete = []
-        for i in range(2):
-            routers_to_keep.append(self.generate_router_info(False))
-            ri = self.manage_router(self.agent, routers_to_keep[i])
+        deleted_routers_info = []
+        for r in routers_to_keep:
+            ri = self.manage_router(self.agent, r)
             ns_names_to_retrieve.add(ri.ns_name)
-        for i in range(2):
-            routers_to_delete.append(self.generate_router_info(False))
-            ri = self.manage_router(self.agent, routers_to_delete[i])
-            routers_info_to_delete.append(ri)
+        for r in routers_deleted + routers_deleted_during_resync:
+            ri = self.manage_router(self.agent, r)
+            deleted_routers_info.append(ri)
             ns_names_to_retrieve.add(ri.ns_name)
 
-        # Mock the plugin RPC API to Simulate a situation where the agent
-        # was handling the 4 routers created above, it went down and after
-        # starting up again, two of the routers were deleted via the API
-        self.mock_plugin_api.get_routers.return_value = routers_to_keep
-        # also clear agent router_info as it will be after restart
+        mocked_get_routers = self.mock_plugin_api.get_routers
+        mocked_get_routers.return_value = (routers_to_keep +
+                                           routers_deleted_during_resync)
+        # clear agent router_info as it will be after restart
         self.agent.router_info = {}
 
         # Synchonize the agent with the plug-in
@@ -534,23 +546,58 @@ class L3AgentTestCase(L3AgentTestFramework):
         # Plug external_gateway_info in the routers that are not going to be
         # deleted by the agent when it processes the updates. Otherwise,
         # _process_router_if_compatible in the agent fails
-        for i in range(2):
-            routers_to_keep[i]['external_gateway_info'] = {'network_id':
-                                                           external_network_id}
+        for r in routers_to_keep:
+            r['external_gateway_info'] = {'network_id': external_network_id}
 
-        # Have the agent process the update from the plug-in and verify
-        # expected behavior
-        for _ in routers_to_keep:
+        # while sync updates are still in the queue, higher priority
+        # router_deleted events may be added there as well
+        for r in routers_deleted_during_resync:
+            self.agent.router_deleted(self.agent.context, r['id'])
+
+        # make sure all events are processed
+        while not self.agent._queue._queue.empty():
             self.agent._process_router_update()
 
-        for i in range(2):
-            self.assertIn(routers_to_keep[i]['id'], self.agent.router_info)
+        for r in routers_to_keep:
+            self.assertIn(r['id'], self.agent.router_info)
             self.assertTrue(self._namespace_exists(namespaces.NS_PREFIX +
-                                                   routers_to_keep[i]['id']))
-        for i in range(2):
-            self.assertNotIn(routers_info_to_delete[i].router_id,
+                                                   r['id']))
+        for ri in deleted_routers_info:
+            self.assertNotIn(ri.router_id,
                              self.agent.router_info)
-            self._assert_router_does_not_exist(routers_info_to_delete[i])
+            self._assert_router_does_not_exist(ri)
+
+    def test_periodic_sync_routers_task(self):
+        routers_to_keep = []
+        for i in range(2):
+            routers_to_keep.append(self.generate_router_info(False))
+        self._test_periodic_sync_routers_task(routers_to_keep,
+                                              routers_deleted=[],
+                                              routers_deleted_during_resync=[])
+
+    def test_periodic_sync_routers_task_routers_deleted_while_agent_down(self):
+        routers_to_keep = []
+        routers_deleted = []
+        for i in range(2):
+            routers_to_keep.append(self.generate_router_info(False))
+        for i in range(2):
+            routers_deleted.append(self.generate_router_info(False))
+        self._test_periodic_sync_routers_task(routers_to_keep,
+                                              routers_deleted,
+                                              routers_deleted_during_resync=[])
+
+    def test_periodic_sync_routers_task_routers_deleted_while_agent_sync(self):
+        routers_to_keep = []
+        routers_deleted_during_resync = []
+        for i in range(2):
+            routers_to_keep.append(self.generate_router_info(False))
+        for i in range(2):
+            routers_deleted_during_resync.append(
+                self.generate_router_info(False))
+        self._test_periodic_sync_routers_task(
+            routers_to_keep,
+            routers_deleted=[],
+            routers_deleted_during_resync=routers_deleted_during_resync)
 
     def _router_lifecycle(self, enable_ha, ip_version=4,
                           dual_stack=False, v6_ext_gw_with_sub=True):
@@ -602,6 +649,8 @@ class L3AgentTestCase(L3AgentTestFramework):
             self._assert_snat_chains(router)
             self._assert_floating_ip_chains(router)
             self._assert_extra_routes(router)
+            ip_versions = [4, 6] if (ip_version == 6 or dual_stack) else [4]
+            self._assert_onlink_subnet_routes(router, ip_versions)
         self._assert_metadata_chains(router)
 
         # Verify router gateway interface is configured to receive Router Advts
@@ -705,12 +754,13 @@ class L3AgentTestCase(L3AgentTestFramework):
         self._add_fip(router, dst_fip, fixed_address=dst_machine.ip)
         router.process(self.agent)
 
-        protocol_port = helpers.get_free_namespace_port(dst_machine.namespace)
+        protocol_port = net_helpers.get_free_namespace_port(
+            l3_constants.PROTO_NAME_TCP, dst_machine.namespace)
         # client sends to fip
-        netcat = helpers.NetcatTester(
+        netcat = net_helpers.NetcatTester(
             src_machine.namespace, dst_machine.namespace,
-            dst_machine.ip, protocol_port, client_address=dst_fip,
-            udp=False)
+            dst_fip, protocol_port,
+            protocol=net_helpers.NetcatTester.TCP)
         self.addCleanup(netcat.stop_processes)
         self.assertTrue(netcat.test_connectivity())
 
@@ -1338,3 +1388,47 @@ class TestDvrRouter(L3AgentTestFramework):
             router.router_id, router.fip_ns.get_int_device_name,
             router.fip_ns.get_name())
         self.assertEqual(expected_mtu, dev_mtu)
+
+    def test_dvr_router_fip_agent_mismatch(self):
+        """Test to validate the floatingip agent mismatch.
+
+        This test validates the condition where floatingip agent
+        gateway port host mismatches with the agent and so the
+        binding will not be there.
+
+        """
+        self.agent.conf.agent_mode = 'dvr'
+        router_info = self.generate_dvr_router_info()
+        floating_ip = router_info['_floatingips'][0]
+        floating_ip['host'] = 'my_new_host'
+        # In this case the floatingip binding is different and so it
+        # should not create the floatingip namespace on the given agent.
+        # This is also like there is no current binding.
+        router1 = self.manage_router(self.agent, router_info)
+        fip_ns = router1.fip_ns.get_name()
+        self.assertTrue(self._namespace_exists(router1.ns_name))
+        self.assertFalse(self._namespace_exists(fip_ns))
+        self._assert_snat_namespace_does_not_exist(router1)
+
+    def test_dvr_router_fip_late_binding(self):
+        """Test to validate the floatingip migration or latebinding.
+
+        This test validates the condition where floatingip private
+        port changes while migration or when the private port host
+        binding is done later after floatingip association.
+
+        """
+        self.agent.conf.agent_mode = 'dvr'
+        router_info = self.generate_dvr_router_info()
+        fip_agent_gw_port = router_info[l3_constants.FLOATINGIP_AGENT_INTF_KEY]
+        # Now let us not pass the FLOATINGIP_AGENT_INTF_KEY, to emulate
+        # that the server did not create the port, since there was no valid
+        # host binding.
+        router_info[l3_constants.FLOATINGIP_AGENT_INTF_KEY] = []
+        self.mock_plugin_api.get_agent_gateway_port.return_value = (
+            fip_agent_gw_port[0])
+        router1 = self.manage_router(self.agent, router_info)
+        fip_ns = router1.fip_ns.get_name()
+        self.assertTrue(self._namespace_exists(router1.ns_name))
+        self.assertTrue(self._namespace_exists(fip_ns))
+        self._assert_snat_namespace_does_not_exist(router1)

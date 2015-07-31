@@ -13,10 +13,11 @@
 #    under the License.
 
 import eventlet
-from oslo_config import cfg as q_conf
+from oslo_config import cfg as o_conf
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import importutils
+from oslo_utils import uuidutils
 
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
@@ -36,7 +37,6 @@ from neutron.extensions import portbindings
 from neutron.extensions import providernet
 from neutron.i18n import _LW
 from neutron import manager
-from neutron.openstack.common import uuidutils as uuidutils
 from neutron.plugins.cisco.common import cisco_constants as c_const
 from neutron.plugins.cisco.common import cisco_credentials_v2 as c_cred
 from neutron.plugins.cisco.common import cisco_exceptions
@@ -99,7 +99,7 @@ class N1kvNeutronPluginV2(db_base_plugin_v2.NeutronDbPluginV2,
         self._setup_vsm()
         self._setup_rpc()
         self.network_scheduler = importutils.import_object(
-            q_conf.CONF.network_scheduler_driver
+            o_conf.CONF.network_scheduler_driver
         )
         self.start_periodic_dhcp_agent_status_check()
 

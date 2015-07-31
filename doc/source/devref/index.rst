@@ -32,7 +32,9 @@ Programming HowTos and Tutorials
 
     development.environment
     contribute
+    neutron_api
     sub_projects
+    client_command_extensions
 
 
 Neutron Internals

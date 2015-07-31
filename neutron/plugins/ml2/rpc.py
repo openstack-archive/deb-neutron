@@ -22,13 +22,13 @@ from neutron.api.rpc.handlers import securitygroups_rpc as sg_rpc
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants as q_const
+from neutron.common import constants as n_const
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.extensions import portbindings
 from neutron.extensions import portsecurity as psec
-from neutron.i18n import _LW
+from neutron.i18n import _LE, _LW
 from neutron import manager
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import type_tunnel
@@ -48,7 +48,9 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
     #       return value to include fixed_ips and device_owner for
     #       the device port
     #   1.4 tunnel_sync rpc signature upgrade to obtain 'host'
-    target = oslo_messaging.Target(version='1.4')
+    #   1.5 Support update_device_list and
+    #       get_devices_details_list_and_failed_devices
+    target = oslo_messaging.Target(version='1.5')
 
     def __init__(self, notifier, type_manager):
         self.setup_tunnel_callback_mixin(notifier, type_manager)
@@ -97,8 +99,8 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
             return {'device': device}
 
         if (not host or host == port_context.host):
-            new_status = (q_const.PORT_STATUS_BUILD if port['admin_state_up']
-                          else q_const.PORT_STATUS_DOWN)
+            new_status = (n_const.PORT_STATUS_BUILD if port['admin_state_up']
+                          else n_const.PORT_STATUS_DOWN)
             if port['status'] != new_status:
                 plugin.update_port_status(rpc_context,
                                           port_id,
@@ -135,6 +137,27 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
             for device in kwargs.pop('devices', [])
         ]
 
+    def get_devices_details_list_and_failed_devices(self,
+                                                    rpc_context,
+                                                    **kwargs):
+        devices = []
+        failed_devices = []
+        cached_networks = {}
+        for device in kwargs.pop('devices', []):
+            try:
+                devices.append(self.get_device_details(
+                               rpc_context,
+                               device=device,
+                               cached_networks=cached_networks,
+                               **kwargs))
+            except Exception:
+                LOG.error(_LE("Failed to get details for device %s"),
+                          device)
+                failed_devices.append(device)
+
+        return {'devices': devices,
+                'failed_devices': failed_devices}
+
     def update_device_down(self, rpc_context, **kwargs):
         """Device no longer exists on agent."""
         # TODO(garyk) - live migration and port status
@@ -157,7 +180,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
 
         try:
             port_exists = bool(plugin.update_port_status(
-                rpc_context, port_id, q_const.PORT_STATUS_DOWN, host))
+                rpc_context, port_id, n_const.PORT_STATUS_DOWN, host))
         except exc.StaleDataError:
             port_exists = False
             LOG.debug("delete_port and update_device_down are being executed "
@@ -183,7 +206,7 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
             return
 
         port_id = plugin.update_port_status(rpc_context, port_id,
-                                            q_const.PORT_STATUS_ACTIVE,
+                                            n_const.PORT_STATUS_ACTIVE,
                                             host)
         try:
             # NOTE(armax): it's best to remove all objects from the
@@ -200,6 +223,44 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
             }
             registry.notify(
                 resources.PORT, events.AFTER_UPDATE, plugin, **kwargs)
+
+    def update_device_list(self, rpc_context, **kwargs):
+        devices_up = []
+        failed_devices_up = []
+        devices_down = []
+        failed_devices_down = []
+        devices = kwargs.get('devices_up')
+        if devices:
+            for device in devices:
+                try:
+                    self.update_device_up(
+                        rpc_context,
+                        device=device,
+                        **kwargs)
+                except Exception:
+                    failed_devices_up.append(device)
+                    LOG.error(_LE("Failed to update device %s up"), device)
+                else:
+                    devices_up.append(device)
+
+        devices = kwargs.get('devices_down')
+        if devices:
+            for device in devices:
+                try:
+                    dev = self.update_device_down(
+                        rpc_context,
+                        device=device,
+                        **kwargs)
+                except Exception:
+                    failed_devices_down.append(device)
+                    LOG.error(_LE("Failed to update device %s down"), device)
+                else:
+                    devices_down.append(dev)
+
+        return {'devices_up': devices_up,
+                'failed_devices_up': failed_devices_up,
+                'devices_down': devices_down,
+                'failed_devices_down': failed_devices_down}
 
 
 class AgentNotifierApi(dvr_rpc.DVRAgentRpcApiMixin,

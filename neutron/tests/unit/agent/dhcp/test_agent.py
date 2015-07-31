@@ -261,7 +261,7 @@ class TestDhcpAgent(base.BaseTestCase):
 
     def test_dhcp_agent_main_agent_manager(self):
         logging_str = 'neutron.agent.common.config.setup_logging'
-        launcher_str = 'neutron.openstack.common.service.ServiceLauncher'
+        launcher_str = 'oslo_service.service.ServiceLauncher'
         with mock.patch(logging_str):
             with mock.patch.object(sys, 'argv') as sys_argv:
                 with mock.patch(launcher_str) as launcher:
@@ -269,7 +269,8 @@ class TestDhcpAgent(base.BaseTestCase):
                                              base.etcdir('neutron.conf')]
                     entry.main()
                     launcher.assert_has_calls(
-                        [mock.call(), mock.call().launch_service(mock.ANY),
+                        [mock.call(cfg.CONF),
+                         mock.call().launch_service(mock.ANY),
                          mock.call().wait()])
 
     def test_run_completes_single_pass(self):
@@ -399,13 +400,14 @@ class TestDhcpAgent(base.BaseTestCase):
     def test_periodic_resync_helper(self):
         with mock.patch.object(dhcp_agent.eventlet, 'sleep') as sleep:
             dhcp = dhcp_agent.DhcpAgent(HOSTNAME)
-            dhcp.needs_resync_reasons = collections.OrderedDict(
+            resync_reasons = collections.OrderedDict(
                 (('a', 'reason1'), ('b', 'reason2')))
+            dhcp.needs_resync_reasons = resync_reasons
             with mock.patch.object(dhcp, 'sync_state') as sync_state:
                 sync_state.side_effect = RuntimeError
                 with testtools.ExpectedException(RuntimeError):
                     dhcp._periodic_resync_helper()
-                sync_state.assert_called_once_with(['a', 'b'])
+                sync_state.assert_called_once_with(resync_reasons.keys())
                 sleep.assert_called_once_with(dhcp.conf.resync_interval)
                 self.assertEqual(len(dhcp.needs_resync_reasons), 0)
 
@@ -437,22 +439,17 @@ class TestDhcpAgent(base.BaseTestCase):
 
     def test_none_interface_driver(self):
         cfg.CONF.set_override('interface_driver', None)
-        with mock.patch.object(dhcp, 'LOG') as log:
-            self.assertRaises(SystemExit, dhcp.DeviceManager,
-                              cfg.CONF, None)
-            msg = 'An interface driver must be specified'
-            log.error.assert_called_once_with(msg)
+        self.assertRaises(SystemExit, dhcp.DeviceManager,
+                          cfg.CONF, None)
 
     def test_nonexistent_interface_driver(self):
         # Temporarily turn off mock, so could use the real import_class
         # to import interface_driver.
         self.driver_cls_p.stop()
         self.addCleanup(self.driver_cls_p.start)
-        cfg.CONF.set_override('interface_driver', 'foo')
-        with mock.patch.object(dhcp, 'LOG') as log:
-            self.assertRaises(SystemExit, dhcp.DeviceManager,
-                              cfg.CONF, None)
-            self.assertEqual(log.error.call_count, 1)
+        cfg.CONF.set_override('interface_driver', 'foo.bar')
+        self.assertRaises(SystemExit, dhcp.DeviceManager,
+                          cfg.CONF, None)
 
 
 class TestLogArgs(base.BaseTestCase):
@@ -1066,7 +1063,7 @@ class TestNetworkCache(base.BaseTestCase):
         nc = dhcp_agent.NetworkCache()
         nc.put(fake_network)
 
-        self.assertEqual(nc.get_network_ids(), [fake_network.id])
+        self.assertEqual(list(nc.get_network_ids()), [fake_network.id])
 
     def test_get_network_by_subnet_id(self):
         nc = dhcp_agent.NetworkCache()

@@ -144,6 +144,10 @@ GATEWAY_SAMPLE6 = ("""
 default via 192.168.99.1 proto static metric 100
 """)
 
+GATEWAY_SAMPLE7 = ("""
+default dev qg-31cd36 metric 1
+""")
+
 IPv6_GATEWAY_SAMPLE1 = ("""
 default via 2001:470:9:1224:4508:b885:5fb:740b metric 100
 2001:db8::/64 proto kernel scope link src 2001:470:9:1224:dfcc:aaff:feb9:76ce
@@ -547,23 +551,38 @@ class TestIpRuleCommand(TestIPCmdBase):
 
     def _test_add_rule(self, ip, table, priority):
         ip_version = netaddr.IPNetwork(ip).version
-        self.rule_cmd.add(ip, table, priority)
+        self.rule_cmd.add(ip, table=table, priority=priority)
         self._assert_sudo([ip_version], (['show']))
         self._assert_sudo([ip_version], ('add', 'from', ip,
-                                         'table', table, 'priority', priority))
+                                         'priority', priority, 'table', table))
 
     def _test_add_rule_exists(self, ip, table, priority, output):
         self.parent._as_root.return_value = output
         ip_version = netaddr.IPNetwork(ip).version
-        self.rule_cmd.add(ip, table, priority)
+        self.rule_cmd.add(ip, table=table, priority=priority)
         self._assert_sudo([ip_version], (['show']))
 
     def _test_delete_rule(self, ip, table, priority):
         ip_version = netaddr.IPNetwork(ip).version
-        self.rule_cmd.delete(ip, table, priority)
+        self.rule_cmd.delete(ip, table=table, priority=priority)
         self._assert_sudo([ip_version],
-                          ('del', 'table', table,
-                           'priority', priority))
+                          ('del', 'priority', priority,
+                           'table', table))
+
+    def test__parse_line(self):
+        def test(ip_version, line, expected):
+            actual = self.rule_cmd._parse_line(ip_version, line)
+            self.assertEqual(expected, actual)
+
+        test(4, "4030201:\tfrom 1.2.3.4/24 lookup 10203040",
+             {'from': '1.2.3.4/24',
+              'table': '10203040',
+              'priority': '4030201'})
+        test(6, "1024:    from all iif qg-c43b1928-48 lookup noscope",
+             {'priority': '1024',
+              'from': '::/0',
+              'iif': 'qg-c43b1928-48',
+              'table': 'noscope'})
 
     def test_add_rule_v4(self):
         self._test_add_rule('192.168.45.100', 2, 100)
@@ -600,11 +619,13 @@ class TestIpLinkCommand(TestIPCmdBase):
         self._assert_sudo([], ('set', 'eth0', 'mtu', 1500))
 
     def test_set_up(self):
-        self.link_cmd.set_up()
+        observed = self.link_cmd.set_up()
+        self.assertEqual(self.parent._as_root.return_value, observed)
         self._assert_sudo([], ('set', 'eth0', 'up'))
 
     def test_set_down(self):
-        self.link_cmd.set_down()
+        observed = self.link_cmd.set_down()
+        self.assertEqual(self.parent._as_root.return_value, observed)
         self._assert_sudo([], ('set', 'eth0', 'down'))
 
     def test_set_netns(self):
@@ -782,7 +803,9 @@ class TestIpRouteCommand(TestIPCmdBase):
                             'expected': {'gateway': '192.168.99.1'}},
                            {'sample': GATEWAY_SAMPLE6,
                             'expected': {'gateway': '192.168.99.1',
-                                         'metric': 100}}]
+                                         'metric': 100}},
+                           {'sample': GATEWAY_SAMPLE7,
+                            'expected': {'metric': 1}}]
 
     def test_add_gateway(self):
         self.route_cmd.add_gateway(self.gateway, self.metric, self.table)
@@ -793,8 +816,25 @@ class TestIpRouteCommand(TestIPCmdBase):
                            'dev', self.parent.name,
                            'table', self.table))
 
+    def test_add_gateway_subtable(self):
+        self.route_cmd.table(self.table).add_gateway(self.gateway, self.metric)
+        self._assert_sudo([self.ip_version],
+                          ('replace', 'default',
+                           'via', self.gateway,
+                           'metric', self.metric,
+                           'dev', self.parent.name,
+                           'table', self.table))
+
     def test_del_gateway_success(self):
         self.route_cmd.delete_gateway(self.gateway, table=self.table)
+        self._assert_sudo([self.ip_version],
+                          ('del', 'default',
+                           'via', self.gateway,
+                           'dev', self.parent.name,
+                           'table', self.table))
+
+    def test_del_gateway_success_subtable(self):
+        self.route_cmd.table(table=self.table).delete_gateway(self.gateway)
         self._assert_sudo([self.ip_version],
                           ('del', 'default',
                            'via', self.gateway,
@@ -871,6 +911,33 @@ class TestIpRouteCommand(TestIPCmdBase):
                           ('del', self.cidr,
                            'via', self.ip,
                            'dev', self.parent.name,
+                           'table', self.table))
+
+    def test_list_onlink_routes_subtable(self):
+        self.parent._run.return_value = (
+            "10.0.0.0/22\n"
+            "172.24.4.0/24 proto kernel src 172.24.4.2\n")
+        routes = self.route_cmd.table(self.table).list_onlink_routes(
+            self.ip_version)
+        self.assertEqual(['10.0.0.0/22'], routes)
+        self._assert_call([self.ip_version],
+                          ('list', 'dev', self.parent.name, 'scope', 'link',
+                           'table', self.table))
+
+    def test_add_onlink_route_subtable(self):
+        self.route_cmd.table(self.table).add_onlink_route(self.cidr)
+        self._assert_sudo([self.ip_version],
+                          ('replace', self.cidr,
+                           'dev', self.parent.name,
+                           'scope', 'link',
+                           'table', self.table))
+
+    def test_delete_onlink_route_subtable(self):
+        self.route_cmd.table(self.table).delete_onlink_route(self.cidr)
+        self._assert_sudo([self.ip_version],
+                          ('del', self.cidr,
+                           'dev', self.parent.name,
+                           'scope', 'link',
                            'table', self.table))
 
 
@@ -1024,6 +1091,10 @@ class TestIpNeighCommand(TestIPCmdBase):
                           ('del', '192.168.45.100',
                            'lladdr', 'cc:dd:ee:ff:ab:cd',
                            'dev', 'tap0'))
+
+    def test_flush(self):
+        self.neigh_cmd.flush(4, '192.168.0.1')
+        self._assert_sudo([4], ('flush', 'to', '192.168.0.1'))
 
 
 class TestArpPing(TestIPCmdBase):

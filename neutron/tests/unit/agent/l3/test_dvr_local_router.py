@@ -16,6 +16,7 @@ import mock
 import netaddr
 
 from oslo_log import log
+from oslo_utils import uuidutils
 
 from neutron.agent.common import config as agent_config
 from neutron.agent.l3 import agent as l3_agent
@@ -27,12 +28,9 @@ from neutron.agent.l3 import router_info
 from neutron.agent.linux import external_process
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
-from neutron.callbacks import manager
-from neutron.callbacks import registry
 from neutron.common import config as base_config
 from neutron.common import constants as l3_constants
 from neutron.common import utils as common_utils
-from neutron.openstack.common import uuidutils
 from neutron.tests import base
 from neutron.tests.common import l3_test_common
 
@@ -67,8 +65,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
             'neutron.agent.linux.ip_lib.device_exists')
         self.device_exists = self.device_exists_p.start()
 
-        self.ensure_dir = mock.patch('neutron.agent.linux.utils'
-                                     '.ensure_dir').start()
+        self.ensure_dir = mock.patch('neutron.common.utils.ensure_dir').start()
 
         mock.patch('neutron.agent.linux.keepalived.KeepalivedManager'
                    '.get_full_config_file_path').start()
@@ -118,7 +115,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
         l3pluginApi_cls.return_value = self.plugin_api
 
         self.looping_call_p = mock.patch(
-            'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
+            'oslo_service.loopingcall.FixedIntervalLoopingCall')
         self.looping_call_p.start()
 
         subnet_id_1 = _uuid()
@@ -146,10 +143,6 @@ class TestDvrRouterOperations(base.BaseTestCase):
 
         self.ri_kwargs = {'agent_conf': self.conf,
                           'interface_driver': self.mock_driver}
-
-        self._callback_manager = manager.CallbacksManager()
-        mock.patch.object(registry, '_get_callback_manager',
-                          return_value=self._callback_manager).start()
 
     def _create_router(self, router=None, **kwargs):
         agent_conf = mock.Mock()
@@ -205,7 +198,9 @@ class TestDvrRouterOperations(base.BaseTestCase):
         ri.dist_fip_count = 0
         ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
         ri.floating_ip_added_dist(fip, ip_cidr)
-        mIPRule().rule.add.assert_called_with('192.168.0.1', 16, FIP_PRI)
+        mIPRule().rule.add.assert_called_with(ip='192.168.0.1',
+                                              table=16,
+                                              priority=FIP_PRI)
         self.assertEqual(1, ri.dist_fip_count)
         # TODO(mrsmith): add more asserts
 
@@ -239,7 +234,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
         ri.rtr_fip_subnet = s
         ri.floating_ip_removed_dist(fip_cidr)
         mIPRule().rule.delete.assert_called_with(
-            str(netaddr.IPNetwork(fip_cidr).ip), 16, FIP_PRI)
+            ip=str(netaddr.IPNetwork(fip_cidr).ip), table=16, priority=FIP_PRI)
         mIPDevice().route.delete_route.assert_called_with(fip_cidr, str(s.ip))
         self.assertFalse(ri.fip_ns.unsubscribe.called)
 

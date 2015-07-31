@@ -17,7 +17,7 @@ import netaddr
 from oslo_log import log as logging
 from sqlalchemy.orm import exc
 
-from neutron.common import constants as q_const
+from neutron.common import constants as n_const
 from neutron.common import ipv6_utils as ipv6
 from neutron.common import utils
 from neutron.db import allowedaddresspairs_db as addr_pair
@@ -32,7 +32,7 @@ LOG = logging.getLogger(__name__)
 DIRECTION_IP_PREFIX = {'ingress': 'source_ip_prefix',
                        'egress': 'dest_ip_prefix'}
 
-DHCP_RULE_PORT = {4: (67, 68, q_const.IPv4), 6: (547, 546, q_const.IPv6)}
+DHCP_RULE_PORT = {4: (67, 68, n_const.IPv4), 6: (547, 546, n_const.IPv6)}
 
 
 class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
@@ -91,34 +91,6 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         self.notifier.security_groups_rule_updated(context,
                                                    [rule['security_group_id']])
 
-    def update_security_group_on_port(self, context, id, port,
-                                      original_port, updated_port):
-        """Update security groups on port.
-
-        This method returns a flag which indicates request notification
-        is required and does not perform notification itself.
-        It is because another changes for the port may require notification.
-        """
-        need_notify = False
-        port_updates = port['port']
-        if (ext_sg.SECURITYGROUPS in port_updates and
-            not utils.compare_elements(
-                original_port.get(ext_sg.SECURITYGROUPS),
-                port_updates[ext_sg.SECURITYGROUPS])):
-            # delete the port binding and read it with the new rules
-            port_updates[ext_sg.SECURITYGROUPS] = (
-                self._get_security_groups_on_port(context, port))
-            self._delete_port_security_group_bindings(context, id)
-            self._process_port_create_security_group(
-                context,
-                updated_port,
-                port_updates[ext_sg.SECURITYGROUPS])
-            need_notify = True
-        else:
-            updated_port[ext_sg.SECURITYGROUPS] = (
-                original_port[ext_sg.SECURITYGROUPS])
-        return need_notify
-
     def check_and_notify_security_group_member_changed(
             self, context, original_port, updated_port):
         sg_change = not utils.compare_elements(
@@ -161,12 +133,12 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         sg_provider_updated_networks = set()
         sec_groups = set()
         for port in ports:
-            if port['device_owner'] == q_const.DEVICE_OWNER_DHCP:
+            if port['device_owner'] == n_const.DEVICE_OWNER_DHCP:
                 sg_provider_updated_networks.add(
                     port['network_id'])
             # For IPv6, provider rule need to be updated in case router
             # interface is created or updated after VM port is created.
-            elif port['device_owner'] == q_const.DEVICE_OWNER_ROUTER_INTF:
+            elif port['device_owner'] == n_const.DEVICE_OWNER_ROUTER_INTF:
                 if any(netaddr.IPAddress(fixed_ip['ip_address']).version == 6
                        for fixed_ip in port['fixed_ips']):
                     sg_provider_updated_networks.add(
@@ -222,7 +194,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
 
             for key in ('protocol', 'port_range_min', 'port_range_max',
                         'remote_ip_prefix', 'remote_group_id'):
-                if rule_in_db.get(key):
+                if rule_in_db.get(key) is not None:
                     if key == 'remote_ip_prefix':
                         direction_ip_prefix = DIRECTION_IP_PREFIX[direction]
                         rule_dict[direction_ip_prefix] = rule_in_db[key]
@@ -319,7 +291,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
                                       models_v2.IPAllocation.ip_address)
         query = query.join(models_v2.IPAllocation)
         query = query.filter(models_v2.Port.network_id.in_(network_ids))
-        owner = q_const.DEVICE_OWNER_DHCP
+        owner = n_const.DEVICE_OWNER_DHCP
         query = query.filter(models_v2.Port.device_owner == owner)
         ips = {}
 
@@ -329,7 +301,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         for mac_address, network_id, ip in query:
             if (netaddr.IPAddress(ip).version == 6
                 and not netaddr.IPAddress(ip).is_link_local()):
-                ip = str(ipv6.get_ipv6_addr_by_EUI64(q_const.IPV6_LLA_PREFIX,
+                ip = str(ipv6.get_ipv6_addr_by_EUI64(n_const.IPV6_LLA_PREFIX,
                     mac_address))
             if ip not in ips[network_id]:
                 ips[network_id].append(ip)
@@ -382,7 +354,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         query = query.filter(
             models_v2.IPAllocation.ip_address == subnet['gateway_ip'])
         query = query.filter(
-            models_v2.Port.device_owner.in_(q_const.ROUTER_INTERFACE_OWNERS))
+            models_v2.Port.device_owner.in_(n_const.ROUTER_INTERFACE_OWNERS))
         try:
             mac_address = query.one()[0]
         except (exc.NoResultFound, exc.MultipleResultsFound):
@@ -390,7 +362,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
                          'found for IPv6 RA'), subnet['id'])
             return
         lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
-            q_const.IPV6_LLA_PREFIX,
+            n_const.IPV6_LLA_PREFIX,
             mac_address))
         return lla_ip
 
@@ -442,10 +414,10 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         ra_ips = ips.get(port['network_id'])
         for ra_ip in ra_ips:
             ra_rule = {'direction': 'ingress',
-                       'ethertype': q_const.IPv6,
-                       'protocol': q_const.PROTO_NAME_ICMP_V6,
+                       'ethertype': n_const.IPv6,
+                       'protocol': n_const.PROTO_NAME_ICMP_V6,
                        'source_ip_prefix': ra_ip,
-                       'source_port_range_min': q_const.ICMPV6_TYPE_RA}
+                       'source_port_range_min': n_const.ICMPV6_TYPE_RA}
             port['security_group_rules'].append(ra_rule)
 
     def _apply_provider_rule(self, context, ports):
@@ -468,7 +440,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
             }
             for key in ('protocol', 'port_range_min', 'port_range_max',
                         'remote_ip_prefix', 'remote_group_id'):
-                if rule_in_db.get(key):
+                if rule_in_db.get(key) is not None:
                     if key == 'remote_ip_prefix':
                         direction_ip_prefix = DIRECTION_IP_PREFIX[direction]
                         rule_dict[direction_ip_prefix] = rule_in_db[key]

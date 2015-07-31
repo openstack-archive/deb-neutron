@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Neutron\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-06-11 06:02+0000\n"
-"PO-Revision-Date: 2015-06-10 23:52+0000\n"
+"POT-Creation-Date: 2015-07-27 06:07+0000\n"
+"PO-Revision-Date: 2015-07-25 03:05+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) (http://www.transifex.com/projects/p/neutron/"
 "language/zh_CN/)\n"
@@ -47,20 +47,6 @@ msgstr "%(url)s 返回了故障：%(exception)s"
 #, python-format
 msgid "%(url)s returned with HTTP %(status)d"
 msgstr "%(url)s 随HTTP %(status)d返回"
-
-#, python-format
-msgid "APIC host agent: agent starting on %s"
-msgstr "APIC 主机代理: 代理正启动在 %s"
-
-#, python-format
-msgid "APIC host agent: started on %s"
-msgstr "APIC 主机代理: 已启动在 %s"
-
-msgid "APIC service agent started"
-msgstr "APIC 服务代理已启动"
-
-msgid "APIC service agent starting ..."
-msgstr "APIC 服务代理启动中 ..."
 
 #, python-format
 msgid ""
@@ -112,26 +98,6 @@ msgid "Attempted to update port filter which is not filtered %s"
 msgstr "已尝试更新未过滤的端口过滤器 %s"
 
 #, python-format
-msgid "Caught %s, exiting"
-msgstr "捕获到 %s，正在退出"
-
-#, python-format
-msgid "Caught %s, stopping children"
-msgstr "捕获到 %s，正在停止子代"
-
-#, python-format
-msgid "Child %(pid)d killed by signal %(sig)d"
-msgstr "信号 %(sig)d 已终止子代 %(pid)d"
-
-#, python-format
-msgid "Child %(pid)s exited with status %(code)d"
-msgstr "子代 %(pid)s 已退出，状态为 %(code)d"
-
-#, python-format
-msgid "Child caught %s, exiting"
-msgstr "子代捕获 %s，正在退出"
-
-#, python-format
 msgid "Config paste file: %s"
 msgstr "配置粘贴文件：%s"
 
@@ -168,13 +134,6 @@ msgstr "未在插件上定义设备 %s"
 
 msgid "Disabled security-group extension."
 msgstr "已禁用安全组扩展。"
-
-#, python-format
-msgid "Eventlet backdoor listening on %(port)s for process %(pid)d"
-msgstr "Eventlet为进程 %(pid)d 在后台监听 %(port)s "
-
-msgid "Forking too fast, sleeping"
-msgstr "派生速度太快，正在休眠"
 
 #, python-format
 msgid "Found invalid IP address in pool: %(start)s - %(end)s:"
@@ -287,9 +246,6 @@ msgstr "Nova 事件响应: %s"
 msgid "OVS cleanup completed successfully"
 msgstr "OVS 清除已成功完成"
 
-msgid "Parent process has died unexpectedly, exiting"
-msgstr "父进程已意外终止，正在退出"
-
 #, python-format
 msgid "Physical Devices mappings: %s"
 msgstr "物理设备映射:%s"
@@ -369,31 +325,11 @@ msgid "Service %s is supported by the core plugin"
 msgstr "服务%s由核心插件支持"
 
 #, python-format
-msgid "Skipping periodic task %(task)s because it is disabled"
-msgstr "正在跳过周期性任务 %(task)s，因为它已禁用"
-
-#, python-format
-msgid "Skipping periodic task %(task)s because its interval is negative"
-msgstr "正在跳过周期性任务 %(task)s，因为其时间间隔为负"
-
-#, python-format
 msgid "Skipping port %s as no IP is configure on it"
 msgstr "正在跳过端口 %s，因为没有在该端口上配置任何 IP"
 
 msgid "Specified IP addresses do not match the subnet IP version"
 msgstr "指定的 IP 地址与子网 IP 版本不匹配"
-
-#, python-format
-msgid "Start IP (%(start)s) is greater than end IP (%(end)s)"
-msgstr "起始 IP (%(start)s) 大于结束 IP (%(end)s)"
-
-#, python-format
-msgid "Started child %d"
-msgstr "已启动子代 %d"
-
-#, python-format
-msgid "Starting %d workers"
-msgstr "正在启动 %d 工作程序"
 
 #, python-format
 msgid "Subnet %s was deleted concurrently"
@@ -404,10 +340,6 @@ msgstr "正在使状态同步"
 
 msgid "Synchronizing state complete"
 msgstr "同步状态完成"
-
-#, python-format
-msgid "Table %(old_t)r was renamed to %(new_t)r"
-msgstr "表 %(old_t)r 已经更名为 %(new_t)r"
 
 #, python-format
 msgid "Tenant network_types: %s"
@@ -431,13 +363,6 @@ msgstr ""
 
 msgid "VlanTypeDriver initialization complete"
 msgstr "Vlan类型驱动初始化完成"
-
-msgid "Wait called after thread killed. Cleaning up."
-msgstr "线程结束，正在清理"
-
-#, python-format
-msgid "Waiting on %d children to exit"
-msgstr "正在等待 %d 个子代退出"
 
 #, python-format
 msgid "agent_updated by server side %s!"

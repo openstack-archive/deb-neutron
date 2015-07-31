@@ -15,6 +15,7 @@
 import netaddr
 from oslo_db import exception
 from oslo_log import log as logging
+from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
@@ -26,12 +27,13 @@ from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.common import constants
+from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import securitygroup as ext_sg
-from neutron.openstack.common import uuidutils
+
 
 LOG = logging.getLogger(__name__)
 
@@ -734,3 +736,31 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
              port['port'][ext_sg.SECURITYGROUPS] != [])):
             return True
         return False
+
+    def update_security_group_on_port(self, context, id, port,
+                                      original_port, updated_port):
+        """Update security groups on port.
+
+        This method returns a flag which indicates request notification
+        is required and does not perform notification itself.
+        It is because another changes for the port may require notification.
+        """
+        need_notify = False
+        port_updates = port['port']
+        if (ext_sg.SECURITYGROUPS in port_updates and
+            not utils.compare_elements(
+                original_port.get(ext_sg.SECURITYGROUPS),
+                port_updates[ext_sg.SECURITYGROUPS])):
+            # delete the port binding and read it with the new rules
+            port_updates[ext_sg.SECURITYGROUPS] = (
+                self._get_security_groups_on_port(context, port))
+            self._delete_port_security_group_bindings(context, id)
+            self._process_port_create_security_group(
+                context,
+                updated_port,
+                port_updates[ext_sg.SECURITYGROUPS])
+            need_notify = True
+        else:
+            updated_port[ext_sg.SECURITYGROUPS] = (
+                original_port[ext_sg.SECURITYGROUPS])
+        return need_notify

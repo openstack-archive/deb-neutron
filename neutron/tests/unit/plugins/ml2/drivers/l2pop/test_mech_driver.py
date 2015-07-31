@@ -17,7 +17,6 @@ import testtools
 
 import mock
 
-from neutron.agent import l2population_rpc
 from neutron.common import constants
 from neutron.common import topics
 from neutron import context
@@ -29,6 +28,7 @@ from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2.drivers.l2pop import db as l2pop_db
 from neutron.plugins.ml2.drivers.l2pop import mech_driver as l2pop_mech_driver
 from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
+from neutron.plugins.ml2.drivers.l2pop.rpc_manager import l2population_rpc
 from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import rpc
 from neutron.tests import base
@@ -710,16 +710,10 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                 p1['status'] = 'ACTIVE'
                 self.mock_fanout.reset_mock()
 
-                fanout = ('neutron.plugins.ml2.drivers.l2pop.rpc.'
-                          'L2populationAgentNotifyAPI._notification_fanout')
-                fanout_patch = mock.patch(fanout)
-                mock_fanout = fanout_patch.start()
-
                 plugin = manager.NeutronManager.get_plugin()
                 plugin.update_port(self.adminContext, p1['id'], port1)
 
-                self.assertFalse(mock_fanout.called)
-                fanout_patch.stop()
+                self.assertFalse(self.mock_fanout.called)
 
     def test_get_device_details_port_id(self):
         self._register_ml2_agents()

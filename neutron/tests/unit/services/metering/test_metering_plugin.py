@@ -13,6 +13,7 @@
 # under the License.
 
 import mock
+from oslo_utils import uuidutils
 
 from neutron.api.v2 import attributes as attr
 from neutron import context
@@ -22,7 +23,6 @@ from neutron.db.metering import metering_rpc
 from neutron.extensions import l3 as ext_l3
 from neutron.extensions import metering as ext_metering
 from neutron import manager
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.common import helpers
 from neutron.tests import tools
@@ -62,7 +62,7 @@ class TestMeteringPlugin(test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
                          test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
-        (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
+        (k.replace('_', '-'), "/metering")
         for k in ext_metering.RESOURCE_ATTRIBUTE_MAP.keys()
     )
 
@@ -76,7 +76,7 @@ class TestMeteringPlugin(test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
 
         self.uuid = '654f6b9d-0f36-4ae5-bd1b-01616794ca60'
 
-        uuid = 'neutron.openstack.common.uuidutils.generate_uuid'
+        uuid = 'oslo_utils.uuidutils.generate_uuid'
         self.uuid_patch = mock.patch(uuid, return_value=self.uuid)
         self.mock_uuid = self.uuid_patch.start()
 
@@ -281,7 +281,7 @@ class TestMeteringPluginL3AgentScheduler(
         test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
-        (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
+        (k.replace('_', '-'), "/metering")
         for k in ext_metering.RESOURCE_ATTRIBUTE_MAP.keys()
     )
 
@@ -304,7 +304,7 @@ class TestMeteringPluginL3AgentScheduler(
 
         self.uuid = '654f6b9d-0f36-4ae5-bd1b-01616794ca60'
 
-        uuid = 'neutron.openstack.common.uuidutils.generate_uuid'
+        uuid = 'oslo_utils.uuidutils.generate_uuid'
         self.uuid_patch = mock.patch(uuid, return_value=self.uuid)
         self.mock_uuid = self.uuid_patch.start()
 
@@ -404,7 +404,7 @@ class TestMeteringPluginRpcFromL3Agent(
         test_metering_db.MeteringPluginDbTestCaseMixin):
 
     resource_prefix_map = dict(
-        (k.replace('_', '-'), constants.COMMON_PREFIXES[constants.METERING])
+        (k.replace('_', '-'), "/metering")
         for k in ext_metering.RESOURCE_ATTRIBUTE_MAP
     )
 

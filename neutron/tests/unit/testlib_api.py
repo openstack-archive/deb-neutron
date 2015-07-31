@@ -62,8 +62,7 @@ class SqlFixture(fixtures.Fixture):
     # flag to indicate that the models have been loaded
     _TABLES_ESTABLISHED = False
 
-    def setUp(self):
-        super(SqlFixture, self).setUp()
+    def _setUp(self):
         # Register all data models
         engine = db_api.get_engine()
         if not SqlFixture._TABLES_ESTABLISHED:

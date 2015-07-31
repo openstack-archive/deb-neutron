@@ -18,10 +18,12 @@ import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_service import loopingcall
+from oslo_service import periodic_task
 from oslo_utils import excutils
-from oslo_utils import importutils
 from oslo_utils import timeutils
 
+from neutron.agent.common import utils as common_utils
 from neutron.agent.l3 import dvr
 from neutron.agent.l3 import dvr_edge_router as dvr_router
 from neutron.agent.l3 import dvr_local_router as dvr_local_router
@@ -47,8 +49,6 @@ from neutron.common import topics
 from neutron import context as n_context
 from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
-from neutron.openstack.common import loopingcall
-from neutron.openstack.common import periodic_task
 
 try:
     from neutron_fwaas.services.firewall.agents.l3reference \
@@ -165,15 +165,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             config=self.conf,
             resource_type='router')
 
-        try:
-            self.driver = importutils.import_object(
-                self.conf.interface_driver,
-                self.conf
-            )
-        except Exception:
-            LOG.error(_LE("Error importing interface driver "
-                          "'%s'"), self.conf.interface_driver)
-            raise SystemExit(1)
+        self.driver = common_utils.load_interface_driver(self.conf)
 
         self.context = n_context.get_admin_context_without_session()
         self.plugin_rpc = L3PluginApi(topics.L3PLUGIN, host)
@@ -339,7 +331,8 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         ri = self.router_info.get(router_id)
         if ri is None:
             LOG.warn(_LW("Info for router %s was not found. "
-                         "Skipping router removal"), router_id)
+                         "Performing router cleanup"), router_id)
+            self.namespaces_manager.ensure_router_cleanup(router_id)
             return
 
         registry.notify(resources.ROUTER, events.BEFORE_DELETE,
@@ -595,7 +588,8 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 'external_network_bridge': self.conf.external_network_bridge,
                 'gateway_external_network_id':
                 self.conf.gateway_external_network_id,
-                'interface_driver': self.conf.interface_driver},
+                'interface_driver': self.conf.interface_driver,
+                'log_agent_heartbeats': self.conf.AGENT.log_agent_heartbeats},
             'start_flag': True,
             'agent_type': l3_constants.AGENT_TYPE_L3}
         report_interval = self.conf.AGENT.report_interval

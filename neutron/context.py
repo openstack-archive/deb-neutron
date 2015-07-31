@@ -39,7 +39,8 @@ class ContextBase(oslo_context.RequestContext):
     @removals.removed_kwarg('read_deleted')
     def __init__(self, user_id, tenant_id, is_admin=None, roles=None,
                  timestamp=None, request_id=None, tenant_name=None,
-                 user_name=None, overwrite=True, auth_token=None, **kwargs):
+                 user_name=None, overwrite=True, auth_token=None,
+                 is_advsvc=None, **kwargs):
         """Object initialization.
 
         :param overwrite: Set to False to ensure that the greenthread local
@@ -59,9 +60,10 @@ class ContextBase(oslo_context.RequestContext):
         if not timestamp:
             timestamp = datetime.datetime.utcnow()
         self.timestamp = timestamp
-        self._session = None
         self.roles = roles or []
-        self.is_advsvc = self.is_admin or policy.check_is_advsvc(self)
+        self.is_advsvc = is_advsvc
+        if self.is_advsvc is None:
+            self.is_advsvc = self.is_admin or policy.check_is_advsvc(self)
         if self.is_admin is None:
             self.is_admin = policy.check_is_admin(self)
 
@@ -116,6 +118,10 @@ class ContextBase(oslo_context.RequestContext):
 
 
 class Context(ContextBase):
+    def __init__(self, *args, **kwargs):
+        super(Context, self).__init__(*args, **kwargs)
+        self._session = None
+
     @property
     def session(self):
         if self._session is None:

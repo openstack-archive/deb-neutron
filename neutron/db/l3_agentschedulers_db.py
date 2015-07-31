@@ -35,6 +35,7 @@ from neutron.db import model_base
 from neutron.extensions import l3agentscheduler
 from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
+from neutron.plugins.common import constants as service_constants
 
 
 LOG = logging.getLogger(__name__)
@@ -182,7 +183,9 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 return False
         if router.get('distributed'):
             return False
-        # non-dvr case: centralized router is already bound to some agent
+        if router.get('ha'):
+            return True
+        # legacy router case: router is already bound to some agent
         raise l3agentscheduler.RouterHostedByL3Agent(
             router_id=router_id,
             agent_id=bindings[0].l3_agent_id)
@@ -193,7 +196,15 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         agent_id = agent['id']
         if self.router_scheduler:
             try:
-                self.router_scheduler.bind_router(context, router_id, agent)
+                if router.get('ha'):
+                    plugin = manager.NeutronManager.get_service_plugins().get(
+                        service_constants.L3_ROUTER_NAT)
+                    self.router_scheduler.create_ha_port_and_bind(
+                        plugin, context, router['id'],
+                        router['tenant_id'], agent)
+                else:
+                    self.router_scheduler.bind_router(
+                        context, router_id, agent)
             except db_exc.DBError:
                 raise l3agentscheduler.RouterSchedulingFailed(
                     router_id=router_id, agent_id=agent_id)
@@ -223,6 +234,13 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         """
         agent = self._get_agent(context, agent_id)
         self._unbind_router(context, router_id, agent_id)
+
+        router = self.get_router(context, router_id)
+        if router.get('ha'):
+            plugin = manager.NeutronManager.get_service_plugins().get(
+                service_constants.L3_ROUTER_NAT)
+            plugin.delete_ha_interfaces_on_host(context, router_id, agent.host)
+
         l3_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_L3)
         if l3_notifier:
             l3_notifier.router_removed_from_agent(
@@ -407,41 +425,6 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                     return True
 
         return False
-
-    def get_snat_candidates(self, sync_router, l3_agents):
-        """Get the valid snat enabled l3 agents for the distributed router."""
-        candidates = []
-        is_router_distributed = sync_router.get('distributed', False)
-        if not is_router_distributed:
-            return candidates
-        for l3_agent in l3_agents:
-            if not l3_agent.admin_state_up:
-                continue
-
-            agent_conf = self.get_configuration_dict(l3_agent)
-            agent_mode = agent_conf.get(constants.L3_AGENT_MODE,
-                                        constants.L3_AGENT_MODE_LEGACY)
-            if agent_mode != constants.L3_AGENT_MODE_DVR_SNAT:
-                continue
-
-            router_id = agent_conf.get('router_id', None)
-            use_namespaces = agent_conf.get('use_namespaces', True)
-            if not use_namespaces and router_id != sync_router['id']:
-                continue
-
-            handle_internal_only_routers = agent_conf.get(
-                'handle_internal_only_routers', True)
-            gateway_external_network_id = agent_conf.get(
-                'gateway_external_network_id', None)
-            ex_net_id = (sync_router['external_gateway_info'] or {}).get(
-                'network_id')
-            if ((not ex_net_id and not handle_internal_only_routers) or
-                (ex_net_id and gateway_external_network_id and
-                 ex_net_id != gateway_external_network_id)):
-                continue
-
-            candidates.append(l3_agent)
-        return candidates
 
     def get_l3_agent_candidates(self, context, sync_router, l3_agents,
                                 ignore_admin_state=False):

@@ -21,11 +21,11 @@ import eventlet
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_service import loopingcall
 from oslo_utils import importutils
 
 from neutron.agent.linux import dhcp
 from neutron.agent.linux import external_process
-from neutron.agent.linux import utils as linux_utils
 from neutron.agent.metadata import driver as metadata_driver
 from neutron.agent import rpc as agent_rpc
 from neutron.common import constants
@@ -36,7 +36,6 @@ from neutron.common import utils
 from neutron import context
 from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
-from neutron.openstack.common import loopingcall
 
 LOG = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ class DhcpAgent(manager.Manager):
                                         ctx, self.conf.use_namespaces)
         # create dhcp dir to store dhcp info
         dhcp_dir = os.path.dirname("/%s/dhcp/" % self.conf.state_path)
-        linux_utils.ensure_dir(dhcp_dir)
+        utils.ensure_dir(dhcp_dir)
         self.dhcp_version = self.dhcp_driver_cls.check_version()
         self._populate_networks_cache()
         self._process_monitor = external_process.ProcessMonitor(
@@ -548,7 +547,8 @@ class DhcpAgentWithStateReport(DhcpAgent):
             'configurations': {
                 'dhcp_driver': cfg.CONF.dhcp_driver,
                 'use_namespaces': cfg.CONF.use_namespaces,
-                'dhcp_lease_duration': cfg.CONF.dhcp_lease_duration},
+                'dhcp_lease_duration': cfg.CONF.dhcp_lease_duration,
+                'log_agent_heartbeats': cfg.CONF.AGENT.log_agent_heartbeats},
             'start_flag': True,
             'agent_type': constants.AGENT_TYPE_DHCP}
         report_interval = cfg.CONF.AGENT.report_interval

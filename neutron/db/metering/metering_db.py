@@ -14,6 +14,7 @@
 
 import netaddr
 from oslo_log import log as logging
+from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy import sql
@@ -25,7 +26,6 @@ from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import metering
-from neutron.openstack.common import uuidutils
 
 
 LOG = logging.getLogger(__name__)
@@ -234,7 +234,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
                 routers_dict[router['id']] = router_dict
 
-        return routers_dict.values()
+        return list(routers_dict.values())
 
     def get_sync_data_for_rule(self, context, rule):
         label = context.session.query(MeteringLabel).get(
@@ -253,7 +253,7 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             router_dict[constants.METERING_LABEL_KEY].append(data)
             routers_dict[router['id']] = router_dict
 
-        return routers_dict.values()
+        return list(routers_dict.values())
 
     def get_sync_data_metering(self, context, label_id=None, router_ids=None):
         labels = context.session.query(MeteringLabel)

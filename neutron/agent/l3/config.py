@@ -77,13 +77,18 @@ OPTS = [
     cfg.BoolOpt('enable_metadata_proxy', default=True,
                 help=_("Allow running metadata proxy.")),
     cfg.BoolOpt('router_delete_namespaces', default=True,
-                help=_("Delete namespace after removing a router.")),
+                help=_("Delete namespace after removing a router."
+                       "This option is deprecated and "
+                       "will be removed in a future release."),
+                deprecated_for_removal=True),
     cfg.StrOpt('metadata_access_mark',
                default='0x1',
                help=_('Iptables mangle mark used to mark metadata valid '
-                      'requests')),
+                      'requests. This mark will be masked with 0xffff so '
+                      'that only the lower 16 bits will be used.')),
     cfg.StrOpt('external_ingress_mark',
                default='0x2',
                help=_('Iptables mangle mark used to mark ingress from '
-                      'external network')),
+                      'external network. This mark will be masked with '
+                      '0xffff so that only the lower 16 bits will be used.')),
 ]

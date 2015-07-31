@@ -19,6 +19,7 @@
 """Utilities and helper functions."""
 
 import datetime
+import errno
 import functools
 import hashlib
 import logging as std_logging
@@ -37,7 +38,7 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 import six
 
-from neutron.common import constants as q_const
+from neutron.common import constants as n_const
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG = logging.getLogger(__name__)
@@ -170,6 +171,16 @@ def find_config_file(options, config_file):
         cfg_file = os.path.join(cfg_dir, config_file)
         if os.path.exists(cfg_file):
             return cfg_file
+
+
+def ensure_dir(dir_path):
+    """Ensure a directory with 755 permissions mode."""
+    try:
+        os.makedirs(dir_path, 0o755)
+    except OSError as e:
+        # If the directory already existed, don't raise the error.
+        if e.errno != errno.EEXIST:
+            raise
 
 
 def _subprocess_setup():
@@ -343,8 +354,8 @@ def is_dvr_serviced(device_owner):
     if they are required for DVR or any service directly or
     indirectly associated with DVR.
     """
-    dvr_serviced_device_owners = (q_const.DEVICE_OWNER_LOADBALANCER,
-                                  q_const.DEVICE_OWNER_DHCP)
+    dvr_serviced_device_owners = (n_const.DEVICE_OWNER_LOADBALANCER,
+                                  n_const.DEVICE_OWNER_DHCP)
     return (device_owner.startswith('compute:') or
             device_owner in dvr_serviced_device_owners)
 
@@ -396,15 +407,15 @@ def is_cidr_host(cidr):
         raise ValueError("cidr doesn't contain a '/'")
     net = netaddr.IPNetwork(cidr)
     if net.version == 4:
-        return net.prefixlen == q_const.IPv4_BITS
-    return net.prefixlen == q_const.IPv6_BITS
+        return net.prefixlen == n_const.IPv4_BITS
+    return net.prefixlen == n_const.IPv6_BITS
 
 
 def ip_version_from_int(ip_version_int):
     if ip_version_int == 4:
-        return q_const.IPv4
+        return n_const.IPv4
     if ip_version_int == 6:
-        return q_const.IPv6
+        return n_const.IPv6
     raise ValueError(_('Illegal IP version number'))
 
 

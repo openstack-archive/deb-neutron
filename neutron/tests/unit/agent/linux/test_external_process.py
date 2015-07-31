@@ -16,7 +16,7 @@ import mock
 import os.path
 
 from neutron.agent.linux import external_process as ep
-from neutron.agent.linux import utils
+from neutron.common import utils as common_utils
 from neutron.tests import base
 
 
@@ -103,9 +103,9 @@ class TestProcessManager(base.BaseTestCase):
         self.execute_p = mock.patch('neutron.agent.common.utils.execute')
         self.execute = self.execute_p.start()
         self.delete_if_exists = mock.patch(
-            'neutron.openstack.common.fileutils.delete_if_exists').start()
+            'oslo_utils.fileutils.delete_if_exists').start()
         self.ensure_dir = mock.patch.object(
-            utils, 'ensure_dir').start()
+            common_utils, 'ensure_dir').start()
 
         self.conf = mock.Mock()
         self.conf.external_pids = '/var/path'
@@ -171,8 +171,9 @@ class TestProcessManager(base.BaseTestCase):
 
                 with mock.patch.object(ep, 'utils') as utils:
                     manager.disable()
-                    utils.assert_has_calls(
-                        mock.call.execute(['kill', '-9', 4], run_as_root=True))
+                    utils.assert_has_calls([
+                        mock.call.execute(['kill', '-9', 4],
+                                          run_as_root=True)])
 
     def test_disable_namespace(self):
         with mock.patch.object(ep.ProcessManager, 'pid') as pid:
@@ -184,8 +185,9 @@ class TestProcessManager(base.BaseTestCase):
 
                 with mock.patch.object(ep, 'utils') as utils:
                     manager.disable()
-                    utils.assert_has_calls(
-                        mock.call.execute(['kill', '-9', 4], run_as_root=True))
+                    utils.assert_has_calls([
+                        mock.call.execute(['kill', '-9', 4],
+                                          run_as_root=True)])
 
     def test_disable_not_active(self):
         with mock.patch.object(ep.ProcessManager, 'pid') as pid:
@@ -213,7 +215,7 @@ class TestProcessManager(base.BaseTestCase):
         self.assertEqual(retval, '/var/path/uuid.pid')
 
     def test_pid(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
             mock_open.return_value.read.return_value = '5'
@@ -221,7 +223,7 @@ class TestProcessManager(base.BaseTestCase):
             self.assertEqual(manager.pid, 5)
 
     def test_pid_no_an_int(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
             mock_open.return_value.read.return_value = 'foo'
@@ -235,7 +237,7 @@ class TestProcessManager(base.BaseTestCase):
             self.assertIsNone(manager.pid)
 
     def test_active(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
             mock_open.return_value.readline.return_value = \
@@ -256,7 +258,7 @@ class TestProcessManager(base.BaseTestCase):
             self.assertFalse(manager.active)
 
     def test_active_cmd_mismatch(self):
-        with mock.patch('__builtin__.open') as mock_open:
+        with mock.patch('six.moves.builtins.open') as mock_open:
             mock_open.return_value.__enter__ = lambda s: s
             mock_open.return_value.__exit__ = mock.Mock()
             mock_open.return_value.readline.return_value = \

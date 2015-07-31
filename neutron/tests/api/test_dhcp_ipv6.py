@@ -227,7 +227,7 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         """When a Network contains two subnets, one being an IPv6 subnet
         configured with ipv6_ra_mode either as slaac or dhcpv6-stateless,
         and the other subnet being an IPv4 subnet, a port attached to the
-        network shall recieve IP addresses from the subnets as follows: An
+        network shall receive IP addresses from the subnets as follows: An
         IPv6 address calculated using EUI-64 from the first subnet, and an
         IPv4 address from the second subnet. The ordering of the subnets
         that the port is associated with should not affect this behavior.
@@ -340,13 +340,13 @@ class NetworksTestDHCPv6(base.BaseNetworkTest):
         subnet = self.create_subnet(self.network, **kwargs)
         ip_range = netaddr.IPRange(subnet["allocation_pools"][0]["start"],
                                    subnet["allocation_pools"][0]["end"])
-        ip = netaddr.IPAddress(random.randrange(
-            ip_range.last + 1, ip_range.last + 10)).format()
-        self.assertRaises(lib_exc.BadRequest,
-                          self.create_port,
-                          self.network,
-                          fixed_ips=[{'subnet_id': subnet['id'],
-                                      'ip_address': ip}])
+        for i in range(1, 3):
+            ip = netaddr.IPAddress(ip_range.last + i).format()
+            self.assertRaises(lib_exc.BadRequest,
+                              self.create_port,
+                              self.network,
+                              fixed_ips=[{'subnet_id': subnet['id'],
+                                          'ip_address': ip}])
 
     @test.idempotent_id('57b8302b-cba9-4fbb-8835-9168df029051')
     def test_dhcp_stateful_fixedips_duplicate(self):

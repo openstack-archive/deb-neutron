@@ -22,7 +22,6 @@ import logging as std_logging
 import os
 import os.path
 import random
-import traceback
 import weakref
 
 import eventlet.timeout
@@ -171,8 +170,8 @@ class DietTestCase(testtools.TestCase):
             if os.getpid() != self.orig_pid:
                 # Subprocess - let it just exit
                 raise
-            self.fail("A SystemExit was raised during the test. %s"
-                      % traceback.format_exception(*exc_info))
+            # This makes sys.exit(0) still a failure
+            self.force_failure = True
 
     @contextlib.contextmanager
     def assert_max_execution_time(self, max_execution_time=5):
@@ -217,8 +216,8 @@ class DietTestCase(testtools.TestCase):
 
 class ProcessMonitorFixture(fixtures.Fixture):
     """Test fixture to capture and cleanup any spawn process monitor."""
-    def setUp(self):
-        super(ProcessMonitorFixture, self).setUp()
+
+    def _setUp(self):
         self.old_callable = (
             external_process.ProcessMonitor._spawn_checking_thread)
         p = mock.patch("neutron.agent.linux.external_process.ProcessMonitor."
@@ -370,7 +369,9 @@ class BaseTestCase(DietTestCase):
             CONF.set_override(k, v, group)
 
     def setup_coreplugin(self, core_plugin=None):
-        self.useFixture(PluginFixture(core_plugin))
+        cp = PluginFixture(core_plugin)
+        self.useFixture(cp)
+        self.patched_dhcp_periodic = cp.patched_dhcp_periodic
 
     def setup_notification_driver(self, notification_driver=None):
         self.addCleanup(fake_notifier.reset)
@@ -382,10 +383,10 @@ class BaseTestCase(DietTestCase):
 class PluginFixture(fixtures.Fixture):
 
     def __init__(self, core_plugin=None):
+        super(PluginFixture, self).__init__()
         self.core_plugin = core_plugin
 
-    def setUp(self):
-        super(PluginFixture, self).setUp()
+    def _setUp(self):
         self.dhcp_periodic_p = mock.patch(
             'neutron.db.agentschedulers_db.DhcpAgentSchedulerDbMixin.'
             'start_periodic_dhcp_agent_status_check')

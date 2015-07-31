@@ -14,6 +14,7 @@
 #    under the License.
 
 import collections
+import itertools
 
 import netaddr
 from oslo_config import cfg
@@ -27,6 +28,7 @@ from neutron.common import ipv6_utils
 from neutron.db import db_base_plugin_common
 from neutron.db import models_v2
 from neutron.i18n import _LI
+from neutron.ipam import utils as ipam_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -44,7 +46,31 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         """
         pass
 
-    def _validate_pools_with_subnetpool(self, subnet):
+    @staticmethod
+    def _gateway_ip_str(subnet, cidr_net):
+        if subnet.get('gateway_ip') is attributes.ATTR_NOT_SPECIFIED:
+            return str(netaddr.IPNetwork(cidr_net).network + 1)
+        return subnet.get('gateway_ip')
+
+    @staticmethod
+    def pools_to_ip_range(ip_pools):
+        ip_range_pools = []
+        for ip_pool in ip_pools:
+            try:
+                ip_range_pools.append(netaddr.IPRange(ip_pool['start'],
+                                                      ip_pool['end']))
+            except netaddr.AddrFormatError:
+                LOG.info(_LI("Found invalid IP address in pool: "
+                             "%(start)s - %(end)s:"),
+                         {'start': ip_pool['start'],
+                          'end': ip_pool['end']})
+                raise n_exc.InvalidAllocationPool(pool=ip_pool)
+        return ip_range_pools
+
+    def delete_subnet(self, context, subnet_id):
+        pass
+
+    def validate_pools_with_subnetpool(self, subnet):
         """Verifies that allocation pools are set correctly
 
         Allocation pools can be set for specific subnet request only
@@ -132,22 +158,23 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
     def _update_subnet_allocation_pools(self, context, subnet_id, s):
         context.session.query(models_v2.IPAllocationPool).filter_by(
             subnet_id=subnet_id).delete()
-        new_pools = [models_v2.IPAllocationPool(first_ip=p['start'],
-                                                last_ip=p['end'],
+        pools = ((netaddr.IPAddress(p.first, p.version).format(),
+                  netaddr.IPAddress(p.last, p.version).format())
+                 for p in s['allocation_pools'])
+        new_pools = [models_v2.IPAllocationPool(first_ip=p[0],
+                                                last_ip=p[1],
                                                 subnet_id=subnet_id)
-                     for p in s['allocation_pools']]
+                     for p in pools]
         context.session.add_all(new_pools)
         # Call static method with self to redefine in child
         # (non-pluggable backend)
         self._rebuild_availability_ranges(context, [s])
-        # Gather new pools for result:
-        result_pools = [{'start': pool['start'],
-                         'end': pool['end']}
-                        for pool in s['allocation_pools']]
+        # Gather new pools for result
+        result_pools = [{'start': p[0], 'end': p[1]} for p in pools]
         del s['allocation_pools']
         return result_pools
 
-    def _update_db_subnet(self, context, subnet_id, s):
+    def update_db_subnet(self, context, subnet_id, s, oldpools):
         changes = {}
         if "dns_nameservers" in s:
             changes['dns_nameservers'] = (
@@ -166,32 +193,6 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         subnet = self._get_subnet(context, subnet_id)
         subnet.update(s)
         return subnet, changes
-
-    def _allocate_pools_for_subnet(self, context, subnet):
-        """Create IP allocation pools for a given subnet
-
-        Pools are defined by the 'allocation_pools' attribute,
-        a list of dict objects with 'start' and 'end' keys for
-        defining the pool range.
-        """
-        pools = []
-        # Auto allocate the pool around gateway_ip
-        net = netaddr.IPNetwork(subnet['cidr'])
-        first_ip = net.first + 1
-        last_ip = net.last - 1
-        gw_ip = int(netaddr.IPAddress(subnet['gateway_ip'] or net.last))
-        # Use the gw_ip to find a point for splitting allocation pools
-        # for this subnet
-        split_ip = min(max(gw_ip, net.first), net.last)
-        if split_ip > first_ip:
-            pools.append({'start': str(netaddr.IPAddress(first_ip)),
-                          'end': str(netaddr.IPAddress(split_ip - 1))})
-        if split_ip < last_ip:
-            pools.append({'start': str(netaddr.IPAddress(split_ip + 1)),
-                          'end': str(netaddr.IPAddress(last_ip))})
-        # return auto-generated pools
-        # no need to check for their validity
-        return pools
 
     def _validate_subnet_cidr(self, context, network, new_subnet_cidr):
         """Validate the CIDR for a subnet.
@@ -238,7 +239,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         """
         for subnet in network.subnets:
             if (subnet.ip_version == ip_version and
-               new_subnetpool_id != subnet.subnetpool_id):
+                    new_subnetpool_id != subnet.subnetpool_id):
                 raise n_exc.NetworkSubnetPoolAffinityError()
 
     def _validate_allocation_pools(self, ip_pools, subnet_cidr):
@@ -251,43 +252,29 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         """
         subnet = netaddr.IPNetwork(subnet_cidr)
         subnet_first_ip = netaddr.IPAddress(subnet.first + 1)
-        subnet_last_ip = netaddr.IPAddress(subnet.last - 1)
+        # last address is broadcast in v4
+        subnet_last_ip = netaddr.IPAddress(subnet.last - (subnet.version == 4))
 
         LOG.debug("Performing IP validity checks on allocation pools")
         ip_sets = []
         for ip_pool in ip_pools:
-            try:
-                start_ip = netaddr.IPAddress(ip_pool['start'])
-                end_ip = netaddr.IPAddress(ip_pool['end'])
-            except netaddr.AddrFormatError:
-                LOG.info(_LI("Found invalid IP address in pool: "
-                             "%(start)s - %(end)s:"),
-                         {'start': ip_pool['start'],
-                          'end': ip_pool['end']})
-                raise n_exc.InvalidAllocationPool(pool=ip_pool)
+            start_ip = netaddr.IPAddress(ip_pool.first, ip_pool.version)
+            end_ip = netaddr.IPAddress(ip_pool.last, ip_pool.version)
             if (start_ip.version != subnet.version or
                     end_ip.version != subnet.version):
                 LOG.info(_LI("Specified IP addresses do not match "
                              "the subnet IP version"))
                 raise n_exc.InvalidAllocationPool(pool=ip_pool)
-            if end_ip < start_ip:
-                LOG.info(_LI("Start IP (%(start)s) is greater than end IP "
-                             "(%(end)s)"),
-                         {'start': ip_pool['start'], 'end': ip_pool['end']})
-                raise n_exc.InvalidAllocationPool(pool=ip_pool)
             if start_ip < subnet_first_ip or end_ip > subnet_last_ip:
                 LOG.info(_LI("Found pool larger than subnet "
                              "CIDR:%(start)s - %(end)s"),
-                         {'start': ip_pool['start'],
-                          'end': ip_pool['end']})
+                         {'start': start_ip, 'end': end_ip})
                 raise n_exc.OutOfBoundsAllocationPool(
                     pool=ip_pool,
                     subnet_cidr=subnet_cidr)
             # Valid allocation pool
             # Create an IPSet for it for easily verifying overlaps
-            ip_sets.append(netaddr.IPSet(netaddr.IPRange(
-                ip_pool['start'],
-                ip_pool['end']).cidrs()))
+            ip_sets.append(netaddr.IPSet(ip_pool.cidrs()))
 
         LOG.debug("Checking for overlaps among allocation pools "
                   "and gateway ip")
@@ -308,15 +295,67 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                         pool_2=r_range,
                         subnet_cidr=subnet_cidr)
 
-    def _validate_gw_out_of_pools(self, gateway_ip, pools):
-        for allocation_pool in pools:
-            pool_range = netaddr.IPRange(
-                allocation_pool['start'],
-                allocation_pool['end'])
+    def _validate_max_ips_per_port(self, fixed_ip_list):
+        if len(fixed_ip_list) > cfg.CONF.max_fixed_ips_per_port:
+            msg = _('Exceeded maximim amount of fixed ips per port')
+            raise n_exc.InvalidInput(error_message=msg)
+
+    def _get_subnet_for_fixed_ip(self, context, fixed, network_id):
+        if 'subnet_id' in fixed:
+            subnet = self._get_subnet(context, fixed['subnet_id'])
+            if subnet['network_id'] != network_id:
+                msg = (_("Failed to create port on network %(network_id)s"
+                         ", because fixed_ips included invalid subnet "
+                         "%(subnet_id)s") %
+                       {'network_id': network_id,
+                        'subnet_id': fixed['subnet_id']})
+                raise n_exc.InvalidInput(error_message=msg)
+            # Ensure that the IP is valid on the subnet
+            if ('ip_address' in fixed and
+                not ipam_utils.check_subnet_ip(subnet['cidr'],
+                                               fixed['ip_address'])):
+                raise n_exc.InvalidIpForSubnet(ip_address=fixed['ip_address'])
+            return subnet
+
+        if 'ip_address' not in fixed:
+            msg = _('IP allocation requires subnet_id or ip_address')
+            raise n_exc.InvalidInput(error_message=msg)
+
+        filter = {'network_id': [network_id]}
+        subnets = self._get_subnets(context, filters=filter)
+
+        for subnet in subnets:
+            if ipam_utils.check_subnet_ip(subnet['cidr'],
+                                          fixed['ip_address']):
+                return subnet
+        raise n_exc.InvalidIpForNetwork(ip_address=fixed['ip_address'])
+
+    def _prepare_allocation_pools(self, allocation_pools, cidr, gateway_ip):
+        """Returns allocation pools represented as list of IPRanges"""
+        if not attributes.is_attr_set(allocation_pools):
+            return ipam_utils.generate_pools(cidr, gateway_ip)
+
+        ip_range_pools = self.pools_to_ip_range(allocation_pools)
+        self._validate_allocation_pools(ip_range_pools, cidr)
+        if gateway_ip:
+            self.validate_gw_out_of_pools(gateway_ip, ip_range_pools)
+        return ip_range_pools
+
+    def validate_gw_out_of_pools(self, gateway_ip, pools):
+        for pool_range in pools:
             if netaddr.IPAddress(gateway_ip) in pool_range:
                 raise n_exc.GatewayConflictWithAllocationPools(
                     pool=pool_range,
                     ip_address=gateway_ip)
+
+    def _is_ip_required_by_subnet(self, context, subnet_id, device_owner):
+        # For ports that are not router ports, retain any automatic
+        # (non-optional, e.g. IPv6 SLAAC) addresses.
+        if device_owner in constants.ROUTER_INTERFACE_OWNERS:
+            return True
+
+        subnet = self._get_subnet(context, subnet_id)
+        return not ipv6_utils.is_auto_address_subnet(subnet)
 
     def _get_changed_ips_for_port(self, context, original_ips,
                                   new_ips, device_owner):
@@ -326,32 +365,46 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
             msg = _('Exceeded maximum amount of fixed ips per port')
             raise n_exc.InvalidInput(error_message=msg)
 
-        # These ips are still on the port and haven't been removed
-        prev_ips = []
+        add_ips = []
+        remove_ips = []
+        ips_map = {ip['ip_address']: ip
+                   for ip in itertools.chain(new_ips, original_ips)
+                   if 'ip_address' in ip}
 
-        # Remove all of the intersecting elements
-        for original_ip in original_ips[:]:
-            for new_ip in new_ips[:]:
-                if ('ip_address' in new_ip and
-                    original_ip['ip_address'] == new_ip['ip_address']):
-                    original_ips.remove(original_ip)
-                    new_ips.remove(new_ip)
-                    prev_ips.append(original_ip)
-                    break
+        new = set()
+        for ip in new_ips:
+            if 'ip_address' in ip:
+                new.add(ip['ip_address'])
             else:
-                # For ports that are not router ports, retain any automatic
-                # (non-optional, e.g. IPv6 SLAAC) addresses.
-                if device_owner not in constants.ROUTER_INTERFACE_OWNERS:
-                    subnet = self._get_subnet(context,
-                                              original_ip['subnet_id'])
-                    if (ipv6_utils.is_auto_address_subnet(subnet)):
-                        original_ips.remove(original_ip)
-                        prev_ips.append(original_ip)
-        return self.Changes(add=new_ips,
-                            original=prev_ips,
-                            remove=original_ips)
+                add_ips.append(ip)
 
-    def _delete_port(self, context, port_id):
+        # Convert original ip addresses to sets
+        orig = set(ip['ip_address'] for ip in original_ips)
+
+        add = new - orig
+        unchanged = new & orig
+        remove = orig - new
+
+        # Convert results back to list of dicts
+        add_ips += [ips_map[ip] for ip in add]
+        prev_ips = [ips_map[ip] for ip in unchanged]
+
+        # Mark ip for removing if it is not found in new_ips
+        # and subnet requires ip to be set manually.
+        # For auto addresses leave ip unchanged
+        for ip in remove:
+            subnet_id = ips_map[ip]['subnet_id']
+            if self._is_ip_required_by_subnet(context, subnet_id,
+                                              device_owner):
+                remove_ips.append(ips_map[ip])
+            else:
+                prev_ips.append(ips_map[ip])
+
+        return self.Changes(add=add_ips,
+                            original=prev_ips,
+                            remove=remove_ips)
+
+    def delete_port(self, context, port_id):
         query = (context.session.query(models_v2.Port).
                  enable_eagerloads(False).filter_by(id=port_id))
         if not context.is_admin:
@@ -363,18 +416,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                      subnet_args,
                      dns_nameservers,
                      host_routes,
-                     allocation_pools):
-
-        if not attributes.is_attr_set(allocation_pools):
-            allocation_pools = self._allocate_pools_for_subnet(context,
-                                                               subnet_args)
-        else:
-            self._validate_allocation_pools(allocation_pools,
-                                            subnet_args['cidr'])
-            if subnet_args['gateway_ip']:
-                self._validate_gw_out_of_pools(subnet_args['gateway_ip'],
-                                               allocation_pools)
-
+                     subnet_request):
         self._validate_subnet_cidr(context, network, subnet_args['cidr'])
         self._validate_network_subnetpools(network,
                                            subnet_args['subnetpool_id'],
@@ -396,6 +438,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                     nexthop=rt['nexthop'])
                 context.session.add(route)
 
-        self._save_allocation_pools(context, subnet, allocation_pools)
+        self.save_allocation_pools(context, subnet,
+                                   subnet_request.allocation_pools)
 
         return subnet

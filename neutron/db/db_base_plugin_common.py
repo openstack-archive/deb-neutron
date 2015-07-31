@@ -13,7 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import netaddr
+import functools
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -25,7 +25,6 @@ from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.db import common_db_mixin
 from neutron.db import models_v2
-from neutron.ipam import utils as ipam_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -75,15 +74,7 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
         )
         context.session.add(allocated)
 
-    @classmethod
-    def _check_gateway_in_subnet(cls, cidr, gateway):
-        """Validate that the gateway is on the subnet."""
-        ip = netaddr.IPAddress(gateway)
-        if ip.version == 4 or (ip.version == 6 and not ip.is_link_local()):
-            return ipam_utils.check_subnet_ip(cidr, gateway)
-        return True
-
-    def _make_subnet_dict(self, subnet, fields=None):
+    def _make_subnet_dict(self, subnet, fields=None, context=None):
         res = {'id': subnet['id'],
                'name': subnet['name'],
                'tenant_id': subnet['tenant_id'],
@@ -103,8 +94,10 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                'host_routes': [{'destination': route['destination'],
                                 'nexthop': route['nexthop']}
                                for route in subnet['routes']],
-               'shared': subnet['shared']
                }
+        # The shared attribute for a subnet is the same as its parent network
+        res['shared'] = self._make_network_dict(subnet.networks,
+                                                context=context)['shared']
         # Call auxiliary extend functions, if any
         self._apply_dict_extend_functions(attributes.SUBNETS, res, subnet)
         return self._fields(res, fields)
@@ -207,8 +200,10 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                      sorts=None, limit=None, marker=None,
                      page_reverse=False):
         marker_obj = self._get_marker_obj(context, 'subnet', limit, marker)
+        make_subnet_dict = functools.partial(self._make_subnet_dict,
+                                             context=context)
         return self._get_collection(context, models_v2.Subnet,
-                                    self._make_subnet_dict,
+                                    make_subnet_dict,
                                     filters=filters, fields=fields,
                                     sorts=sorts,
                                     limit=limit,
@@ -216,16 +211,25 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                                     page_reverse=page_reverse)
 
     def _make_network_dict(self, network, fields=None,
-                           process_extensions=True):
+                           process_extensions=True, context=None):
         res = {'id': network['id'],
                'name': network['name'],
                'tenant_id': network['tenant_id'],
                'admin_state_up': network['admin_state_up'],
                'mtu': network.get('mtu', constants.DEFAULT_NETWORK_MTU),
                'status': network['status'],
-               'shared': network['shared'],
                'subnets': [subnet['id']
                            for subnet in network['subnets']]}
+        # The shared attribute for a network now reflects if the network
+        # is shared to the calling tenant via an RBAC entry.
+        shared = False
+        matches = ('*',) + ((context.tenant_id,) if context else ())
+        for entry in network.rbac_entries:
+            if (entry.action == 'access_as_shared' and
+                    entry.target_tenant in matches):
+                shared = True
+                break
+        res['shared'] = shared
         # TODO(pritesh): Move vlan_transparent to the extension module.
         # vlan_transparent here is only added if the vlantransparent
         # extension is enabled.
@@ -238,8 +242,8 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                 attributes.NETWORKS, res, network)
         return self._fields(res, fields)
 
-    def _make_subnet_args(self, context, shared, detail,
-                          subnet, subnetpool_id=None):
+    def _make_subnet_args(self, detail, subnet, subnetpool_id):
+        gateway_ip = str(detail.gateway_ip) if detail.gateway_ip else None
         args = {'tenant_id': detail.tenant_id,
                 'id': detail.subnet_id,
                 'name': subnet['name'],
@@ -248,8 +252,7 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                 'cidr': str(detail.subnet_cidr),
                 'subnetpool_id': subnetpool_id,
                 'enable_dhcp': subnet['enable_dhcp'],
-                'gateway_ip': self._gateway_ip_str(subnet, detail.subnet_cidr),
-                'shared': shared}
+                'gateway_ip': gateway_ip}
         if subnet['ip_version'] == 6 and subnet['enable_dhcp']:
             if attributes.is_attr_set(subnet['ipv6_ra_mode']):
                 args['ipv6_ra_mode'] = subnet['ipv6_ra_mode']
@@ -262,8 +265,3 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
         return [{'subnet_id': ip["subnet_id"],
                  'ip_address': ip["ip_address"]}
                 for ip in ips]
-
-    def _gateway_ip_str(self, subnet, cidr_net):
-        if subnet.get('gateway_ip') is attributes.ATTR_NOT_SPECIFIED:
-                return str(cidr_net.network + 1)
-        return subnet.get('gateway_ip')
