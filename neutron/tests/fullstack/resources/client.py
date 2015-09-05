@@ -12,10 +12,22 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
+import functools
 
 import fixtures
+from neutronclient.common import exceptions
 
 from neutron.tests import base
+
+
+def _safe_method(f):
+    @functools.wraps(f)
+    def delete(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except exceptions.NotFound:
+            pass
+    return delete
 
 
 class ClientFixture(fixtures.Fixture):
@@ -32,14 +44,14 @@ class ClientFixture(fixtures.Fixture):
         body = {resource_type: spec}
         resp = create(body=body)
         data = resp[resource_type]
-        self.addCleanup(delete, data['id'])
+        self.addCleanup(_safe_method(delete), data['id'])
         return data
 
-    def create_router(self, tenant_id, name=None):
+    def create_router(self, tenant_id, name=None, ha=False):
         resource_type = 'router'
 
         name = name or base.get_rand_name(prefix=resource_type)
-        spec = {'tenant_id': tenant_id, 'name': name}
+        spec = {'tenant_id': tenant_id, 'name': name, 'ha': ha}
 
         return self._create_resource(resource_type, spec)
 
@@ -65,8 +77,15 @@ class ClientFixture(fixtures.Fixture):
 
         return self._create_resource(resource_type, spec)
 
+    def create_port(self, tenant_id, network_id, hostname):
+        return self._create_resource(
+            'port',
+            {'network_id': network_id,
+             'tenant_id': tenant_id,
+             'binding:host_id': hostname})
+
     def add_router_interface(self, router_id, subnet_id):
         body = {'subnet_id': subnet_id}
         self.client.add_interface_router(router=router_id, body=body)
-        self.addCleanup(self.client.remove_interface_router,
+        self.addCleanup(_safe_method(self.client.remove_interface_router),
                         router=router_id, body=body)

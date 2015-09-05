@@ -26,11 +26,13 @@ import time
 import eventlet
 eventlet.monkey_patch()
 
+import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import loopingcall
 from oslo_service import service
+from oslo_utils import excutils
 from six import moves
 
 from neutron.agent.linux import bridge_lib
@@ -77,6 +79,7 @@ class NetworkSegment(object):
 class LinuxBridgeManager(object):
     def __init__(self, interface_mappings):
         self.interface_mappings = interface_mappings
+        self.validate_interface_mappings()
         self.ip = ip_lib.IPWrapper()
         # VXLAN related parameters:
         self.local_ip = cfg.CONF.VXLAN.local_ip
@@ -92,6 +95,14 @@ class LinuxBridgeManager(object):
                                 'must be provided'))
         # Store network mapping to segments
         self.network_map = {}
+
+    def validate_interface_mappings(self):
+        for physnet, interface in self.interface_mappings.items():
+            if not ip_lib.device_exists(interface):
+                LOG.error(_LE("Interface %(intf)s for physical network %(net)s"
+                              " does not exist. Agent terminated!"),
+                          {'intf': interface, 'net': physnet})
+                sys.exit(1)
 
     def interface_exists_on_bridge(self, bridge, interface):
         directory = '/sys/class/net/%s/brif' % bridge
@@ -127,6 +138,21 @@ class LinuxBridgeManager(object):
         else:
             LOG.warning(_LW("Invalid Segmentation ID: %s, will lead to "
                             "incorrect vxlan device name"), segmentation_id)
+
+    def get_vxlan_group(self, segmentation_id):
+        try:
+            # Ensure the configured group address/range is valid and multicast
+            net = netaddr.IPNetwork(cfg.CONF.VXLAN.vxlan_group)
+            if not net.is_multicast():
+                raise ValueError()
+            # Map the segmentation ID to (one of) the group address(es)
+            return str(net.network +
+                       (int(segmentation_id) & int(net.hostmask)))
+        except (netaddr.core.AddrFormatError, ValueError):
+            LOG.warning(_LW("Invalid VXLAN Group: %s, must be an address "
+                            "or network (in CIDR notation) in a multicast "
+                            "range"),
+                        cfg.CONF.VXLAN.vxlan_group)
 
     def get_all_neutron_bridges(self):
         neutron_bridge_list = []
@@ -241,14 +267,26 @@ class LinuxBridgeManager(object):
                        'segmentation_id': segmentation_id})
             args = {'dev': self.local_int}
             if self.vxlan_mode == lconst.VXLAN_MCAST:
-                args['group'] = cfg.CONF.VXLAN.vxlan_group
+                args['group'] = self.get_vxlan_group(segmentation_id)
             if cfg.CONF.VXLAN.ttl:
                 args['ttl'] = cfg.CONF.VXLAN.ttl
             if cfg.CONF.VXLAN.tos:
                 args['tos'] = cfg.CONF.VXLAN.tos
             if cfg.CONF.VXLAN.l2_population:
                 args['proxy'] = True
-            int_vxlan = self.ip.add_vxlan(interface, segmentation_id, **args)
+            try:
+                int_vxlan = self.ip.add_vxlan(interface, segmentation_id,
+                                              **args)
+            except RuntimeError:
+                with excutils.save_and_reraise_exception() as ctxt:
+                    # perform this check after an attempt rather than before
+                    # to avoid excessive lookups and a possible race condition.
+                    if ip_lib.vxlan_in_use(segmentation_id):
+                        ctxt.reraise = False
+                        LOG.error(_LE("Unable to create VXLAN interface for "
+                                      "VNI %s because it is in use by another "
+                                      "interface."), segmentation_id)
+                        return None
             int_vxlan.link.set_up()
             LOG.debug("Done creating vxlan interface %s", interface)
         return interface
@@ -421,28 +459,27 @@ class LinuxBridgeManager(object):
                                       physical_network, segmentation_id,
                                       tap_device_name)
 
-    def delete_vlan_bridge(self, bridge_name):
+    def delete_bridge(self, bridge_name):
         if ip_lib.device_exists(bridge_name):
+            physical_interfaces = set(self.interface_mappings.values())
             interfaces_on_bridge = self.get_interfaces_on_bridge(bridge_name)
             for interface in interfaces_on_bridge:
                 self.remove_interface(bridge_name, interface)
 
                 if interface.startswith(VXLAN_INTERFACE_PREFIX):
-                    self.delete_vxlan(interface)
-                    continue
-
-                for physical_interface in self.interface_mappings.values():
-                    if (interface.startswith(physical_interface)):
-                        ips, gateway = self.get_interface_details(bridge_name)
-                        if ips:
-                            # This is a flat network or a VLAN interface that
-                            # was setup outside of neutron => return IP's from
-                            # bridge to interface
-                            self.update_interface_ip_details(interface,
-                                                             bridge_name,
-                                                             ips, gateway)
-                        elif physical_interface != interface:
-                            self.delete_vlan(interface)
+                    self.delete_interface(interface)
+                else:
+                    # Match the vlan/flat interface in the bridge.
+                    # If the bridge has an IP, it mean that this IP was moved
+                    # from the current interface, which also mean that this
+                    # interface was not created by the agent.
+                    ips, gateway = self.get_interface_details(bridge_name)
+                    if ips:
+                        self.update_interface_ip_details(interface,
+                                                         bridge_name,
+                                                         ips, gateway)
+                    elif interface not in physical_interfaces:
+                        self.delete_interface(interface)
 
             LOG.debug("Deleting bridge %s", bridge_name)
             bridge_device = bridge_lib.BridgeDevice(bridge_name)
@@ -460,7 +497,7 @@ class LinuxBridgeManager(object):
         for network_id in list(self.network_map.keys()):
             bridge_name = self.get_bridge_name(network_id)
             if not self.get_tap_devices_count(bridge_name):
-                self.delete_vlan_bridge(bridge_name)
+                self.delete_bridge(bridge_name)
                 del self.network_map[network_id]
 
     def remove_interface(self, bridge_name, interface_name):
@@ -485,25 +522,14 @@ class LinuxBridgeManager(object):
                        'bridge_name': bridge_name})
             return False
 
-    def delete_vlan(self, interface):
+    def delete_interface(self, interface):
         if ip_lib.device_exists(interface):
-            LOG.debug("Deleting subinterface %s for vlan", interface)
-            if utils.execute(['ip', 'link', 'set', interface, 'down'],
-                             run_as_root=True):
-                return
-            if utils.execute(['ip', 'link', 'delete', interface],
-                             run_as_root=True):
-                return
-            LOG.debug("Done deleting subinterface %s", interface)
-
-    def delete_vxlan(self, interface):
-        if ip_lib.device_exists(interface):
-            LOG.debug("Deleting vxlan interface %s for vlan",
+            LOG.debug("Deleting interface %s",
                       interface)
-            int_vxlan = self.ip.device(interface)
-            int_vxlan.link.set_down()
-            int_vxlan.link.delete()
-            LOG.debug("Done deleting vxlan interface %s", interface)
+            device = self.ip.device(interface)
+            device.link.set_down()
+            device.link.delete()
+            LOG.debug("Done deleting interface %s", interface)
 
     def get_tap_devices(self):
         devices = set()
@@ -526,10 +552,11 @@ class LinuxBridgeManager(object):
 
         test_iface = None
         for seg_id in moves.range(1, p_const.MAX_VXLAN_VNI + 1):
-            if not ip_lib.device_exists(
-                    self.get_vxlan_device_name(seg_id)):
-                test_iface = self.ensure_vxlan(seg_id)
-                break
+            if (ip_lib.device_exists(self.get_vxlan_device_name(seg_id))
+                    or ip_lib.vxlan_in_use(seg_id)):
+                continue
+            test_iface = self.ensure_vxlan(seg_id)
+            break
         else:
             LOG.error(_LE('No valid Segmentation ID to perform UCAST test.'))
             return False
@@ -543,11 +570,11 @@ class LinuxBridgeManager(object):
         except RuntimeError:
             return False
         finally:
-            self.delete_vxlan(test_iface)
+            self.delete_interface(test_iface)
 
     def vxlan_mcast_supported(self):
         if not cfg.CONF.VXLAN.vxlan_group:
-            LOG.warning(_LW('VXLAN muticast group must be provided in '
+            LOG.warning(_LW('VXLAN muticast group(s) must be provided in '
                             'vxlan_group option to enable VXLAN MCAST mode'))
             return False
         if not ip_lib.iproute_arg_supported(
@@ -653,7 +680,7 @@ class LinuxBridgeRpcCallbacks(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         network_id = kwargs.get('network_id')
         bridge_name = self.agent.br_mgr.get_bridge_name(network_id)
         LOG.debug("Delete %s", bridge_name)
-        self.agent.br_mgr.delete_vlan_bridge(bridge_name)
+        self.agent.br_mgr.delete_bridge(bridge_name)
 
     def port_update(self, context, **kwargs):
         port_id = kwargs['port']['id']
@@ -895,13 +922,7 @@ class LinuxBridgeNeutronAgentRPC(service.Service):
                 if device_details['admin_state_up']:
                     # create the networking for the port
                     network_type = device_details.get('network_type')
-                    if network_type:
-                        segmentation_id = device_details.get('segmentation_id')
-                    else:
-                        # compatibility with pre-Havana RPC vlan_id encoding
-                        vlan_id = device_details.get('vlan_id')
-                        (network_type,
-                         segmentation_id) = lconst.interpret_vlan_id(vlan_id)
+                    segmentation_id = device_details.get('segmentation_id')
                     if self.br_mgr.add_interface(
                         device_details['network_id'],
                         network_type,

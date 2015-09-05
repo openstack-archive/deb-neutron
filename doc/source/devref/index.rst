@@ -15,6 +15,15 @@
       License for the specific language governing permissions and limitations
       under the License.
 
+      Convention for heading levels in Neutron devref:
+      =======  Heading 0 (reserved for the title in a document)
+      -------  Heading 1
+      ~~~~~~~  Heading 2
+      +++++++  Heading 3
+      '''''''  Heading 4
+      (Avoid deeper levels because they do not render well.)
+
+
 Developer Guide
 ===============
 
@@ -34,7 +43,9 @@ Programming HowTos and Tutorials
     contribute
     neutron_api
     sub_projects
+    sub_project_guidelines
     client_command_extensions
+    alembic_migrations
 
 
 Neutron Internals
@@ -44,15 +55,19 @@ Neutron Internals
 
    services_and_agents
    api_layer
+   quota
    api_extensions
    plugin-api
    db_layer
    rpc_api
+   rpc_callbacks
    layer3
    l2_agents
+   quality_of_service
    advanced_services
    oslo-incubator
    callbacks
+   dns_order
 
 Testing
 -------
@@ -60,6 +75,8 @@ Testing
    :maxdepth: 3
 
    fullstack_testing
+   testing_coverage
+   template_model_sync_test
 
 Module Reference
 ----------------

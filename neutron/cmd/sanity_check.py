@@ -26,17 +26,21 @@ from neutron.i18n import _LE, _LW
 
 
 LOG = logging.getLogger(__name__)
-cfg.CONF.import_group('AGENT', 'neutron.plugins.ml2.drivers.openvswitch.'
-                      'agent.common.config')
-cfg.CONF.import_group('OVS', 'neutron.plugins.ml2.drivers.openvswitch.'
-                      'agent.common.config')
-cfg.CONF.import_group('VXLAN', 'neutron.plugins.ml2.drivers.linuxbridge.'
-                      'agent.common.config')
-cfg.CONF.import_group('ml2', 'neutron.plugins.ml2.config')
-cfg.CONF.import_group('ml2_sriov',
-                      'neutron.plugins.ml2.drivers.mech_sriov.mech_driver')
-dhcp_agent.register_options()
-cfg.CONF.register_opts(l3_hamode_db.L3_HA_OPTS)
+
+
+def setup_conf():
+    cfg.CONF.import_group('AGENT', 'neutron.plugins.ml2.drivers.openvswitch.'
+                          'agent.common.config')
+    cfg.CONF.import_group('OVS', 'neutron.plugins.ml2.drivers.openvswitch.'
+                          'agent.common.config')
+    cfg.CONF.import_group('VXLAN', 'neutron.plugins.ml2.drivers.linuxbridge.'
+                          'agent.common.config')
+    cfg.CONF.import_group('ml2', 'neutron.plugins.ml2.config')
+    cfg.CONF.import_group('ml2_sriov',
+                          'neutron.plugins.ml2.drivers.mech_sriov.mech_driver.'
+                          'mech_driver')
+    dhcp_agent.register_options()
+    cfg.CONF.register_opts(l3_hamode_db.L3_HA_OPTS)
 
 
 class BoolOptCallback(cfg.BoolOpt):
@@ -53,6 +57,15 @@ def check_ovs_vxlan():
         LOG.error(_LE('Check for Open vSwitch VXLAN support failed. '
                       'Please ensure that the version of openvswitch '
                       'being used has VXLAN support.'))
+    return result
+
+
+def check_ovs_geneve():
+    result = checks.ovs_geneve_supported()
+    if not result:
+        LOG.error(_LE('Check for Open vSwitch Geneve support failed. '
+                      'Please ensure that the version of openvswitch '
+                      'and kernel being used has Geneve support.'))
     return result
 
 
@@ -116,6 +129,15 @@ def check_keepalived_ipv6_support():
     return result
 
 
+def check_dibbler_version():
+    result = checks.dibbler_version_supported()
+    if not result:
+        LOG.error(_LE('The installed version of dibbler-client is too old. '
+                      'Please update to at least version %s.'),
+                  checks.get_minimal_dibbler_version_supported())
+    return result
+
+
 def check_nova_notify():
     result = checks.nova_notify_supported()
     if not result:
@@ -172,6 +194,8 @@ def check_ebtables():
 OPTS = [
     BoolOptCallback('ovs_vxlan', check_ovs_vxlan, default=False,
                     help=_('Check for OVS vxlan support')),
+    BoolOptCallback('ovs_geneve', check_ovs_geneve, default=False,
+                    help=_('Check for OVS Geneve support')),
     BoolOptCallback('iproute2_vxlan', check_iproute2_vxlan, default=False,
                     help=_('Check for iproute2 vxlan support')),
     BoolOptCallback('ovs_patch', check_ovs_patch, default=False,
@@ -194,6 +218,8 @@ OPTS = [
                     help=_('Check ebtables installation')),
     BoolOptCallback('keepalived_ipv6_support', check_keepalived_ipv6_support,
                     help=_('Check keepalived IPv6 support')),
+    BoolOptCallback('dibbler_version', check_dibbler_version,
+                    help=_('Check minimal dibbler version')),
 ]
 
 
@@ -205,6 +231,8 @@ def enable_tests_from_config():
 
     if 'vxlan' in cfg.CONF.AGENT.tunnel_types:
         cfg.CONF.set_override('ovs_vxlan', True)
+    if 'geneve' in cfg.CONF.AGENT.tunnel_types:
+        cfg.CONF.set_override('ovs_geneve', True)
     if ('vxlan' in cfg.CONF.ml2.type_drivers or
             cfg.CONF.VXLAN.enable_vxlan):
         cfg.CONF.set_override('iproute2_vxlan', True)
@@ -236,6 +264,7 @@ def all_tests_passed():
 
 
 def main():
+    setup_conf()
     cfg.CONF.register_cli_opts(OPTS)
     cfg.CONF.set_override('use_stderr', True)
     config.setup_logging()

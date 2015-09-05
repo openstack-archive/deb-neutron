@@ -26,7 +26,7 @@ from neutron.api.v2 import base
 from neutron.common import constants as const
 from neutron.common import exceptions as nexception
 from neutron import manager
-from neutron import quota
+from neutron.quota import resource_registry
 
 
 # Security group Exceptions
@@ -217,6 +217,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'is_visible': True, 'default': ''},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'is_visible': True},
         'security_group_rules': {'allow_post': False, 'allow_put': False,
                                  'is_visible': True},
@@ -251,6 +252,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                              'convert_to': convert_ip_prefix_to_cidr},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'is_visible': True},
     }
 }
@@ -305,7 +307,7 @@ class Securitygroup(extensions.ExtensionDescriptor):
         for resource_name in ['security_group', 'security_group_rule']:
             collection_name = resource_name.replace('_', '-') + "s"
             params = RESOURCE_ATTRIBUTE_MAP.get(resource_name + "s", dict())
-            quota.QUOTAS.register_resource_by_name(resource_name)
+            resource_registry.register_resource_by_name(resource_name)
             controller = base.create_resource(collection_name,
                                               resource_name,
                                               plugin, params, allow_bulk=True,

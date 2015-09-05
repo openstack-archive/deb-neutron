@@ -122,7 +122,7 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
         self.periodic_agent_loop = loopingcall.FixedIntervalLoopingCall(
             function)
         # TODO(enikanorov): make interval configurable rather than computed
-        interval = max(cfg.CONF.agent_down_time / 2, 1)
+        interval = max(cfg.CONF.agent_down_time // 2, 1)
         # add random initial delay to allow agents to check in after the
         # neutron server first starts. random to offset multiple servers
         initial_delay = random.randint(interval, interval * 2)
@@ -273,10 +273,11 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
         try:
             dead_bindings = [b for b in
                              self._filter_bindings(context, down_bindings)]
-            dead_agents = set([b.dhcp_agent_id for b in dead_bindings])
             agents = self.get_agents_db(
                 context, {'agent_type': [constants.AGENT_TYPE_DHCP]})
-            if len(agents) == len(dead_agents):
+            active_agents = [agent for agent in agents if
+                             self.is_eligible_agent(context, True, agent)]
+            if not active_agents:
                 LOG.warn(_LW("No DHCP agents available, "
                              "skipping rescheduling"))
                 return

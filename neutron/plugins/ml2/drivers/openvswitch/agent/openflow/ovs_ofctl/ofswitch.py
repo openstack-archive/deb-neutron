@@ -14,6 +14,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import re
+
+from oslo_log import log as logging
+
+from neutron.i18n import _LW
+
+LOG = logging.getLogger(__name__)
+
 # Field name mappings (from Ryu to ovs-ofctl)
 _keywords = {
     'eth_src': 'dl_src',
@@ -36,6 +44,9 @@ class OpenFlowSwitchMixin(object):
 
     def dump_flows(self, table_id):
         return self.dump_flows_for_table(table_id)
+
+    def dump_flows_all_tables(self):
+        return self.dump_all_flows()
 
     def install_goto_next(self, table_id):
         self.install_goto(table_id=table_id, dest_table_id=table_id + 1)
@@ -72,3 +83,28 @@ class OpenFlowSwitchMixin(object):
                 **self._conv_args(kwargs))
         else:
             super(OpenFlowSwitchMixin, self).remove_all_flows()
+
+    def _filter_flows(self, flows):
+        LOG.debug("Agent uuid stamp used to filter flows: %s",
+                  self.agent_uuid_stamp)
+        cookie_re = re.compile('cookie=(0x[A-Fa-f0-9]*)')
+        table_re = re.compile('table=([0-9]*)')
+        for flow in flows:
+            fl_cookie = cookie_re.search(flow)
+            if not fl_cookie:
+                continue
+            fl_cookie = fl_cookie.group(1)
+            if int(fl_cookie, 16) != self.agent_uuid_stamp:
+                fl_table = table_re.search(flow)
+                if not fl_table:
+                    continue
+                fl_table = fl_table.group(1)
+                yield flow, fl_cookie, fl_table
+
+    def cleanup_flows(self):
+        flows = self.dump_flows_all_tables()
+        for flow, cookie, table in self._filter_flows(flows):
+            # deleting a stale flow should be rare.
+            # it might deserve some attention
+            LOG.warning(_LW("Deleting flow %s"), flow)
+            self.delete_flows(cookie=cookie + '/-1', table=table)

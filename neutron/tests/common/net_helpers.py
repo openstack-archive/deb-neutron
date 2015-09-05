@@ -14,6 +14,8 @@
 #
 
 import abc
+from concurrent import futures
+import contextlib
 import functools
 import os
 import random
@@ -25,15 +27,18 @@ import subprocess
 
 import fixtures
 import netaddr
+from oslo_config import cfg
 from oslo_utils import uuidutils
 import six
 
 from neutron.agent.common import config
 from neutron.agent.common import ovs_lib
 from neutron.agent.linux import bridge_lib
+from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import constants as n_const
+from neutron.db import db_base_plugin_common
 from neutron.tests import base as tests_base
 from neutron.tests.common import base as common_base
 from neutron.tests import tools
@@ -43,6 +48,7 @@ BR_PREFIX = 'test-br'
 PORT_PREFIX = 'test-port'
 VETH0_PREFIX = 'test-veth0'
 VETH1_PREFIX = 'test-veth1'
+PATCH_PREFIX = 'patch'
 
 SS_SOURCE_PORT_PATTERN = re.compile(
     r'^.*\s+\d+\s+.*:(?P<port>\d+)\s+[0-9:].*')
@@ -55,11 +61,6 @@ CHILD_PROCESS_SLEEP = os.environ.get('OS_TEST_CHILD_PROCESS_SLEEP', 0.5)
 TRANSPORT_PROTOCOLS = (n_const.PROTO_NAME_TCP, n_const.PROTO_NAME_UDP)
 
 
-def get_rand_port_name():
-    return tests_base.get_rand_name(max_length=n_const.DEVICE_NAME_MAX_LEN,
-                                    prefix=PORT_PREFIX)
-
-
 def increment_ip_cidr(ip_cidr, offset=1):
     """Increment ip_cidr offset times.
 
@@ -68,7 +69,7 @@ def increment_ip_cidr(ip_cidr, offset=1):
     net0 = netaddr.IPNetwork(ip_cidr)
     net = netaddr.IPNetwork(ip_cidr)
     net.value += offset
-    if not net0.network < net.ip < net0.broadcast:
+    if not net0.network < net.ip < net0[-1]:
         tools.fail(
             'Incorrect ip_cidr,offset tuple (%s,%s): "incremented" ip_cidr is '
             'outside ip_cidr' % (ip_cidr, offset))
@@ -88,6 +89,17 @@ def assert_ping(src_namespace, dst_ip, timeout=1, count=1):
     ns_ip_wrapper = ip_lib.IPWrapper(src_namespace)
     ns_ip_wrapper.netns.execute([ping_command, '-c', count, '-W', timeout,
                                  dst_ip])
+
+
+@contextlib.contextmanager
+def async_ping(namespace, ips):
+    with futures.ThreadPoolExecutor(max_workers=len(ips)) as executor:
+        fs = [executor.submit(assert_ping, namespace, ip, count=10)
+              for ip in ips]
+        yield lambda: all(f.done() for f in fs)
+        futures.wait(fs)
+        for f in fs:
+            f.result()
 
 
 def assert_no_ping(src_namespace, dst_ip, timeout=1, count=1):
@@ -163,6 +175,27 @@ def get_free_namespace_port(protocol, namespace=None):
     used_ports = _get_source_ports_from_ss_output(output)
 
     return get_unused_port(used_ports)
+
+
+def create_patch_ports(source, destination):
+    """Hook up two OVS bridges.
+
+    The result is two patch ports, each end connected to a bridge.
+    The two patch port names will start with 'patch-', followed by identical
+    four characters. For example patch-xyzw-fedora, and patch-xyzw-ubuntu,
+    where fedora and ubuntu are random strings.
+
+    :param source: Instance of OVSBridge
+    :param destination: Instance of OVSBridge
+    """
+    common = tests_base.get_rand_name(max_length=4, prefix='')
+    prefix = '%s-%s-' % (PATCH_PREFIX, common)
+
+    source_name = tests_base.get_rand_device_name(prefix=prefix)
+    destination_name = tests_base.get_rand_device_name(prefix=prefix)
+
+    source.add_patch_port(source_name, destination_name)
+    destination.add_patch_port(destination_name, source_name)
 
 
 class RootHelperProcess(subprocess.Popen):
@@ -403,10 +436,13 @@ class PortFixture(fixtures.Fixture):
     :ivar bridge: port bridge
     """
 
-    def __init__(self, bridge=None, namespace=None):
+    def __init__(self, bridge=None, namespace=None, mac=None, port_id=None):
         super(PortFixture, self).__init__()
         self.bridge = bridge
         self.namespace = namespace
+        self.mac = (
+            mac or db_base_plugin_common.DbBasePluginCommon._generate_mac())
+        self.port_id = port_id or uuidutils.generate_uuid()
 
     @abc.abstractmethod
     def _create_bridge_fixture(self):
@@ -419,10 +455,10 @@ class PortFixture(fixtures.Fixture):
             self.bridge = self.useFixture(self._create_bridge_fixture()).bridge
 
     @classmethod
-    def get(cls, bridge, namespace=None):
+    def get(cls, bridge, namespace=None, mac=None, port_id=None):
         """Deduce PortFixture class from bridge type and instantiate it."""
         if isinstance(bridge, ovs_lib.OVSBridge):
-            return OVSPortFixture(bridge, namespace)
+            return OVSPortFixture(bridge, namespace, mac, port_id)
         if isinstance(bridge, bridge_lib.BridgeDevice):
             return LinuxBridgePortFixture(bridge, namespace)
         if isinstance(bridge, VethBridge):
@@ -451,30 +487,26 @@ class OVSBridgeFixture(fixtures.Fixture):
 
 class OVSPortFixture(PortFixture):
 
-    def __init__(self, bridge=None, namespace=None, attrs=None):
-        super(OVSPortFixture, self).__init__(bridge, namespace)
-        if attrs is None:
-            attrs = []
-        self.attrs = attrs
-
     def _create_bridge_fixture(self):
         return OVSBridgeFixture()
 
     def _setUp(self):
         super(OVSPortFixture, self)._setUp()
 
-        port_name = common_base.create_resource(PORT_PREFIX, self.create_port)
+        interface_config = cfg.ConfigOpts()
+        interface_config.register_opts(interface.OPTS)
+        ovs_interface = interface.OVSInterfaceDriver(interface_config)
+
+        port_name = tests_base.get_rand_device_name(PORT_PREFIX)
+        ovs_interface.plug_new(
+            None,
+            self.port_id,
+            port_name,
+            self.mac,
+            bridge=self.bridge.br_name,
+            namespace=self.namespace)
         self.addCleanup(self.bridge.delete_port, port_name)
-        self.port = ip_lib.IPDevice(port_name)
-
-        ns_ip_wrapper = ip_lib.IPWrapper(self.namespace)
-        ns_ip_wrapper.add_device_to_namespace(self.port)
-        self.port.link.set_up()
-
-    def create_port(self, name):
-        self.attrs.insert(0, ('type', 'internal'))
-        self.bridge.add_port(name, *self.attrs)
-        return name
+        self.port = ip_lib.IPDevice(port_name, self.namespace)
 
 
 class LinuxBridgeFixture(fixtures.Fixture):

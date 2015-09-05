@@ -37,6 +37,7 @@ from neutron import context
 from neutron import manager
 from neutron import policy
 from neutron import quota
+from neutron.quota import resource_registry
 from neutron.tests import base
 from neutron.tests import fake_notifier
 from neutron.tests import tools
@@ -1127,12 +1128,16 @@ class SubresourceTest(base.BaseTestCase):
         self._plugin_patcher = mock.patch(plugin, autospec=True)
         self.plugin = self._plugin_patcher.start()
 
-        router.SUB_RESOURCES['dummy'] = {
+        api = router.APIRouter()
+
+        SUB_RESOURCES = {}
+        RESOURCE_ATTRIBUTE_MAP = {}
+        SUB_RESOURCES['dummy'] = {
             'collection_name': 'dummies',
             'parent': {'collection_name': 'networks',
                        'member_name': 'network'}
         }
-        attributes.RESOURCE_ATTRIBUTE_MAP['dummies'] = {
+        RESOURCE_ATTRIBUTE_MAP['dummies'] = {
             'foo': {'allow_post': True, 'allow_put': True,
                     'validate': {'type:string': None},
                     'default': '', 'is_visible': True},
@@ -1141,11 +1146,33 @@ class SubresourceTest(base.BaseTestCase):
                           'required_by_policy': True,
                           'is_visible': True}
         }
-        api = router.APIRouter()
+        collection_name = SUB_RESOURCES['dummy'].get('collection_name')
+        resource_name = 'dummy'
+        parent = SUB_RESOURCES['dummy'].get('parent')
+        params = RESOURCE_ATTRIBUTE_MAP['dummies']
+        member_actions = {'mactions': 'GET'}
+        _plugin = manager.NeutronManager.get_plugin()
+        controller = v2_base.create_resource(collection_name, resource_name,
+                                             _plugin, params,
+                                             member_actions=member_actions,
+                                             parent=parent,
+                                             allow_bulk=True,
+                                             allow_pagination=True,
+                                             allow_sorting=True)
+
+        path_prefix = "/%s/{%s_id}/%s" % (parent['collection_name'],
+                                          parent['member_name'],
+                                          collection_name)
+        mapper_kwargs = dict(controller=controller,
+                             path_prefix=path_prefix)
+        api.map.collection(collection_name, resource_name, **mapper_kwargs)
+        api.map.resource(collection_name, collection_name,
+                         controller=controller,
+                         parent_resource=parent,
+                         member=member_actions)
         self.api = webtest.TestApp(api)
 
     def tearDown(self):
-        router.SUB_RESOURCES = {}
         super(SubresourceTest, self).tearDown()
 
     def test_index_sub_resource(self):
@@ -1208,6 +1235,16 @@ class SubresourceTest(base.BaseTestCase):
         instance.delete_network_dummy.assert_called_once_with(mock.ANY,
                                                               dummy_id,
                                                               network_id='id1')
+
+    def test_sub_resource_member_actions(self):
+        instance = self.plugin.return_value
+
+        dummy_id = _uuid()
+        self.api.get('/networks/id1' + _get_path('dummies', id=dummy_id,
+                                                 action='mactions'))
+        instance.mactions.assert_called_once_with(mock.ANY,
+                                                  dummy_id,
+                                                  network_id='id1')
 
 
 # Note: since all resources use the same controller and validation
@@ -1289,6 +1326,12 @@ class NotificationTest(APIv2TestBase):
 
 
 class DHCPNotificationTest(APIv2TestBase):
+
+    def setUp(self):
+        # This test does not have database support so tracking cannot be used
+        cfg.CONF.set_override('track_quota_usage', False, group='QUOTAS')
+        super(DHCPNotificationTest, self).setUp()
+
     def _test_dhcp_notifier(self, opname, resource, initial_input=None):
         instance = self.plugin.return_value
         instance.get_networks.return_value = initial_input
@@ -1340,6 +1383,23 @@ class DHCPNotificationTest(APIv2TestBase):
 
 
 class QuotaTest(APIv2TestBase):
+
+    def setUp(self):
+        # This test does not have database support so tracking cannot be used
+        cfg.CONF.set_override('track_quota_usage', False, group='QUOTAS')
+        super(QuotaTest, self).setUp()
+        # Use mock to let the API use a different QuotaEngine instance for
+        # unit test in this class. This will ensure resource are registered
+        # again and instanciated with neutron.quota.resource.CountableResource
+        replacement_registry = resource_registry.ResourceRegistry()
+        registry_patcher = mock.patch('neutron.quota.resource_registry.'
+                                      'ResourceRegistry.get_instance')
+        mock_registry = registry_patcher.start().return_value
+        mock_registry.get_resource = replacement_registry.get_resource
+        mock_registry.resources = replacement_registry.resources
+        # Register a resource
+        replacement_registry.register_resource_by_name('network')
+
     def test_create_network_quota(self):
         cfg.CONF.set_override('quota_network', 1, group='QUOTAS')
         initial_input = {'network': {'name': 'net1', 'tenant_id': _uuid()}}
@@ -1384,9 +1444,10 @@ class QuotaTest(APIv2TestBase):
 
 class ExtensionTestCase(base.BaseTestCase):
     def setUp(self):
+        # This test does not have database support so tracking cannot be used
+        cfg.CONF.set_override('track_quota_usage', False, group='QUOTAS')
         super(ExtensionTestCase, self).setUp()
         plugin = 'neutron.neutron_plugin_base_v2.NeutronPluginBaseV2'
-
         # Ensure existing ExtensionManager is not used
         extensions.PluginAwareExtensionManager._instance = None
 
@@ -1463,6 +1524,9 @@ class TestSubresourcePlugin(object):
         return {}
 
     def delete_network_dummy(self, context, id, network_id):
+        return
+
+    def mactions(self, context, id, network_id):
         return
 
 

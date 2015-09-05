@@ -28,8 +28,10 @@ from webob import exc
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron import context
@@ -40,6 +42,7 @@ from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
 from neutron.db import l3_dvr_db
+from neutron.db import l3_dvrscheduler_db
 from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.extensions import portbindings
@@ -301,8 +304,8 @@ class TestL3NatServicePlugin(common_db_mixin.CommonDbMixin,
 # A L3 routing with L3 agent scheduling service plugin class for tests with
 # plugins that delegate away L3 routing functionality
 class TestL3NatAgentSchedulingServicePlugin(TestL3NatServicePlugin,
-                                            l3_agentschedulers_db.
-                                            L3AgentSchedulerDbMixin):
+                                            l3_dvrscheduler_db.
+                                            L3_DVRsch_db_mixin):
 
     supported_extension_aliases = ["router", "l3_agent_scheduler"]
 
@@ -326,7 +329,7 @@ class L3NatTestCaseMixin(object):
             data['router']['admin_state_up'] = admin_state_up
         for arg in (('admin_state_up', 'tenant_id') + (arg_list or ())):
             # Arg must be present and not empty
-            if kwargs.get(arg):
+            if arg in kwargs:
                 data['router'][arg] = kwargs[arg]
         router_req = self.new_create_request('routers', data, fmt)
         if set_context and tenant_id:
@@ -408,7 +411,7 @@ class L3NatTestCaseMixin(object):
 
     def _create_floatingip(self, fmt, network_id, port_id=None,
                            fixed_ip=None, set_context=False,
-                           floating_ip=None):
+                           floating_ip=None, subnet_id=False):
         data = {'floatingip': {'floating_network_id': network_id,
                                'tenant_id': self._tenant_id}}
         if port_id:
@@ -419,6 +422,8 @@ class L3NatTestCaseMixin(object):
         if floating_ip:
             data['floatingip']['floating_ip_address'] = floating_ip
 
+        if subnet_id:
+            data['floatingip']['subnet_id'] = subnet_id
         floatingip_req = self.new_create_request('floatingips', data, fmt)
         if set_context and self._tenant_id:
             # create a specific auth context for this request
@@ -2099,6 +2104,52 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         self._test_floatingip_with_invalid_create_port(
             'neutron.db.db_base_plugin_v2.NeutronDbPluginV2')
 
+    def test_create_floatingip_with_subnet_id_non_admin(self):
+        with self.subnet() as public_sub:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            with self.router():
+                res = self._create_floatingip(
+                    self.fmt,
+                    public_sub['subnet']['network_id'],
+                    subnet_id=public_sub['subnet']['id'],
+                    set_context=True)
+        self.assertEqual(res.status_int, exc.HTTPCreated.code)
+
+    def test_create_floatingip_with_multisubnet_id(self):
+        with self.network() as network:
+            self._set_net_external(network['network']['id'])
+            with self.subnet(network, cidr='10.0.12.0/24') as subnet1:
+                with self.subnet(network, cidr='10.0.13.0/24') as subnet2:
+                    with self.router():
+                        res = self._create_floatingip(
+                            self.fmt,
+                            subnet1['subnet']['network_id'],
+                            subnet_id=subnet1['subnet']['id'])
+                        fip1 = self.deserialize(self.fmt, res)
+                        res = self._create_floatingip(
+                            self.fmt,
+                            subnet1['subnet']['network_id'],
+                            subnet_id=subnet2['subnet']['id'])
+                        fip2 = self.deserialize(self.fmt, res)
+        self.assertTrue(
+            fip1['floatingip']['floating_ip_address'].startswith('10.0.12'))
+        self.assertTrue(
+            fip2['floatingip']['floating_ip_address'].startswith('10.0.13'))
+
+    def test_create_floatingip_with_wrong_subnet_id(self):
+        with self.network() as network1:
+            self._set_net_external(network1['network']['id'])
+            with self.subnet(network1, cidr='10.0.12.0/24') as subnet1:
+                with self.network() as network2:
+                    self._set_net_external(network2['network']['id'])
+                    with self.subnet(network2, cidr='10.0.13.0/24') as subnet2:
+                        with self.router():
+                            res = self._create_floatingip(
+                                self.fmt,
+                                subnet1['subnet']['network_id'],
+                                subnet_id=subnet2['subnet']['id'])
+        self.assertEqual(res.status_int, exc.HTTPBadRequest.code)
+
     def test_create_floatingip_no_ext_gateway_return_404(self):
         with self.subnet() as public_sub:
             self._set_net_external(public_sub['subnet']['network_id'])
@@ -2427,6 +2478,58 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 floating_ip = netaddr.IPAddress(
                         fip['floatingip']['floating_ip_address'])
                 self.assertEqual(floating_ip.version, 4)
+
+    def test_create_router_gateway_fails(self):
+        # Force _update_router_gw_info failure
+        plugin = manager.NeutronManager.get_service_plugins()[
+            service_constants.L3_ROUTER_NAT]
+        ctx = context.Context('', 'foo')
+        plugin._update_router_gw_info = mock.Mock(
+            side_effect=n_exc.NeutronException)
+        data = {'router': {
+            'name': 'router1', 'admin_state_up': True,
+            'external_gateway_info': {'network_id': 'some_uuid'}}}
+
+        # Verify router doesn't persist on failure
+        self.assertRaises(n_exc.NeutronException,
+                          plugin.create_router, ctx, data)
+        routers = plugin.get_routers(ctx)
+        self.assertEqual(0, len(routers))
+
+    def test_update_subnet_gateway_for_external_net(self):
+        """Test to make sure notification to routers occurs when the gateway
+            ip address of a subnet of the external network is changed.
+        """
+        plugin = manager.NeutronManager.get_service_plugins()[
+            service_constants.L3_ROUTER_NAT]
+        if not hasattr(plugin, 'l3_rpc_notifier'):
+            self.skipTest("Plugin does not support l3_rpc_notifier")
+        # make sure the callback is registered.
+        registry.subscribe(
+            l3_db._notify_subnet_gateway_ip_update, resources.SUBNET_GATEWAY,
+            events.AFTER_UPDATE)
+        with mock.patch.object(plugin.l3_rpc_notifier,
+                               'routers_updated') as chk_method:
+            with self.network() as network:
+                allocation_pools = [{'start': '120.0.0.3',
+                                     'end': '120.0.0.254'}]
+                with self.subnet(network=network,
+                                 gateway_ip='120.0.0.1',
+                                 allocation_pools=allocation_pools,
+                                 cidr='120.0.0.0/24') as subnet:
+                    kwargs = {
+                        'device_owner': l3_constants.DEVICE_OWNER_ROUTER_GW,
+                        'device_id': 'fake_device'}
+                    with self.port(subnet=subnet, **kwargs):
+                        data = {'subnet': {'gateway_ip': '120.0.0.2'}}
+                        req = self.new_update_request('subnets', data,
+                                                      subnet['subnet']['id'])
+                        res = self.deserialize(self.fmt,
+                                               req.get_response(self.api))
+                        self.assertEqual(res['subnet']['gateway_ip'],
+                                         data['subnet']['gateway_ip'])
+                        chk_method.assert_called_with(mock.ANY,
+                                                      ['fake_device'], None)
 
 
 class L3AgentDbTestCaseBase(L3NatTestCaseMixin):

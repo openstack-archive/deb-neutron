@@ -31,6 +31,7 @@ from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
 from neutron.api.rpc.handlers import dvr_rpc
 from neutron.api.rpc.handlers import metadata_rpc
+from neutron.api.rpc.handlers import resources_rpc
 from neutron.api.rpc.handlers import securitygroups_rpc
 from neutron.api.v2 import attributes
 from neutron.callbacks import events
@@ -54,7 +55,8 @@ from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import models_v2
 from neutron.db import netmtu_db
-from neutron.db import quota_db  # noqa
+from neutron.db.quota import driver  # noqa
+from neutron.db import securitygroups_db
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.db import vlantransparent_db
 from neutron.extensions import allowedaddresspairs as addr_pair
@@ -74,6 +76,8 @@ from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import models
 from neutron.plugins.ml2 import rpc
+from neutron.quota import resource_registry
+from neutron.services.qos import qos_consts
 
 LOG = log.getLogger(__name__)
 
@@ -114,7 +118,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     "multi-provider", "allowed-address-pairs",
                                     "extra_dhcp_opt", "subnet_allocation",
                                     "net-mtu", "vlan-transparent",
-                                    "address-scope"]
+                                    "address-scope", "dns-integration"]
 
     @property
     def supported_extension_aliases(self):
@@ -126,6 +130,13 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             self._aliases = aliases
         return self._aliases
 
+    @resource_registry.tracked_resources(
+        network=models_v2.Network,
+        port=models_v2.Port,
+        subnet=models_v2.Subnet,
+        subnetpool=models_v2.SubnetPool,
+        security_group=securitygroups_db.SecurityGroup,
+        security_group_rule=securitygroups_db.SecurityGroupRule)
     def __init__(self):
         # First load drivers, then initialize DB, then initialize drivers
         self.type_manager = managers.TypeManager()
@@ -152,7 +163,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             dvr_rpc.DVRServerRpcCallback(),
             dhcp_rpc.DhcpRpcCallback(),
             agents_db.AgentExtRpcCallback(),
-            metadata_rpc.MetadataRpcCallback()
+            metadata_rpc.MetadataRpcCallback(),
+            resources_rpc.ResourcesPullRpcCallback()
         ]
 
     def _setup_dhcp(self):
@@ -161,6 +173,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             cfg.CONF.network_scheduler_driver
         )
         self.start_periodic_dhcp_agent_status_check()
+
+    @property
+    def supported_qos_rule_types(self):
+        return self.mechanism_manager.supported_qos_rule_types
 
     @log_helpers.log_method_call
     def start_rpc_listeners(self):
@@ -250,9 +266,29 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _bind_port_if_needed(self, context, allow_notify=False,
                              need_notify=False):
-        plugin_context = context._plugin_context
-        port_id = context.current['id']
+        # Binding limit does not need to be tunable because no
+        # more than a couple of attempts should ever be required in
+        # normal operation.
+        for count in range(1, MAX_BIND_TRIES + 1):
+            if count > 1:
+                # multiple attempts shouldn't happen very often so we log each
+                # attempt after the 1st.
+                greenthread.sleep(0)  # yield
+                LOG.info(_LI("Attempt %(count)s to bind port %(port)s"),
+                         {'count': count, 'port': context.current['id']})
+            context, need_notify, try_again = self._attempt_binding(
+                context, need_notify)
+            if not try_again:
+                if allow_notify and need_notify:
+                    self._notify_port_updated(context)
+                return context
 
+        LOG.error(_LE("Failed to commit binding results for %(port)s "
+                      "after %(max)s tries"),
+                  {'port': context.current['id'], 'max': MAX_BIND_TRIES})
+        return context
+
+    def _attempt_binding(self, context, need_notify):
         # Since the mechanism driver bind_port() calls must be made
         # outside a DB transaction locking the port state, it is
         # possible (but unlikely) that the port's state could change
@@ -261,57 +297,41 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         # thread commits its results, the already committed results are
         # used. If attributes such as binding:host_id,
         # binding:profile, or binding:vnic_type are updated
-        # concurrently, this loop retries binding using the new
-        # values.
-        count = 0
-        while True:
-            # First, determine whether it is necessary and possible to
-            # bind the port.
-            binding = context._binding
-            if (binding.vif_type != portbindings.VIF_TYPE_UNBOUND
+        # concurrently, the try_again flag is returned to indicate that
+        # the commit was unsuccessful.
+        plugin_context = context._plugin_context
+        port_id = context.current['id']
+        binding = context._binding
+        try_again = False
+        # First, determine whether it is necessary and possible to
+        # bind the port.
+        if (binding.vif_type != portbindings.VIF_TYPE_UNBOUND
                 or not binding.host):
-                # We either don't need to bind the port, or can't, so
-                # notify if needed and return.
-                if allow_notify and need_notify:
-                    self._notify_port_updated(context)
-                return context
+            # We either don't need to bind the port or can't
+            return context, need_notify, try_again
 
-            # Limit binding attempts to avoid any possibility of
-            # infinite looping and to ensure an error is logged
-            # instead. This does not need to be tunable because no
-            # more than a couple attempts should ever be required in
-            # normal operation. Log at info level if not 1st attempt.
-            count += 1
-            if count > MAX_BIND_TRIES:
-                LOG.error(_LE("Failed to commit binding results for %(port)s "
-                              "after %(max)s tries"),
-                          {'port': port_id, 'max': MAX_BIND_TRIES})
-                return context
-            if count > 1:
-                greenthread.sleep(0)  # yield
-                LOG.info(_LI("Attempt %(count)s to bind port %(port)s"),
-                         {'count': count, 'port': port_id})
-
-            # The port isn't already bound and the necessary
-            # information is available, so attempt to bind the port.
-            bind_context = self._bind_port(context)
-
-            # Now try to commit result of attempting to bind the port.
-            new_context, did_commit = self._commit_port_binding(
-                plugin_context, port_id, binding, bind_context)
-            if not new_context:
-                # The port has been deleted concurrently, so just
-                # return the unbound result from the initial
-                # transaction that completed before the deletion.
-                LOG.debug("Port %s has been deleted concurrently",
-                          port_id)
-                return context
-            # Need to notify if we succeed and our results were
-            # committed.
-            if did_commit and (new_context._binding.vif_type !=
-                               portbindings.VIF_TYPE_BINDING_FAILED):
-                need_notify = True
-            context = new_context
+        # The port isn't already bound and the necessary
+        # information is available, so attempt to bind the port.
+        bind_context = self._bind_port(context)
+        # Now try to commit result of attempting to bind the port.
+        new_context, did_commit = self._commit_port_binding(
+            plugin_context, port_id, binding, bind_context)
+        if not new_context:
+            # The port has been deleted concurrently, so just
+            # return the unbound result from the initial
+            # transaction that completed before the deletion.
+            LOG.debug("Port %s has been deleted concurrently",
+                      port_id)
+            need_notify = False
+            return context, need_notify, try_again
+        # Need to notify if we succeed and our results were
+        # committed.
+        if did_commit and (new_context._binding.vif_type !=
+                           portbindings.VIF_TYPE_BINDING_FAILED):
+            need_notify = True
+            return new_context, need_notify, try_again
+        try_again = True
+        return new_context, need_notify, try_again
 
     def _bind_port(self, orig_context):
         # Construct a new PortContext from the one from the previous
@@ -351,7 +371,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                                   port_id)
             if not port_db:
                 # The port has been deleted concurrently.
-                return (None, None)
+                return (None, False)
             oport = self._make_port_dict(port_db)
             port = self._make_port_dict(port_db)
             network = new_context.network.current
@@ -543,6 +563,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                               {'res': resource,
                                'id': obj['result']['id']})
 
+    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
+                               retry_on_request=True)
     def _create_bulk_ml2(self, resource, context, request_items):
         objects = []
         collection = "%ss" % resource
@@ -643,6 +665,13 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             self._process_l3_update(context, updated_network, net_data)
             self.type_manager.extend_network_dict_provider(context,
                                                            updated_network)
+
+            # TODO(QoS): Move out to the extension framework somehow.
+            need_network_update_notify = (
+                qos_consts.QOS_POLICY_ID in net_data and
+                original_network[qos_consts.QOS_POLICY_ID] !=
+                updated_network[qos_consts.QOS_POLICY_ID])
+
             mech_context = driver_context.NetworkContext(
                 self, context, updated_network,
                 original_network=original_network)
@@ -653,6 +682,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         # now the error is propogated to the caller, which is expected to
         # either undo/retry the operation or delete the resource.
         self.mechanism_manager.update_network_postcommit(mech_context)
+        if need_network_update_notify:
+            self.notifier.network_update(context, updated_network)
         return updated_network
 
     def get_network(self, context, id, fields=None):
@@ -792,7 +823,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             result = super(Ml2Plugin, self).create_subnet(context, subnet)
             self.extension_manager.process_create_subnet(
                 context, subnet[attributes.SUBNET], result)
-            mech_context = driver_context.SubnetContext(self, context, result)
+            network = self.get_network(context, result['network_id'])
+            mech_context = driver_context.SubnetContext(self, context,
+                                                        result, network)
             self.mechanism_manager.create_subnet_precommit(mech_context)
 
         return result, mech_context
@@ -820,8 +853,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 context, id, subnet)
             self.extension_manager.process_update_subnet(
                 context, subnet[attributes.SUBNET], updated_subnet)
+            network = self.get_network(context, updated_subnet['network_id'])
             mech_context = driver_context.SubnetContext(
-                self, context, updated_subnet, original_subnet=original_subnet)
+                self, context, updated_subnet, network,
+                original_subnet=original_subnet)
             self.mechanism_manager.update_subnet_precommit(mech_context)
 
         # TODO(apech) - handle errors raised by update_subnet, potentially
@@ -898,8 +933,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 # If allocated is None, then all the IPAllocation were
                 # correctly deleted during the previous pass.
                 if not allocated:
+                    network = self.get_network(context, subnet['network_id'])
                     mech_context = driver_context.SubnetContext(self, context,
-                                                                subnet)
+                                                                subnet,
+                                                                network)
                     self.mechanism_manager.delete_subnet_precommit(
                         mech_context)
 
@@ -910,7 +947,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     break
 
             for a in allocated:
-                if a.port_id:
+                if a.port:
                     # calling update_port() for each allocation to remove the
                     # IP from the port and call the MechanismDrivers
                     data = {attributes.PORT:
@@ -920,6 +957,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                            if ip.subnet_id != id]}}
                     try:
                         self.update_port(context, a.port_id, data)
+                    except exc.PortNotFound:
+                        LOG.debug("Port %s deleted concurrently", a.port_id)
                     except Exception:
                         with excutils.save_and_reraise_exception():
                             LOG.exception(_LE("Exception deleting fixed_ip "
@@ -984,6 +1023,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         return result, mech_context
 
+    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
+                               retry_on_request=True)
     def create_port(self, context, port):
         attrs = port[attributes.PORT]
         result, mech_context = self._create_port_db(context, port)
@@ -1110,6 +1151,12 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                         original_port[psec.PORTSECURITY] !=
                         updated_port[psec.PORTSECURITY]):
                 need_port_update_notify = True
+            # TODO(QoS): Move out to the extension framework somehow.
+            # Follow https://review.openstack.org/#/c/169223 for a solution.
+            if (qos_consts.QOS_POLICY_ID in attrs and
+                    original_port[qos_consts.QOS_POLICY_ID] !=
+                    updated_port[qos_consts.QOS_POLICY_ID]):
+                need_port_update_notify = True
 
             if addr_pair.ADDRESS_PAIRS in attrs:
                 need_port_update_notify |= (
@@ -1125,6 +1172,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             mech_context = driver_context.PortContext(
                 self, context, updated_port, network, binding, levels,
                 original_port=original_port)
+            new_host_port = self._get_host_port_if_changed(
+                mech_context, attrs)
+            need_port_update_notify |= self._process_port_binding(
+                mech_context, attrs)
             # For DVR router interface ports we need to retrieve the
             # DVRPortbinding context instead of the normal port context.
             # The normal Portbinding context does not have the status
@@ -1151,10 +1202,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 self.mechanism_manager.update_port_precommit(mech_context)
                 bound_mech_contexts.append(mech_context)
 
-            new_host_port = self._get_host_port_if_changed(
-                mech_context, attrs)
-            need_port_update_notify |= self._process_port_binding(
-                mech_context, attrs)
         # Notifications must be sent after the above transaction is complete
         kwargs = {
             'context': context,
@@ -1267,8 +1314,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 raise e.errors[0].error
             raise exc.ServicePortInUse(port_id=port_id, reason=e)
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_deadlock=True)
     def delete_port(self, context, id, l3_port_check=True):
         self._pre_delete_port(context, id, l3_port_check)
         # TODO(armax): get rid of the l3 dependency in the with block
@@ -1395,10 +1440,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         return self._bind_port_if_needed(port_context)
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_deadlock=True,
-                               retry_on_request=True)
-    @db_api.convert_db_exception_to_retry(stale_data=True)
+    @oslo_db_api.wrap_db_retry(
+        max_retries=db_api.MAX_RETRIES,
+        retry_on_deadlock=True, retry_on_request=True,
+        exception_checker=lambda e: isinstance(e, sa_exc.StaleDataError)
+    )
     def update_port_status(self, context, port_id, status, host=None,
                            network=None):
         """
@@ -1485,7 +1531,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         port_ids_to_devices = dict(
             (self._device_to_port_id(context, device), device)
             for device in devices)
-        port_ids = port_ids_to_devices.keys()
+        port_ids = list(port_ids_to_devices.keys())
         ports = db.get_ports_and_sgs(context, port_ids)
         for port in ports:
             # map back to original requested id

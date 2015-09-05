@@ -29,7 +29,11 @@ from neutron.db import l3_dvr_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3_ext_ha_mode as l3_ha
+from neutron.extensions import portbindings
+from neutron.extensions import providernet
 from neutron.i18n import _LI
+from neutron.plugins.common import utils as p_utils
+
 
 VR_ID_RANGE = set(range(1, 255))
 MAX_ALLOCATION_TRIES = 10
@@ -52,6 +56,15 @@ L3_HA_OPTS = [
     cfg.StrOpt('l3_ha_net_cidr',
                default='169.254.192.0/18',
                help=_('Subnet used for the l3 HA admin network.')),
+    cfg.StrOpt('l3_ha_network_type', default='',
+               help=_("The network type to use when creating the HA network "
+                      "for an HA router. By default or if empty, the first "
+                      "'tenant_network_types' is used. This is helpful when "
+                      "the VRRP traffic should use a specific network which "
+                      "is not the default one.")),
+    cfg.StrOpt('l3_ha_network_physical_name', default='',
+               help=_("The physical network name with which the HA network "
+                      "can be created."))
 ]
 cfg.CONF.register_opts(L3_HA_OPTS)
 
@@ -80,9 +93,11 @@ class L3HARouterAgentPortBinding(model_base.BASEV2):
                                           ondelete='CASCADE'))
     agent = orm.relationship(agents_db.Agent)
 
-    state = sa.Column(sa.Enum('active', 'standby', name='l3_ha_states'),
-                      default='standby',
-                      server_default='standby')
+    state = sa.Column(sa.Enum(constants.HA_ROUTER_STATE_ACTIVE,
+                              constants.HA_ROUTER_STATE_STANDBY,
+                              name='l3_ha_states'),
+                      default=constants.HA_ROUTER_STATE_STANDBY,
+                      server_default=constants.HA_ROUTER_STATE_STANDBY)
 
 
 class L3HARouterNetwork(model_base.BASEV2):
@@ -206,18 +221,15 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 context, ha_network.network_id, router.id)
 
     def _create_ha_subnet(self, context, network_id, tenant_id):
-        args = {'subnet':
-                {'network_id': network_id,
-                 'tenant_id': '',
-                 'name': constants.HA_SUBNET_NAME % tenant_id,
-                 'ip_version': 4,
-                 'cidr': cfg.CONF.l3_ha_net_cidr,
-                 'enable_dhcp': False,
-                 'host_routes': attributes.ATTR_NOT_SPECIFIED,
-                 'dns_nameservers': attributes.ATTR_NOT_SPECIFIED,
-                 'allocation_pools': attributes.ATTR_NOT_SPECIFIED,
-                 'gateway_ip': None}}
-        return self._core_plugin.create_subnet(context, args)
+        args = {'network_id': network_id,
+                'tenant_id': '',
+                'name': constants.HA_SUBNET_NAME % tenant_id,
+                'ip_version': 4,
+                'cidr': cfg.CONF.l3_ha_net_cidr,
+                'enable_dhcp': False,
+                'gateway_ip': None}
+        return p_utils.create_subnet(self._core_plugin, context,
+                                     {'subnet': args})
 
     def _create_ha_network_tenant_binding(self, context, tenant_id,
                                           network_id):
@@ -227,6 +239,14 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
             context.session.add(ha_network)
         return ha_network
 
+    def _add_ha_network_settings(self, network):
+        if cfg.CONF.l3_ha_network_type:
+            network[providernet.NETWORK_TYPE] = cfg.CONF.l3_ha_network_type
+
+        if cfg.CONF.l3_ha_network_physical_name:
+            network[providernet.PHYSICAL_NETWORK] = (
+                cfg.CONF.l3_ha_network_physical_name)
+
     def _create_ha_network(self, context, tenant_id):
         admin_ctx = context.elevated()
 
@@ -234,9 +254,10 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 {'name': constants.HA_NETWORK_NAME % tenant_id,
                  'tenant_id': '',
                  'shared': False,
-                 'admin_state_up': True,
-                 'status': constants.NET_STATUS_ACTIVE}}
-        network = self._core_plugin.create_network(admin_ctx, args)
+                 'admin_state_up': True}}
+        self._add_ha_network_settings(args['network'])
+        network = p_utils.create_network(self._core_plugin, admin_ctx, args)
+
         try:
             ha_network = self._create_ha_network_tenant_binding(admin_ctx,
                                                                 tenant_id,
@@ -289,16 +310,14 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         return portbinding
 
     def add_ha_port(self, context, router_id, network_id, tenant_id):
-        port = self._core_plugin.create_port(context, {
-            'port':
-            {'tenant_id': '',
-             'network_id': network_id,
-             'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
-             'mac_address': attributes.ATTR_NOT_SPECIFIED,
-             'admin_state_up': True,
-             'device_id': router_id,
-             'device_owner': constants.DEVICE_OWNER_ROUTER_HA_INTF,
-             'name': constants.HA_PORT_NAME % tenant_id}})
+        args = {'tenant_id': '',
+                'network_id': network_id,
+                'admin_state_up': True,
+                'device_id': router_id,
+                'device_owner': constants.DEVICE_OWNER_ROUTER_HA_INTF,
+                'name': constants.HA_PORT_NAME % tenant_id}
+        port = p_utils.create_port(self._core_plugin, context,
+                                 {'port': args})
 
         try:
             return self._create_ha_port_binding(context, port['id'], router_id)
@@ -452,6 +471,20 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         bindings = self.get_ha_router_port_bindings(context, [router_id])
         return [(binding.agent, binding.state) for binding in bindings]
 
+    def get_active_host_for_ha_router(self, context, router_id):
+        bindings = self.get_l3_bindings_hosting_router_with_ha_states(
+            context, router_id)
+        # TODO(amuller): In case we have two or more actives, this method
+        # needs to return the last agent to become active. This requires
+        # timestamps for state changes. Otherwise, if a host goes down
+        # and another takes over, we'll have two actives. In this case,
+        # if an interface is added to a router, its binding might be wrong
+        # and l2pop would not work correctly.
+        return next(
+            (agent.host for agent, state in bindings
+             if state == constants.HA_ROUTER_STATE_ACTIVE),
+            None)
+
     def _process_sync_ha_data(self, context, routers, host):
         routers_dict = dict((router['id'], router) for router in routers)
 
@@ -503,3 +536,22 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         bindings = self.get_ha_router_port_bindings(
             context, router_ids=states.keys(), host=host)
         self._set_router_states(context, bindings, states)
+        self._update_router_port_bindings(context, states, host)
+
+    def _update_router_port_bindings(self, context, states, host):
+        admin_ctx = context.elevated()
+        device_filter = {'device_id': states.keys(),
+                         'device_owner':
+                         [constants.DEVICE_OWNER_ROUTER_INTF]}
+        ports = self._core_plugin.get_ports(admin_ctx, filters=device_filter)
+        active_ports = (port for port in ports
+            if states[port['device_id']] == constants.HA_ROUTER_STATE_ACTIVE)
+
+        for port in active_ports:
+            port[portbindings.HOST_ID] = host
+            try:
+                self._core_plugin.update_port(admin_ctx, port['id'],
+                                              {attributes.PORT: port})
+            except (orm.exc.StaleDataError, orm.exc.ObjectDeletedError):
+                # Take concurrently deleted interfaces in to account
+                pass

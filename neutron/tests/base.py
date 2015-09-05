@@ -35,9 +35,11 @@ import six
 import testtools
 
 from neutron.agent.linux import external_process
+from neutron.api.rpc.callbacks.consumer import registry as rpc_consumer_reg
 from neutron.callbacks import manager as registry_manager
 from neutron.callbacks import registry
 from neutron.common import config
+from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.db import agentschedulers_db
 from neutron import manager
@@ -87,6 +89,11 @@ def get_rand_name(max_length=None, prefix='test'):
     return prefix + suffix
 
 
+def get_rand_device_name(prefix='test'):
+    return get_rand_name(
+        max_length=constants.DEVICE_NAME_MAX_LEN, prefix=prefix)
+
+
 def bool_from_env(key, strict=False, default=False):
     value = os.environ.get(key)
     return strutils.bool_from_string(value, strict=strict, default=default)
@@ -119,6 +126,11 @@ class DietTestCase(testtools.TestCase):
 
     def setUp(self):
         super(DietTestCase, self).setUp()
+
+        # FIXME(amuller): this must be called in the Neutron unit tests base
+        # class to initialize the DB connection string. Moving this may cause
+        # non-deterministic failures. Bug #1489098 for more info.
+        config.set_db_defaults()
 
         # Configure this first to ensure pm debugging support for setUp()
         debugger = os.environ.get('OS_POST_MORTEM_DEBUGGER')
@@ -284,6 +296,7 @@ class BaseTestCase(DietTestCase):
 
         policy.init()
         self.addCleanup(policy.reset)
+        self.addCleanup(rpc_consumer_reg.clear)
 
     def get_new_temp_dir(self):
         """Create a new temporary directory.

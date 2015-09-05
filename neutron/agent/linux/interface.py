@@ -25,6 +25,7 @@ from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import constants as n_const
 from neutron.common import exceptions
+from neutron.common import ipv6_utils
 from neutron.i18n import _LE, _LI
 
 
@@ -51,6 +52,57 @@ class LinuxInterfaceDriver(object):
 
     def __init__(self, conf):
         self.conf = conf
+        if self.conf.network_device_mtu:
+            self._validate_network_device_mtu()
+
+    def _validate_network_device_mtu(self):
+        if (ipv6_utils.is_enabled() and
+            self.conf.network_device_mtu < n_const.IPV6_MIN_MTU):
+            LOG.error(_LE("IPv6 protocol requires a minimum MTU of "
+                          "%(min_mtu)s, while the configured value is "
+                          "%(current_mtu)s"), {'min_mtu': n_const.IPV6_MIN_MTU,
+                          'current_mtu': self.conf.network_device_mtu})
+            raise SystemExit(1)
+
+    @property
+    def use_gateway_ips(self):
+        """Whether to use gateway IPs instead of unique IP allocations.
+
+        In each place where the DHCP agent runs, and for each subnet for
+        which DHCP is handling out IP addresses, the DHCP port needs -
+        at the Linux level - to have an IP address within that subnet.
+        Generally this needs to be a unique Neutron-allocated IP
+        address, because the subnet's underlying L2 domain is bridged
+        across multiple compute hosts and network nodes, and for HA
+        there may be multiple DHCP agents running on that same bridged
+        L2 domain.
+
+        However, if the DHCP ports - on multiple compute/network nodes
+        but for the same network - are _not_ bridged to each other,
+        they do not need each to have a unique IP address.  Instead
+        they can all share the same address from the relevant subnet.
+        This works, without creating any ambiguity, because those
+        ports are not all present on the same L2 domain, and because
+        no data within the network is ever sent to that address.
+        (DHCP requests are broadcast, and it is the network's job to
+        ensure that such a broadcast will reach at least one of the
+        available DHCP servers.  DHCP responses will be sent _from_
+        the DHCP port address.)
+
+        Specifically, for networking backends where it makes sense,
+        the DHCP agent allows all DHCP ports to use the subnet's
+        gateway IP address, and thereby to completely avoid any unique
+        IP address allocation.  This behaviour is selected by running
+        the DHCP agent with a configured interface driver whose
+        'use_gateway_ips' property is True.
+
+        When an operator deploys Neutron with an interface driver that
+        makes use_gateway_ips True, they should also ensure that a
+        gateway IP address is defined for each DHCP-enabled subnet,
+        and that the gateway IP address doesn't change during the
+        subnet's lifetime.
+        """
+        return False
 
     def init_l3(self, device_name, ip_cidrs, namespace=None,
                 preserve_ips=[], gateway_ips=None,
@@ -116,6 +168,8 @@ class LinuxInterfaceDriver(object):
           associated to removed ips
         extra_subnets: An iterable of cidrs to add as routes without address
         """
+        LOG.debug("init_router_port: device_name(%s), namespace(%s)",
+                  device_name, namespace)
         self.init_l3(device_name=device_name,
                      ip_cidrs=ip_cidrs,
                      namespace=namespace,
@@ -134,9 +188,40 @@ class LinuxInterfaceDriver(object):
             device.route.list_onlink_routes(n_const.IP_VERSION_4) +
             device.route.list_onlink_routes(n_const.IP_VERSION_6))
         for route in new_onlink_routes - existing_onlink_routes:
+            LOG.debug("adding onlink route(%s)", route)
             device.route.add_onlink_route(route)
         for route in existing_onlink_routes - new_onlink_routes:
+            LOG.debug("deleting onlink route(%s)", route)
             device.route.delete_onlink_route(route)
+
+    def add_ipv6_addr(self, device_name, v6addr, namespace, scope='global'):
+        device = ip_lib.IPDevice(device_name,
+                                 namespace=namespace)
+        net = netaddr.IPNetwork(v6addr)
+        device.addr.add(str(net), scope)
+
+    def delete_ipv6_addr(self, device_name, v6addr, namespace):
+        device = ip_lib.IPDevice(device_name,
+                                 namespace=namespace)
+        device.delete_addr_and_conntrack_state(v6addr)
+
+    def delete_ipv6_addr_with_prefix(self, device_name, prefix, namespace):
+        """Delete the first listed IPv6 address that falls within a given
+        prefix.
+        """
+        device = ip_lib.IPDevice(device_name, namespace=namespace)
+        net = netaddr.IPNetwork(prefix)
+        for address in device.addr.list(scope='global', filters=['permanent']):
+            ip_address = netaddr.IPNetwork(address['cidr'])
+            if ip_address in net:
+                device.delete_addr_and_conntrack_state(address['cidr'])
+                break
+
+    def get_ipv6_llas(self, device_name, namespace):
+        device = ip_lib.IPDevice(device_name,
+                                 namespace=namespace)
+
+        return device.addr.list(scope='link', ip_version=6)
 
     def check_bridge_exists(self, bridge):
         if not ip_lib.device_exists(bridge):
@@ -169,6 +254,23 @@ class LinuxInterfaceDriver(object):
     @abc.abstractmethod
     def unplug(self, device_name, bridge=None, namespace=None, prefix=None):
         """Unplug the interface."""
+
+    @property
+    def bridged(self):
+        """Whether the DHCP port is bridged to the VM TAP interfaces.
+
+        When the DHCP port is bridged to the TAP interfaces for the
+        VMs for which it is providing DHCP service - as is the case
+        for most Neutron network implementations - the DHCP server
+        only needs to listen on the DHCP port, and will still receive
+        DHCP requests from all the relevant VMs.
+
+        If the DHCP port is not bridged to the relevant VM TAP
+        interfaces, the DHCP server needs to listen explicitly on
+        those TAP interfaces, and to treat those as aliases of the
+        DHCP port where the IP subnet is defined.
+        """
+        return True
 
 
 class NullDriver(LinuxInterfaceDriver):

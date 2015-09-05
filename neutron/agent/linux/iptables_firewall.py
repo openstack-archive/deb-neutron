@@ -14,17 +14,21 @@
 #    under the License.
 
 import collections
+import re
+
 import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
 import six
 
 from neutron.agent import firewall
+from neutron.agent.linux import ip_conntrack
 from neutron.agent.linux import ipset_manager
 from neutron.agent.linux import iptables_comments as ic
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import utils
 from neutron.common import constants
+from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.extensions import portsecurity as psec
 from neutron.i18n import _LI
@@ -40,7 +44,10 @@ DIRECTION_IP_PREFIX = {firewall.INGRESS_DIRECTION: 'source_ip_prefix',
                        firewall.EGRESS_DIRECTION: 'dest_ip_prefix'}
 IPSET_DIRECTION = {firewall.INGRESS_DIRECTION: 'src',
                    firewall.EGRESS_DIRECTION: 'dst'}
+# length of all device prefixes (e.g. qvo, tap, qvb)
+LINUX_DEV_PREFIX_LEN = 3
 LINUX_DEV_LEN = 14
+MAX_CONNTRACK_ZONES = 65535
 comment_rule = iptables_manager.comment_rule
 
 
@@ -56,6 +63,9 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         # TODO(majopela, shihanzhang): refactor out ipset to a separate
         # driver composed over this one
         self.ipset = ipset_manager.IpsetManager(namespace=namespace)
+        self.ipconntrack = ip_conntrack.IpConntrackManager(
+            self.get_device_zone, namespace=namespace)
+        self._populate_initial_zone_map()
         # list of port which has security group
         self.filtered_ports = {}
         self.unfiltered_ports = {}
@@ -72,6 +82,9 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         self.pre_sg_members = None
         self.enable_ipset = cfg.CONF.SECURITYGROUP.enable_ipset
         self._enabled_netfilter_for_bridges = False
+        self.updated_rule_sg_ids = set()
+        self.updated_sg_members = set()
+        self.devices_with_udpated_sg_members = collections.defaultdict(list)
 
     def _enable_netfilter_for_bridges(self):
         # we only need to set these values once, but it has to be when
@@ -101,6 +114,22 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
     @property
     def ports(self):
         return dict(self.filtered_ports, **self.unfiltered_ports)
+
+    def _update_remote_security_group_members(self, sec_group_ids):
+        for sg_id in sec_group_ids:
+            for device in self.filtered_ports.values():
+                if sg_id in device.get('security_group_source_groups', []):
+                    self.devices_with_udpated_sg_members[sg_id].append(device)
+
+    def security_group_updated(self, action_type, sec_group_ids,
+                               device_ids=[]):
+        if action_type == 'sg_rule':
+            self.updated_rule_sg_ids.update(sec_group_ids)
+        elif action_type == 'sg_member':
+            if device_ids:
+                self.updated_sg_members.update(device_ids)
+            else:
+                self._update_remote_security_group_members(sec_group_ids)
 
     def update_security_group_rules(self, sg_id, sg_rules):
         LOG.debug("Update rules of security group (%s)", sg_id)
@@ -617,11 +646,10 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
             filtered_ports)
 
         for ip_version, remote_sg_ids in six.iteritems(remote_sgs_to_remove):
-            self._clear_sg_members(ip_version, remote_sg_ids)
             if self.enable_ipset:
                 self._remove_ipsets_for_remote_sgs(ip_version, remote_sg_ids)
 
-        self._remove_unused_sg_members()
+        self._remove_sg_members(remote_sgs_to_remove)
 
         # Remove unused security group rules
         for remove_group_id in self._determine_sg_rules_to_remove(
@@ -669,24 +697,91 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
             port_group_ids.update(port.get('security_groups', []))
         return port_group_ids
 
-    def _clear_sg_members(self, ip_version, remote_sg_ids):
-        """Clear our internal cache of sg members matching the parameters."""
-        for remote_sg_id in remote_sg_ids:
-            if self.sg_members[remote_sg_id][ip_version]:
-                self.sg_members[remote_sg_id][ip_version] = []
-
     def _remove_ipsets_for_remote_sgs(self, ip_version, remote_sg_ids):
         """Remove system ipsets matching the provided parameters."""
         for remote_sg_id in remote_sg_ids:
             self.ipset.destroy(remote_sg_id, ip_version)
 
-    def _remove_unused_sg_members(self):
-        """Remove sg_member entries where no IPv4 or IPv6 is associated."""
-        for sg_id in list(self.sg_members.keys()):
-            sg_has_members = (self.sg_members[sg_id][constants.IPv4] or
-                              self.sg_members[sg_id][constants.IPv6])
-            if not sg_has_members:
+    def _remove_sg_members(self, remote_sgs_to_remove):
+        """Remove sg_member entries."""
+        ipv4_sec_group_set = remote_sgs_to_remove.get(constants.IPv4)
+        ipv6_sec_group_set = remote_sgs_to_remove.get(constants.IPv6)
+        for sg_id in (ipv4_sec_group_set & ipv6_sec_group_set):
+            if sg_id in self.sg_members:
                 del self.sg_members[sg_id]
+
+    def _find_deleted_sg_rules(self, sg_id):
+        del_rules = list()
+        for pre_rule in self.pre_sg_rules.get(sg_id, []):
+            if pre_rule not in self.sg_rules.get(sg_id, []):
+                del_rules.append(pre_rule)
+        return del_rules
+
+    def _find_devices_on_security_group(self, sg_id):
+        device_list = list()
+        for device in self.filtered_ports.values():
+            if sg_id in device.get('security_groups', []):
+                device_list.append(device)
+        return device_list
+
+    def _clean_deleted_sg_rule_conntrack_entries(self):
+        deleted_sg_ids = set()
+        for sg_id in self.updated_rule_sg_ids:
+            del_rules = self._find_deleted_sg_rules(sg_id)
+            if not del_rules:
+                continue
+            device_list = self._find_devices_on_security_group(sg_id)
+            for rule in del_rules:
+                self.ipconntrack.delete_conntrack_state_by_rule(
+                    device_list, rule)
+            deleted_sg_ids.add(sg_id)
+        for id in deleted_sg_ids:
+            self.updated_rule_sg_ids.remove(id)
+
+    def _clean_updated_sg_member_conntrack_entries(self):
+        updated_device_ids = set()
+        for device in self.updated_sg_members:
+            sec_group_change = False
+            device_info = self.filtered_ports.get(device)
+            pre_device_info = self._pre_defer_filtered_ports.get(device)
+            if not device_info or not pre_device_info:
+                continue
+            for sg_id in pre_device_info.get('security_groups', []):
+                if sg_id not in device_info.get('security_groups', []):
+                    sec_group_change = True
+                    break
+            if not sec_group_change:
+                continue
+            for ethertype in [constants.IPv4, constants.IPv6]:
+                self.ipconntrack.delete_conntrack_state_by_remote_ips(
+                    [device_info], ethertype, set())
+            updated_device_ids.add(device)
+        for id in updated_device_ids:
+            self.updated_sg_members.remove(id)
+
+    def _clean_deleted_remote_sg_members_conntrack_entries(self):
+        deleted_sg_ids = set()
+        for sg_id, devices in self.devices_with_udpated_sg_members.items():
+            for ethertype in [constants.IPv4, constants.IPv6]:
+                pre_ips = self._get_sg_members(
+                    self.pre_sg_members, sg_id, ethertype)
+                cur_ips = self._get_sg_members(
+                    self.sg_members, sg_id, ethertype)
+                ips = (pre_ips - cur_ips)
+                if devices and ips:
+                    self.ipconntrack.delete_conntrack_state_by_remote_ips(
+                        devices, ethertype, ips)
+            deleted_sg_ids.add(sg_id)
+        for id in deleted_sg_ids:
+            self.devices_with_udpated_sg_members.pop(id, None)
+
+    def _remove_conntrack_entries_from_sg_updates(self):
+        self._clean_deleted_sg_rule_conntrack_entries()
+        self._clean_updated_sg_member_conntrack_entries()
+        self._clean_deleted_remote_sg_members_conntrack_entries()
+
+    def _get_sg_members(self, sg_info, sg_id, ethertype):
+        return set(sg_info.get(sg_id, {}).get(ethertype, []))
 
     def filter_defer_apply_off(self):
         if self._defer_apply:
@@ -696,9 +791,76 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
             self._setup_chains_apply(self.filtered_ports,
                                      self.unfiltered_ports)
             self.iptables.defer_apply_off()
+            self._remove_conntrack_entries_from_sg_updates()
             self._remove_unused_security_group_info()
             self._pre_defer_filtered_ports = None
             self._pre_defer_unfiltered_ports = None
+
+    def _populate_initial_zone_map(self):
+        """Setup the map between devices and zones based on current rules."""
+        self._device_zone_map = {}
+        rules = self.iptables.get_rules_for_table('raw')
+        for rule in rules:
+            match = re.match(r'.* --physdev-in (?P<dev>[a-zA-Z0-9\-]+)'
+                             r'.* -j CT --zone (?P<zone>\d+).*', rule)
+            if match:
+                # strip off any prefix that the interface is using
+                short_port_id = match.group('dev')[LINUX_DEV_PREFIX_LEN:]
+                self._device_zone_map[short_port_id] = int(match.group('zone'))
+        LOG.debug("Populated conntrack zone map: %s", self._device_zone_map)
+
+    def get_device_zone(self, port_id):
+        # we have to key the device_zone_map based on the fragment of the port
+        # UUID that shows up in the interface name. This is because the initial
+        # map is populated strictly based on interface names that we don't know
+        # the full UUID of.
+        short_port_id = port_id[:(LINUX_DEV_LEN - LINUX_DEV_PREFIX_LEN)]
+        try:
+            return self._device_zone_map[short_port_id]
+        except KeyError:
+            return self._generate_device_zone(short_port_id)
+
+    def _free_zones_from_removed_ports(self):
+        """Clears any entries from the zone map of removed ports."""
+        existing_ports = [
+            port['device'][:(LINUX_DEV_LEN - LINUX_DEV_PREFIX_LEN)]
+            for port in (list(self.filtered_ports.values()) +
+                         list(self.unfiltered_ports.values()))
+        ]
+        removed = set(self._device_zone_map) - set(existing_ports)
+        for dev in removed:
+            self._device_zone_map.pop(dev, None)
+
+    def _generate_device_zone(self, short_port_id):
+        """Generates a unique conntrack zone for the passed in ID."""
+        try:
+            zone = self._find_open_zone()
+        except n_exc.CTZoneExhaustedError:
+            # Free some zones and try again, repeat failure will not be caught
+            self._free_zones_from_removed_ports()
+            zone = self._find_open_zone()
+
+        self._device_zone_map[short_port_id] = zone
+        LOG.debug("Assigned CT zone %(z)s to port %(dev)s.",
+                  {'z': zone, 'dev': short_port_id})
+        return self._device_zone_map[short_port_id]
+
+    def _find_open_zone(self):
+        # call set to dedup because old ports may be mapped to the same zone.
+        zones_in_use = sorted(set(self._device_zone_map.values()))
+        if not zones_in_use:
+            return 1
+        # attempt to increment onto the highest used zone first. if we hit the
+        # end, go back and look for any gaps left by removed devices.
+        last = zones_in_use[-1]
+        if last < MAX_CONNTRACK_ZONES:
+            return last + 1
+        for index, used in enumerate(zones_in_use):
+            if used - index != 1:
+                # gap found, let's use it!
+                return index + 1
+        # conntrack zones exhausted :( :(
+        raise n_exc.CTZoneExhaustedError()
 
 
 class OVSHybridIptablesFirewallDriver(IptablesFirewallDriver):
@@ -720,20 +882,18 @@ class OVSHybridIptablesFirewallDriver(IptablesFirewallDriver):
         else:
             device = self._get_device_name(port)
         jump_rule = '-m physdev --physdev-in %s -j CT --zone %s' % (
-            device, port['zone_id'])
+            device, self.get_device_zone(port['device']))
         return jump_rule
 
     def _add_raw_chain_rules(self, port, direction):
-        if port['zone_id']:
-            jump_rule = self._get_jump_rule(port, direction)
-            self.iptables.ipv4['raw'].add_rule('PREROUTING', jump_rule)
-            self.iptables.ipv6['raw'].add_rule('PREROUTING', jump_rule)
+        jump_rule = self._get_jump_rule(port, direction)
+        self.iptables.ipv4['raw'].add_rule('PREROUTING', jump_rule)
+        self.iptables.ipv6['raw'].add_rule('PREROUTING', jump_rule)
 
     def _remove_raw_chain_rules(self, port, direction):
-        if port['zone_id']:
-            jump_rule = self._get_jump_rule(port, direction)
-            self.iptables.ipv4['raw'].remove_rule('PREROUTING', jump_rule)
-            self.iptables.ipv6['raw'].remove_rule('PREROUTING', jump_rule)
+        jump_rule = self._get_jump_rule(port, direction)
+        self.iptables.ipv4['raw'].remove_rule('PREROUTING', jump_rule)
+        self.iptables.ipv6['raw'].remove_rule('PREROUTING', jump_rule)
 
     def _add_chain(self, port, direction):
         super(OVSHybridIptablesFirewallDriver, self)._add_chain(port,

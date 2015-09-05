@@ -30,6 +30,8 @@ from neutron.agent.ovsdb import api as ovsdb
 from neutron.common import exceptions
 from neutron.i18n import _LE, _LI, _LW
 from neutron.plugins.common import constants as p_const
+from neutron.plugins.ml2.drivers.openvswitch.agent.common \
+    import constants
 
 # Default timeout for ovs-vsctl command
 DEFAULT_OVS_VSCTL_TIMEOUT = 10
@@ -102,8 +104,11 @@ class BaseOVS(object):
         self.vsctl_timeout = cfg.CONF.ovs_vsctl_timeout
         self.ovsdb = ovsdb.API.get(self)
 
-    def add_bridge(self, bridge_name):
-        self.ovsdb.add_br(bridge_name).execute()
+    def add_bridge(self, bridge_name,
+                   datapath_type=constants.OVS_DATAPATH_SYSTEM):
+
+        self.ovsdb.add_br(bridge_name,
+                          datapath_type).execute()
         br = OVSBridge(bridge_name)
         # Don't return until vswitchd sets up the internal port
         br.get_port_ofport(bridge_name)
@@ -141,17 +146,16 @@ class BaseOVS(object):
         return self.ovsdb.db_get(table, record, column).execute(
             check_error=check_error, log_errors=log_errors)
 
-    def db_list(self, table, records=None, columns=None,
-                check_error=True, log_errors=True, if_exists=False):
-        return (self.ovsdb.db_list(table, records=records, columns=columns,
-                                   if_exists=if_exists).
-                execute(check_error=check_error, log_errors=log_errors))
-
 
 class OVSBridge(BaseOVS):
-    def __init__(self, br_name):
+    def __init__(self, br_name, datapath_type=constants.OVS_DATAPATH_SYSTEM):
         super(OVSBridge, self).__init__()
         self.br_name = br_name
+        self.datapath_type = datapath_type
+        self.agent_uuid_stamp = '0x0'
+
+    def set_agent_uuid_stamp(self, val):
+        self.agent_uuid_stamp = val
 
     def set_controller(self, controllers):
         self.ovsdb.set_controller(self.br_name,
@@ -177,8 +181,14 @@ class OVSBridge(BaseOVS):
         self.set_db_attribute('Bridge', self.br_name, 'protocols', protocols,
                               check_error=True)
 
-    def create(self):
-        self.ovsdb.add_br(self.br_name).execute()
+    def create(self, secure_mode=False):
+        with self.ovsdb.transaction() as txn:
+            txn.add(
+                self.ovsdb.add_br(self.br_name,
+                datapath_type=self.datapath_type))
+            if secure_mode:
+                txn.add(self.ovsdb.set_fail_mode(self.br_name,
+                                                 FAILMODE_SECURE))
         # Don't return until vswitchd sets up the internal port
         self.get_port_ofport(self.br_name)
 
@@ -188,7 +198,8 @@ class OVSBridge(BaseOVS):
     def reset_bridge(self, secure_mode=False):
         with self.ovsdb.transaction() as txn:
             txn.add(self.ovsdb.del_br(self.br_name))
-            txn.add(self.ovsdb.add_br(self.br_name))
+            txn.add(self.ovsdb.add_br(self.br_name,
+                                      datapath_type=self.datapath_type))
             if secure_mode:
                 txn.add(self.ovsdb.set_fail_mode(self.br_name,
                                                  FAILMODE_SECURE))
@@ -253,6 +264,10 @@ class OVSBridge(BaseOVS):
                                self.br_name, 'datapath_id')
 
     def do_action_flows(self, action, kwargs_list):
+        if action != 'del':
+            for kw in kwargs_list:
+                if 'cookie' not in kw:
+                    kw['cookie'] = self.agent_uuid_stamp
         flow_strs = [_build_flow_expr_str(kw, action) for kw in kwargs_list]
         self.run_ofctl('%s-flows' % action, ['-'], '\n'.join(flow_strs))
 
@@ -273,6 +288,10 @@ class OVSBridge(BaseOVS):
             retval = '\n'.join(item for item in flows.splitlines()
                                if 'NXST' not in item)
         return retval
+
+    def dump_all_flows(self):
+        return [f for f in self.run_ofctl("dump-flows", []).splitlines()
+                if 'NXST' not in f]
 
     def deferred(self, **kwargs):
         return DeferredOVSBridge(self, **kwargs)
@@ -326,20 +345,24 @@ class OVSBridge(BaseOVS):
                               "Exception: %(exception)s"),
                           {'cmd': args, 'exception': e})
 
+    def get_ports_attributes(self, table, columns=None, ports=None,
+                             check_error=True, log_errors=True,
+                             if_exists=False):
+        port_names = ports or self.get_port_name_list()
+        return (self.ovsdb.db_list(table, port_names, columns=columns,
+                                   if_exists=if_exists).
+                execute(check_error=check_error, log_errors=log_errors))
+
     # returns a VIF object for each VIF port
     def get_vif_ports(self):
         edge_ports = []
-        port_names = self.get_port_name_list()
-        port_info = self.db_list(
-            'Interface', columns=['name', 'external_ids', 'ofport'])
-        by_name = {x['name']: x for x in port_info}
-        for name in port_names:
-            if not by_name.get(name):
-                #NOTE(dprince): some ports (like bonds) won't have all
-                # these attributes so we skip them entirely
-                continue
-            external_ids = by_name[name]['external_ids']
-            ofport = by_name[name]['ofport']
+        port_info = self.get_ports_attributes(
+            'Interface', columns=['name', 'external_ids', 'ofport'],
+            if_exists=True)
+        for port in port_info:
+            name = port['name']
+            external_ids = port['external_ids']
+            ofport = port['ofport']
             if "iface-id" in external_ids and "attached-mac" in external_ids:
                 p = VifPort(name, ofport, external_ids["iface-id"],
                             external_ids["attached-mac"], self)
@@ -356,9 +379,8 @@ class OVSBridge(BaseOVS):
         return edge_ports
 
     def get_vif_port_to_ofport_map(self):
-        port_names = self.get_port_name_list()
-        results = self.db_list(
-            'Interface', port_names, ['name', 'external_ids', 'ofport'],
+        results = self.get_ports_attributes(
+            'Interface', columns=['name', 'external_ids', 'ofport'],
             if_exists=True)
         port_map = {}
         for r in results:
@@ -373,9 +395,8 @@ class OVSBridge(BaseOVS):
 
     def get_vif_port_set(self):
         edge_ports = set()
-        port_names = self.get_port_name_list()
-        results = self.db_list(
-            'Interface', port_names, ['name', 'external_ids', 'ofport'],
+        results = self.get_ports_attributes(
+            'Interface', columns=['name', 'external_ids', 'ofport'],
             if_exists=True)
         for result in results:
             if result['ofport'] == UNASSIGNED_OFPORT:
@@ -413,22 +434,18 @@ class OVSBridge(BaseOVS):
         in the "Interface" table queried by the get_vif_port_set() method.
 
         """
-        port_names = self.get_port_name_list()
-        results = self.db_list('Port', port_names, ['name', 'tag'],
-                               if_exists=True)
+        results = self.get_ports_attributes(
+            'Port', columns=['name', 'tag'], if_exists=True)
         return {p['name']: p['tag'] for p in results}
 
     def get_vifs_by_ids(self, port_ids):
-        interface_info = self.db_list(
+        interface_info = self.get_ports_attributes(
             "Interface", columns=["name", "external_ids", "ofport"])
         by_id = {x['external_ids'].get('iface-id'): x for x in interface_info}
-        intfs_on_bridge = self.ovsdb.list_ports(self.br_name).execute(
-            check_error=True)
         result = {}
         for port_id in port_ids:
             result[port_id] = None
-            if (port_id not in by_id or
-                    by_id[port_id]['name'] not in intfs_on_bridge):
+            if port_id not in by_id:
                 LOG.info(_LI("Port %(port_id)s not present in bridge "
                              "%(br_name)s"),
                          {'port_id': port_id, 'br_name': self.br_name})
@@ -496,6 +513,36 @@ class OVSBridge(BaseOVS):
             for controller_uuid in controllers:
                 txn.add(self.ovsdb.db_set('Controller',
                                           controller_uuid, *attr))
+
+    def _set_egress_bw_limit_for_port(self, port_name, max_kbps,
+                                      max_burst_kbps):
+        with self.ovsdb.transaction(check_error=True) as txn:
+            txn.add(self.ovsdb.db_set('Interface', port_name,
+                                      ('ingress_policing_rate', max_kbps)))
+            txn.add(self.ovsdb.db_set('Interface', port_name,
+                                      ('ingress_policing_burst',
+                                       max_burst_kbps)))
+
+    def create_egress_bw_limit_for_port(self, port_name, max_kbps,
+                                        max_burst_kbps):
+        self._set_egress_bw_limit_for_port(
+            port_name, max_kbps, max_burst_kbps)
+
+    def get_egress_bw_limit_for_port(self, port_name):
+
+        max_kbps = self.db_get_val('Interface', port_name,
+                                   'ingress_policing_rate')
+        max_burst_kbps = self.db_get_val('Interface', port_name,
+                                         'ingress_policing_burst')
+
+        max_kbps = max_kbps or None
+        max_burst_kbps = max_burst_kbps or None
+
+        return max_kbps, max_burst_kbps
+
+    def delete_egress_bw_limit_for_port(self, port_name):
+        self._set_egress_bw_limit_for_port(
+            port_name, 0, 0)
 
     def __enter__(self):
         self.create()

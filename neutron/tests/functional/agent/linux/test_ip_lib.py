@@ -24,6 +24,7 @@ from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import utils
+from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.linux import base
 from neutron.tests.functional import base as functional_base
 
@@ -73,8 +74,9 @@ class IpLibTestFramework(functional_base.BaseSudoTestCase):
         :return: A tuntap ip_lib.IPDevice
         """
         ip = ip_lib.IPWrapper(namespace=attr.namespace)
-        ip.netns.add(attr.namespace)
-        self.addCleanup(ip.netns.delete, attr.namespace)
+        if attr.namespace:
+            ip.netns.add(attr.namespace)
+            self.addCleanup(ip.netns.delete, attr.namespace)
         tap_device = ip.add_tuntap(attr.name)
         self.addCleanup(self._safe_delete_device, tap_device)
         tap_device.link.set_address(attr.mac_address)
@@ -100,6 +102,18 @@ class IpLibTestCase(IpLibTestFramework):
 
         self.assertFalse(
             ip_lib.device_exists(attr.name, namespace=attr.namespace))
+
+    def test_vxlan_exists(self):
+        attr = self.generate_device_details()
+        ip = ip_lib.IPWrapper(namespace=attr.namespace)
+        ip.netns.add(attr.namespace)
+        self.addCleanup(ip.netns.delete, attr.namespace)
+        self.assertFalse(ip_lib.vxlan_in_use(9999, namespace=attr.namespace))
+        device = ip.add_vxlan(attr.name, 9999)
+        self.addCleanup(self._safe_delete_device, device)
+        self.assertTrue(ip_lib.vxlan_in_use(9999, namespace=attr.namespace))
+        device.link.delete()
+        self.assertFalse(ip_lib.vxlan_in_use(9999, namespace=attr.namespace))
 
     def test_ipwrapper_get_device_by_ip(self):
         attr = self.generate_device_details()
@@ -151,3 +165,16 @@ class IpLibTestCase(IpLibTestFramework):
 
         routes = ip_lib.get_routing_table(4, namespace=attr.namespace)
         self.assertEqual(expected_routes, routes)
+
+    def _check_for_device_name(self, ip, name, should_exist):
+        exist = any(d for d in ip.get_devices() if d.name == name)
+        self.assertEqual(should_exist, exist)
+
+    def test_dummy_exists(self):
+        namespace = self.useFixture(net_helpers.NamespaceFixture())
+        dev_name = base.get_rand_name()
+        device = namespace.ip_wrapper.add_dummy(dev_name)
+        self.addCleanup(self._safe_delete_device, device)
+        self._check_for_device_name(namespace.ip_wrapper, dev_name, True)
+        device.link.delete()
+        self._check_for_device_name(namespace.ip_wrapper, dev_name, False)

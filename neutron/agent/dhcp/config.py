@@ -24,6 +24,8 @@ DHCP_AGENT_OPTS = [
                help=_("The driver used to manage the DHCP server.")),
     cfg.BoolOpt('enable_isolated_metadata', default=False,
                 help=_("Support Metadata requests on isolated networks.")),
+    cfg.BoolOpt('force_metadata', default=False,
+                help=_("Force to use DHCP to get Metadata on all networks.")),
     cfg.BoolOpt('enable_metadata_network', default=False,
                 help=_("Allows for serving metadata requests from a "
                        "dedicated network. Requires "
@@ -38,7 +40,11 @@ DHCP_OPTS = [
                help=_('Location to store DHCP server config files')),
     cfg.StrOpt('dhcp_domain',
                default='openstacklocal',
-               help=_('Domain to use for building the hostnames')),
+               help=_('Domain to use for building the hostnames.'
+                      'This option is deprecated. It has been moved to '
+                      'neutron.conf as dns_domain. It will removed from here '
+                      'in a future release'),
+               deprecated_for_removal=True),
 ]
 
 DNSMASQ_OPTS = [
@@ -54,6 +60,11 @@ DNSMASQ_OPTS = [
                        "This option is deprecated and "
                        "will be removed in a future release."),
                 deprecated_for_removal=True),
+    cfg.StrOpt('dnsmasq_base_log_dir',
+               help=_("Base log dir for dnsmasq logging. "
+                      "The log contains DHCP and DNS log information and "
+                      "is useful for debugging issues with either DHCP or "
+                      "DNS. If this section is null, disable dnsmasq log.")),
     cfg.IntOpt(
         'dnsmasq_lease_max',
         default=(2 ** 24),

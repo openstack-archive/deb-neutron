@@ -32,6 +32,7 @@ from neutron.i18n import _LE, _LW
 from neutron import manager
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers import type_tunnel
+from neutron.services.qos import qos_consts
 # REVISIT(kmestery): Allow the type and mechanism drivers to supply the
 # mixins and eventually remove the direct dependencies on type_tunnel.
 
@@ -108,6 +109,9 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                                           host,
                                           port_context.network.current)
 
+        qos_policy_id = (port.get(qos_consts.QOS_POLICY_ID) or
+                         port_context.network._network.get(
+                             qos_consts.QOS_POLICY_ID))
         entry = {'device': device,
                  'network_id': port['network_id'],
                  'port_id': port['id'],
@@ -120,7 +124,10 @@ class RpcCallbacks(type_tunnel.TunnelRpcCallbackMixin):
                  'device_owner': port['device_owner'],
                  'allowed_address_pairs': port['allowed_address_pairs'],
                  'port_security_enabled': port.get(psec.PORTSECURITY, True),
+                 'qos_policy_id': qos_policy_id,
                  'profile': port[portbindings.PROFILE]}
+        if 'security_groups' in port:
+            entry['security_groups'] = port['security_groups']
         LOG.debug("Returning: %s", entry)
         return entry
 
@@ -272,7 +279,7 @@ class AgentNotifierApi(dvr_rpc.DVRAgentRpcApiMixin,
         1.0 - Initial version.
         1.1 - Added get_active_networks_info, create_dhcp_port,
               update_dhcp_port, and removed get_dhcp_port methods.
-
+        1.4 - Added network_update
     """
 
     def __init__(self, topic):
@@ -286,6 +293,9 @@ class AgentNotifierApi(dvr_rpc.DVRAgentRpcApiMixin,
         self.topic_port_delete = topics.get_topic_name(topic,
                                                        topics.PORT,
                                                        topics.DELETE)
+        self.topic_network_update = topics.get_topic_name(topic,
+                                                          topics.NETWORK,
+                                                          topics.UPDATE)
 
         target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
@@ -307,3 +317,8 @@ class AgentNotifierApi(dvr_rpc.DVRAgentRpcApiMixin,
         cctxt = self.client.prepare(topic=self.topic_port_delete,
                                     fanout=True)
         cctxt.cast(context, 'port_delete', port_id=port_id)
+
+    def network_update(self, context, network):
+        cctxt = self.client.prepare(topic=self.topic_network_update,
+                                    fanout=True, version='1.4')
+        cctxt.cast(context, 'network_update', network=network)

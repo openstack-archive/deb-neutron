@@ -138,29 +138,29 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
 
     def _update_subnet_dns_nameservers(self, context, id, s):
         old_dns_list = self._get_dns_by_subnet(context, id)
-        new_dns_addr_set = set(s["dns_nameservers"])
-        old_dns_addr_set = set([dns['address']
-                                for dns in old_dns_list])
+        new_dns_addr_list = s["dns_nameservers"]
 
-        new_dns = list(new_dns_addr_set)
-        for dns_addr in old_dns_addr_set - new_dns_addr_set:
-            for dns in old_dns_list:
-                if dns['address'] == dns_addr:
-                    context.session.delete(dns)
-        for dns_addr in new_dns_addr_set - old_dns_addr_set:
+        # NOTE(changzhi) delete all dns nameservers from db
+        # when update subnet's DNS nameservers. And store new
+        # nameservers with order one by one.
+        for dns in old_dns_list:
+            context.session.delete(dns)
+
+        for order, server in enumerate(new_dns_addr_list):
             dns = models_v2.DNSNameServer(
-                address=dns_addr,
+                address=server,
+                order=order,
                 subnet_id=id)
             context.session.add(dns)
         del s["dns_nameservers"]
-        return new_dns
+        return new_dns_addr_list
 
     def _update_subnet_allocation_pools(self, context, subnet_id, s):
         context.session.query(models_v2.IPAllocationPool).filter_by(
             subnet_id=subnet_id).delete()
-        pools = ((netaddr.IPAddress(p.first, p.version).format(),
+        pools = [(netaddr.IPAddress(p.first, p.version).format(),
                   netaddr.IPAddress(p.last, p.version).format())
-                 for p in s['allocation_pools'])
+                 for p in s['allocation_pools']]
         new_pools = [models_v2.IPAllocationPool(first_ip=p[0],
                                                 last_ip=p[1],
                                                 subnet_id=subnet_id)
@@ -168,7 +168,8 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         context.session.add_all(new_pools)
         # Call static method with self to redefine in child
         # (non-pluggable backend)
-        self._rebuild_availability_ranges(context, [s])
+        if not ipv6_utils.is_ipv6_pd_enabled(s):
+            self._rebuild_availability_ranges(context, [s])
         # Gather new pools for result
         result_pools = [{'start': p[0], 'end': p[1]} for p in pools]
         del s['allocation_pools']
@@ -185,8 +186,6 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                 context, subnet_id, s)
 
         if "allocation_pools" in s:
-            self._validate_allocation_pools(s['allocation_pools'],
-                                            s['cidr'])
             changes['allocation_pools'] = (
                 self._update_subnet_allocation_pools(context, subnet_id, s))
 
@@ -199,7 +198,8 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
 
         Verifies the specified CIDR does not overlap with the ones defined
         for the other subnets specified for this network, or with any other
-        CIDR if overlapping IPs are disabled.
+        CIDR if overlapping IPs are disabled. Does not apply to subnets with
+        temporary IPv6 Prefix Delegation CIDRs (::/64).
         """
         new_subnet_ipset = netaddr.IPSet([new_subnet_cidr])
         # Disallow subnets with prefix length 0 as they will lead to
@@ -217,7 +217,8 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         else:
             subnet_list = self._get_all_subnets(context)
         for subnet in subnet_list:
-            if (netaddr.IPSet([subnet.cidr]) & new_subnet_ipset):
+            if ((netaddr.IPSet([subnet.cidr]) & new_subnet_ipset) and
+                subnet.cidr != constants.PROVISIONAL_IPV6_PD_PREFIX):
                 # don't give out details of the overlapping subnet
                 err_msg = (_("Requested subnet with cidr: %(cidr)s for "
                              "network: %(network_id)s overlaps with another "
@@ -242,7 +243,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                     new_subnetpool_id != subnet.subnetpool_id):
                 raise n_exc.NetworkSubnetPoolAffinityError()
 
-    def _validate_allocation_pools(self, ip_pools, subnet_cidr):
+    def validate_allocation_pools(self, ip_pools, subnet_cidr):
         """Validate IP allocation pools.
 
         Verify start and end address for each allocation pool are valid,
@@ -330,13 +331,16 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                 return subnet
         raise n_exc.InvalidIpForNetwork(ip_address=fixed['ip_address'])
 
+    def generate_pools(self, cidr, gateway_ip):
+        return ipam_utils.generate_pools(cidr, gateway_ip)
+
     def _prepare_allocation_pools(self, allocation_pools, cidr, gateway_ip):
         """Returns allocation pools represented as list of IPRanges"""
         if not attributes.is_attr_set(allocation_pools):
-            return ipam_utils.generate_pools(cidr, gateway_ip)
+            return self.generate_pools(cidr, gateway_ip)
 
         ip_range_pools = self.pools_to_ip_range(allocation_pools)
-        self._validate_allocation_pools(ip_range_pools, cidr)
+        self.validate_allocation_pools(ip_range_pools, cidr)
         if gateway_ip:
             self.validate_gw_out_of_pools(gateway_ip, ip_range_pools)
         return ip_range_pools
@@ -355,7 +359,8 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
             return True
 
         subnet = self._get_subnet(context, subnet_id)
-        return not ipv6_utils.is_auto_address_subnet(subnet)
+        return not (ipv6_utils.is_auto_address_subnet(subnet) and
+                    not ipv6_utils.is_ipv6_pd_enabled(subnet))
 
     def _get_changed_ips_for_port(self, context, original_ips,
                                   new_ips, device_owner):
@@ -409,7 +414,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                  enable_eagerloads(False).filter_by(id=port_id))
         if not context.is_admin:
             query = query.filter_by(tenant_id=context.tenant_id)
-        query.delete()
+        context.session.delete(query.first())
 
     def _save_subnet(self, context,
                      network,
@@ -424,11 +429,15 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
 
         subnet = models_v2.Subnet(**subnet_args)
         context.session.add(subnet)
+        # NOTE(changzhi) Store DNS nameservers with order into DB one
+        # by one when create subnet with DNS nameservers
         if attributes.is_attr_set(dns_nameservers):
-            for addr in dns_nameservers:
-                ns = models_v2.DNSNameServer(address=addr,
-                                             subnet_id=subnet.id)
-                context.session.add(ns)
+            for order, server in enumerate(dns_nameservers):
+                dns = models_v2.DNSNameServer(
+                    address=server,
+                    order=order,
+                    subnet_id=subnet.id)
+                context.session.add(dns)
 
         if attributes.is_attr_set(host_routes):
             for rt in host_routes:
