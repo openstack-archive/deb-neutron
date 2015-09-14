@@ -1,3 +1,9 @@
+neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-4) unstable; urgency=medium
+
+  * Translation updates: es.po and nl.po (Closes: #792185, #798837).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 14 Sep 2015 07:17:39 +0000
+
 neutron (2015.1.0+2015.06.24.git61.bdf194a0e1-3) unstable; urgency=medium
 
   * Added requirements.txt patch for SQLA version.
