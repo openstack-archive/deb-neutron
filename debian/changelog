@@ -3,6 +3,7 @@ neutron (1:7.0.0~rc1-1) experimental; urgency=medium
   * New upstream release.
   * Fixed (build-)depends for this release.
   * Rebased patches.
+  * Now neutron-server depends on python-openstackclient.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 25 Sep 2015 09:37:11 +0200
 
