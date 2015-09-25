@@ -1,7 +1,8 @@
-neutron (1:7.0.0~rc-1) experimental; urgency=medium
+neutron (1:7.0.0~rc1-1) experimental; urgency=medium
 
   * New upstream release.
   * Fixed (build-)depends for this release.
+  * Rebased patches.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 25 Sep 2015 09:37:11 +0200
 
