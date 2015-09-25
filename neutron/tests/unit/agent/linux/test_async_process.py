@@ -12,6 +12,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import signal
+
 import eventlet.event
 import eventlet.queue
 import eventlet.timeout
@@ -57,7 +59,7 @@ class TestAsyncProcess(base.BaseTestCase):
         with mock.patch.object(self.proc, '_kill') as kill:
             self.proc._handle_process_error()
 
-        kill.assert_has_calls([mock.call(respawning=False)])
+        kill.assert_has_calls([mock.call(signal.SIGKILL, respawning=False)])
 
     def test__handle_process_error_kills_without_respawn(self):
         self.proc.respawn_interval = 1
@@ -66,7 +68,7 @@ class TestAsyncProcess(base.BaseTestCase):
                 with mock.patch('eventlet.sleep') as sleep:
                     self.proc._handle_process_error()
 
-        kill.assert_has_calls([mock.call(respawning=True)])
+        kill.assert_has_calls([mock.call(signal.SIGKILL, respawning=True)])
         sleep.assert_has_calls([mock.call(self.proc.respawn_interval)])
         spawn.assert_called_once_with()
 
@@ -82,7 +84,7 @@ class TestAsyncProcess(base.BaseTestCase):
             func.assert_called_once_with()
 
     def test__watch_process_exits_on_callback_failure(self):
-        self._test__watch_process(lambda: False, eventlet.event.Event())
+        self._test__watch_process(lambda: None, eventlet.event.Event())
 
     def test__watch_process_exits_on_exception(self):
         def foo():
@@ -161,7 +163,7 @@ class TestAsyncProcess(base.BaseTestCase):
                 mock.patch.object(self.proc, '_kill_process'
                                   ) as mock_kill_process,\
                 mock.patch.object(self.proc, '_process'):
-            self.proc._kill(respawning)
+            self.proc._kill(signal.SIGKILL, respawning)
 
             if respawning:
                 self.assertIsNotNone(self.proc._kill_event)
@@ -170,7 +172,7 @@ class TestAsyncProcess(base.BaseTestCase):
 
         mock_kill_event.send.assert_called_once_with()
         if pid:
-            mock_kill_process.assert_called_once_with(pid)
+            mock_kill_process.assert_called_once_with(pid, signal.SIGKILL)
 
     def test__kill_when_respawning_does_not_clear_kill_event(self):
         self._test__kill(True)
@@ -181,7 +183,8 @@ class TestAsyncProcess(base.BaseTestCase):
     def test__kill_targets_process_for_pid(self):
         self._test__kill(False, pid='1')
 
-    def _test__kill_process(self, pid, expected, exception_message=None):
+    def _test__kill_process(self, pid, expected, exception_message=None,
+                            kill_signal=signal.SIGKILL):
         self.proc.run_as_root = True
         if exception_message:
             exc = RuntimeError(exception_message)
@@ -189,10 +192,10 @@ class TestAsyncProcess(base.BaseTestCase):
             exc = None
         with mock.patch.object(utils, 'execute',
                                side_effect=exc) as mock_execute:
-            actual = self.proc._kill_process(pid)
+            actual = self.proc._kill_process(pid, kill_signal)
 
         self.assertEqual(expected, actual)
-        mock_execute.assert_called_with(['kill', '-9', pid],
+        mock_execute.assert_called_with(['kill', '-%d' % kill_signal, pid],
                                         run_as_root=self.proc.run_as_root)
 
     def test__kill_process_returns_true_for_valid_pid(self):
@@ -204,12 +207,63 @@ class TestAsyncProcess(base.BaseTestCase):
     def test__kill_process_returns_false_for_execute_exception(self):
         self._test__kill_process('1', False, 'Invalid')
 
-    def test_stop_calls_kill(self):
+    def test_kill_process_with_different_signal(self):
+        self._test__kill_process('1', True, kill_signal=signal.SIGTERM)
+
+    def test_stop_calls_kill_with_provided_signal_number(self):
         self.proc._kill_event = True
         with mock.patch.object(self.proc, '_kill') as mock_kill:
-            self.proc.stop()
-        mock_kill.assert_called_once_with()
+            self.proc.stop(kill_signal=signal.SIGTERM)
+        mock_kill.assert_called_once_with(signal.SIGTERM)
 
     def test_stop_raises_exception_if_already_started(self):
         with testtools.ExpectedException(async_process.AsyncProcessException):
             self.proc.stop()
+
+    def test_cmd(self):
+        for expected, cmd in (('ls -l file', ['ls', '-l', 'file']),
+                              ('fake', ['fake'])):
+            proc = async_process.AsyncProcess(cmd)
+            self.assertEqual(expected, proc.cmd)
+
+
+class TestAsyncProcessLogging(base.BaseTestCase):
+
+    def setUp(self):
+        super(TestAsyncProcessLogging, self).setUp()
+        self.log_mock = mock.patch.object(async_process, 'LOG').start()
+
+    def _test__read_stdout_logging(self, enable):
+        proc = async_process.AsyncProcess(['fakecmd'], log_output=enable)
+        with mock.patch.object(proc, '_read', return_value='fakedata'),\
+            mock.patch.object(proc, '_process'):
+            proc._read_stdout()
+        self.assertEqual(enable, self.log_mock.debug.called)
+
+    def _test__read_stderr_logging(self, enable):
+        proc = async_process.AsyncProcess(['fake'], log_output=enable)
+        with mock.patch.object(proc, '_read', return_value='fakedata'),\
+                mock.patch.object(proc, '_process'):
+            proc._read_stderr()
+        self.assertEqual(enable, self.log_mock.error.called)
+
+    def test__read_stdout_logging_enabled(self):
+        self._test__read_stdout_logging(enable=True)
+
+    def test__read_stdout_logging_disabled(self):
+        self._test__read_stdout_logging(enable=False)
+
+    def test__read_stderr_logging_enabled(self):
+        self._test__read_stderr_logging(enable=True)
+
+    def test__read_stderr_logging_disabled(self):
+        self._test__read_stderr_logging(enable=False)
+
+
+class TestAsyncProcessDieOnError(base.BaseTestCase):
+
+    def test__read_stderr_returns_none_on_error(self):
+        proc = async_process.AsyncProcess(['fakecmd'], die_on_error=True)
+        with mock.patch.object(proc, '_read', return_value='fakedata'),\
+                mock.patch.object(proc, '_process'):
+            self.assertIsNone(proc._read_stderr())

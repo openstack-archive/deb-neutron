@@ -181,8 +181,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                                             gw_info, router=router_db)
         except Exception:
             with excutils.save_and_reraise_exception():
-                LOG.exception(_LE("An exception occurred while creating "
-                                  "the router: %s"), router)
+                LOG.debug("Could not update gateway info, deleting router.")
                 self.delete_router(context, router_db.id)
 
         return self._make_router_dict(router_db)
@@ -851,7 +850,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                 if 'id' in fip:
                     data = {'floatingip_id': fip['id'],
                             'internal_ip': internal_ip_address}
-                    msg = (_('Floating IP %(floatingip_id) is associated '
+                    msg = (_('Floating IP %(floatingip_id)s is associated '
                              'with non-IPv4 address %s(internal_ip)s and '
                              'therefore cannot be bound.') % data)
                 else:
@@ -1179,7 +1178,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             return []
         qry = context.session.query(RouterPort)
         qry = qry.filter(
-            Router.id.in_(router_ids),
+            RouterPort.router_id.in_(router_ids),
             RouterPort.port_type.in_(device_owners)
         )
 

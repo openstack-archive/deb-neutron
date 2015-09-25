@@ -137,6 +137,17 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 # destroying it.  The two could end up conflicting on
                 # creating/destroying interfaces and such.  I think I'd like a
                 # semaphore to sync creation/deletion of this namespace.
+
+                # NOTE (Swami): Since we are deleting the namespace here we
+                # should be able to delete the floatingip agent gateway port
+                # for the provided external net since we don't need it anymore.
+                if self.fip_ns.agent_gateway_port:
+                    LOG.debug('Removed last floatingip, so requesting the '
+                              'server to delete Floatingip Agent Gateway port:'
+                              '%s', self.fip_ns.agent_gateway_port)
+                    self.agent.plugin_rpc.delete_agent_gateway_port(
+                        self.agent.context,
+                        self.fip_ns.agent_gateway_port['network_id'])
                 self.fip_ns.delete()
                 self.fip_ns = None
 
@@ -303,7 +314,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         if not self.ex_gw_port:
             return
 
-        sn_port = self.get_snat_port_for_internal_port(port)
+        sn_port = self.get_snat_port_for_internal_port(port, self.snat_ports)
         if not sn_port:
             return
 
@@ -357,7 +368,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 self.get_external_device_interface_name(ex_gw_port))
             self.process_floating_ip_addresses(to_fip_interface_name)
         for p in self.internal_ports:
-            gateway = self.get_snat_port_for_internal_port(p)
+            # NOTE: When removing the gateway port, pass in the snat_port
+            # cache along with the current ports.
+            gateway = self.get_snat_port_for_internal_port(p, self.snat_ports)
             internal_interface = self.get_internal_device_name(p['id'])
             self._snat_redirect_remove(gateway, p, internal_interface)
 
@@ -397,8 +410,8 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 else:
                     self.fip_ns.create_gateway_port(fip_agent_port)
 
-        if self.fip_ns.agent_gateway_port and floating_ips:
-            if self.dist_fip_count == 0 or is_first:
+            if (self.fip_ns.agent_gateway_port and
+                (self.dist_fip_count == 0 or is_first)):
                 self.fip_ns.create_rtr_2_fip_link(self)
 
                 # kicks the FW Agent to add rules for the IR namespace if

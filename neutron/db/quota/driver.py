@@ -134,8 +134,10 @@ class DbQuotaDriver(object):
             context, tenant_id=tenant_id)
 
     @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
+                               retry_interval=0.1,
+                               inc_retry_interval=True,
                                retry_on_request=True,
-                               retry_on_deadlock=True)
+                               exception_checker=db_api.is_deadlock)
     def make_reservation(self, context, tenant_id, resources, deltas, plugin):
         # Lock current reservation table
         # NOTE(salv-orlando): This routine uses DB write locks.
@@ -150,7 +152,21 @@ class DbQuotaDriver(object):
         # locks should be ok to use when support for sending "hotspot" writes
         # to a single node will be avaialable.
         requested_resources = deltas.keys()
-        with context.session.begin():
+        with db_api.autonested_transaction(context.session):
+            # get_tenant_quotes needs in input a dictionary mapping resource
+            # name to BaseResosurce instances so that the default quota can be
+            # retrieved
+            current_limits = self.get_tenant_quotas(
+                context, resources, tenant_id)
+            unlimited_resources = set([resource for (resource, limit) in
+                                       current_limits.items() if limit < 0])
+            # Do not even bother counting resources and calculating headroom
+            # for resources with unlimited quota
+            LOG.debug(("Resources %s have unlimited quota limit. It is not "
+                       "required to calculated headroom "),
+                      ",".join(unlimited_resources))
+            requested_resources = (set(requested_resources) -
+                                   unlimited_resources)
             # Gather current usage information
             # TODO(salv-orlando): calling count() for every resource triggers
             # multiple queries on quota usage. This should be improved, however
@@ -160,13 +176,8 @@ class DbQuotaDriver(object):
             # instances
             current_usages = dict(
                 (resource, resources[resource].count(
-                    context, plugin, tenant_id)) for
+                    context, plugin, tenant_id, resync_usage=False)) for
                 resource in requested_resources)
-            # get_tenant_quotes needs in inout a dictionary mapping resource
-            # name to BaseResosurce instances so that the default quota can be
-            # retrieved
-            current_limits = self.get_tenant_quotas(
-                context, resources, tenant_id)
             # Adjust for expired reservations. Apparently it is cheaper than
             # querying everytime for active reservations and counting overall
             # quantity of resources reserved
@@ -177,13 +188,6 @@ class DbQuotaDriver(object):
             for resource in requested_resources:
                 expired_reservations = expired_deltas.get(resource, 0)
                 total_usage = current_usages[resource] - expired_reservations
-                # A negative quota limit means infinite
-                if current_limits[resource] < 0:
-                    LOG.debug(("Resource %(resource)s has unlimited quota "
-                               "limit. It is possible to allocate %(delta)s "
-                               "items."), {'resource': resource,
-                                           'delta': deltas[resource]})
-                    continue
                 res_headroom = current_limits[resource] - total_usage
                 LOG.debug(("Attempting to reserve %(delta)d items for "
                            "resource %(resource)s. Total usage: %(total)d; "

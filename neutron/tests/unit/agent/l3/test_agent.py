@@ -453,6 +453,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                                           **self.ri_kwargs)
             ri._create_dvr_gateway = mock.Mock()
             ri.get_snat_interfaces = mock.Mock(return_value=self.snat_ports)
+            ri.snat_ports = self.snat_ports
             ri._create_snat_namespace()
             ri.fip_ns = agent.get_fip_ns(ex_net_id)
             ri.internal_ports = self.snat_ports
@@ -535,6 +536,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 ri._snat_redirect_remove.assert_called_with(
                     sn_port, sn_port,
                     ri.get_internal_device_name(sn_port['id']))
+                ri.get_snat_port_for_internal_port.assert_called_with(
+                    mock.ANY, ri.snat_ports)
         else:
             raise Exception("Invalid action %s" % action)
 
@@ -946,6 +949,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri.dist_fip_count = 0
         ri.fip_ns.subscribe = mock.Mock()
         ri.fip_ns.agent_router_gateway = mock.Mock()
+        agent.process_router_add = mock.Mock()
 
         with mock.patch.object(ri, 'get_floating_ips') as fips, \
                 mock.patch.object(ri, 'get_floating_agent_gw_interface'
@@ -958,6 +962,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             self.assertEqual(ri.fip_ns.agent_gateway_port,
                              agent_gateway_port[0])
             self.assertTrue(ri.rtr_fip_subnet)
+            self.assertEqual(1, agent.process_router_add.call_count)
 
     @mock.patch.object(lla.LinkLocalAllocator, '_write')
     def test_create_dvr_fip_interfaces_for_restart_l3agent_case(self,
@@ -2236,9 +2241,9 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             self.pd_update.append(prefix_update)
             for intf in intfs:
                 for subnet in intf['subnets']:
-                    if subnet['id'] == prefix_update.keys()[0]:
+                    if subnet['id'] in prefix_update:
                         # Update the prefix
-                        subnet['cidr'] = prefix_update.values()[0]
+                        subnet['cidr'] = prefix_update[subnet['id']]
 
         # Process the router for removed interfaces
         agent.pd.notifier = pd_notifier
@@ -2266,7 +2271,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         external_process call is followed with either an enable() or disable()
         '''
 
-        num_ext_calls = len(expected) / 2
+        num_ext_calls = len(expected) // 2
         expected_ext_calls = []
         actual_ext_calls = []
         expected_action_calls = []

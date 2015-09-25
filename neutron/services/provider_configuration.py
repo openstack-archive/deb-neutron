@@ -18,7 +18,6 @@ import os
 
 from oslo_config import cfg
 from oslo_log import log as logging
-from six.moves import configparser as ConfigParser
 import stevedore
 
 from neutron.common import exceptions as n_exc
@@ -61,42 +60,44 @@ class NeutronModule(object):
     def module(self):
         return self.repo['mod']
 
-    # Return an INI parser for the child module. oslo.config is a bit too
-    # magical in its INI loading, and in one notable case, we need to merge
-    # together the [service_providers] section across at least four
-    # repositories.
-    def ini(self):
+    # Return an INI parser for the child module
+    def ini(self, neutron_dir=None):
         if self.repo['ini'] is None:
-            neutron_dir = None
             try:
-                neutron_dir = cfg.CONF.config_dir
+                neutron_dir = neutron_dir or cfg.CONF.config_dir
             except cfg.NoSuchOptError:
                 pass
-
             if neutron_dir is None:
                 neutron_dir = '/etc/neutron'
 
-            ini = ConfigParser.SafeConfigParser()
+            ini_file = cfg.ConfigOpts()
+            ini_file.register_opts(serviceprovider_opts, 'service_providers')
             ini_path = os.path.join(neutron_dir, '%s.conf' % self.module_name)
             if os.path.exists(ini_path):
-                ini.read(ini_path)
-
-            self.repo['ini'] = ini
+                ini_file(['--config-file', ini_path])
+            self.repo['ini'] = ini_file
 
         return self.repo['ini']
 
     def service_providers(self):
-        ini = self.ini()
-
-        sp = []
+        """Return the service providers for the extension module."""
+        providers = []
+        # Attempt to read the config from cfg.CONF first; when passing
+        # --config-dir, the option is merged from all the definitions
+        # made across all the imported config files
         try:
-            for name, value in ini.items('service_providers'):
-                if name == 'service_provider':
-                    sp.append(value)
-        except ConfigParser.NoSectionError:
+            providers = cfg.CONF.service_providers.service_provider
+        except cfg.NoSuchOptError:
             pass
 
-        return sp
+        # Alternatively, if the option is not available, try to load
+        # it from the provider module's config file; this may be
+        # necessary, if modules are loaded on the fly (DevStack may
+        # be an example)
+        if not providers:
+            providers = self.ini().service_providers.service_provider
+
+        return providers
 
 
 #global scope function that should be used in service APIs
