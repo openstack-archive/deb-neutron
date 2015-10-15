@@ -752,7 +752,7 @@ class Dnsmasq(DhcpLocalProcess):
     def _generate_opts_per_subnet(self):
         options = []
         subnet_index_map = {}
-        if self.conf.enable_isolated_metadata:
+        if self.conf.enable_isolated_metadata or self.conf.force_metadata:
             subnet_to_interface_ip = self._make_subnet_interface_ip_map()
         isolated_subnets = self.get_isolated_subnets(self.network)
         for i, subnet in enumerate(self.network.subnets):
@@ -1225,7 +1225,10 @@ class DeviceManager(object):
 
     def destroy(self, network, device_name):
         """Destroy the device used for the network's DHCP on this host."""
-        self.driver.unplug(device_name, namespace=network.namespace)
+        if device_name:
+            self.driver.unplug(device_name, namespace=network.namespace)
+        else:
+            LOG.debug('No interface exists for network %s', network.id)
 
         self.plugin.release_dhcp_port(network.id,
                                       self.get_device_id(network))

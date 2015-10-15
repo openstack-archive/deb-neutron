@@ -26,6 +26,7 @@ import mock
 import pkg_resources
 import sqlalchemy as sa
 
+from neutron.common import utils
 from neutron.db import migration
 from neutron.db.migration import autogen
 from neutron.db.migration import cli
@@ -45,6 +46,8 @@ class FakeRevision(object):
             labels = set()
         self.branch_labels = labels
         self.down_revision = down_revision
+        self.revision = utils.get_random_string(10)
+        self.module = mock.MagicMock()
 
 
 class MigrationEntrypointsMemento(fixtures.Fixture):
@@ -305,7 +308,7 @@ class TestCli(base.BaseTestCase):
                 mock.patch.object(cli, '_use_separate_migration_branches',
                                   return_value=not branchless):
             fc.return_value.get_heads.return_value = heads
-            with mock.patch('six.moves.builtins.open') as mock_open:
+            with mock.patch.object(cli, 'open') as mock_open:
                 mock_open.return_value.__enter__ = lambda s: s
                 mock_open.return_value.__exit__ = mock.Mock()
                 mock_open.return_value.read.return_value = (
@@ -600,6 +603,45 @@ class TestCli(base.BaseTestCase):
                 ### end Alembic commands ###"""),
             alembic_ag_api.render_python_code(contract.upgrade_ops)
         )
+
+    @mock.patch('alembic.script.ScriptDirectory.walk_revisions')
+    def test__find_milestone_revisions_one_branch(self, walk_mock):
+        c_revs = [FakeRevision(labels={cli.CONTRACT_BRANCH}) for r in range(5)]
+        c_revs[1].module.neutron_milestone = [migration.LIBERTY]
+
+        walk_mock.return_value = c_revs
+        m = cli._find_milestone_revisions(self.configs[0], 'liberty',
+                                          cli.CONTRACT_BRANCH)
+        self.assertEqual(1, len(m))
+        m = cli._find_milestone_revisions(self.configs[0], 'liberty',
+                                          cli.EXPAND_BRANCH)
+        self.assertEqual(0, len(m))
+
+    @mock.patch('alembic.script.ScriptDirectory.walk_revisions')
+    def test__find_milestone_revisions_two_branches(self, walk_mock):
+        c_revs = [FakeRevision(labels={cli.CONTRACT_BRANCH}) for r in range(5)]
+        c_revs[1].module.neutron_milestone = [migration.LIBERTY]
+        e_revs = [FakeRevision(labels={cli.EXPAND_BRANCH}) for r in range(5)]
+        e_revs[3].module.neutron_milestone = [migration.LIBERTY]
+
+        walk_mock.return_value = c_revs + e_revs
+        m = cli._find_milestone_revisions(self.configs[0], 'liberty')
+        self.assertEqual(2, len(m))
+
+        m = cli._find_milestone_revisions(self.configs[0], 'mitaka')
+        self.assertEqual(0, len(m))
+
+    @mock.patch('alembic.script.ScriptDirectory.walk_revisions')
+    def test__find_milestone_revisions_branchless(self, walk_mock):
+        revisions = [FakeRevision() for r in range(5)]
+        revisions[2].module.neutron_milestone = [migration.LIBERTY]
+
+        walk_mock.return_value = revisions
+        m = cli._find_milestone_revisions(self.configs[0], 'liberty')
+        self.assertEqual(1, len(m))
+
+        m = cli._find_milestone_revisions(self.configs[0], 'mitaka')
+        self.assertEqual(0, len(m))
 
 
 class TestSafetyChecks(base.BaseTestCase):
