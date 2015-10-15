@@ -1,5 +1,6 @@
-neutron (1:7.0.0~rc1-2) UNRELEASED; urgency=medium
+neutron (1:7.0.0-1) experimental; urgency=medium
 
+  * New upstream release.
   * Added python-pymysql as runtime dependency.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 13 Oct 2015 15:05:52 +0200
