@@ -23,7 +23,7 @@ if [ "${1}" = "purge" ] ; then
 
 	# Clean /etc/neutron on purge
 	rm -f /etc/default/neutron /etc/neutron/api-paste.ini /etc/neutron/neutron.conf \
-			/etc/neutron/plugins/openvswitch/ml2/openvswitch_agent.ini
+			/etc/neutron/plugins/ml2/openvswitch_agent.ini
 	[ -d /etc/neutron/plugins/ml2 ] 	&& rmdir --ignore-fail-on-non-empty /etc/neutron/plugins/ml2
 	[ -d /etc/neutron/plugins ] 		&& rmdir --ignore-fail-on-non-empty /etc/neutron/plugins
 	[ -d /etc/neutron ] 			&& rmdir --ignore-fail-on-non-empty /etc/neutron

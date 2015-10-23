@@ -1,3 +1,9 @@
+neutron (1:7.0.0-2) unstable; urgency=medium
+
+  * Delete openvswitch_agent.ini on purge (Closes: #802538).
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 23 Oct 2015 12:25:25 +0200
+
 neutron (1:7.0.0-1) unstable; urgency=medium
 
   * New upstream release.
