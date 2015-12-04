@@ -1,3 +1,9 @@
+neutron (1:8.0.0~b1-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 04 Dec 2015 09:03:42 +0100
+
 neutron (1:7.0.0-2) unstable; urgency=medium
 
   * Delete openvswitch_agent.ini on purge (Closes: #802538).
