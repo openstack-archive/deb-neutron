@@ -1,6 +1,7 @@
 neutron (1:8.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Fixed (build-)depeneds for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 04 Dec 2015 09:03:42 +0100
 
