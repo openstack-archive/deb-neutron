@@ -30,13 +30,17 @@ OPTS = [
                choices=interface_map.keys(),
                default='vsctl',
                help=_('The interface for interacting with the OVSDB')),
+    cfg.StrOpt('ovsdb_connection',
+               default='tcp:127.0.0.1:6640',
+               help=_('The connection string for the native OVSDB backend. '
+                      'Requires the native ovsdb_interface to be enabled.'))
 ]
 cfg.CONF.register_opts(OPTS, 'OVS')
 
 
 @six.add_metaclass(abc.ABCMeta)
 class Command(object):
-    """An OSVDB command that can be executed in a transaction
+    """An OVSDB command that can be executed in a transaction
 
     :attr result: The result of executing the command in a transaction
     """

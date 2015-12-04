@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import debtcollector
 import eventlet
 import netaddr
 import os
@@ -38,9 +39,11 @@ OPTS = [
 
 LOOPBACK_DEVNAME = 'lo'
 
+IP_NETNS_PATH = '/var/run/netns'
 SYS_NET_PATH = '/sys/class/net'
 DEFAULT_GW_PATTERN = re.compile(r"via (\S+)")
 METRIC_PATTERN = re.compile(r"metric (\S+)")
+DEVICE_NAME_PATTERN = re.compile(r"(\d+?): (\S+?):.*")
 
 
 class AddressNotReady(exceptions.NeutronException):
@@ -91,6 +94,9 @@ class SubProcessBase(object):
     def set_log_fail_as_error(self, fail_with_error):
         self.log_fail_as_error = fail_with_error
 
+    def get_log_fail_as_error(self):
+        return self.log_fail_as_error
+
 
 class IPWrapper(SubProcessBase):
     def __init__(self, namespace=None):
@@ -126,10 +132,19 @@ class IPWrapper(SubProcessBase):
         return retval
 
     def get_device_by_ip(self, ip):
-        """Get the IPDevice from system which has ip configured."""
-        for device in self.get_devices():
-            if device.addr.list(to=ip):
-                return device
+        """Get the IPDevice from system which has ip configured.
+
+        @param ip: look for the device holding this ip. If this is None,
+                   None is returned.
+        @type ip: str.
+        """
+        if not ip:
+            return None
+
+        addr = IpAddrCommand(self)
+        devices = addr.get_devices_with_ip(to=ip)
+        if devices:
+            return IPDevice(devices[0]['name'], namespace=self.namespace)
 
     def add_tuntap(self, name, mode='tap'):
         self._as_root([], 'tuntap', ('add', name, 'mode', mode))
@@ -207,8 +222,11 @@ class IPWrapper(SubProcessBase):
 
     @classmethod
     def get_namespaces(cls):
-        output = cls._execute([], 'netns', ('list',))
-        return [l.strip() for l in output.split('\n')]
+        if not cfg.CONF.AGENT.use_helper_for_ns_read:
+            return os.listdir(IP_NETNS_PATH)
+
+        output = cls._execute([], 'netns', ['list'], run_as_root=True)
+        return [l.split()[0] for l in output.splitlines()]
 
 
 class IPDevice(SubProcessBase):
@@ -226,6 +244,18 @@ class IPDevice(SubProcessBase):
 
     def __str__(self):
         return self.name
+
+    def exists(self):
+        """Return True if the device exists in the namespace."""
+        # we must save and restore this before returning
+        orig_log_fail_as_error = self.get_log_fail_as_error()
+        self.set_log_fail_as_error(False)
+        try:
+            return bool(self.link.address)
+        except RuntimeError:
+            return False
+        finally:
+            self.set_log_fail_as_error(orig_log_fail_as_error)
 
     def delete_addr_and_conntrack_state(self, cidr):
         """Delete an address along with its conntrack state
@@ -291,7 +321,7 @@ class IpRuleCommand(IpCommandBase):
 
     @staticmethod
     def _make_canonical(ip_version, settings):
-        """Converts settings to a canonical represention to compare easily"""
+        """Converts settings to a canonical representation to compare easily"""
         def canonicalize_fwmark_string(fwmark_mask):
             """Reformats fwmark/mask in to a canonical form
 
@@ -498,24 +528,40 @@ class IpAddrCommand(IpDeviceCommandBase):
     def flush(self, ip_version):
         self._as_root([ip_version], ('flush', self.name))
 
-    def list(self, scope=None, to=None, filters=None, ip_version=None):
+    def get_devices_with_ip(self, name=None, scope=None, to=None,
+                            filters=None, ip_version=None):
+        """Get a list of all the devices with an IP attached in the namespace.
+
+        @param name: if it's not None, only a device with that matching name
+                     will be returned.
+        """
         options = [ip_version] if ip_version else []
-        args = ['show', self.name]
+
+        args = ['show']
+        if name:
+            args += [name]
         if filters:
             args += filters
-
-        retval = []
-
         if scope:
             args += ['scope', scope]
         if to:
             args += ['to', to]
 
+        retval = []
+
         for line in self._run(options, tuple(args)).split('\n'):
             line = line.strip()
-            if not line.startswith('inet'):
+
+            match = DEVICE_NAME_PATTERN.search(line)
+            if match:
+                # Found a match for a device name, but its' addresses will
+                # only appear in following lines, so we may as well continue.
+                device_name = match.group(2)
                 continue
-            parts = line.split()
+            elif not line.startswith('inet'):
+                continue
+
+            parts = line.split(" ")
             if parts[0] == 'inet6':
                 scope = parts[3]
             else:
@@ -524,12 +570,18 @@ class IpAddrCommand(IpDeviceCommandBase):
                 else:
                     scope = parts[3]
 
-            retval.append(dict(cidr=parts[1],
+            retval.append(dict(name=device_name,
+                               cidr=parts[1],
                                scope=scope,
                                dynamic=('dynamic' == parts[-1]),
                                tentative=('tentative' in line),
                                dadfailed=('dadfailed' == parts[-1])))
         return retval
+
+    def list(self, scope=None, to=None, filters=None, ip_version=None):
+        """Get device details of a device named <self.name>."""
+        return self.get_devices_with_ip(
+            self.name, scope, to, filters, ip_version)
 
     def wait_until_address_ready(self, address, wait_time=30):
         """Wait until an address is no longer marked 'tentative'
@@ -542,14 +594,14 @@ class IpAddrCommand(IpDeviceCommandBase):
             except IndexError:
                 raise AddressNotReady(
                     address=address,
-                    reason=_LE('Address not present on interface'))
+                    reason=_('Address not present on interface'))
             if not addr_info['tentative']:
                 return True
             if addr_info['dadfailed']:
                 raise AddressNotReady(
-                    address=address, reason=_LE('Duplicate adddress detected'))
-        errmsg = _LE("Exceeded %s second limit waiting for "
-                     "address to leave the tentative state.") % wait_time
+                    address=address, reason=_('Duplicate adddress detected'))
+        errmsg = _("Exceeded %s second limit waiting for "
+                   "address to leave the tentative state.") % wait_time
         utils.utils.wait_until_true(
             is_address_ready, timeout=wait_time, sleep=0.20,
             exception=AddressNotReady(address=address, reason=errmsg))
@@ -583,20 +635,22 @@ class IpRouteCommand(IpDeviceCommandBase):
         args += self._table_args(table)
         self._as_root([ip_version], tuple(args))
 
+    def _run_as_root_detect_device_not_found(self, *args, **kwargs):
+        try:
+            return self._as_root(*args, **kwargs)
+        except RuntimeError as rte:
+            with excutils.save_and_reraise_exception() as ctx:
+                if "Cannot find device" in str(rte):
+                    ctx.reraise = False
+                    raise exceptions.DeviceNotFoundError(device_name=self.name)
+
     def delete_gateway(self, gateway, table=None):
         ip_version = get_ip_version(gateway)
         args = ['del', 'default',
                 'via', gateway]
         args += self._dev_args()
         args += self._table_args(table)
-        try:
-            self._as_root([ip_version], tuple(args))
-        except RuntimeError as rte:
-            with (excutils.save_and_reraise_exception()) as ctx:
-                if "Cannot find device" in str(rte):
-                    ctx.reraise = False
-                    raise exceptions.DeviceNotFoundError(
-                        device_name=self.name)
+        self._run_as_root_detect_device_not_found([ip_version], tuple(args))
 
     def _parse_routes(self, ip_version, output, **kwargs):
         for line in output.splitlines():
@@ -669,6 +723,7 @@ class IpRouteCommand(IpDeviceCommandBase):
 
         return retval
 
+    @debtcollector.removals.remove(message="Will be removed in the N cycle.")
     def pullup_route(self, interface_name, ip_version):
         """Ensures that the route entry for the interface is before all
         others on the same subnet.
@@ -729,7 +784,7 @@ class IpRouteCommand(IpDeviceCommandBase):
         args += self._table_args(table)
         for k, v in kwargs.items():
             args += [k, v]
-        self._as_root([ip_version], tuple(args))
+        self._run_as_root_detect_device_not_found([ip_version], tuple(args))
 
     def delete_route(self, cidr, via=None, table=None, **kwargs):
         ip_version = get_ip_version(cidr)
@@ -740,7 +795,7 @@ class IpRouteCommand(IpDeviceCommandBase):
         args += self._table_args(table)
         for k, v in kwargs.items():
             args += [k, v]
-        self._as_root([ip_version], tuple(args))
+        self._run_as_root_detect_device_not_found([ip_version], tuple(args))
 
 
 class IPRoute(SubProcessBase):
@@ -800,7 +855,8 @@ class IpNetnsCommand(IpCommandBase):
         self._as_root([], ('delete', name), use_root_namespace=True)
 
     def execute(self, cmds, addl_env=None, check_exit_code=True,
-                extra_ok_codes=None, run_as_root=False):
+                log_fail_as_error=True, extra_ok_codes=None,
+                run_as_root=False):
         ns_params = []
         kwargs = {'run_as_root': run_as_root}
         if self._parent.namespace:
@@ -813,14 +869,17 @@ class IpNetnsCommand(IpCommandBase):
                           ['%s=%s' % pair for pair in addl_env.items()])
         cmd = ns_params + env_params + list(cmds)
         return utils.execute(cmd, check_exit_code=check_exit_code,
-                             extra_ok_codes=extra_ok_codes, **kwargs)
+                             extra_ok_codes=extra_ok_codes,
+                             log_fail_as_error=log_fail_as_error, **kwargs)
 
     def exists(self, name):
+        if not cfg.CONF.AGENT.use_helper_for_ns_read:
+            return name in os.listdir(IP_NETNS_PATH)
+
         output = self._parent._execute(
-            ['o'], 'netns', ['list'],
-            run_as_root=cfg.CONF.AGENT.use_helper_for_ns_read)
-        for line in output.split('\n'):
-            if name == line.strip():
+            ['o'], 'netns', ['list'], run_as_root=True)
+        for line in [l.split()[0] for l in output.splitlines()]:
+            if name == line:
                 return True
         return False
 
@@ -835,13 +894,7 @@ def vxlan_in_use(segmentation_id, namespace=None):
 
 def device_exists(device_name, namespace=None):
     """Return True if the device exists in the namespace."""
-    try:
-        dev = IPDevice(device_name, namespace=namespace)
-        dev.set_log_fail_as_error(False)
-        address = dev.link.address
-    except RuntimeError:
-        return False
-    return bool(address)
+    return IPDevice(device_name, namespace=namespace).exists()
 
 
 def device_exists_with_ips_and_mac(device_name, ip_cidrs, mac, namespace=None):

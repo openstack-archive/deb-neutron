@@ -38,13 +38,15 @@ class L3AgentNotifyAPI(object):
         target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
 
-    def _notification_host(self, context, method, payload, host):
+    def _notification_host(self, context, method, host, use_call=False,
+                           **kwargs):
         """Notify the agent that is hosting the router."""
         LOG.debug('Notify agent at %(host)s the message '
                   '%(method)s', {'host': host,
                                  'method': method})
         cctxt = self.client.prepare(server=host)
-        cctxt.cast(context, method, payload=payload)
+        rpc_method = cctxt.call if use_call else cctxt.cast
+        rpc_method(context, method, **kwargs)
 
     def _agent_notification(self, context, method, router_ids, operation,
                             shuffle_agents):
@@ -120,20 +122,32 @@ class L3AgentNotifyAPI(object):
             cctxt = self.client.prepare(fanout=True)
             cctxt.cast(context, method, routers=router_ids)
 
-    def _notification_fanout(self, context, method, router_id):
-        """Fanout the deleted router to all L3 agents."""
-        LOG.debug('Fanout notify agent at %(topic)s the message '
-                  '%(method)s on router %(router_id)s',
-                  {'topic': topics.L3_AGENT,
-                   'method': method,
-                   'router_id': router_id})
+    def _notification_fanout(self, context, method, router_id=None, **kwargs):
+        """Fanout the information to all L3 agents.
+
+        This function will fanout the router_id or ext_net_id
+        to the L3 Agents.
+        """
+        ext_net_id = kwargs.get('ext_net_id')
+        if router_id:
+            kwargs['router_id'] = router_id
+            LOG.debug('Fanout notify agent at %(topic)s the message '
+                      '%(method)s on router %(router_id)s',
+                      {'topic': topics.L3_AGENT,
+                       'method': method,
+                       'router_id': router_id})
+        if ext_net_id:
+            LOG.debug('Fanout notify agent at %(topic)s the message '
+                      '%(method)s for external_network  %(ext_net_id)s',
+                      {'topic': topics.L3_AGENT,
+                       'method': method,
+                       'ext_net_id': ext_net_id})
         cctxt = self.client.prepare(fanout=True)
-        cctxt.cast(context, method, router_id=router_id)
+        cctxt.cast(context, method, **kwargs)
 
     def agent_updated(self, context, admin_state_up, host):
-        self._notification_host(context, 'agent_updated',
-                                {'admin_state_up': admin_state_up},
-                                host)
+        self._notification_host(context, 'agent_updated', host,
+                                payload={'admin_state_up': admin_state_up})
 
     def router_deleted(self, context, router_id):
         self._notification_fanout(context, 'router_deleted', router_id)
@@ -152,10 +166,23 @@ class L3AgentNotifyAPI(object):
         self._agent_notification_arp(context, 'del_arp_entry', router_id,
                                      operation, arp_table)
 
+    def delete_fipnamespace_for_ext_net(self, context, ext_net_id):
+        self._notification_fanout(
+            context, 'fipnamespace_delete_on_ext_net',
+            ext_net_id=ext_net_id)
+
     def router_removed_from_agent(self, context, router_id, host):
-        self._notification_host(context, 'router_removed_from_agent',
-                                {'router_id': router_id}, host)
+        self._notification_host(context, 'router_removed_from_agent', host,
+                                payload={'router_id': router_id})
 
     def router_added_to_agent(self, context, router_ids, host):
-        self._notification_host(context, 'router_added_to_agent',
-                                router_ids, host)
+        # need to use call here as we want to be sure agent received
+        # notification and router will not be "lost". However using call()
+        # itself is not a guarantee, calling code should handle exceptions and
+        # retry
+        self._notification_host(context, 'router_added_to_agent', host,
+                                use_call=True, payload=router_ids)
+
+    def routers_updated_on_host(self, context, router_ids, host):
+        self._notification_host(context, 'routers_updated', host,
+                                routers=router_ids)

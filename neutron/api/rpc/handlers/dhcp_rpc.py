@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import itertools
 import operator
 
@@ -56,9 +57,12 @@ class DhcpRpcCallback(object):
     #           RPC client for many releases, it should be OK to bump the
     #           minor release instead and claim RPC compatibility with the
     #           last few client versions.
+    #     1.3 - Removed release_port_fixed_ip. It's not used by reference DHCP
+    #           agent since Juno, so similar rationale for not bumping the
+    #           major version as above applies here too.
     target = oslo_messaging.Target(
         namespace=constants.RPC_NAMESPACE_DHCP_PLUGIN,
-        version='1.2')
+        version='1.3')
 
     def _get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active networks."""
@@ -173,31 +177,6 @@ class DhcpRpcCallback(object):
         plugin = manager.NeutronManager.get_plugin()
         plugin.delete_ports_by_device_id(context, device_id, network_id)
 
-    @db_api.retry_db_errors
-    def release_port_fixed_ip(self, context, **kwargs):
-        """Release the fixed_ip associated the subnet on a port."""
-        host = kwargs.get('host')
-        network_id = kwargs.get('network_id')
-        device_id = kwargs.get('device_id')
-        subnet_id = kwargs.get('subnet_id')
-
-        LOG.debug('DHCP port remove fixed_ip for %(subnet_id)s request '
-                  'from %(host)s',
-                  {'subnet_id': subnet_id, 'host': host})
-        plugin = manager.NeutronManager.get_plugin()
-        filters = dict(network_id=[network_id], device_id=[device_id])
-        ports = plugin.get_ports(context, filters=filters)
-
-        if ports:
-            port = ports[0]
-
-            fixed_ips = port.get('fixed_ips', [])
-            for i in range(len(fixed_ips)):
-                if fixed_ips[i]['subnet_id'] == subnet_id:
-                    del fixed_ips[i]
-                    break
-            plugin.update_port(context, port['id'], dict(port=port))
-
     def update_lease_expiration(self, context, **kwargs):
         """Release the fixed_ip associated the subnet on a port."""
         # NOTE(arosen): This method is no longer used by the DHCP agent but is
@@ -217,7 +196,9 @@ class DhcpRpcCallback(object):
 
         """
         host = kwargs.get('host')
-        port = kwargs.get('port')
+        # Note(pbondar): Create deep copy of port to prevent operating
+        # on changed dict if RetryRequest is raised
+        port = copy.deepcopy(kwargs.get('port'))
         LOG.debug('Create dhcp port %(port)s '
                   'from %(host)s.',
                   {'port': port,
@@ -236,10 +217,15 @@ class DhcpRpcCallback(object):
         host = kwargs.get('host')
         port = kwargs.get('port')
         port['id'] = kwargs.get('port_id')
+        port['port'][portbindings.HOST_ID] = host
+        plugin = manager.NeutronManager.get_plugin()
+        old_port = plugin.get_port(context, port['id'])
+        if (old_port['device_id'] != constants.DEVICE_ID_RESERVED_DHCP_PORT
+            and old_port['device_id'] !=
+            utils.get_dhcp_agent_device_id(port['port']['network_id'], host)):
+            raise n_exc.DhcpPortInUse(port_id=port['id'])
         LOG.debug('Update dhcp port %(port)s '
                   'from %(host)s.',
                   {'port': port,
                    'host': host})
-        port['port'][portbindings.HOST_ID] = host
-        plugin = manager.NeutronManager.get_plugin()
         return self._port_action(plugin, context, port, 'update_port')

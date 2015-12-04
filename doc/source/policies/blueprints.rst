@@ -2,16 +2,16 @@ Blueprints and Specs
 ====================
 
 The Neutron team uses the `neutron-specs
-<http://git.openstack.org/cgit/openstack/neutron-specs>`_ repository for it's
-specification reviews. Detailed information can be found `here
-<https://wiki.openstack.org/wiki/Blueprints#Neutron>`_. Please also find
+<http://git.openstack.org/cgit/openstack/neutron-specs>`_ repository for its
+specification reviews. Detailed information can be found on the `wiki
+<https://wiki.openstack.org/wiki/Blueprints>`_. Please also find
 additional information in the reviews.rst file.
 
-The Neutron team does not enforce deadlines for specs and blueprints. These
-can be submitted throughout the release cycle. The drivers team will review
-this on a regular basis throughout the release, and based on the load for the
-milestones, will assign these into milestones or move them to the backlog
-for selection into a future release.
+The Neutron team does not enforce deadlines for specs. These can be submitted
+throughout the release cycle. The drivers team will review this on a regular
+basis throughout the release, and based on the load for the milestones, will
+assign these into milestones or move them to the backlog for selection into
+a future release.
 
 Please note that we use a `template
 <http://git.openstack.org/cgit/openstack/neutron-specs/tree/specs/template.rst>`_
@@ -19,35 +19,33 @@ for spec submissions. It is not required to fill out all sections in the
 template. Review of the spec may require filling in information left out by
 the submitter.
 
-Neutron BP and Spec Notes
--------------------------
+Sub-Projects and Specs
+----------------------
 
-There are occasions when a spec will be approved and the code will not land in
-the cycle it was targeted at. For these cases, the work flow to get the spec
-into the next release is as follows:
-
-* The PTL will create a <release>-backlog directory during the RC window and
-  move all specs which didn't make the <release> there.
-* Anyone can propose a patch to neutron-specs which moves a spec from the
-  previous release into the new release directory.
-
-The specs which are moved in this way can be fast-tracked into the next
-release. Please note that it is required to re-propose the spec for the new
-release however.
+The `neutron-specs <http://git.openstack.org/cgit/openstack/neutron-specs>`_
+repository is only meant for specs from Neutron itself, and the advanced
+services repositories as well. This includes FWaaS, LBaaS, and VPNaaS. Other
+sub-projects are encouraged to fold their specs into their own devref code
+in their sub-project gerrit repositories. Please see additional commments
+in the Neutron teams `section <http://docs.openstack.org/developer/neutron/policies/neutron-teams.html#neutron-specs-core-reviewer-team>`_
+for reviewer requirements of the neutron-specs repository.
 
 Neutron Request for Feature Enhancements
 ----------------------------------------
 
-We are introducing the concept of feature requests. Feature requests are
-tracked as Launchpad bugs, tagged with the new 'rfe' tag, and allow for
-the submission and review of these feature requests before code is submitted.
+In Liberty the team introduced the concept of feature requests. Feature
+requests are tracked as Launchpad bugs, tagged with the new 'rfe' tag, and
+allow for the submission and review of these feature requests before code
+is submitted.
 This allows the team to verify the validity of a feature request before the
 process of submitting a neutron-spec is undertaken, or code is written.  It
 also allows the community to express interest in a feature by subscribing to
-the bug and posting a comment in Launchpad. Note the temptation to game the
-system exists, but given the history in Neutron for this type of activity, it
-will not be tolerated and will be called out as such in public on the mailing
-list.
+the bug and posting a comment in Launchpad. The 'rfe' tag should not be used
+for work that is already well-defined and has an assignee. If you are intending
+to submit code immediately, a simple bug report will suffice. Note the
+temptation to game the system exists, but given the history in Neutron for this
+type of activity, it will not be tolerated and will be called out as such in
+public on the mailing list.
 
 RFEs can be submitted by anyone and by having the community vote on them in
 Launchpad, we can gauge interest in features. The drivers team will evaluate
@@ -64,37 +62,137 @@ The workflow for the life an RFE in Launchpad is as follows:
 
 * The bug is submitted and will by default land in the "New" state.
 * As soon as a member of the neutron-drivers team acknowledges the bug, it will
-  be moved into the "Confirmed" state. No priority, assignee, or milestone is
-  set at this time.
-* The bug goes into the "Triaged" state once a discussion around the RFE has
-  taken place.
+  be moved into the "Confirmed" state. No assignee, or milestone is set at this
+  time. The importance will be set to 'Wishlist' to signal the fact that the
+  report is indeed a feature or enhancement and there is no severity associated
+  to it.
+* The bug goes into the "Triaged" state while the discussion is ongoing.
 * The neutron-drivers team will evaluate the RFE and may advise the submitter
-  to file a spec in neutron-specs to elaborate on the feature request.
+  to file a spec in neutron-specs to elaborate on the feature request, in case
+  the RFE requires extra scrutiny, more design discussion, etc.
 * The PTL will work with the Lieutenant for the area being identified by the
   RFE to evaluate resources against the current workload.
-* In either case (a spec being required or not), once discussion has happened
-  the bug will get an assignee, priority and milestone.
-* Once a patchset targeting the bug is submitted the bug will move into the
-  "In Progress" state.
-* When all patches targeting the bug are merged or abandoned, the bug will be
-  moved to the "Completed" state.
+* If a spec is necessary, a member of the Neutron release team will register
+  a matching Launchpad blueprint to be used for milestone tracking purposes,
+  and as a landing page for the spec document, as available on `specs.o.o. <http://specs.openstack.org/openstack/neutron-specs/>`_.
+  The blueprint will then be linked to the original RFE bug report. This
+  step will ensure higher visibility of the RFE over the other RFEs
+  and consistency across the various fields required during the blueprint
+  registration process (Approver, Drafter, etc.). More precisely, the
+  blueprint submitter will work with the RFE submitter to identify the
+  following:
 
-Cutover to RFEs From Pure Specs
--------------------------------
+  * Priority: there will be only two priorities to choose from, High and Low.
+    It is worth noting that priority is not to be confused with `importance <https://wiki.openstack.org/wiki/Bugs#Importance>`_,
+    which is a property of Launchpad Bugs. Priority gives an indication of
+    how promptly a work item should be tackled to allow it to complete. High
+    priority is to be chosen for work items that must make substantial
+    progress in the span of the targeted release, and deal with the
+    following aspects:
 
-Prior to the Liberty release, Neutron relied purely on a waterfall model for
-handling specs. During Liberty, the goal is to move to the above referenced
-RFE process. This will allow for the separation of the "What" from the "How",
-and ideally allow for better scheduling of work by the PTL and Lieutenants.
-However, given the fact we have a backlog of specs already and new specs
-proposed, we need a path forward to not create extra work for everyone.
+    * OpenStack cross-project interaction and interoperability issues;
+    * Issues that affect the existing system's usability;
+    * Stability and testability of the platform;
+    * Risky implementations that may require complex and/or pervasive
+      changes to API and the logical model;
 
-For Liberty-1, we will allow the old specs to be reviewed as-is. The drivers
-team will ensure all specs submitted a week before the Liberty-1 deadline are
-given a review and approved or rejected. After Liberty-1, people will not be
-required to convert their specs over to RFE bugs during Liberty-1. Once
-Liberty-1 passes, all old specs will be moved to a "liberty-backlog" directory
-and anything new will follow the new RFE process fully.
+    Low priority is to be chosen for everything else. RFEs without an associated
+    blueprint are effectively equivalent to low priority items. Bear in mind that,
+    even though staffing should take priorities into account (i.e. by giving more
+    resources to high priority items over low priority ones), the open source
+    reality is that they can both proceed at their own pace and low priority items
+    can indeed complete faster than high priority ones, even though they are
+    given fewer resources.
+
+  * Drafter: who is going to submit and iterate on the spec proposal; he/she
+    may be the RFE submitter.
+  * Assignee: who is going to develop the bulk of the code, or the
+    go-to contributor, if more people are involved. Typically this is
+    the RFE submitter, but not necessarily.
+  * Approver: a member of the Neutron team who can commit enough time
+    during the ongoing release cycle to ensure that code posted for review
+    does not languish, and that all aspects of the feature development are
+    taken care of (client, server changes and/or support from other projects
+    if needed - tempest, nova, openstack-infra, devstack, etc.), as well as
+    comprehensive testing.
+    This is typically a core member who has enough experience with what it
+    takes to get code merged, but other resources amongst the wider team can
+    also be identified. Approvers are volunteers who show a specific interest
+    in the blueprint specification, and have enough insight in the area of
+    work so that they can make effective code reviews and provide design
+    feedback. An approver will not work in isolation, as he/she can and will
+    reach out for help to get the job done; however he/she is the main
+    point of contact with the following responsibilities:
+
+  * Pair up with the drafter/assignee in order to help skip development
+    blockers.
+  * Review patches associated with the blueprint: approver and assignee
+    should touch base regularly and ping each other when new code is
+    available for review, or if review feedback goes unaddressed.
+  * Reach out to other reviewers for feedback in areas that may step
+    out of the zone of her/his confidence.
+  * Escalate issues, and raise warnings to the release team/PTL if the
+    effort shows slow progress. Approver and assignee are key parts to land
+    a blueprint: should the approver and/or assignee be unable to continue
+    the commitment during the release cycle, it is the Approver's
+    responsibility to reach out the release team/PTL so that replacements
+    can be identified.
+  * Provide a status update during the Neutron IRC meeting, if required.
+
+  Approver `assignments <https://blueprints.launchpad.net/neutron/+assignments>`_
+  must be carefully identified to ensure that no-one overcommits. A
+  Neutron contributor develops code himself/herself, and if he/she is an
+  approver of more than a couple of blueprints in a single cycle/milestone
+  (depending on the complexity of the spec), it may mean that he/she is
+  clearly oversubscribed.
+  The Neutron team will review the status of blueprints targeted for the
+  milestone during their weekly meeting to ensure a smooth progression of
+  the work planned. Blueprints for which resources cannot be identified
+  will have to be deferred.
+
+* In either case (a spec being required or not), once the discussion has
+  happened and there is positive consensus on the RFE, the report is 'approved',
+  and its tag will move from 'rfe' to 'rfe-approved'.
+* At this point, the RFE needs resources, and if none are identified for
+  some time the report will be marked incomplete.
+* As for setting the milestone (both for RFE bugs or blueprints), the current
+  milestone is always chosen, assuming that work will start as soon as the feature
+  is approved. Work that fails to complete by the defined milestone will roll
+  over automatically until it gets completed or abandoned.
+* If the code fails to merge, the bug report may be marked as incomplete,
+  unassigned and untargeted, and it will be garbage collected by
+  the Launchpad Janitor if no-one takes over in time. Renewed interest in the
+  feature will have to go through RFE submission process once again.
+
+In summary:
+
++------------+-----------------------------------------------------------------------------+
+|State       | Meaning                                                                     |
++============+=============================================================================+
+|New         | This is where all RFE's start, as filed by the community.                   |
++------------+-----------------------------------------------------------------------------+
+|Incomplete  | Drivers/LTs - Move to this state to mean, "more needed before proceeding"   |
++------------+-----------------------------------------------------------------------------+
+|Confirmed   | Drivers/LTs - Move to this state to mean, "yeah, I see that you filed it"   |
++------------+-----------------------------------------------------------------------------+
+|Triaged     | Drivers/LTs - Move to this state to mean, "discussion is ongoing"           |
++------------+-----------------------------------------------------------------------------+
+|Won't Fix   | Drivers/LTs - Move to this state to reject an RFE.                          |
++------------+-----------------------------------------------------------------------------+
+
+Once the triaging (discussion is complete) and the RFE is approved, the tag goes from 'rfe'
+to 'rfe-approved', and at this point the bug report goes through the usual state transition.
+Note, that the importance will be set to 'wishlist', to reflect the fact that the bug report
+is indeed not a bug, but a new feature or enhancement. This will also help have RFEs that are
+not followed up by a blueprint standout in the Launchpad `milestone dashboards <https://launchpad.net/neutron/+milestones>`_.
+
+The drivers team will be discussing the following bug reports during their IRC meeting:
+
+* `New RFE's <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=NEW&field.tag=rfe>`_
+* `Incomplete RFE's <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INCOMPLETE&field.tag=rfe>`_
+* `Confirmed RFE's <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=CONFIRMED&field.tag=rfe>`_
+* `Triaged RFE's <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=TRIAGED&field.tag=rfe>`_
+
 
 RFE Submission Guidelines
 -------------------------
@@ -142,3 +240,21 @@ questions:
 
 Once you are happy with what you wrote, add 'rfe' as tag, and submit. Do not
 worry, we are here to help you get it right! Happy hacking.
+
+
+Missing your target
+-------------------
+
+There are occasions when a spec will be approved and the code will not land in
+the cycle it was targeted at. For these cases, the work flow to get the spec
+into the next release is as follows:
+
+* During the RC window, the PTL will create a directory named '<release>' under
+  the 'backlog' directory in the neutron specs repo, and he/she will move all
+  specs that did not make the release to this directory.
+* Anyone can propose a patch to neutron-specs which moves a spec from the
+  previous release into the new release directory.
+
+The specs which are moved in this way can be fast-tracked into the next
+release. Please note that it is required to re-propose the spec for the new
+release.

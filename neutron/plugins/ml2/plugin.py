@@ -60,6 +60,7 @@ from neutron.db import securitygroups_db
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.db import vlantransparent_db
 from neutron.extensions import allowedaddresspairs as addr_pair
+from neutron.extensions import availability_zone as az_ext
 from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import portbindings
 from neutron.extensions import portsecurity as psec
@@ -88,7 +89,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 dvr_mac_db.DVRDbMixin,
                 external_net_db.External_net_db_mixin,
                 sg_db_rpc.SecurityGroupServerRpcMixin,
-                agentschedulers_db.DhcpAgentSchedulerDbMixin,
+                agentschedulers_db.AZDhcpAgentSchedulerDbMixin,
                 addr_pair_db.AllowedAddressPairsMixin,
                 vlantransparent_db.Vlantransparent_db_mixin,
                 extradhcpopt_db.ExtraDhcpOptMixin,
@@ -118,7 +119,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     "multi-provider", "allowed-address-pairs",
                                     "extra_dhcp_opt", "subnet_allocation",
                                     "net-mtu", "vlan-transparent",
-                                    "dns-integration"]
+                                    "address-scope", "dns-integration",
+                                    "availability_zone",
+                                    "network_availability_zone"]
 
     @property
     def supported_extension_aliases(self):
@@ -148,6 +151,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.mechanism_manager.initialize()
         self._setup_dhcp()
         self._start_rpc_notifiers()
+        self.add_agent_status_check(self.agent_health_check)
         LOG.info(_LI("Modular L2 Plugin initialization complete"))
 
     def _setup_rpc(self):
@@ -186,9 +190,20 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         """Start the RPC loop to let the plugin communicate with agents."""
         self._setup_rpc()
         self.topic = topics.PLUGIN
-        self.conn = n_rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection()
         self.conn.create_consumer(self.topic, self.endpoints, fanout=False)
+        # process state reports despite dedicated rpc workers
+        self.conn.create_consumer(topics.REPORTS,
+                                  [agents_db.AgentExtRpcCallback()],
+                                  fanout=False)
         return self.conn.consume_in_threads()
+
+    def start_rpc_state_reports_listener(self):
+        self.conn_reports = n_rpc.create_connection(new=True)
+        self.conn_reports.create_consumer(topics.REPORTS,
+                                          [agents_db.AgentExtRpcCallback()],
+                                          fanout=False)
+        return self.conn_reports.consume_in_threads()
 
     def _filter_nets_provider(self, context, networks, filters):
         return [network
@@ -567,8 +582,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                               {'res': resource,
                                'id': obj['result']['id']})
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_request=True)
     def _create_bulk_ml2(self, resource, context, request_items):
         objects = []
         collection = "%ss" % resource
@@ -630,16 +643,26 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     result['id'], {'network': {api.MTU: net_data[api.MTU]}})
                 result[api.MTU] = res.get(api.MTU, 0)
 
+            if az_ext.AZ_HINTS in net_data:
+                self.validate_availability_zones(context, 'network',
+                                                 net_data[az_ext.AZ_HINTS])
+                az_hints = az_ext.convert_az_list_to_string(
+                                                net_data[az_ext.AZ_HINTS])
+                super(Ml2Plugin, self).update_network(context,
+                    result['id'], {'network': {az_ext.AZ_HINTS: az_hints}})
+                result[az_ext.AZ_HINTS] = az_hints
+
+            # Update the transparent vlan if configured
+            if utils.is_extension_supported(self, 'vlan-transparent'):
+                vlt = vlantransparent.get_vlan_transparent(net_data)
+                super(Ml2Plugin, self).update_network(context,
+                    result['id'], {'network': {'vlan_transparent': vlt}})
+                result['vlan_transparent'] = vlt
+
         return result, mech_context
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_request=True)
-    def _create_network_with_retries(self, context, network):
-        return self._create_network_db(context, network)
-
     def create_network(self, context, network):
-        result, mech_context = self._create_network_with_retries(context,
-                                                                 network)
+        result, mech_context = self._create_network_db(context, network)
         try:
             self.mechanism_manager.create_network_postcommit(mech_context)
         except ml2_exc.MechanismDriverError:
@@ -871,8 +894,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.mechanism_manager.update_subnet_postcommit(mech_context)
         return updated_subnet
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_request=True)
     def delete_subnet(self, context, id):
         # REVISIT(rkukura) The super(Ml2Plugin, self).delete_subnet()
         # function is not used because it deallocates the subnet's addresses
@@ -947,6 +968,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
                     LOG.debug("Deleting subnet record")
                     session.delete(record)
+
+                    # The super(Ml2Plugin, self).delete_subnet() is not called,
+                    # so need to manually call delete_subnet for pluggable ipam
+                    self.ipam.delete_subnet(context, id)
 
                     LOG.debug("Committing transaction")
                     break
@@ -1028,8 +1053,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         return result, mech_context
 
-    @oslo_db_api.wrap_db_retry(max_retries=db_api.MAX_RETRIES,
-                               retry_on_request=True)
     def create_port(self, context, port):
         attrs = port[attributes.PORT]
         result, mech_context = self._create_port_db(context, port)
@@ -1237,7 +1260,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         if original_port['admin_state_up'] != updated_port['admin_state_up']:
             need_port_update_notify = True
         # NOTE: In the case of DVR ports, the port-binding is done after
-        # router scheduling when sync_routers is callede and so this call
+        # router scheduling when sync_routers is called and so this call
         # below may not be required for DVR routed interfaces. But still
         # since we don't have the mech_context for the DVR router interfaces
         # at certain times, we just pass the port-context and return it, so

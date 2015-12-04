@@ -36,7 +36,6 @@ SHARED_OPTS = [
 
 DRIVER_OPTS = [
     cfg.BoolOpt('metadata_proxy_watch_log',
-                default=None,
                 help=_("Enable/Disable log watch by metadata proxy. It "
                        "should be disabled when metadata_proxy_user/group "
                        "is not allowed to read/write its log file and "
@@ -50,42 +49,22 @@ DRIVER_OPTS = [
 
 
 METADATA_PROXY_HANDLER_OPTS = [
-     cfg.StrOpt('admin_user',
-                help=_("Admin user")),
-     cfg.StrOpt('admin_password',
-                help=_("Admin password"),
-                secret=True),
-     cfg.StrOpt('admin_tenant_name',
-                help=_("Admin tenant name")),
-     cfg.StrOpt('auth_url',
-                help=_("Authentication URL")),
-     cfg.StrOpt('auth_strategy', default='keystone',
-                help=_("The type of authentication to use")),
-     cfg.StrOpt('auth_region',
-                help=_("Authentication region")),
-     cfg.BoolOpt('auth_insecure',
-                 default=False,
-                 help=_("Turn off verification of the certificate for"
-                        " ssl")),
      cfg.StrOpt('auth_ca_cert',
                 help=_("Certificate Authority public key (CA cert) "
                        "file for ssl")),
-     cfg.StrOpt('endpoint_type',
-                default='adminURL',
-                help=_("Network service endpoint type to pull from "
-                       "the keystone catalog")),
-     cfg.StrOpt('endpoint_url',
-                default=None,
-                help=_("Neutron endpoint URL, if not set will use endpoint "
-                       "from the keystone catalog along with endpoint_type")),
      cfg.StrOpt('nova_metadata_ip', default='127.0.0.1',
                 help=_("IP address used by Nova metadata server.")),
-     cfg.IntOpt('nova_metadata_port',
-                default=8775,
-                help=_("TCP Port used by Nova metadata server.")),
+     cfg.PortOpt('nova_metadata_port',
+                 default=8775,
+                 help=_("TCP Port used by Nova metadata server.")),
      cfg.StrOpt('metadata_proxy_shared_secret',
                 default='',
-                help=_('Shared secret to sign instance-id request'),
+                help=_('When proxying metadata requests, Neutron signs the '
+                       'Instance-ID header with a shared secret to prevent '
+                       'spoofing. You may select any string for a secret, '
+                       'but it must match here and in the configuration used '
+                       'by the Nova Metadata Server. NOTE: Nova uses the same '
+                       'config key, but in [neutron] section.'),
                 secret=True),
      cfg.StrOpt('nova_metadata_protocol',
                 default='http',

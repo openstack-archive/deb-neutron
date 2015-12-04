@@ -43,7 +43,8 @@ IP_PROTOCOL_MAP = {constants.PROTO_NAME_TCP: constants.PROTO_NUM_TCP,
                    constants.PROTO_NAME_ICMP_V6: constants.PROTO_NUM_ICMP_V6}
 
 
-class SecurityGroup(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class SecurityGroup(model_base.HasStandardAttributes, model_base.BASEV2,
+                    models_v2.HasId, models_v2.HasTenant):
     """Represents a v2 neutron security group."""
 
     name = sa.Column(sa.String(255))
@@ -84,8 +85,8 @@ class SecurityGroupPortBinding(model_base.BASEV2):
                             lazy='joined', cascade='delete'))
 
 
-class SecurityGroupRule(model_base.BASEV2, models_v2.HasId,
-                        models_v2.HasTenant):
+class SecurityGroupRule(model_base.HasStandardAttributes, model_base.BASEV2,
+                        models_v2.HasId, models_v2.HasTenant):
     """Represents a v2 neutron security group rule."""
 
     security_group_id = sa.Column(sa.String(36),
@@ -446,6 +447,13 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 raise ext_sg.SecurityGroupMissingIcmpType(
                     value=rule['port_range_max'])
 
+    def _validate_ethertype_and_protocol(self, rule):
+        """Check if given ethertype and  protocol are valid or not"""
+        if rule['protocol'] == constants.PROTO_NAME_ICMP_V6:
+            if rule['ethertype'] == constants.IPv4:
+                raise ext_sg.SecurityGroupEthertypeConflictWithProtocol(
+                        ethertype=rule['ethertype'], protocol=rule['protocol'])
+
     def _validate_single_tenant_and_group(self, security_group_rules):
         """Check that all rules belong to the same security group and tenant
         """
@@ -466,6 +474,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         rule = security_group_rule['security_group_rule']
         self._validate_port_range(rule)
         self._validate_ip_prefix(rule)
+        self._validate_ethertype_and_protocol(rule)
 
         if rule['remote_ip_prefix'] and rule['remote_group_id']:
             raise ext_sg.SecurityGroupRemoteGroupAndRemoteIpPrefix()
@@ -628,7 +637,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             **kwargs)
 
     def _extend_port_dict_security_group(self, port_res, port_db):
-        # Security group bindings will be retrieved from the sqlalchemy
+        # Security group bindings will be retrieved from the SQLAlchemy
         # model. As they're loaded eagerly with ports because of the
         # joined load they will not cause an extra query.
         security_group_ids = [sec_group_mapping['security_group_id'] for

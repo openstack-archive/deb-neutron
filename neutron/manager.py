@@ -13,22 +13,17 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import sys
 import weakref
 
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import periodic_task
-from oslo_utils import importutils
 import six
 
 from neutron.common import utils
-from neutron.db import flavors_db
-from neutron.i18n import _LE, _LI
+from neutron.i18n import _LI
 from neutron.plugins.common import constants
-
-from stevedore import driver
 
 
 LOG = logging.getLogger(__name__)
@@ -136,25 +131,18 @@ class NeutronManager(object):
 
     @staticmethod
     def load_class_for_provider(namespace, plugin_provider):
-        if not plugin_provider:
-            LOG.error(_LE("Error, plugin is not set"))
-            raise ImportError(_("Plugin not found."))
+        """Loads plugin using alias or class name
+        :param namespace: namespace where alias is defined
+        :param plugin_provider: plugin alias or class name
+        :returns plugin that is loaded
+        :raises ImportError if fails to load plugin
+        """
+
         try:
-            # Try to resolve plugin by name
-            mgr = driver.DriverManager(namespace, plugin_provider)
-            plugin_class = mgr.driver
-        except RuntimeError:
-            e1_info = sys.exc_info()
-            # fallback to class name
-            try:
-                plugin_class = importutils.import_class(plugin_provider)
-            except ImportError:
-                LOG.error(_LE("Error loading plugin by name"),
-                          exc_info=e1_info)
-                LOG.error(_LE("Error loading plugin by class"),
-                          exc_info=True)
-                raise ImportError(_("Plugin not found."))
-        return plugin_class
+            return utils.load_class_by_alias_or_classname(namespace,
+                    plugin_provider)
+        except ImportError:
+            raise ImportError(_("Plugin '%s' not found.") % plugin_provider)
 
     def _get_plugin_instance(self, namespace, plugin_provider):
         plugin_class = self.load_class_for_provider(namespace, plugin_provider)
@@ -172,11 +160,6 @@ class NeutronManager(object):
                 self.service_plugins[service_type] = self.plugin
                 LOG.info(_LI("Service %s is supported by the core plugin"),
                          service_type)
-
-    def _load_flavors_manager(self):
-        # pass manager instance to resolve cyclical import dependency
-        self.service_plugins[constants.FLAVORS] = (
-            flavors_db.FlavorManager(self))
 
     def _load_service_plugins(self):
         """Loads service plugins.
@@ -217,9 +200,6 @@ class NeutronManager(object):
                       "Description: %(desc)s",
                       {"type": plugin_inst.get_plugin_type(),
                        "desc": plugin_inst.get_plugin_description()})
-        # do it after the loading from conf to avoid conflict with
-        # configuration provided by unit tests.
-        self._load_flavors_manager()
 
     @classmethod
     @utils.synchronized("manager")

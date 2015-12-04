@@ -58,12 +58,13 @@ class SubnetAllocator(driver.Pool):
 
         # NOTE(cbrandily): the update disallows 2 concurrent subnet allocation
         # to succeed: at most 1 transaction will succeed, others will be
-        # rollbacked and be caught in neutron.db.v2.base
+        # rolled back and be caught in neutron.db.v2.base
         query = self._context.session.query(models_v2.SubnetPool).filter_by(
             id=self._subnetpool['id'], hash=current_hash)
         count = query.update({'hash': new_hash})
         if not count:
-            raise db_exc.RetryRequest()
+            raise db_exc.RetryRequest(n_exc.SubnetPoolInUse(
+                                      subnet_pool_id=self._subnetpool['id']))
 
     def _get_allocated_cidrs(self):
         query = self._context.session.query(models_v2.Subnet)
@@ -226,7 +227,7 @@ class SubnetPoolReader(object):
         self._read_id(subnetpool)
         self._read_prefix_bounds(subnetpool)
         self._read_attrs(subnetpool,
-                         ['tenant_id', 'name', 'shared'])
+                         ['tenant_id', 'name', 'is_default', 'shared'])
         self._read_address_scope(subnetpool)
         self.subnetpool = {'id': self.id,
                            'name': self.name,
@@ -240,6 +241,7 @@ class SubnetPoolReader(object):
                            'default_prefixlen': self.default_prefixlen,
                            'default_quota': self.default_quota,
                            'address_scope_id': self.address_scope_id,
+                           'is_default': self.is_default,
                            'shared': self.shared}
 
     def _read_attrs(self, subnetpool, keys):

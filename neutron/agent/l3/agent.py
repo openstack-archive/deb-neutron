@@ -25,6 +25,7 @@ from oslo_utils import timeutils
 
 from neutron.agent.common import utils as common_utils
 from neutron.agent.l3 import dvr
+from neutron.agent.l3 import dvr_edge_ha_router
 from neutron.agent.l3 import dvr_edge_router as dvr_router
 from neutron.agent.l3 import dvr_local_router as dvr_local_router
 from neutron.agent.l3 import ha
@@ -32,7 +33,6 @@ from neutron.agent.l3 import ha_router
 from neutron.agent.l3 import legacy_router
 from neutron.agent.l3 import namespace_manager
 from neutron.agent.l3 import namespaces
-from neutron.agent.l3 import router_info as rinf
 from neutron.agent.l3 import router_processing_queue as queue
 from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
@@ -163,9 +163,11 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         1.2 - DVR support: new L3 agent methods added.
               - add_arp_entry
               - del_arp_entry
+        1.3 - fipnamespace_delete_on_ext_net - to delete fipnamespace
+              after the external network is removed
               Needed by the L3 service when dealing with DVR
     """
-    target = oslo_messaging.Target(version='1.2')
+    target = oslo_messaging.Target(version='1.3')
 
     def __init__(self, host, conf=None):
         if conf:
@@ -224,7 +226,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self.namespaces_manager = namespace_manager.NamespaceManager(
             self.conf,
             self.driver,
-            self.conf.use_namespaces,
             self.metadata_driver)
 
         self._queue = queue.RouterProcessingQueue()
@@ -247,11 +248,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         """
         if not self.conf.interface_driver:
             msg = _LE('An interface driver must be specified')
-            LOG.error(msg)
-            raise SystemExit(1)
-
-        if not self.conf.use_namespaces and not self.conf.router_id:
-            msg = _LE('Router id is required if not using namespaces.')
             LOG.error(msg)
             raise SystemExit(1)
 
@@ -297,11 +293,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                     raise Exception(msg)
 
     def _create_router(self, router_id, router):
-        # TODO(Carl) We need to support a router that is both HA and DVR.  The
-        # patch that enables it will replace these lines.  See bug #1365473.
-        if router.get('distributed') and router.get('ha'):
-            raise n_exc.DvrHaRouterNotSupported(router_id=router_id)
-
         args = []
         kwargs = {
             'router_id': router_id,
@@ -314,6 +305,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         if router.get('distributed'):
             kwargs['agent'] = self
             kwargs['host'] = self.host
+
+        if router.get('distributed') and router.get('ha'):
+            if self.conf.agent_mode == l3_constants.L3_AGENT_MODE_DVR_SNAT:
+                kwargs['state_change_callback'] = self.enqueue_state_change
+                return dvr_edge_ha_router.DvrEdgeHaRouter(*args, **kwargs)
+
+        if router.get('distributed'):
             if self.conf.agent_mode == l3_constants.L3_AGENT_MODE_DVR_SNAT:
                 return dvr_router.DvrEdgeRouter(*args, **kwargs)
             else:
@@ -364,21 +362,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
         registry.notify(resources.ROUTER, events.AFTER_DELETE, self, router=ri)
 
-    def update_fip_statuses(self, ri, existing_floating_ips, fip_statuses):
-        # Identify floating IPs which were disabled
-        ri.floating_ips = set(fip_statuses.keys())
-        for fip_id in existing_floating_ips - ri.floating_ips:
-            fip_statuses[fip_id] = l3_constants.FLOATINGIP_STATUS_DOWN
-        # filter out statuses that didn't change
-        fip_statuses = {f: stat for f, stat in fip_statuses.items()
-                        if stat != rinf.FLOATINGIP_STATUS_NOCHANGE}
-        if not fip_statuses:
-            return
-        LOG.debug('Sending floating ip statuses: %s', fip_statuses)
-        # Update floating IP status on the neutron server
-        self.plugin_rpc.update_floatingip_statuses(
-            self.context, ri.router_id, fip_statuses)
-
     def router_deleted(self, context, router_id):
         """Deal with router deletion RPC message."""
         LOG.debug('Got router deleted notification for %s', router_id)
@@ -417,10 +400,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                       self.conf.external_network_bridge)
             return
 
-        # If namespaces are disabled, only process the router associated
-        # with the configured agent id.
-        if (not self.conf.use_namespaces and
-            router['id'] != self.conf.router_id):
+        if self.conf.router_id and router['id'] != self.conf.router_id:
             raise n_exc.RouterNotCompatibleWithAgent(router_id=router['id'])
 
         # Either ex_net_id or handle_internal_only_routers must be set
@@ -463,6 +443,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                       update.id, update.action, update.priority)
             if update.action == queue.PD_UPDATE:
                 self.pd.process_prefix_update()
+                LOG.debug("Finished a router update for %s", update.id)
                 continue
             router = update.router
             if update.action != queue.DELETE_ROUTER and not router:
@@ -492,6 +473,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                     # processing queue (like events from fullsync) in order to
                     # prevent deleted router re-creation
                     rp.fetched_and_processed(update.timestamp)
+                LOG.debug("Finished a router update for %s", update.id)
                 continue
 
             try:
@@ -521,7 +503,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
     # NOTE(kevinbenton): this is set to 1 second because the actual interval
     # is controlled by a FixedIntervalLoopingCall in neutron/service.py that
     # is responsible for task execution.
-    @periodic_task.periodic_task(spacing=1)
+    @periodic_task.periodic_task(spacing=1, run_immediately=True)
     def periodic_sync_routers_task(self, context):
         self.process_services_sync(context)
         if not self.fullsync:
@@ -548,12 +530,11 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         timestamp = timeutils.utcnow()
 
         try:
-            if self.conf.use_namespaces:
-                routers = self.plugin_rpc.get_routers(context)
-            else:
+            if self.conf.router_id:
                 routers = self.plugin_rpc.get_routers(context,
                                                       [self.conf.router_id])
-
+            else:
+                routers = self.plugin_rpc.get_routers(context)
         except oslo_messaging.MessagingException:
             LOG.exception(_LE("Failed synchronizing routers due to RPC error"))
             raise n_exc.AbortSyncRouters()
@@ -594,8 +575,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         # L3NATAgent.
         eventlet.spawn_n(self._process_routers_loop)
         LOG.info(_LI("L3 agent started"))
-        # When L3 agent is ready, we immediately do a full sync
-        self.periodic_sync_routers_task(self.context)
 
     def create_pd_router_update(self):
         router_id = None
@@ -609,16 +588,15 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 class L3NATAgentWithStateReport(L3NATAgent):
 
     def __init__(self, host, conf=None):
-        self.use_call = True
         super(L3NATAgentWithStateReport, self).__init__(host=host, conf=conf)
-        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
+        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.REPORTS)
         self.agent_state = {
             'binary': 'neutron-l3-agent',
             'host': host,
+            'availability_zone': self.conf.AGENT.availability_zone,
             'topic': topics.L3_AGENT,
             'configurations': {
                 'agent_mode': self.conf.agent_mode,
-                'use_namespaces': self.conf.use_namespaces,
                 'router_id': self.conf.router_id,
                 'handle_internal_only_routers':
                 self.conf.handle_internal_only_routers,
@@ -655,14 +633,18 @@ class L3NATAgentWithStateReport(L3NATAgent):
         configurations['interfaces'] = num_interfaces
         configurations['floating_ips'] = num_floating_ips
         try:
-            self.state_rpc.report_state(self.context, self.agent_state,
-                                        self.use_call)
+            agent_status = self.state_rpc.report_state(self.context,
+                                                       self.agent_state,
+                                                       True)
+            if agent_status == l3_constants.AGENT_REVIVED:
+                LOG.info(_LI('Agent has just been revived. '
+                             'Doing a full sync.'))
+                self.fullsync = True
             self.agent_state.pop('start_flag', None)
-            self.use_call = False
         except AttributeError:
             # This means the server does not support report_state
-            LOG.warn(_LW("Neutron server does not support state report."
-                         " State report for this agent will be disabled."))
+            LOG.warn(_LW("Neutron server does not support state report. "
+                         "State report for this agent will be disabled."))
             self.heartbeat.stop()
             return
         except Exception:
@@ -673,9 +655,6 @@ class L3NATAgentWithStateReport(L3NATAgent):
         LOG.info(_LI("L3 agent started"))
         # Do the report state before we do the first full sync.
         self._report_state()
-
-        # When L3 agent is ready, we immediately do a full sync
-        self.periodic_sync_routers_task(self.context)
 
         self.pd.after_start()
 

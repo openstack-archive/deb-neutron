@@ -40,6 +40,7 @@ UNLIMITED = None
 NAME_MAX_LEN = 255
 TENANT_ID_MAX_LEN = 255
 DESCRIPTION_MAX_LEN = 255
+LONG_DESCRIPTION_MAX_LEN = 1024
 DEVICE_ID_MAX_LEN = 255
 DEVICE_OWNER_MAX_LEN = 255
 
@@ -117,6 +118,21 @@ def _validate_string(data, max_len=None):
                {'data': data, 'max_len': max_len})
         LOG.debug(msg)
         return msg
+
+
+def validate_list_of_unique_strings(data, max_string_len=None):
+    if not isinstance(data, list):
+        msg = _("'%s' is not a list") % data
+        return msg
+
+    if len(set(data)) != len(data):
+        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
+        return msg
+
+    for item in data:
+        msg = _validate_string(item, max_string_len)
+        if msg:
+            return msg
 
 
 def _validate_boolean(data, valid_values=None):
@@ -320,7 +336,7 @@ def _validate_subnet(data, valid_values=None):
     msg = None
     try:
         net = netaddr.IPNetwork(_validate_no_whitespace(data))
-        if '/' not in data:
+        if '/' not in data or (net.version == 4 and str(net) != data):
             msg = _("'%(data)s' isn't a recognized IP subnet cidr,"
                     " '%(cidr)s' is recommended") % {"data": data,
                                                      "cidr": net.cidr}
@@ -634,7 +650,8 @@ validators = {'type:dict': _validate_dict,
               'type:uuid_or_none': _validate_uuid_or_none,
               'type:uuid_list': _validate_uuid_list,
               'type:values': _validate_values,
-              'type:boolean': _validate_boolean}
+              'type:boolean': _validate_boolean,
+              'type:list_of_unique_strings': validate_list_of_unique_strings}
 
 # Define constants for base resource name
 NETWORK = 'network'
@@ -864,6 +881,13 @@ RESOURCE_ATTRIBUTE_MAP = {
                           'validate': {'type:non_negative': None},
                           'convert_to': convert_to_int,
                           'is_visible': True},
+        'is_default': {'allow_post': True,
+                       'allow_put': True,
+                       'default': False,
+                       'convert_to': convert_to_boolean,
+                       'is_visible': True,
+                       'required_by_policy': True,
+                       'enforce_policy': True},
         SHARED: {'allow_post': True,
                  'allow_put': False,
                  'default': False,

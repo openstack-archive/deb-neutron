@@ -62,6 +62,9 @@ _uuid = uuidutils.generate_uuid
 _get_path = test_base._get_path
 
 
+DEVICE_OWNER_COMPUTE = l3_constants.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
+
+
 class L3TestExtensionManager(object):
 
     def get_resources(self):
@@ -114,7 +117,7 @@ class L3NatExtensionTestCase(test_extensions_base.ExtensionTestCase):
         router = res['router']
         self.assertEqual(router['id'], router_id)
         self.assertEqual(router['status'], "ACTIVE")
-        self.assertEqual(router['admin_state_up'], True)
+        self.assertTrue(router['admin_state_up'])
 
     def test_router_list(self):
         router_id = _uuid()
@@ -160,7 +163,7 @@ class L3NatExtensionTestCase(test_extensions_base.ExtensionTestCase):
         router = res['router']
         self.assertEqual(router['id'], router_id)
         self.assertEqual(router['status'], "ACTIVE")
-        self.assertEqual(router['admin_state_up'], False)
+        self.assertFalse(router['admin_state_up'])
 
     def test_router_get(self):
         router_id = _uuid()
@@ -182,7 +185,7 @@ class L3NatExtensionTestCase(test_extensions_base.ExtensionTestCase):
         router = res['router']
         self.assertEqual(router['id'], router_id)
         self.assertEqual(router['status'], "ACTIVE")
-        self.assertEqual(router['admin_state_up'], False)
+        self.assertFalse(router['admin_state_up'])
 
     def test_router_delete(self):
         router_id = _uuid()
@@ -353,7 +356,8 @@ class L3NatTestCaseMixin(object):
 
     def _add_external_gateway_to_router(self, router_id, network_id,
                                         expected_code=exc.HTTPOk.code,
-                                        neutron_context=None, ext_ips=[]):
+                                        neutron_context=None, ext_ips=None):
+        ext_ips = ext_ips or []
         body = {'router':
                 {'external_gateway_info': {'network_id': network_id}}}
         if ext_ips:
@@ -1874,6 +1878,35 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
             self.assertIsNotNone(body['floatingip']['fixed_ip_address'])
             self.assertIsNotNone(body['floatingip']['router_id'])
 
+    def test_create_floatingip_non_admin_context_agent_notification(self):
+        plugin = manager.NeutronManager.get_service_plugins()[
+            service_constants.L3_ROUTER_NAT]
+        if not hasattr(plugin, 'l3_rpc_notifier'):
+            self.skipTest("Plugin does not support l3_rpc_notifier")
+
+        with self.subnet(cidr='11.0.0.0/24') as public_sub,\
+                self.port() as private_port,\
+                self.router() as r:
+            self._set_net_external(public_sub['subnet']['network_id'])
+            subnet_id = private_port['port']['fixed_ips'][0]['subnet_id']
+            private_sub = {'subnet': {'id': subnet_id}}
+
+            self._add_external_gateway_to_router(
+                r['router']['id'],
+                public_sub['subnet']['network_id'])
+            self._router_interface_action(
+                'add', r['router']['id'],
+                private_sub['subnet']['id'], None)
+
+            with mock.patch.object(plugin.l3_rpc_notifier,
+                                   'routers_updated') as agent_notification:
+                self._make_floatingip(
+                    self.fmt,
+                    public_sub['subnet']['network_id'],
+                    port_id=private_port['port']['id'],
+                    set_context=True)
+                self.assertTrue(agent_notification.called)
+
     def test_floating_port_status_not_applicable(self):
         with self.floatingip_with_assoc():
             port_body = self._list('ports',
@@ -2479,23 +2512,6 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                         fip['floatingip']['floating_ip_address'])
                 self.assertEqual(floating_ip.version, 4)
 
-    def test_create_router_gateway_fails(self):
-        # Force _update_router_gw_info failure
-        plugin = manager.NeutronManager.get_service_plugins()[
-            service_constants.L3_ROUTER_NAT]
-        ctx = context.Context('', 'foo')
-        plugin._update_router_gw_info = mock.Mock(
-            side_effect=n_exc.NeutronException)
-        data = {'router': {
-            'name': 'router1', 'admin_state_up': True,
-            'external_gateway_info': {'network_id': 'some_uuid'}}}
-
-        # Verify router doesn't persist on failure
-        self.assertRaises(n_exc.NeutronException,
-                          plugin.create_router, ctx, data)
-        routers = plugin.get_routers(ctx)
-        self.assertEqual(0, len(routers))
-
     def test_update_subnet_gateway_for_external_net(self):
         """Test to make sure notification to routers occurs when the gateway
             ip address of a subnet of the external network is changed.
@@ -2847,7 +2863,7 @@ class L3RpcCallbackTestCase(base.BaseTestCase):
         port_id = 'foo_port_id'
         port = {
             'id': port_id,
-            'device_owner': 'compute:None',
+            'device_owner': DEVICE_OWNER_COMPUTE,
             portbindings.HOST_ID: '',
             portbindings.VIF_TYPE: portbindings.VIF_TYPE_BINDING_FAILED
         }
@@ -2890,13 +2906,50 @@ class L3AgentDbSepTestCase(L3BaseForSepTests, L3AgentDbTestCaseBase):
         self.plugin = TestL3NatServicePlugin()
 
 
-class L3NatDBIntTestCase(L3BaseForIntTests, L3NatTestCaseBase):
+class L3NatDBTestCaseMixin(object):
+    """L3_NAT_dbonly_mixin specific test cases."""
+
+    def setUp(self):
+        super(L3NatDBTestCaseMixin, self).setUp()
+        plugin = manager.NeutronManager.get_service_plugins()[
+            service_constants.L3_ROUTER_NAT]
+        if not isinstance(plugin, l3_db.L3_NAT_dbonly_mixin):
+            self.skipTest("Plugin is not L3_NAT_dbonly_mixin")
+
+    def test_create_router_gateway_fails(self):
+        """Force _update_router_gw_info failure and see
+        the exception is propagated.
+        """
+
+        plugin = manager.NeutronManager.get_service_plugins()[
+            service_constants.L3_ROUTER_NAT]
+        ctx = context.Context('', 'foo')
+
+        class MyException(Exception):
+            pass
+
+        mock.patch.object(plugin, '_update_router_gw_info',
+                          side_effect=MyException).start()
+        with self.network() as n:
+            data = {'router': {
+                'name': 'router1', 'admin_state_up': True,
+                'external_gateway_info': {'network_id': n['network']['id']}}}
+
+            self.assertRaises(MyException, plugin.create_router, ctx, data)
+            # Verify router doesn't persist on failure
+            routers = plugin.get_routers(ctx)
+            self.assertEqual(0, len(routers))
+
+
+class L3NatDBIntTestCase(L3BaseForIntTests, L3NatTestCaseBase,
+                         L3NatDBTestCaseMixin):
 
     """Unit tests for core plugin with L3 routing integrated."""
     pass
 
 
-class L3NatDBSepTestCase(L3BaseForSepTests, L3NatTestCaseBase):
+class L3NatDBSepTestCase(L3BaseForSepTests, L3NatTestCaseBase,
+                         L3NatDBTestCaseMixin):
 
     """Unit tests for a separate L3 routing service plugin."""
 

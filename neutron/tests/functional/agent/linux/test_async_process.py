@@ -13,6 +13,7 @@
 #    under the License.
 
 import eventlet
+import six
 
 from neutron.agent.linux import async_process
 from neutron.agent.linux import utils
@@ -24,8 +25,8 @@ class AsyncProcessTestFramework(base.BaseTestCase):
     def setUp(self):
         super(AsyncProcessTestFramework, self).setUp()
         self.test_file_path = self.get_temp_file_path('test_async_process.tmp')
-        self.data = [str(x) for x in range(4)]
-        with file(self.test_file_path, 'w') as f:
+        self.data = [six.text_type(x) for x in range(4)]
+        with open(self.test_file_path, 'w') as f:
             f.writelines('%s\n' % item for item in self.data)
 
     def _check_stdout(self, proc):

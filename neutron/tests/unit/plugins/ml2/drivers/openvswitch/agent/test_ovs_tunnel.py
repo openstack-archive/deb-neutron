@@ -23,6 +23,7 @@ import six
 
 from neutron.agent.common import ovs_lib
 from neutron.agent.linux import ip_lib
+from neutron.common import constants as n_const
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants
 from neutron.tests.unit.plugins.ml2.drivers.openvswitch.agent \
@@ -48,7 +49,7 @@ VIF_PORT = ovs_lib.VifPort('port', OFPORT_NUM,
 VIF_PORTS = {VIF_ID: VIF_PORT}
 FIXED_IPS = [{'subnet_id': 'my-subnet-uuid',
               'ip_address': '1.1.1.1'}]
-VM_DEVICE_OWNER = "compute:None"
+VM_DEVICE_OWNER = n_const.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
 
 TUN_OFPORTS = {p_const.TYPE_GRE: {'ip1': '11', 'ip2': '12'}}
 
@@ -81,7 +82,7 @@ class TunnelTest(object):
         self.INT_BRIDGE = 'integration_bridge'
         self.TUN_BRIDGE = 'tunnel_bridge'
         self.MAP_TUN_BRIDGE = 'tun_br_map'
-        self.NET_MAPPING = {'net1': self.MAP_TUN_BRIDGE}
+        self.NET_MAPPING = ['net1:%s' % self.MAP_TUN_BRIDGE]
         self.INT_OFPORT = 11111
         self.TUN_OFPORT = 22222
         self.MAP_TUN_INT_OFPORT = 33333
@@ -96,6 +97,10 @@ class TunnelTest(object):
 
         self.inta = mock.Mock()
         self.intb = mock.Mock()
+
+        mock.patch.object(ovs_lib.BaseOVS, 'config',
+                          new_callable=mock.PropertyMock,
+                          return_value={}).start()
 
         self.ovs_bridges = {
             self.INT_BRIDGE: mock.create_autospec(
@@ -141,9 +146,6 @@ class TunnelTest(object):
         self.mock_tun_bridge = self.ovs_bridges[self.TUN_BRIDGE]
         self.mock_tun_bridge.add_port.return_value = self.INT_OFPORT
         self.mock_tun_bridge.add_patch_port.return_value = self.INT_OFPORT
-
-        self.device_exists = mock.patch.object(ip_lib, 'device_exists').start()
-        self.device_exists.return_value = True
 
         self.ipdevice = mock.patch.object(ip_lib, 'IPDevice').start()
 
@@ -234,8 +236,6 @@ class TunnelTest(object):
             mock.call.setup_default_table(self.INT_OFPORT, arp_responder),
         ]
 
-        self.device_exists_expected = []
-
         self.ipdevice_expected = []
         self.ipwrapper_expected = [mock.call()]
 
@@ -245,23 +245,32 @@ class TunnelTest(object):
         self.intb_expected = []
         self.execute_expected = []
 
-    def _build_agent(self, **kwargs):
+    def _build_agent(self, **config_opts_agent):
+        """Configure and initialize OVS agent.
+
+        :param config_opts_agent: a dict with options to override the
+               default values for the AGENT group.
+        """
         bridge_classes = {
             'br_int': self.mock_int_bridge_cls,
             'br_phys': self.mock_phys_bridge_cls,
             'br_tun': self.mock_tun_bridge_cls,
         }
-        kwargs.setdefault('bridge_classes', bridge_classes)
-        kwargs.setdefault('integ_br', self.INT_BRIDGE)
-        kwargs.setdefault('tun_br', self.TUN_BRIDGE)
-        kwargs.setdefault('local_ip', '10.0.0.1')
-        kwargs.setdefault('bridge_mappings', self.NET_MAPPING)
-        kwargs.setdefault('polling_interval', 2)
-        kwargs.setdefault('tunnel_types', ['gre'])
-        kwargs.setdefault('veth_mtu', self.VETH_MTU)
-        kwargs.setdefault('use_veth_interconnection',
-                          self.USE_VETH_INTERCONNECTION)
-        return self.mod_agent.OVSNeutronAgent(**kwargs)
+        cfg.CONF.set_override('integration_bridge', self.INT_BRIDGE, 'OVS')
+        cfg.CONF.set_override('tunnel_bridge', self.TUN_BRIDGE, 'OVS')
+        cfg.CONF.set_override('local_ip', '10.0.0.1', 'OVS')
+        cfg.CONF.set_override('bridge_mappings', self.NET_MAPPING, 'OVS')
+        cfg.CONF.set_override('polling_interval', 2, 'AGENT')
+        cfg.CONF.set_override('tunnel_types', ['gre'], 'AGENT')
+        cfg.CONF.set_override('veth_mtu', self.VETH_MTU, 'AGENT')
+        cfg.CONF.set_override('minimize_polling', False, 'AGENT')
+        cfg.CONF.set_override('use_veth_interconnection',
+                              self.USE_VETH_INTERCONNECTION, 'OVS')
+
+        for k, v in config_opts_agent.items():
+            cfg.CONF.set_override(k, v, 'AGENT')
+
+        return self.mod_agent.OVSNeutronAgent(bridge_classes, cfg.CONF)
 
     def _verify_mock_call(self, mock_obj, expected):
         mock_obj.assert_has_calls(expected)
@@ -280,7 +289,6 @@ class TunnelTest(object):
                                self.mock_map_tun_bridge_expected)
         self._verify_mock_call(self.mock_tun_bridge,
                                self.mock_tun_bridge_expected)
-        self._verify_mock_call(self.device_exists, self.device_exists_expected)
         self._verify_mock_call(self.ipdevice, self.ipdevice_expected)
         self._verify_mock_call(self.ipwrapper, self.ipwrapper_expected)
         self._verify_mock_call(self.get_bridges, self.get_bridges_expected)
@@ -646,12 +654,10 @@ class TunnelTestUseVethInterco(TunnelTest):
             mock.call.setup_default_table(self.INT_OFPORT, arp_responder),
         ]
 
-        self.device_exists_expected = [
-            mock.call('int-%s' % self.MAP_TUN_BRIDGE),
-        ]
-
         self.ipdevice_expected = [
             mock.call('int-%s' % self.MAP_TUN_BRIDGE),
+            mock.call().exists(),
+            nonzero(mock.call().exists()),
             mock.call().link.delete()
         ]
         self.ipwrapper_expected = [

@@ -47,11 +47,18 @@ FAILMODE_STANDALONE = 'standalone'
 OPTS = [
     cfg.IntOpt('ovs_vsctl_timeout',
                default=DEFAULT_OVS_VSCTL_TIMEOUT,
-               help=_('Timeout in seconds for ovs-vsctl commands')),
+               help=_('Timeout in seconds for ovs-vsctl commands. '
+                      'If the timeout expires, ovs commands will fail with '
+                      'ALARMCLOCK error.')),
 ]
 cfg.CONF.register_opts(OPTS)
 
 LOG = logging.getLogger(__name__)
+
+OVS_DEFAULT_CAPS = {
+    'datapath_types': [],
+    'iface_types': [],
+}
 
 
 def _ofport_result_pending(result):
@@ -145,6 +152,23 @@ class BaseOVS(object):
                    log_errors=True):
         return self.ovsdb.db_get(table, record, column).execute(
             check_error=check_error, log_errors=log_errors)
+
+    @property
+    def config(self):
+        """A dict containing the only row from the root Open_vSwitch table
+
+        This row contains several columns describing the Open vSwitch install
+        and the system on which it is installed. Useful keys include:
+            datapath_types: a list of supported datapath types
+            iface_types: a list of supported interface types
+            ovs_version: the OVS version
+        """
+        return self.ovsdb.db_list("Open_vSwitch").execute()[0]
+
+    @property
+    def capabilities(self):
+        _cfg = self.config
+        return {k: _cfg.get(k, OVS_DEFAULT_CAPS[k]) for k in OVS_DEFAULT_CAPS}
 
 
 class OVSBridge(BaseOVS):
@@ -244,10 +268,9 @@ class OVSBridge(BaseOVS):
         ofport = INVALID_OFPORT
         try:
             ofport = self._get_port_ofport(port_name)
-        except retrying.RetryError as e:
-            LOG.exception(_LE("Timed out retrieving ofport on port %(pname)s. "
-                              "Exception: %(exception)s"),
-                          {'pname': port_name, 'exception': e})
+        except retrying.RetryError:
+            LOG.exception(_LE("Timed out retrieving ofport on port %s."),
+                          port_name)
         return ofport
 
     def get_datapath_id(self):
@@ -343,6 +366,8 @@ class OVSBridge(BaseOVS):
                              check_error=True, log_errors=True,
                              if_exists=False):
         port_names = ports or self.get_port_name_list()
+        if not port_names:
+            return []
         return (self.ovsdb.db_list(table, port_names, columns=columns,
                                    if_exists=if_exists).
                 execute(check_error=check_error, log_errors=log_errors))
@@ -434,7 +459,8 @@ class OVSBridge(BaseOVS):
 
     def get_vifs_by_ids(self, port_ids):
         interface_info = self.get_ports_attributes(
-            "Interface", columns=["name", "external_ids", "ofport"])
+            "Interface", columns=["name", "external_ids", "ofport"],
+            if_exists=True)
         by_id = {x['external_ids'].get('iface-id'): x for x in interface_info}
         result = {}
         for port_id in port_ids:

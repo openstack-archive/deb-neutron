@@ -30,17 +30,22 @@ import os
 import random
 import signal
 import socket
+import sys
 import tempfile
 import uuid
 
+import debtcollector
 from eventlet.green import subprocess
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+from oslo_utils import importutils
 import six
+from stevedore import driver
 
 from neutron.common import constants as n_const
+from neutron.i18n import _LE
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG = logging.getLogger(__name__)
@@ -107,6 +112,7 @@ class cache_method_results(object):
         return functools.partial(self.__call__, obj)
 
 
+@debtcollector.removals.remove(message="This will removed in the N cycle.")
 def read_cached_file(filename, cache_info, reload_func=None):
     """Read from a file if it has been modified.
 
@@ -128,6 +134,7 @@ def read_cached_file(filename, cache_info, reload_func=None):
     return cache_info['data']
 
 
+@debtcollector.removals.remove(message="This will removed in the N cycle.")
 def find_config_file(options, config_file):
     """Return the first config file found.
 
@@ -320,7 +327,7 @@ def get_random_string(length):
 
 def get_dhcp_agent_device_id(network_id, host):
     # Split host so as to always use only the hostname and
-    # not the domain name. This will guarantee consistentcy
+    # not the domain name. This will guarantee consistency
     # whether a local hostname or an fqdn is passed in.
     local_hostname = host.split('.')[0]
     host_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, str(local_hostname))
@@ -371,10 +378,11 @@ def is_dvr_serviced(device_owner):
     dvr_serviced_device_owners = (n_const.DEVICE_OWNER_LOADBALANCER,
                                   n_const.DEVICE_OWNER_LOADBALANCERV2,
                                   n_const.DEVICE_OWNER_DHCP)
-    return (device_owner.startswith('compute:') or
+    return (device_owner.startswith(n_const.DEVICE_OWNER_COMPUTE_PREFIX) or
             device_owner in dvr_serviced_device_owners)
 
 
+@debtcollector.removals.remove(message="This will removed in the N cycle.")
 def get_keystone_url(conf):
     if conf.auth_uri:
         auth_uri = conf.auth_uri.rstrip('/')
@@ -440,7 +448,7 @@ def is_port_trusted(port):
     Trust is currently based on the device_owner field starting with 'network:'
     since we restrict who can use that in the default policy.json file.
     """
-    return port['device_owner'].startswith('network:')
+    return port['device_owner'].startswith(n_const.DEVICE_OWNER_NETWORK_PREFIX)
 
 
 class DelayedStringRenderer(object):
@@ -471,7 +479,7 @@ def round_val(val):
                                              rounding=decimal.ROUND_HALF_UP))
 
 
-def replace_file(file_name, data):
+def replace_file(file_name, data, file_mode=0o644):
     """Replaces the contents of file_name with data in a safe manner.
 
     First write to a temp file and then rename. Since POSIX renames are
@@ -485,5 +493,40 @@ def replace_file(file_name, data):
                                      dir=base_dir,
                                      delete=False) as tmp_file:
         tmp_file.write(data)
-    os.chmod(tmp_file.name, 0o644)
+    os.chmod(tmp_file.name, file_mode)
     os.rename(tmp_file.name, file_name)
+
+
+def load_class_by_alias_or_classname(namespace, name):
+    """Load class using stevedore alias or the class name
+    :param namespace: namespace where the alias is defined
+    :param name: alias or class name of the class to be loaded
+    :returns class if calls can be loaded
+    :raises ImportError if class cannot be loaded
+    """
+
+    if not name:
+        LOG.error(_LE("Alias or class name is not set"))
+        raise ImportError(_("Class not found."))
+    try:
+        # Try to resolve class by alias
+        mgr = driver.DriverManager(namespace, name)
+        class_to_load = mgr.driver
+    except RuntimeError:
+        e1_info = sys.exc_info()
+        # Fallback to class name
+        try:
+            class_to_load = importutils.import_class(name)
+        except (ImportError, ValueError):
+            LOG.error(_LE("Error loading class by alias"),
+                      exc_info=e1_info)
+            LOG.error(_LE("Error loading class by class name"),
+                      exc_info=True)
+            raise ImportError(_("Class not found."))
+    return class_to_load
+
+
+def safe_decode_utf8(s):
+    if six.PY3 and isinstance(s, bytes):
+        return s.decode('utf-8', 'surrogateescape')
+    return s

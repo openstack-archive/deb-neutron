@@ -29,7 +29,6 @@ class TestRouterInfo(base.BaseTestCase):
         super(TestRouterInfo, self).setUp()
 
         conf = agent_config.setup_conf()
-        conf.use_namespaces = True
 
         self.ip_cls_p = mock.patch('neutron.agent.linux.ip_lib.IPWrapper')
         ip_cls = self.ip_cls_p.start()
@@ -129,8 +128,6 @@ class BasicRouterTestCaseFramework(base.BaseTestCase):
         if not router:
             router = mock.MagicMock()
         self.agent_conf = mock.Mock()
-        # NOTE The use_namespaces config will soon be deprecated
-        self.agent_conf.use_namespaces = True
         self.router_id = _uuid()
         return router_info.RouterInfo(self.router_id,
                                       router,
@@ -258,7 +255,8 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         fip = {
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
-            'fixed_ip_address': '192.168.0.2'
+            'fixed_ip_address': '192.168.0.2',
+            'status': l3_constants.FLOATINGIP_STATUS_DOWN
         }
 
         IPDevice.return_value = device = mock.Mock()

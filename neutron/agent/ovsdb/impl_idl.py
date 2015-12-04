@@ -24,16 +24,8 @@ from neutron.agent.ovsdb import api
 from neutron.agent.ovsdb.native import commands as cmd
 from neutron.agent.ovsdb.native import connection
 from neutron.agent.ovsdb.native import idlutils
-from neutron.i18n import _LE
 
 
-OPTS = [
-    cfg.StrOpt('ovsdb_connection',
-               default='tcp:127.0.0.1:6640',
-               help=_('The connection string for the native OVSDB backend')),
-]
-cfg.CONF.register_opts(OPTS, 'OVS')
-# TODO(twilson) DEFAULT.ovs_vsctl_timeout should be OVS.vsctl_timeout
 cfg.CONF.import_opt('ovs_vsctl_timeout', 'neutron.agent.common.ovs_lib')
 
 LOG = logging.getLogger(__name__)
@@ -98,7 +90,7 @@ class Transaction(api.Transaction):
                     seqno)
                 continue
             elif status == txn.ERROR:
-                msg = _LE("OVSDB Error: %s") % txn.get_error()
+                msg = _("OVSDB Error: %s") % txn.get_error()
                 if self.log_errors:
                     LOG.error(msg)
                 if self.check_error:

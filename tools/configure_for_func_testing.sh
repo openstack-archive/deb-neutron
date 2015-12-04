@@ -53,6 +53,7 @@ VENV=${VENV:-dsvm-functional}
 DEVSTACK_PATH=${DEVSTACK_PATH:-$1}
 PROJECT_NAME=${PROJECT_NAME:-neutron}
 REPO_BASE=${GATE_DEST:-$(cd $(dirname "$0")/../.. && pwd)}
+INSTALL_MYSQL_ONLY=${INSTALL_MYSQL_ONLY:-False}
 # The gate should automatically install dependencies.
 INSTALL_BASE_DEPENDENCIES=${INSTALL_BASE_DEPENDENCIES:-$IS_GATE}
 
@@ -84,7 +85,7 @@ function _install_base_deps {
     echo_summary "Installing base dependencies"
 
     INSTALL_TESTONLY_PACKAGES=True
-    PACKAGES=$(get_packages general neutron,q-agt,q-l3)
+    PACKAGES=$(get_packages general,neutron,q-agt,q-l3)
     # Do not install 'python-' prefixed packages other than
     # python-dev*.  Neutron's functional testing relies on deployment
     # to a tox env so there is no point in installing python
@@ -109,7 +110,10 @@ function _install_rpc_backend {
 }
 
 
+# _install_databases [install_pg]
 function _install_databases {
+    local install_pg=${1:-True}
+
     echo_summary "Installing databases"
 
     # Avoid attempting to configure the db if it appears to already
@@ -124,17 +128,17 @@ function _install_databases {
 
     source $DEVSTACK_PATH/lib/database
 
-    disable_service postgresql
     enable_service mysql
     initialize_database_backends
     install_database
     configure_database_mysql
 
-    disable_service mysql
-    enable_service postgresql
-    initialize_database_backends
-    install_database
-    configure_database_postgresql
+    if [[ "$install_pg" == "True" ]]; then
+        enable_service postgresql
+        initialize_database_backends
+        install_database
+        configure_database_postgresql
+    fi
 
     # Set up the 'openstack_citest' user and database in each backend
     tmp_dir=$(mktemp -d)
@@ -150,14 +154,16 @@ FLUSH PRIVILEGES;
 EOF
     /usr/bin/mysql -u root < $tmp_dir/mysql.sql
 
-    cat << EOF > $tmp_dir/postgresql.sql
+    if [[ "$install_pg" == "True" ]]; then
+        cat << EOF > $tmp_dir/postgresql.sql
 CREATE USER openstack_citest WITH CREATEDB LOGIN PASSWORD 'openstack_citest';
 CREATE DATABASE openstack_citest WITH OWNER openstack_citest;
 EOF
 
-    # User/group postgres needs to be given access to tmp_dir
-    setfacl -m g:postgres:rwx $tmp_dir
-    sudo -u postgres /usr/bin/psql --file=$tmp_dir/postgresql.sql
+        # User/group postgres needs to be given access to tmp_dir
+        setfacl -m g:postgres:rwx $tmp_dir
+        sudo -u postgres /usr/bin/psql --file=$tmp_dir/postgresql.sql
+    fi
 }
 
 
@@ -213,6 +219,14 @@ function _install_post_devstack {
     _install_databases
     _install_rootwrap_sudoers
 
+    if is_ubuntu; then
+        install_package isc-dhcp-client
+    elif is_fedora; then
+        install_package dhclient
+    else
+        exit_distro_not_supported "installing dhclient package"
+    fi
+
     # Installing python-openvswitch from packages is a stop-gap while
     # python-openvswitch remains unavailable from pypi.  This also
     # requires that sitepackages=True be set in tox.ini to allow the
@@ -244,5 +258,9 @@ _init
 
 
 if [[ "$IS_GATE" != "True" ]]; then
-    configure_host_for_func_testing
+    if [[ "$INSTALL_MYSQL_ONLY" == "True" ]]; then
+        _install_databases nopg
+    else
+        configure_host_for_func_testing
+    fi
 fi

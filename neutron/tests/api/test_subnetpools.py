@@ -31,7 +31,7 @@ class SubnetPoolsTest(base.BaseNetworkTest):
 
     min_prefixlen = '28'
     max_prefixlen = '31'
-    ip_version = 4
+    _ip_version = 4
     subnet_cidr = u'10.11.12.0/31'
     new_prefix = u'10.11.15.0/24'
     larger_prefix = u'10.11.0.0/16'
@@ -192,7 +192,7 @@ class SubnetPoolsTest(base.BaseNetworkTest):
             kwargs.update(subnet_values)
         body = self.client.create_subnet(
             network_id=network_id,
-            ip_version=self.ip_version,
+            ip_version=self._ip_version,
             **kwargs)
         subnet = body['subnet']
         self.addCleanup(self.client.delete_subnetpool, pool_id)
@@ -241,8 +241,8 @@ class SubnetPoolsTest(base.BaseNetworkTest):
 
     @test.attr(type='smoke')
     @test.idempotent_id('49b44c64-1619-4b29-b527-ffc3c3115dc4')
+    @test.requires_ext(extension='address-scope', service='network')
     def test_create_subnetpool_associate_address_scope(self):
-        self.skipTest("until extension address-scope is re-enabled")
         address_scope = self.create_address_scope(
             name=data_utils.rand_name('smoke-address-scope'))
         name, pool_id = self._create_subnetpool(
@@ -254,8 +254,8 @@ class SubnetPoolsTest(base.BaseNetworkTest):
 
     @test.attr(type='smoke')
     @test.idempotent_id('910b6393-db24-4f6f-87dc-b36892ad6c8c')
+    @test.requires_ext(extension='address-scope', service='network')
     def test_update_subnetpool_associate_address_scope(self):
-        self.skipTest("until extension address-scope is re-enabled")
         address_scope = self.create_address_scope(
             name=data_utils.rand_name('smoke-address-scope'))
         name, pool_id = self._create_subnetpool(self.client)
@@ -271,8 +271,8 @@ class SubnetPoolsTest(base.BaseNetworkTest):
 
     @test.attr(type='smoke')
     @test.idempotent_id('18302e80-46a3-4563-82ac-ccd1dd57f652')
+    @test.requires_ext(extension='address-scope', service='network')
     def test_update_subnetpool_associate_another_address_scope(self):
-        self.skipTest("until extension address-scope is re-enabled")
         address_scope = self.create_address_scope(
             name=data_utils.rand_name('smoke-address-scope'))
         another_address_scope = self.create_address_scope(
@@ -294,8 +294,8 @@ class SubnetPoolsTest(base.BaseNetworkTest):
 
     @test.attr(type='smoke')
     @test.idempotent_id('f8970048-e41b-42d6-934b-a1297b07706a')
+    @test.requires_ext(extension='address-scope', service='network')
     def test_update_subnetpool_disassociate_address_scope(self):
-        self.skipTest("until extension address-scope is re-enabled")
         address_scope = self.create_address_scope(
             name=data_utils.rand_name('smoke-address-scope'))
         name, pool_id = self._create_subnetpool(
@@ -314,7 +314,7 @@ class SubnetPoolsTestV6(SubnetPoolsTest):
 
     min_prefixlen = '48'
     max_prefixlen = '64'
-    ip_version = 6
+    _ip_version = 6
     subnet_cidr = '2001:db8:3::/64'
     new_prefix = u'2001:db8:5::/64'
     larger_prefix = u'2001:db8::/32'

@@ -55,6 +55,7 @@ from neutron.tests.unit import _test_extension_portbindings as test_bindings
 from neutron.tests.unit.agent import test_securitygroups_rpc as test_sg_rpc
 from neutron.tests.unit.db import test_allowedaddresspairs_db as test_pair
 from neutron.tests.unit.db import test_db_base_plugin_v2 as test_plugin
+from neutron.tests.unit.db import test_ipam_pluggable_backend as test_ipam
 from neutron.tests.unit.extensions import test_extra_dhcp_opt as test_dhcpopts
 from neutron.tests.unit.plugins.ml2.drivers import mechanism_logger as \
      mech_logger
@@ -68,7 +69,7 @@ config.cfg.CONF.import_opt('network_vlan_ranges',
 
 PLUGIN_NAME = 'neutron.plugins.ml2.plugin.Ml2Plugin'
 
-DEVICE_OWNER_COMPUTE = 'compute:None'
+DEVICE_OWNER_COMPUTE = constants.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
 HOST = 'fake_host'
 
 
@@ -312,15 +313,15 @@ class TestMl2NetworksV2(test_plugin.TestNetworksV2,
 
     def test_create_network_segment_allocation_fails(self):
         plugin = manager.NeutronManager.get_plugin()
-        with mock.patch.object(plugin.type_manager, 'create_network_segments',
-            side_effect=db_exc.RetryRequest(ValueError())) as f:
-            self.assertRaises(ValueError,
-                              plugin.create_network,
-                              context.get_admin_context(),
-                              {'network': {'tenant_id': 'sometenant',
-                                           'name': 'dummy',
-                                           'admin_state_up': True,
-                                           'shared': False}})
+        with mock.patch.object(
+            plugin.type_manager, 'create_network_segments',
+            side_effect=db_exc.RetryRequest(ValueError())
+        ) as f:
+            data = {'network': {'tenant_id': 'sometenant', 'name': 'dummy',
+                                'admin_state_up': True, 'shared': False}}
+            req = self.new_create_request('networks', data)
+            res = req.get_response(self.api)
+            self.assertEqual(500, res.status_int)
             self.assertEqual(db_api.MAX_RETRIES + 1, f.call_count)
 
 
@@ -642,7 +643,7 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
             self.assertTrue(notify.call_counts)
 
     def test_check_if_compute_port_serviced_by_dvr(self):
-        self.assertTrue(utils.is_dvr_serviced('compute:None'))
+        self.assertTrue(utils.is_dvr_serviced(DEVICE_OWNER_COMPUTE))
 
     def test_check_if_lbaas_vip_port_serviced_by_dvr(self):
         self.assertTrue(utils.is_dvr_serviced(
@@ -794,10 +795,10 @@ class TestMl2DvrPortsV2(TestMl2PortsV2):
                                                         port['port']['id'])
 
     def test_delete_last_vm_port(self):
-        self._test_delete_dvr_serviced_port(device_owner='compute:None')
+        self._test_delete_dvr_serviced_port(device_owner=DEVICE_OWNER_COMPUTE)
 
     def test_delete_last_vm_port_with_floatingip(self):
-        self._test_delete_dvr_serviced_port(device_owner='compute:None',
+        self._test_delete_dvr_serviced_port(device_owner=DEVICE_OWNER_COMPUTE,
                                             floating_ip=True)
 
     def test_delete_lbaas_vip_port(self):
@@ -1600,7 +1601,7 @@ class TestFaultyMechansimDriver(Ml2PluginV2FaultyDriverTestCase):
                             network['network']['tenant_id'],
                             'name': 'port1',
                             'device_owner':
-                            'network:router_interface_distributed',
+                            constants.DEVICE_OWNER_DVR_INTERFACE,
                             'admin_state_up': 1,
                             'fixed_ips':
                             [{'subnet_id': subnet_id}]}}
@@ -1619,6 +1620,29 @@ class TestFaultyMechansimDriver(Ml2PluginV2FaultyDriverTestCase):
                         self.assertTrue(port_post.called)
                         port = self._show('ports', port_id)
                         self.assertEqual(new_name, port['port']['name'])
+
+
+class TestML2PluggableIPAM(test_ipam.UseIpamMixin, TestMl2SubnetsV2):
+    def test_create_subnet_delete_subnet_call_ipam_driver(self):
+        driver = 'neutron.ipam.drivers.neutrondb_ipam.driver.NeutronDbPool'
+        gateway_ip = '10.0.0.1'
+        cidr = '10.0.0.0/24'
+        with mock.patch(driver) as driver_mock:
+            request = mock.Mock()
+            request.subnet_id = uuidutils.generate_uuid()
+            request.subnet_cidr = cidr
+            request.allocation_pools = []
+            request.gateway_ip = gateway_ip
+            request.tenant_id = uuidutils.generate_uuid()
+
+            ipam_subnet = mock.Mock()
+            ipam_subnet.get_details.return_value = request
+            driver_mock().allocate_subnet.return_value = ipam_subnet
+
+            self._test_create_subnet(gateway_ip=gateway_ip, cidr=cidr)
+
+            driver_mock().allocate_subnet.assert_called_with(mock.ANY)
+            driver_mock().remove_subnet.assert_called_with(request.subnet_id)
 
 
 class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
@@ -1643,6 +1667,7 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
         plugin._get_host_port_if_changed = mock.Mock(
             return_value=new_host_port)
         plugin._check_mac_update_allowed = mock.Mock(return_value=True)
+        plugin._extend_availability_zone = mock.Mock()
 
         self.notify.side_effect = (
             lambda r, e, t, **kwargs: self._ensure_transaction_is_closed())
@@ -1733,7 +1758,7 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
             admin_state_up=True,
             status='ACTIVE',
             device_id='vm_id',
-            device_owner='compute:None')
+            device_owner=DEVICE_OWNER_COMPUTE)
 
         binding = mock.Mock()
         binding.port_id = port_id

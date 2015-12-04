@@ -119,7 +119,7 @@ class SriovNicSwitchAgent(object):
         LOG.info(_LI("RPC agent_id: %s"), self.agent_id)
 
         self.topic = topics.AGENT
-        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.PLUGIN)
+        self.state_rpc = agent_rpc.PluginReportStateAPI(topics.REPORTS)
         # RPC network init
         # Handle updates from service
         self.endpoints = [SriovNicSwitchRpcCallbacks(self.context, self,
@@ -155,7 +155,8 @@ class SriovNicSwitchAgent(object):
         mgr.initialize(connection, 'sriov')
         return mgr
 
-    def setup_eswitch_mgr(self, device_mappings, exclude_devices={}):
+    def setup_eswitch_mgr(self, device_mappings, exclude_devices=None):
+        exclude_devices = exclude_devices or {}
         self.eswitch_mgr = esm.ESwitchManager()
         self.eswitch_mgr.discover_devices(device_mappings, exclude_devices)
 

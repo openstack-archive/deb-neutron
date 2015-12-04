@@ -46,11 +46,11 @@ class IpsetManager(object):
         sanitized_addresses = []
         for ip in addresses:
             ip = netaddr.IPNetwork(ip)
-            if (ip.prefixlen == 0):
-                if(ip.version == 4):
+            if ip.prefixlen == 0:
+                if ip.version == 4:
                     sanitized_addresses.append('0.0.0.0/1')
                     sanitized_addresses.append('128.0.0.0/1')
-                elif (ip.version == 6):
+                elif ip.version == 6:
                     sanitized_addresses.append('::/1')
                     sanitized_addresses.append('8000::/1')
             else:
@@ -65,12 +65,10 @@ class IpsetManager(object):
         name = NET_PREFIX + ethertype + id
         return name[:IPSET_NAME_MAX_LENGTH]
 
-    def set_exists(self, id, ethertype):
-        """Returns true if the id+ethertype pair is known to the manager."""
-        set_name = self.get_name(id, ethertype)
+    def set_name_exists(self, set_name):
+        """Returns true if the set name is known to the manager."""
         return set_name in self.ipset_sets
 
-    @utils.synchronized('ipset', external=True)
     def set_members(self, id, ethertype, member_ips):
         """Create or update a specific set by name and ethertype.
         It will make sure that a set is created, updated to
@@ -79,7 +77,16 @@ class IpsetManager(object):
         """
         member_ips = self._sanitize_addresses(member_ips)
         set_name = self.get_name(id, ethertype)
-        if not self.set_exists(id, ethertype):
+        add_ips = self._get_new_set_ips(set_name, member_ips)
+        del_ips = self._get_deleted_set_ips(set_name, member_ips)
+        if not add_ips and not del_ips and self.set_name_exists(set_name):
+            # nothing to do because no membership changes and the ipset exists
+            return
+        self.set_members_mutate(set_name, ethertype, member_ips)
+
+    @utils.synchronized('ipset', external=True)
+    def set_members_mutate(self, set_name, ethertype, member_ips):
+        if not self.set_name_exists(set_name):
             # The initial creation is handled with create/refresh to
             # avoid any downtime for existing sets (i.e. avoiding
             # a flush/restore), as the restore operation of ipset is

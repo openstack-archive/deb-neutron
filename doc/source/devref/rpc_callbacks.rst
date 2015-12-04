@@ -1,8 +1,32 @@
-=================================
+..
+      Licensed under the Apache License, Version 2.0 (the "License"); you may
+      not use this file except in compliance with the License. You may obtain
+      a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+      WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+      License for the specific language governing permissions and limitations
+      under the License.
+
+
+      Convention for heading levels in Neutron devref:
+      =======  Heading 0 (reserved for the title in a document)
+      -------  Heading 1
+      ~~~~~~~  Heading 2
+      +++++++  Heading 3
+      '''''''  Heading 4
+      (Avoid deeper levels because they do not render well.)
+
+
+.. _rpc_callbacks:
+
 Neutron Messaging Callback System
 =================================
 
-Neutron already has a callback system [link-to: callbacks.rst] for
+Neutron already has a :doc:`callback system <callbacks>` for
 in-process resource callbacks where publishers and subscribers are able
 to publish and subscribe for resource events.
 
@@ -33,12 +57,12 @@ agent.
 This publishing/subscription mechanism is highly dependent on the format
 of the resources passed around. This is why the library only allows
 versioned objects to be published and subscribed. Oslo versioned objects
-allow object version down/up conversion. #[vo_mkcompat]_ #[vo_mkcptests]_
+allow object version down/up conversion. [#vo_mkcompat]_ [#vo_mkcptests]_
 
-For the VO's versioning schema look here: #[vo_versioning]_
+For the VO's versioning schema look here: [#vo_versioning]_
 
 versioned_objects serialization/deserialization with the
-obj_to_primitive(target_version=..) and primitive_to_obj() #[ov_serdes]_
+obj_to_primitive(target_version=..) and primitive_to_obj() [#ov_serdes]_
 methods is used internally to convert/retrieve objects before/after messaging.
 
 Considering rolling upgrades, there are several scenarios to look at:
@@ -78,7 +102,7 @@ Serialized versioned objects look like::
     'versioned_object.namespace': 'versionedobjects'}
 
 Topic names for every resource type RPC endpoint
-================================================
+------------------------------------------------
 
 neutron-vo-<resource_class_name>-<version>
 
@@ -91,7 +115,7 @@ or something equivalent which would allow fine granularity for the receivers
 to only get interesting information to them.
 
 Subscribing to resources
-========================
+------------------------
 
 Imagine that you have agent A, which just got to handle a new port, which
 has an associated security group, and QoS policy.
@@ -143,7 +167,7 @@ We may want to look into that later, to avoid agents receiving resource updates
 which are uninteresting to them.
 
 Unsubscribing from resources
-============================
+----------------------------
 
 To unsubscribe registered callbacks:
 
@@ -152,7 +176,7 @@ To unsubscribe registered callbacks:
 
 
 Sending resource events
-=======================
+-----------------------
 
 On the server side, resource updates could come from anywhere, a service plugin,
 an extension, anything that updates, creates, or destroys the resource and that
@@ -180,7 +204,8 @@ The server/publisher side may look like::
 
 
 References
-==========
+----------
+
 .. [#ov_serdes] https://github.com/openstack/oslo.versionedobjects/blob/master/oslo_versionedobjects/tests/test_objects.py#L621
 .. [#vo_mkcompat] https://github.com/openstack/oslo.versionedobjects/blob/master/oslo_versionedobjects/base.py#L460
 .. [#vo_mkcptests] https://github.com/openstack/oslo.versionedobjects/blob/master/oslo_versionedobjects/tests/test_objects.py#L111

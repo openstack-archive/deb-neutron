@@ -37,7 +37,7 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import external_net
 from neutron.extensions import l3
-from neutron.i18n import _LI, _LE
+from neutron.i18n import _LI
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as p_utils
@@ -78,7 +78,8 @@ class RouterPort(model_base.BASEV2):
         lazy='joined')
 
 
-class Router(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class Router(model_base.HasStandardAttributes, model_base.BASEV2,
+             models_v2.HasId, models_v2.HasTenant):
     """Represents a v2 neutron router."""
 
     name = sa.Column(sa.String(255))
@@ -92,7 +93,8 @@ class Router(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
         lazy='dynamic')
 
 
-class FloatingIP(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class FloatingIP(model_base.HasStandardAttributes, model_base.BASEV2,
+                 models_v2.HasId, models_v2.HasTenant):
     """Represents a floating IP address.
 
     This IP address may or may not be allocated to a tenant, and may or
@@ -109,7 +111,7 @@ class FloatingIP(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     router_id = sa.Column(sa.String(36), sa.ForeignKey('routers.id'))
     # Additional attribute for keeping track of the router where the floating
     # ip was associated in order to be able to ensure consistency even if an
-    # aysnchronous backend is unavailable when the floating IP is disassociated
+    # asynchronous backend is unavailable when the floating IP is disassociated
     last_known_router_id = sa.Column(sa.String(36))
     status = sa.Column(sa.String(16))
     router = orm.relationship(Router, backref='floating_ips')
@@ -524,7 +526,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                                       device_id=port['device_id'])
 
             if not port['fixed_ips']:
-                msg = _LE('Router port must have at least one fixed IP')
+                msg = _('Router port must have at least one fixed IP')
                 raise n_exc.BadRequest(resource='router', msg=msg)
 
             # Only allow one router port with IPv6 subnets per network id
@@ -553,8 +555,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
             # Keep the restriction against multiple IPv4 subnets
             if len([s for s in subnets if s['ip_version'] == 4]) > 1:
-                msg = _LE("Cannot have multiple "
-                          "IPv4 subnets on router port")
+                msg = _("Cannot have multiple "
+                        "IPv4 subnets on router port")
                 raise n_exc.BadRequest(resource='router', msg=msg)
 
             port.update({'device_id': router.id, 'device_owner': owner})
@@ -938,7 +940,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         net = self._core_plugin._get_network(context, net_id)
         return any(s.ip_version == 4 for s in net.subnets)
 
-    def create_floatingip(self, context, floatingip,
+    def _create_floatingip(self, context, floatingip,
             initial_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
         fip = floatingip['floatingip']
         tenant_id = self._get_tenant_id_for_create(context, fip)
@@ -1002,6 +1004,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
         return self._make_floatingip_dict(floatingip_db)
 
+    def create_floatingip(self, context, floatingip,
+            initial_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
+        return self._create_floatingip(context, floatingip, initial_status)
+
     def _update_floatingip(self, context, id, floatingip):
         fip = floatingip['floatingip']
         with context.session.begin(subtransactions=True):
@@ -1033,7 +1039,6 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
 
     def _delete_floatingip(self, context, id):
         floatingip = self._get_floatingip(context, id)
-        router_id = floatingip['router_id']
         # Foreign key cascade will take care of the removal of the
         # floating IP record once the port is deleted. We can't start
         # a transaction first to remove it ourselves because the delete_port
@@ -1041,7 +1046,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         self._core_plugin.delete_port(context.elevated(),
                                       floatingip['floating_port_id'],
                                       l3_port_check=False)
-        return router_id
+        return self._make_floatingip_dict(floatingip)
 
     def delete_floatingip(self, context, id):
         self._delete_floatingip(context, id)
@@ -1186,28 +1191,23 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                       for rp in qry]
         return interfaces
 
-    def _populate_subnets_for_ports(self, context, ports):
-        """Populate ports with subnets.
+    @staticmethod
+    def _each_port_having_fixed_ips(ports):
+        for port in ports or []:
+            fixed_ips = port.get('fixed_ips', [])
+            if not fixed_ips:
+                # Skip ports without IPs, which can occur if a subnet
+                # attached to a router is deleted
+                LOG.info(_LI("Skipping port %s as no IP is configure on "
+                             "it"),
+                         port['id'])
+                continue
+            yield port
 
-        These ports already have fixed_ips populated.
-        """
-        if not ports:
-            return
+    def _get_subnets_by_network_list(self, context, network_ids):
+        if not network_ids:
+            return {}
 
-        def each_port_having_fixed_ips():
-            for port in ports:
-                fixed_ips = port.get('fixed_ips', [])
-                if not fixed_ips:
-                    # Skip ports without IPs, which can occur if a subnet
-                    # attached to a router is deleted
-                    LOG.info(_LI("Skipping port %s as no IP is configure on "
-                                 "it"),
-                             port['id'])
-                    continue
-                yield port
-
-        network_ids = set(p['network_id']
-                          for p in each_port_having_fixed_ips())
         filters = {'network_id': [id for id in network_ids]}
         fields = ['id', 'cidr', 'gateway_ip',
                   'network_id', 'ipv6_ra_mode', 'subnetpool_id']
@@ -1215,8 +1215,20 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         subnets_by_network = dict((id, []) for id in network_ids)
         for subnet in self._core_plugin.get_subnets(context, filters, fields):
             subnets_by_network[subnet['network_id']].append(subnet)
+        return subnets_by_network
 
-        for port in each_port_having_fixed_ips():
+    def _populate_subnets_for_ports(self, context, ports):
+        """Populate ports with subnets.
+
+        These ports already have fixed_ips populated.
+        """
+        network_ids = [p['network_id']
+                       for p in self._each_port_having_fixed_ips(ports)]
+
+        subnets_by_network = self._get_subnets_by_network_list(
+            context, network_ids)
+
+        for port in self._each_port_having_fixed_ips(ports):
 
             port['subnets'] = []
             port['extra_subnets'] = []
@@ -1372,8 +1384,9 @@ class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
         return floatingip
 
     def delete_floatingip(self, context, id):
-        router_id = self._delete_floatingip(context, id)
-        self.notify_router_updated(context, router_id, 'delete_floatingip')
+        floating_ip = self._delete_floatingip(context, id)
+        self.notify_router_updated(context, floating_ip['router_id'],
+                                   'delete_floatingip')
 
     def disassociate_floatingips(self, context, port_id, do_notify=True):
         """Disassociate all floating IPs linked to specific port.

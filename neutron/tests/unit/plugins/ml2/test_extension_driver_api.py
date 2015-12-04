@@ -80,7 +80,7 @@ class ExtensionDriverTestCase(test_plugin.Ml2PluginV2TestCase):
     def test_faulty_extend_dict(self):
         with mock.patch.object(ext_test.TestExtensionDriver,
                                'extend_network_dict',
-                               side_effect=TypeError):
+                               side_effect=[None, TypeError]):
             network, tid = self._verify_network_create(201, None)
             self._verify_network_update(network, 400, 'ExtensionDriverError')
 
@@ -200,7 +200,7 @@ class DBExtensionDriverTestCase(test_plugin.Ml2PluginV2TestCase):
             val = res['networks'][0]['network_extension']
             self.assertEqual("", val)
 
-        # Test create with explict value.
+        # Test create with explicit value.
         res = self._create_network(self.fmt,
                                    'test-network', True,
                                    arg_list=('network_extension', ),
@@ -238,7 +238,7 @@ class DBExtensionDriverTestCase(test_plugin.Ml2PluginV2TestCase):
             self.assertEqual("", val)
 
         with self.network() as network:
-            # Test create with explict value.
+            # Test create with explicit value.
             data = {'subnet':
                     {'network_id': network['network']['id'],
                      'cidr': '10.1.0.0/24',
@@ -280,7 +280,7 @@ class DBExtensionDriverTestCase(test_plugin.Ml2PluginV2TestCase):
             self.assertEqual("", val)
 
         with self.network() as network:
-            # Test create with explict value.
+            # Test create with explicit value.
             res = self._create_port(self.fmt,
                                     network['network']['id'],
                                     arg_list=('port_extension', ),

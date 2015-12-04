@@ -213,8 +213,9 @@ class SecurityGroupTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                                    network)
 
     def get_ports(self, context, filters=None, fields=None,
-                  sorts=[], limit=None, marker=None,
+                  sorts=None, limit=None, marker=None,
                   page_reverse=False):
+        sorts = sorts or []
         neutron_lports = super(SecurityGroupTestPlugin, self).get_ports(
             context, filters, sorts=sorts, limit=limit, marker=marker,
             page_reverse=page_reverse)
@@ -416,6 +417,17 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
             rule = self._build_security_group_rule(
                 security_group_id, 'ingress', const.PROTO_NAME_TCP, '22',
                 '22', None, None, ethertype=ethertype)
+            res = self._create_security_group_rule(self.fmt, rule)
+            self.deserialize(self.fmt, res)
+            self.assertEqual(res.status_int, webob.exc.HTTPBadRequest.code)
+
+    def test_create_security_group_rule_ethertype_invalid_for_protocol(self):
+        name = 'webservers'
+        description = 'my webservers'
+        with self.security_group(name, description) as sg:
+            security_group_id = sg['security_group']['id']
+            rule = self._build_security_group_rule(
+                security_group_id, 'ingress', const.PROTO_NAME_ICMP_V6)
             res = self._create_security_group_rule(self.fmt, rule)
             self.deserialize(self.fmt, res)
             self.assertEqual(res.status_int, webob.exc.HTTPBadRequest.code)
@@ -1149,6 +1161,28 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
                     ('port_range_max', 'desc'), 2, 2,
                     query_params='direction=egress')
 
+    def test_create_port_with_multiple_security_groups(self):
+        with self.network() as n:
+            with self.subnet(n):
+                with self.security_group() as sg1:
+                    with self.security_group() as sg2:
+                        res = self._create_port(
+                            self.fmt, n['network']['id'],
+                            security_groups=[sg1['security_group']['id'],
+                                             sg2['security_group']['id']])
+                        port = self.deserialize(self.fmt, res)
+                        self.assertEqual(2, len(
+                            port['port'][ext_sg.SECURITYGROUPS]))
+                        self._delete('ports', port['port']['id'])
+
+    def test_create_port_with_no_security_groups(self):
+        with self.network() as n:
+            with self.subnet(n):
+                res = self._create_port(self.fmt, n['network']['id'],
+                                        security_groups=[])
+                port = self.deserialize(self.fmt, res)
+                self.assertEqual([], port['port'][ext_sg.SECURITYGROUPS])
+
     def test_update_port_with_security_group(self):
         with self.network() as n:
             with self.subnet(n):
@@ -1183,17 +1217,19 @@ class TestSecurityGroups(SecurityGroupDBTestCase):
 
     def test_update_port_with_multiple_security_groups(self):
         with self.network() as n:
-            with self.subnet(n):
-                with self.security_group() as sg1:
-                    with self.security_group() as sg2:
-                        res = self._create_port(
-                            self.fmt, n['network']['id'],
-                            security_groups=[sg1['security_group']['id'],
-                                             sg2['security_group']['id']])
-                        port = self.deserialize(self.fmt, res)
-                        self.assertEqual(len(
-                            port['port'][ext_sg.SECURITYGROUPS]), 2)
-                        self._delete('ports', port['port']['id'])
+            with self.subnet(n) as s:
+                with self.port(s) as port:
+                    with self.security_group() as sg1:
+                        with self.security_group() as sg2:
+                            data = {'port': {ext_sg.SECURITYGROUPS:
+                                             [sg1['security_group']['id'],
+                                              sg2['security_group']['id']]}}
+                            req = self.new_update_request(
+                                'ports', data, port['port']['id'])
+                            port = self.deserialize(
+                                self.fmt, req.get_response(self.api))
+                            self.assertEqual(
+                                2, len(port['port'][ext_sg.SECURITYGROUPS]))
 
     def test_update_port_remove_security_group_empty_list(self):
         with self.network() as n:

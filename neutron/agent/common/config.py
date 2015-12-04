@@ -26,11 +26,18 @@ LOG = logging.getLogger(__name__)
 
 ROOT_HELPER_OPTS = [
     cfg.StrOpt('root_helper', default='sudo',
-               help=_('Root helper application.')),
+               help=_("Root helper application. "
+                      "Use 'sudo neutron-rootwrap /etc/neutron/rootwrap.conf' "
+                      "to use the real root filter facility. Change to 'sudo' "
+                      "to skip the filtering and just run the command "
+                      "directly.")),
     cfg.BoolOpt('use_helper_for_ns_read',
                 default=True,
-                help=_('Use the root helper to read the namespaces from '
-                       'the operating system.')),
+                help=_("Use the root helper when listing the namespaces on a "
+                       "system. This may not be required depending on the "
+                       "security configuration. If the root helper is "
+                       "not required, set this to False for a performance "
+                       "improvement.")),
     # We can't just use root_helper=sudo neutron-rootwrap-daemon $cfg because
     # it isn't appropriate for long-lived processes spawned with create_process
     # Having a bool use_rootwrap_daemon option precludes specifying the
@@ -53,16 +60,13 @@ INTERFACE_DRIVER_OPTS = [
                help=_("The driver used to manage the virtual interface.")),
 ]
 
-USE_NAMESPACES_OPTS = [
-    cfg.BoolOpt('use_namespaces', default=True,
-                help=_("Allow overlapping IP. This option is deprecated and "
-                       "will be removed in a future release."),
-                deprecated_for_removal=True),
-]
-
 IPTABLES_OPTS = [
     cfg.BoolOpt('comment_iptables_rules', default=True,
-                help=_("Add comments to iptables rules.")),
+                help=_("Add comments to iptables rules. "
+                       "Set to false to disallow the addition of comments to "
+                       "generated iptables rules that describe each rule's "
+                       "purpose. System must support the iptables comments "
+                       "module for addition of comments.")),
 ]
 
 PROCESS_MONITOR_OPTS = [
@@ -72,6 +76,24 @@ PROCESS_MONITOR_OPTS = [
     cfg.IntOpt('check_child_processes_interval', default=60,
                help=_('Interval between checks of child process liveness '
                       '(seconds), use 0 to disable')),
+]
+
+AVAILABILITY_ZONE_OPTS = [
+    # The default AZ name "nova" is selected to match the default
+    # AZ name in Nova and Cinder.
+    cfg.StrOpt('availability_zone', max_length=255, default='nova',
+               help=_("Availability zone of this node")),
+]
+
+EXT_NET_BRIDGE_OPTS = [
+    cfg.StrOpt('external_network_bridge', default='br-ex',
+               deprecated_for_removal=True,
+               help=_("Name of bridge used for external network "
+                      "traffic. This should be set to an empty value for the "
+                      "Linux Bridge. When this parameter is set, each L3 "
+                      "agent can be associated with no more than one external "
+                      "network. This option is deprecated and will be removed "
+                      "in the M release.")),
 ]
 
 
@@ -116,16 +138,16 @@ def register_interface_driver_opts_helper(conf):
     conf.register_opts(INTERFACE_DRIVER_OPTS)
 
 
-def register_use_namespaces_opts_helper(conf):
-    conf.register_opts(USE_NAMESPACES_OPTS)
-
-
 def register_iptables_opts(conf):
     conf.register_opts(IPTABLES_OPTS, 'AGENT')
 
 
 def register_process_monitor_opts(conf):
     conf.register_opts(PROCESS_MONITOR_OPTS, 'AGENT')
+
+
+def register_availability_zone_opts_helper(conf):
+    conf.register_opts(AVAILABILITY_ZONE_OPTS, 'AGENT')
 
 
 def get_root_helper(conf):

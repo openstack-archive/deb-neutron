@@ -15,6 +15,7 @@
 import httplib2
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_service import wsgi as base_wsgi
 from oslo_utils import encodeutils
 import six
 import six.moves.urllib.parse as urlparse
@@ -45,7 +46,7 @@ class NetworkMetadataProxyHandler(object):
         if network_id is None and router_id is None:
             raise exceptions.NetworkIdOrRouterIdRequiredError()
 
-    @webob.dec.wsgify(RequestClass=webob.Request)
+    @webob.dec.wsgify(RequestClass=base_wsgi.Request)
     def __call__(self, req):
         LOG.debug("Request: %s", req)
         try:
@@ -148,20 +149,18 @@ def main():
         cfg.BoolOpt('daemonize',
                     default=True,
                     help=_('Run as daemon.')),
-        cfg.IntOpt('metadata_port',
-                   default=9697,
-                   help=_("TCP Port to listen for metadata server "
-                          "requests.")),
+        cfg.PortOpt('metadata_port',
+                    default=9697,
+                    help=_("TCP Port to listen for metadata server "
+                           "requests.")),
         cfg.StrOpt('metadata_proxy_socket',
                    default='$state_path/metadata_proxy',
                    help=_('Location of Metadata Proxy UNIX domain '
                           'socket')),
         cfg.StrOpt('metadata_proxy_user',
-                   default=None,
                    help=_("User (uid or name) running metadata proxy after "
                           "its initialization")),
         cfg.StrOpt('metadata_proxy_group',
-                   default=None,
                    help=_("Group (gid or name) running metadata proxy after "
                           "its initialization")),
         cfg.BoolOpt('metadata_proxy_watch_log',

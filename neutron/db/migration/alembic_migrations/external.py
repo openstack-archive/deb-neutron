@@ -20,7 +20,7 @@ VPNAAS_TABLES = ['vpnservices', 'ipsecpolicies', 'ipsecpeercidrs',
 
 LBAAS_TABLES = ['vips', 'sessionpersistences', 'pools', 'healthmonitors',
                 'poolstatisticss', 'members', 'poolloadbalanceragentbindings',
-                'embrane_pool_port', 'poolmonitorassociations']
+                'poolmonitorassociations']
 
 FWAAS_TABLES = ['firewall_rules', 'firewalls', 'firewall_policies']
 
@@ -88,7 +88,7 @@ REPO_VMWARE_TABLES = [
     'vcns_router_bindings',
 ]
 
-# NEC models moved to stackforge/networking-nec
+# NEC models are in openstack/networking-nec
 REPO_NEC_TABLES = [
     'ofcnetworkmappings',
     'ofcportmappings',
@@ -100,8 +100,16 @@ REPO_NEC_TABLES = [
     'packetfilters',
 ]
 
+# BigSwitch models are in openstack/networking-bigswitch
+REPO_BIGSWITCH_TABLES = [
+    'consistencyhashes',
+    'routerrules',
+    'nexthops',
+]
+
 TABLES = (FWAAS_TABLES + LBAAS_TABLES + VPNAAS_TABLES +
           REPO_ARISTA_TABLES +
           REPO_CISCO_TABLES +
           REPO_VMWARE_TABLES +
-          REPO_NEC_TABLES)
+          REPO_NEC_TABLES +
+          REPO_BIGSWITCH_TABLES)

@@ -13,6 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import mock
+import platform
+import random
+import string
 import warnings
 
 import fixtures
@@ -63,6 +67,46 @@ class WarningsFixture(fixtures.Fixture):
         for wtype in self.warning_types:
             warnings.filterwarnings(
                 "always", category=wtype, module='^neutron\\.')
+
+
+class OpenFixture(fixtures.Fixture):
+    """Mock access to a specific file while preserving open for others."""
+
+    def __init__(self, filepath, contents=''):
+        self.path = filepath
+        self.contents = contents
+
+    def _setUp(self):
+        self.mock_open = mock.mock_open(read_data=self.contents)
+        self._orig_open = open
+
+        def replacement_open(name, *args, **kwargs):
+            if name == self.path:
+                return self.mock_open(name, *args, **kwargs)
+            return self._orig_open(name, *args, **kwargs)
+
+        self._patch = mock.patch('six.moves.builtins.open',
+                                 new=replacement_open)
+        self._patch.start()
+        self.addCleanup(self._patch.stop)
+
+
+class SafeCleanupFixture(fixtures.Fixture):
+    """Catch errors in daughter fixture cleanup."""
+
+    def __init__(self, fixture):
+        self.fixture = fixture
+
+    def _setUp(self):
+
+        def cleanUp():
+            try:
+                self.fixture.cleanUp()
+            except Exception:
+                pass
+
+        self.fixture.setUp()
+        self.addCleanup(cleanUp)
 
 
 """setup_mock_calls and verify_mock_calls are convenient methods
@@ -121,3 +165,26 @@ class UnorderedList(list):
 
     def __neq__(self, other):
         return not self == other
+
+
+def get_random_string(n=10):
+    return ''.join(random.choice(string.ascii_lowercase) for _ in range(n))
+
+
+def get_random_boolean():
+    return bool(random.getrandbits(1))
+
+
+def get_random_integer(range_begin=0, range_end=1000):
+    return random.randint(range_begin, range_end)
+
+
+def is_bsd():
+    """Return True on BSD-based systems."""
+
+    system = platform.system()
+    if system == 'Darwin':
+        return True
+    if 'bsd' in system.lower():
+        return True
+    return False

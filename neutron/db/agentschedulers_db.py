@@ -29,6 +29,7 @@ from neutron.common import constants
 from neutron.common import utils
 from neutron import context as ncontext
 from neutron.db import agents_db
+from neutron.db.availability_zone import network as network_az
 from neutron.db import model_base
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import dhcpagentscheduler
@@ -118,16 +119,19 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
                                          original_agent['host'])
         return result
 
-    def setup_agent_status_check(self, function):
-        self.periodic_agent_loop = loopingcall.FixedIntervalLoopingCall(
-            function)
+    def add_agent_status_check(self, function):
+        loop = loopingcall.FixedIntervalLoopingCall(function)
         # TODO(enikanorov): make interval configurable rather than computed
         interval = max(cfg.CONF.agent_down_time // 2, 1)
         # add random initial delay to allow agents to check in after the
         # neutron server first starts. random to offset multiple servers
         initial_delay = random.randint(interval, interval * 2)
-        self.periodic_agent_loop.start(interval=interval,
-            initial_delay=initial_delay)
+        loop.start(interval=interval, initial_delay=initial_delay)
+
+        if hasattr(self, 'periodic_agent_loops'):
+            self.periodic_agent_loops.append(loop)
+        else:
+            self.periodic_agent_loops = [loop]
 
     def agent_dead_limit_seconds(self):
         return cfg.CONF.agent_down_time * 2
@@ -138,7 +142,7 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
         # detected, sleep for a while to let the agents check in.
         tdelta = timeutils.utcnow() - getattr(self, '_clock_jump_canary',
                                               timeutils.utcnow())
-        if timeutils.total_seconds(tdelta) > cfg.CONF.agent_down_time:
+        if tdelta.total_seconds() > cfg.CONF.agent_down_time:
             LOG.warn(_LW("Time since last %s agent reschedule check has "
                          "exceeded the interval between checks. Waiting "
                          "before check to allow agents to send a heartbeat "
@@ -166,7 +170,7 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                          "automatic network rescheduling is disabled."))
             return
 
-        self.setup_agent_status_check(self.remove_networks_from_down_agents)
+        self.add_agent_status_check(self.remove_networks_from_down_agents)
 
     def is_eligible_agent(self, context, active, agent):
         # eligible agent is active or starting up
@@ -454,6 +458,21 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
     def auto_schedule_networks(self, context, host):
         if self.network_scheduler:
             self.network_scheduler.auto_schedule_networks(self, context, host)
+
+
+class AZDhcpAgentSchedulerDbMixin(DhcpAgentSchedulerDbMixin,
+                                  network_az.NetworkAvailabilityZoneMixin):
+    """Mixin class to add availability_zone supported DHCP agent scheduler."""
+
+    def get_network_availability_zones(self, network_id):
+        context = ncontext.get_admin_context()
+        with context.session.begin():
+            query = context.session.query(agents_db.Agent.availability_zone)
+            query = query.join(NetworkDhcpAgentBinding)
+            query = query.filter(
+                NetworkDhcpAgentBinding.network_id == network_id)
+            query = query.group_by(agents_db.Agent.availability_zone)
+            return [item[0] for item in query]
 
 
 # helper functions for readability.

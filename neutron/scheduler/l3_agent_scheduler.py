@@ -153,8 +153,8 @@ class L3Scheduler(object):
         target_routers = self._get_routers_can_schedule(
             context, plugin, unscheduled_routers, l3_agent)
         if not target_routers:
-            LOG.warn(_LW('No routers compatible with L3 agent configuration'
-                         ' on host %s'), host)
+            LOG.warn(_LW('No routers compatible with L3 agent configuration '
+                         'on host %s'), host)
             return False
 
         self._bind_routers(context, plugin, target_routers, l3_agent)
@@ -170,8 +170,8 @@ class L3Scheduler(object):
             l3_agents = plugin.get_l3_agents_hosting_routers(
                 context, [sync_router['id']], admin_state_up=True)
             if l3_agents and not sync_router.get('distributed', False):
-                LOG.debug('Router %(router_id)s has already been hosted'
-                          ' by L3 agent %(agent_id)s',
+                LOG.debug('Router %(router_id)s has already been hosted '
+                          'by L3 agent %(agent_id)s',
                           {'router_id': sync_router['id'],
                            'agent_id': l3_agents[0]['id']})
                 return []
@@ -292,9 +292,10 @@ class L3Scheduler(object):
                                 tenant_id, agent):
         """Creates and binds a new HA port for this agent."""
         ha_network = plugin.get_ha_network(context, tenant_id)
-        port_binding = plugin.add_ha_port(context.elevated(), router_id,
-                                          ha_network.network.id, tenant_id)
-        port_binding.l3_agent_id = agent['id']
+        with context.session.begin(subtransactions=True):
+            port_binding = plugin.add_ha_port(context.elevated(), router_id,
+                                              ha_network.network.id, tenant_id)
+            port_binding.l3_agent_id = agent['id']
         self.bind_router(context, router_id, agent)
 
     def _schedule_ha_routers_to_additional_agent(self, plugin, context, agent):
@@ -327,8 +328,9 @@ class L3Scheduler(object):
         port_bindings = plugin.get_ha_router_port_bindings(context,
                                                            [router_id])
         for port_binding, agent in zip(port_bindings, chosen_agents):
-            port_binding.l3_agent_id = agent.id
-            self.bind_router(context, router_id, agent)
+            with context.session.begin(subtransactions=True):
+                port_binding.l3_agent_id = agent.id
+                self.bind_router(context, router_id, agent)
 
             LOG.debug('HA Router %(router_id)s is scheduled to L3 agent '
                       '%(agent_id)s)',

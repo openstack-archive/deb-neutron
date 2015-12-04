@@ -1,5 +1,4 @@
 # Copyright 2011 OpenStack Foundation.
-# Copyright 2011 Justin Santa Barbara
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -21,6 +20,7 @@ import os
 
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_middleware import base
 import routes
 import six
 import webob.dec
@@ -240,7 +240,7 @@ class ExtensionController(wsgi.Controller):
         raise webob.exc.HTTPNotFound(msg)
 
 
-class ExtensionMiddleware(wsgi.Middleware):
+class ExtensionMiddleware(base.ConfigurableMiddleware):
     """Extensions middleware for WSGI."""
 
     def __init__(self, application,
@@ -478,9 +478,8 @@ class ExtensionManager(object):
             LOG.debug('Ext alias: %s', extension.get_alias())
             LOG.debug('Ext description: %s', extension.get_description())
             LOG.debug('Ext updated: %s', extension.get_updated())
-        except AttributeError as ex:
-            LOG.exception(_LE("Exception loading extension: %s"),
-                          six.text_type(ex))
+        except AttributeError:
+            LOG.exception(_LE("Exception loading extension"))
             return False
         return True
 
@@ -641,7 +640,10 @@ class ResourceExtension(object):
     """Add top level resources to the OpenStack API in Neutron."""
 
     def __init__(self, collection, controller, parent=None, path_prefix="",
-                 collection_actions={}, member_actions={}, attr_map={}):
+                 collection_actions=None, member_actions=None, attr_map=None):
+        collection_actions = collection_actions or {}
+        member_actions = member_actions or {}
+        attr_map = attr_map or {}
         self.collection = collection
         self.controller = controller
         self.parent = parent

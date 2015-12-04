@@ -44,7 +44,7 @@ RESOURCE_ATTRIBUTE_MAP = {
     'policies': {
         'id': {'allow_post': False, 'allow_put': False,
                'validate': {'type:uuid': None},
-        'is_visible': True, 'primary_key': True},
+               'is_visible': True, 'primary_key': True},
         'name': {'allow_post': True, 'allow_put': True,
                  'is_visible': True, 'default': '',
                  'validate': {'type:string': None}},
@@ -164,8 +164,8 @@ class Qos(extensions.ExtensionDescriptor):
 
     def get_extended_resources(self, version):
         if version == "2.0":
-            return dict(EXTENDED_ATTRIBUTES_2_0.items() +
-                        RESOURCE_ATTRIBUTE_MAP.items())
+            return dict(list(EXTENDED_ATTRIBUTES_2_0.items()) +
+                        list(RESOURCE_ATTRIBUTE_MAP.items()))
         else:
             return {}
 

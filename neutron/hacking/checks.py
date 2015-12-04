@@ -38,6 +38,7 @@ _all_log_levels = {
     'exception': '_LE',
 }
 _all_hints = set(_all_log_levels.values())
+mutable_default_args = re.compile(r"^\s*def .+\((.+=\{\}|.+=\[\])")
 
 
 def _regex_for_level(level, hint):
@@ -174,6 +175,36 @@ def check_python3_no_iteritems(logical_line):
         yield(0, msg)
 
 
+def check_asserttrue(logical_line, filename):
+    if 'neutron/tests/' in filename:
+        if re.search(r"assertEqual\(\s*True,[^,]*(,[^,]*)?\)", logical_line):
+            msg = ("N328: Use assertTrue(observed) instead of "
+                   "assertEqual(True, observed)")
+            yield (0, msg)
+        if re.search(r"assertEqual\([^,]*,\s*True(,[^,]*)?\)", logical_line):
+            msg = ("N328: Use assertTrue(observed) instead of "
+                   "assertEqual(True, observed)")
+            yield (0, msg)
+
+
+def no_mutable_default_args(logical_line):
+    msg = "N329: Method's default argument shouldn't be mutable!"
+    if mutable_default_args.match(logical_line):
+        yield (0, msg)
+
+
+def check_assertfalse(logical_line, filename):
+    if 'neutron/tests/' in filename:
+        if re.search(r"assertEqual\(\s*False,[^,]*(,[^,]*)?\)", logical_line):
+            msg = ("N328: Use assertFalse(observed) instead of "
+                   "assertEqual(False, observed)")
+            yield (0, msg)
+        if re.search(r"assertEqual\([^,]*,\s*False(,[^,]*)?\)", logical_line):
+            msg = ("N328: Use assertFalse(observed) instead of "
+                   "assertEqual(False, observed)")
+            yield (0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
@@ -184,3 +215,6 @@ def factory(register):
     register(check_python3_xrange)
     register(check_no_basestring)
     register(check_python3_no_iteritems)
+    register(check_asserttrue)
+    register(no_mutable_default_args)
+    register(check_assertfalse)

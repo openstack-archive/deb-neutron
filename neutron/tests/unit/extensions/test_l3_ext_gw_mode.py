@@ -130,7 +130,7 @@ class TestL3GwModeMixin(testlib_api.SqlTestCase):
         self.net_ext = external_net_db.ExternalNetwork(
             network_id=self.ext_net_id)
         self.context.session.add(self.network)
-        # The following is to avoid complains from sqlite on
+        # The following is to avoid complaints from SQLite on
         # foreign key violations
         self.context.session.flush()
         self.context.session.add(self.net_ext)
@@ -204,7 +204,7 @@ class TestL3GwModeMixin(testlib_api.SqlTestCase):
             tenant_id=self.tenant_id,
             admin_state_up=True,
             device_id='something',
-            device_owner='compute:nova',
+            device_owner=constants.DEVICE_OWNER_COMPUTE_PREFIX + 'nova',
             status=constants.PORT_STATUS_ACTIVE,
             mac_address=FAKE_FIP_INT_PORT_MAC,
             network_id=self.int_net_id)

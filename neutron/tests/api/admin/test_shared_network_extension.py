@@ -253,11 +253,11 @@ class RBACSharedNetworksTest(base.BaseAdminNetworkTest):
             action='access_as_shared', target_tenant='*')['rbac_policy']
         self.admin_client.delete_rbac_policy(res['policy']['id'])
 
-        # now that wilcard is the only remainin, it should be subjected to
+        # now that wildcard is the only remaining, it should be subjected to
         # to the same restriction
         with testtools.ExpectedException(lib_exc.Conflict):
             self.admin_client.delete_rbac_policy(wild['id'])
-        # similarily, we can't update the policy to a different tenant
+        # similarly, we can't update the policy to a different tenant
         with testtools.ExpectedException(lib_exc.Conflict):
             self.admin_client.update_rbac_policy(
                 wild['id'], target_tenant=self.client2.tenant_id)
@@ -301,6 +301,19 @@ class RBACSharedNetworksTest(base.BaseAdminNetworkTest):
              for p in self.client2.list_rbac_policies()['rbac_policies']])
 
     @test.attr(type='smoke')
+    @test.idempotent_id('bf5052b8-b11e-407c-8e43-113447404d3e')
+    def test_filter_fields(self):
+        net = self.create_network()
+        self.client.create_rbac_policy(
+            object_type='network', object_id=net['id'],
+            action='access_as_shared', target_tenant=self.client2.tenant_id)
+        field_args = (('id',), ('id', 'action'), ('object_type', 'object_id'),
+                      ('tenant_id', 'target_tenant'))
+        for fields in field_args:
+            res = self.client.list_rbac_policies(fields=fields)
+            self.assertEqual(set(fields), set(res['rbac_policies'][0].keys()))
+
+    @test.attr(type='smoke')
     @test.idempotent_id('86c3529b-1231-40de-803c-afffffff5fff')
     def test_policy_show(self):
         res = self._make_admin_net_and_subnet_shared_to_tenant_id(
@@ -315,6 +328,25 @@ class RBACSharedNetworksTest(base.BaseAdminNetworkTest):
             p1, self.admin_client.show_rbac_policy(p1['id'])['rbac_policy'])
         self.assertEqual(
             p2, self.admin_client.show_rbac_policy(p2['id'])['rbac_policy'])
+
+    @test.attr(type='smoke')
+    @test.idempotent_id('e7bcb1ea-4877-4266-87bb-76f68b421f31')
+    def test_filter_policies(self):
+        net = self.create_network()
+        pol1 = self.client.create_rbac_policy(
+            object_type='network', object_id=net['id'],
+            action='access_as_shared',
+            target_tenant=self.client2.tenant_id)['rbac_policy']
+        pol2 = self.client.create_rbac_policy(
+            object_type='network', object_id=net['id'],
+            action='access_as_shared',
+            target_tenant=self.client.tenant_id)['rbac_policy']
+        res1 = self.client.list_rbac_policies(id=pol1['id'])['rbac_policies']
+        res2 = self.client.list_rbac_policies(id=pol2['id'])['rbac_policies']
+        self.assertEqual(1, len(res1))
+        self.assertEqual(1, len(res2))
+        self.assertEqual(pol1['id'], res1[0]['id'])
+        self.assertEqual(pol2['id'], res2[0]['id'])
 
     @test.attr(type='smoke')
     @test.idempotent_id('86c3529b-1231-40de-803c-afffffff6fff')
@@ -347,16 +379,20 @@ class RBACSharedNetworksTest(base.BaseAdminNetworkTest):
     def test_filtering_works_with_rbac_records_present(self):
         resp = self._make_admin_net_and_subnet_shared_to_tenant_id(
             self.client.tenant_id)
-        net = resp['network']
-        sub = resp['subnet']
+        net = resp['network']['id']
+        sub = resp['subnet']['id']
         self.admin_client.create_rbac_policy(
-            object_type='network', object_id=net['id'],
+            object_type='network', object_id=net,
             action='access_as_shared', target_tenant='*')
-        for state, assertion in ((False, self.assertNotIn),
-                                 (True, self.assertIn)):
-            nets = [n['id'] for n in
-                    self.admin_client.list_networks(shared=state)['networks']]
-            assertion(net['id'], nets)
-            subs = [s['id'] for s in
-                    self.admin_client.list_subnets(shared=state)['subnets']]
-            assertion(sub['id'], subs)
+        self._assert_shared_object_id_listing_presence('subnets', False, sub)
+        self._assert_shared_object_id_listing_presence('subnets', True, sub)
+        self._assert_shared_object_id_listing_presence('networks', False, net)
+        self._assert_shared_object_id_listing_presence('networks', True, net)
+
+    def _assert_shared_object_id_listing_presence(self, resource, shared, oid):
+        lister = getattr(self.admin_client, 'list_%s' % resource)
+        objects = [o['id'] for o in lister(shared=shared)[resource]]
+        if shared:
+            self.assertIn(oid, objects)
+        else:
+            self.assertNotIn(oid, objects)

@@ -299,7 +299,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
 
     def _validate_max_ips_per_port(self, fixed_ip_list):
         if len(fixed_ip_list) > cfg.CONF.max_fixed_ips_per_port:
-            msg = _('Exceeded maximim amount of fixed ips per port')
+            msg = _('Exceeded maximum amount of fixed ips per port')
             raise n_exc.InvalidInput(error_message=msg)
 
     def _get_subnet_for_fixed_ip(self, context, fixed, network_id):
@@ -356,7 +356,9 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
     def _is_ip_required_by_subnet(self, context, subnet_id, device_owner):
         # For ports that are not router ports, retain any automatic
         # (non-optional, e.g. IPv6 SLAAC) addresses.
-        if device_owner in constants.ROUTER_INTERFACE_OWNERS:
+        # NOTE: Need to check the SNAT ports for DVR routers here since
+        # they consume an IP.
+        if device_owner in constants.ROUTER_INTERFACE_OWNERS_SNAT:
             return True
 
         subnet = self._get_subnet(context, subnet_id)
@@ -367,9 +369,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                                   new_ips, device_owner):
         """Calculate changes in IPs for the port."""
         # the new_ips contain all of the fixed_ips that are to be updated
-        if len(new_ips) > cfg.CONF.max_fixed_ips_per_port:
-            msg = _('Exceeded maximum amount of fixed ips per port')
-            raise n_exc.InvalidInput(error_message=msg)
+        self._validate_max_ips_per_port(new_ips)
 
         add_ips = []
         remove_ips = []

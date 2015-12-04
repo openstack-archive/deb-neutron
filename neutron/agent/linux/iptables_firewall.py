@@ -30,6 +30,7 @@ from neutron.agent.linux import utils
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
+from neutron.common import utils as c_utils
 from neutron.extensions import portsecurity as psec
 from neutron.i18n import _LI
 
@@ -49,6 +50,11 @@ LINUX_DEV_PREFIX_LEN = 3
 LINUX_DEV_LEN = 14
 MAX_CONNTRACK_ZONES = 65535
 comment_rule = iptables_manager.comment_rule
+
+
+class mac_iptables(netaddr.mac_eui48):
+    """mac format class for netaddr to match iptables representation."""
+    word_sep = ':'
 
 
 class IptablesFirewallDriver(firewall.FirewallDriver):
@@ -84,7 +90,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         self._enabled_netfilter_for_bridges = False
         self.updated_rule_sg_ids = set()
         self.updated_sg_members = set()
-        self.devices_with_udpated_sg_members = collections.defaultdict(list)
+        self.devices_with_updated_sg_members = collections.defaultdict(list)
 
     def _enable_netfilter_for_bridges(self):
         # we only need to set these values once, but it has to be when
@@ -119,10 +125,11 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         for sg_id in sec_group_ids:
             for device in self.filtered_ports.values():
                 if sg_id in device.get('security_group_source_groups', []):
-                    self.devices_with_udpated_sg_members[sg_id].append(device)
+                    self.devices_with_updated_sg_members[sg_id].append(device)
 
     def security_group_updated(self, action_type, sec_group_ids,
-                               device_ids=[]):
+                               device_ids=None):
+        device_ids = device_ids or []
         if action_type == 'sg_rule':
             self.updated_rule_sg_ids.update(sec_group_ids)
         elif action_type == 'sg_member':
@@ -161,7 +168,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         self._enable_netfilter_for_bridges()
         # each security group has it own chains
         self._setup_chains()
-        self.iptables.apply()
+        return self.iptables.apply()
 
     def update_port_filter(self, port):
         LOG.debug("Updating device (%s) filter", port['device'])
@@ -172,7 +179,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         self._remove_chains()
         self._set_ports(port)
         self._setup_chains()
-        self.iptables.apply()
+        return self.iptables.apply()
 
     def remove_port_filter(self, port):
         LOG.debug("Removing device (%s) filter", port['device'])
@@ -183,7 +190,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         self._remove_chains()
         self._unset_ports(port)
         self._setup_chains()
-        self.iptables.apply()
+        return self.iptables.apply()
 
     def _add_accept_rule_port_sec(self, port, direction):
         self._update_port_sec_rules(port, direction, add=True)
@@ -206,11 +213,14 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
     def _setup_chains_apply(self, ports, unfiltered_ports):
         self._add_chain_by_name_v4v6(SG_CHAIN)
-        for port in ports.values():
+        # sort by port so we always do this deterministically between
+        # agent restarts and don't cause unnecessary rule differences
+        for pname in sorted(ports):
+            port = ports[pname]
             self._setup_chain(port, firewall.INGRESS_DIRECTION)
             self._setup_chain(port, firewall.EGRESS_DIRECTION)
-            self.iptables.ipv4['filter'].add_rule(SG_CHAIN, '-j ACCEPT')
-            self.iptables.ipv6['filter'].add_rule(SG_CHAIN, '-j ACCEPT')
+        self.iptables.ipv4['filter'].add_rule(SG_CHAIN, '-j ACCEPT')
+        self.iptables.ipv6['filter'].add_rule(SG_CHAIN, '-j ACCEPT')
 
         for port in unfiltered_ports.values():
             self._add_accept_rule_port_sec(port, firewall.INGRESS_DIRECTION)
@@ -339,7 +349,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                 ipv4_sg_rules.append(rule)
             elif rule.get('ethertype') == constants.IPv6:
                 if rule.get('protocol') == 'icmp':
-                    rule['protocol'] = 'icmpv6'
+                    rule['protocol'] = 'ipv6-icmp'
                 ipv6_sg_rules.append(rule)
         return ipv4_sg_rules, ipv6_sg_rules
 
@@ -360,6 +370,8 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                    '-m mac --mac-source %s -j RETURN'
                                    % mac.upper(), comment=ic.PAIR_ALLOW)
                 else:
+                    # we need to convert it into a prefix to match iptables
+                    ip = c_utils.ip_to_cidr(ip)
                     table.add_rule(chain_name,
                                    '-s %s -m mac --mac-source %s -j RETURN'
                                    % (ip, mac.upper()), comment=ic.PAIR_ALLOW)
@@ -368,7 +380,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
     def _build_ipv4v6_mac_ip_list(self, mac, ip_address, mac_ipv4_pairs,
                                   mac_ipv6_pairs):
-        mac = str(netaddr.EUI(mac, dialect=netaddr.mac_unix))
+        mac = str(netaddr.EUI(mac, dialect=mac_iptables))
         if netaddr.IPNetwork(ip_address).version == 4:
             mac_ipv4_pairs.append((mac, ip_address))
         else:
@@ -376,15 +388,17 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
     def _spoofing_rule(self, port, ipv4_rules, ipv6_rules):
         # Allow dhcp client packets
-        ipv4_rules += [comment_rule('-p udp -m udp --sport 68 --dport 67 '
+        ipv4_rules += [comment_rule('-p udp -m udp --sport 68 '
+                                    '-m udp --dport 67 '
                                     '-j RETURN', comment=ic.DHCP_CLIENT)]
         # Drop Router Advts from the port.
-        ipv6_rules += [comment_rule('-p icmpv6 --icmpv6-type %s '
+        ipv6_rules += [comment_rule('-p ipv6-icmp -m icmp6 --icmpv6-type %s '
                                     '-j DROP' % constants.ICMPV6_TYPE_RA,
                                     comment=ic.IPV6_RA_DROP)]
-        ipv6_rules += [comment_rule('-p icmpv6 -j RETURN',
+        ipv6_rules += [comment_rule('-p ipv6-icmp -j RETURN',
                                     comment=ic.IPV6_ICMP_ALLOW)]
-        ipv6_rules += [comment_rule('-p udp -m udp --sport 546 --dport 547 '
+        ipv6_rules += [comment_rule('-p udp -m udp --sport 546 '
+                                    '-m udp --dport 547 '
                                     '-j RETURN', comment=ic.DHCP_CLIENT)]
         mac_ipv4_pairs = []
         mac_ipv6_pairs = []
@@ -410,9 +424,11 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
     def _drop_dhcp_rule(self, ipv4_rules, ipv6_rules):
         #Note(nati) Drop dhcp packet from VM
-        ipv4_rules += [comment_rule('-p udp -m udp --sport 67 --dport 68 '
+        ipv4_rules += [comment_rule('-p udp -m udp --sport 67 '
+                                    '-m udp --dport 68 '
                                     '-j DROP', comment=ic.DHCP_SPOOF)]
-        ipv6_rules += [comment_rule('-p udp -m udp --sport 547 --dport 546 '
+        ipv6_rules += [comment_rule('-p udp -m udp --sport 547 '
+                                    '-m udp --dport 546 '
                                     '-j DROP', comment=ic.DHCP_SPOOF)]
 
     def _accept_inbound_icmpv6(self):
@@ -420,8 +436,8 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         # neighbor advertisement into the instance
         icmpv6_rules = []
         for icmp6_type in constants.ICMPV6_ALLOWED_TYPES:
-            icmpv6_rules += ['-p icmpv6 --icmpv6-type %s -j RETURN' %
-                             icmp6_type]
+            icmpv6_rules += ['-p ipv6-icmp -m icmp6 --icmpv6-type %s '
+                             '-j RETURN' % icmp6_type]
         return icmpv6_rules
 
     def _select_sg_rules_for_port(self, port, direction):
@@ -517,7 +533,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
     def _generate_ipset_rule_args(self, sg_rule, remote_gid):
         ethertype = sg_rule.get('ethertype')
         ipset_name = self.ipset.get_name(remote_gid, ethertype)
-        if not self.ipset.set_exists(remote_gid, ethertype):
+        if not self.ipset.set_name_exists(ipset_name):
             #NOTE(mangelajo): ipsets for empty groups are not created
             #                 thus we can't reference them.
             return None
@@ -586,37 +602,47 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
     def _protocol_arg(self, protocol):
         if not protocol:
             return []
-
+        if protocol == 'icmpv6':
+            protocol = 'ipv6-icmp'
         iptables_rule = ['-p', protocol]
-        # iptables always adds '-m protocol' for udp and tcp
-        if protocol in ['udp', 'tcp']:
-            iptables_rule += ['-m', protocol]
         return iptables_rule
 
     def _port_arg(self, direction, protocol, port_range_min, port_range_max):
-        if (protocol not in ['udp', 'tcp', 'icmp', 'icmpv6']
+        if (protocol not in ['udp', 'tcp', 'icmp', 'ipv6-icmp']
             or port_range_min is None):
             return []
 
-        if protocol in ['icmp', 'icmpv6']:
+        protocol_modules = {'udp': 'udp', 'tcp': 'tcp',
+                            'icmp': 'icmp', 'ipv6-icmp': 'icmp6'}
+        # iptables adds '-m protocol' when the port number is specified
+        args = ['-m', protocol_modules[protocol]]
+
+        if protocol in ['icmp', 'ipv6-icmp']:
+            protocol_type = 'icmpv6' if protocol == 'ipv6-icmp' else 'icmp'
             # Note(xuhanp): port_range_min/port_range_max represent
             # icmp type/code when protocol is icmp or icmpv6
+            args += ['--%s-type' % protocol_type, '%s' % port_range_min]
             # icmp code can be 0 so we cannot use "if port_range_max" here
             if port_range_max is not None:
-                return ['--%s-type' % protocol,
-                        '%s/%s' % (port_range_min, port_range_max)]
-            return ['--%s-type' % protocol, '%s' % port_range_min]
+                args[-1] += '/%s' % port_range_max
         elif port_range_min == port_range_max:
-            return ['--%s' % direction, '%s' % (port_range_min,)]
+            args += ['--%s' % direction, '%s' % (port_range_min,)]
         else:
-            return ['-m', 'multiport',
-                    '--%ss' % direction,
-                    '%s:%s' % (port_range_min, port_range_max)]
+            args += ['-m', 'multiport', '--%ss' % direction,
+                     '%s:%s' % (port_range_min, port_range_max)]
+        return args
 
     def _ip_prefix_arg(self, direction, ip_prefix):
         #NOTE (nati) : source_group_id is converted to list of source_
         # ip_prefix in server side
         if ip_prefix:
+            if '/' not in ip_prefix:
+                # we need to convert it into a prefix to match iptables
+                ip_prefix = c_utils.ip_to_cidr(ip_prefix)
+            elif ip_prefix.endswith('/0'):
+                # an allow for every address is not a constraint so
+                # iptables drops it
+                return []
             return ['-%s' % direction, ip_prefix]
         return []
 
@@ -761,7 +787,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
     def _clean_deleted_remote_sg_members_conntrack_entries(self):
         deleted_sg_ids = set()
-        for sg_id, devices in self.devices_with_udpated_sg_members.items():
+        for sg_id, devices in self.devices_with_updated_sg_members.items():
             for ethertype in [constants.IPv4, constants.IPv6]:
                 pre_ips = self._get_sg_members(
                     self.pre_sg_members, sg_id, ethertype)
@@ -773,7 +799,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                         devices, ethertype, ips)
             deleted_sg_ids.add(sg_id)
         for id in deleted_sg_ids:
-            self.devices_with_udpated_sg_members.pop(id, None)
+            self.devices_with_updated_sg_members.pop(id, None)
 
     def _remove_conntrack_entries_from_sg_updates(self):
         self._clean_deleted_sg_rule_conntrack_entries()

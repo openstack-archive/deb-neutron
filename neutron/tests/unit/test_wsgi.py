@@ -19,7 +19,6 @@ import ssl
 
 import mock
 from oslo_config import cfg
-import six
 import six.moves.urllib.request as urlrequest
 import testtools
 import webob
@@ -28,6 +27,7 @@ import webob.exc
 from neutron.common import exceptions as exception
 from neutron.db import api
 from neutron.tests import base
+from neutron.tests.common import helpers
 from neutron import wsgi
 
 CONF = cfg.CONF
@@ -38,7 +38,7 @@ TEST_VAR_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
 
 def open_no_proxy(*args, **kwargs):
     # NOTE(jamespage):
-    # Deal with more secure certification chain verficiation
+    # Deal with more secure certification chain verification
     # introduced in python 2.7.9 under PEP-0476
     # https://github.com/python/peps/blob/master/pep-0476.txt
     if hasattr(ssl, "_create_unverified_context"):
@@ -176,8 +176,7 @@ class TestWSGIServer(base.BaseTestCase):
         server.stop()
 
     @mock.patch.object(wsgi, 'eventlet')
-    @mock.patch.object(wsgi, 'loggers')
-    def test__run(self, logging_mock, eventlet_mock):
+    def test__run(self, eventlet_mock):
         server = wsgi.Server('test')
         server._run("app", "socket")
         eventlet_mock.wsgi.server.assert_called_once_with(
@@ -188,7 +187,6 @@ class TestWSGIServer(base.BaseTestCase):
             keepalive=CONF.wsgi_keep_alive,
             socket_timeout=server.client_socket_timeout
         )
-        self.assertTrue(len(logging_mock.mock_calls))
 
 
 class SerializerTest(base.BaseTestCase):
@@ -496,8 +494,9 @@ class JSONDictSerializerTest(base.BaseTestCase):
 
         self.assertEqual(expected_json, result)
 
-    # TODO(cbrandily): support this test in py3K
-    @testtools.skipIf(six.PY3, "bug/1491824")
+    # The tested behaviour is only meant to be witnessed in Python 2, so it is
+    # OK to skip this test with Python 3.
+    @helpers.requires_py2
     def test_json_with_utf8(self):
         input_dict = dict(servers=dict(a=(2, '\xe7\xbd\x91\xe7\xbb\x9c')))
         expected_json = b'{"servers":{"a":[2,"\\u7f51\\u7edc"]}}'
@@ -693,16 +692,6 @@ class ResourceTest(base.BaseTestCase):
         self.assertEqual(500, result.status_int)
 
 
-class MiddlewareTest(base.BaseTestCase):
-    def test_process_response(self):
-        def application(environ, start_response):
-            response = 'Success'
-            return response
-        response = application('test', 'fake')
-        result = wsgi.Middleware(application).process_response(response)
-        self.assertEqual('Success', result)
-
-
 class FaultTest(base.BaseTestCase):
     def test_call_fault(self):
         class MyException(object):
@@ -715,139 +704,3 @@ class FaultTest(base.BaseTestCase):
             "/", method='POST', headers={'Content-Type': "unknow"})
         response = my_fault(request)
         self.assertEqual(415, response.status_int)
-
-
-class TestWSGIServerWithSSL(base.BaseTestCase):
-    """WSGI server tests."""
-
-    def setUp(self):
-        super(TestWSGIServerWithSSL, self).setUp()
-        if six.PY3:
-            self.skip("bug/1482633")
-
-    @mock.patch("exceptions.RuntimeError")
-    @mock.patch("os.path.exists")
-    def test__check_ssl_settings(self, exists_mock, runtime_error_mock):
-        exists_mock.return_value = True
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file", 'certificate.crt')
-        CONF.set_default("ssl_key_file", 'privatekey.key')
-        CONF.set_default("ssl_ca_file", 'cacert.pem')
-        wsgi.Server("test_app")
-        self.assertFalse(runtime_error_mock.called)
-
-    @mock.patch("os.path.exists")
-    def test__check_ssl_settings_no_ssl_cert_file_fails(self, exists_mock):
-        exists_mock.side_effect = [False]
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file", "/no/such/file")
-        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
-
-    @mock.patch("os.path.exists")
-    def test__check_ssl_settings_no_ssl_key_file_fails(self, exists_mock):
-        exists_mock.side_effect = [True, False]
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file", 'certificate.crt')
-        CONF.set_default("ssl_key_file", "/no/such/file")
-        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
-
-    @mock.patch("os.path.exists")
-    def test__check_ssl_settings_no_ssl_ca_file_fails(self, exists_mock):
-        exists_mock.side_effect = [True, True, False]
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file", 'certificate.crt')
-        CONF.set_default("ssl_key_file", 'privatekey.key')
-        CONF.set_default("ssl_ca_file", "/no/such/file")
-        self.assertRaises(RuntimeError, wsgi.Server, "test_app")
-
-    @mock.patch("ssl.wrap_socket")
-    @mock.patch("os.path.exists")
-    def _test_wrap_ssl(self, exists_mock, wrap_socket_mock, **kwargs):
-        exists_mock.return_value = True
-        sock = mock.Mock()
-        CONF.set_default("ssl_cert_file", 'certificate.crt')
-        CONF.set_default("ssl_key_file", 'privatekey.key')
-        ssl_kwargs = {'server_side': True,
-                      'certfile': CONF.ssl_cert_file,
-                      'keyfile': CONF.ssl_key_file,
-                      'cert_reqs': ssl.CERT_NONE,
-                      }
-        if kwargs:
-            ssl_kwargs.update(**kwargs)
-        server = wsgi.Server("test_app")
-        server.wrap_ssl(sock)
-        wrap_socket_mock.assert_called_once_with(sock, **ssl_kwargs)
-
-    def test_wrap_ssl(self):
-        self._test_wrap_ssl()
-
-    def test_wrap_ssl_ca_file(self):
-        CONF.set_default("ssl_ca_file", 'cacert.pem')
-        ssl_kwargs = {'ca_certs': CONF.ssl_ca_file,
-                      'cert_reqs': ssl.CERT_REQUIRED
-                      }
-        self._test_wrap_ssl(**ssl_kwargs)
-
-    def test_app_using_ssl(self):
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file",
-                         os.path.join(TEST_VAR_DIR, 'certificate.crt'))
-        CONF.set_default("ssl_key_file",
-                         os.path.join(TEST_VAR_DIR, 'privatekey.key'))
-
-        greetings = 'Hello, World!!!'
-
-        @webob.dec.wsgify
-        def hello_world(req):
-            return greetings
-
-        server = wsgi.Server("test_app")
-        server.start(hello_world, 0, host="127.0.0.1")
-
-        response = open_no_proxy('https://127.0.0.1:%d/' % server.port)
-
-        self.assertEqual(greetings, response.read())
-
-        server.stop()
-
-    def test_app_using_ssl_combined_cert_and_key(self):
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file",
-                         os.path.join(TEST_VAR_DIR, 'certandkey.pem'))
-
-        greetings = 'Hello, World!!!'
-
-        @webob.dec.wsgify
-        def hello_world(req):
-            return greetings
-
-        server = wsgi.Server("test_app")
-        server.start(hello_world, 0, host="127.0.0.1")
-
-        response = open_no_proxy('https://127.0.0.1:%d/' % server.port)
-
-        self.assertEqual(greetings, response.read())
-
-        server.stop()
-
-    def test_app_using_ipv6_and_ssl(self):
-        CONF.set_default('use_ssl', True)
-        CONF.set_default("ssl_cert_file",
-                         os.path.join(TEST_VAR_DIR, 'certificate.crt'))
-        CONF.set_default("ssl_key_file",
-                         os.path.join(TEST_VAR_DIR, 'privatekey.key'))
-
-        greetings = 'Hello, World!!!'
-
-        @webob.dec.wsgify
-        def hello_world(req):
-            return greetings
-
-        server = wsgi.Server("test_app")
-        server.start(hello_world, 0, host="::1")
-
-        response = open_no_proxy('https://[::1]:%d/' % server.port)
-
-        self.assertEqual(greetings, response.read())
-
-        server.stop()

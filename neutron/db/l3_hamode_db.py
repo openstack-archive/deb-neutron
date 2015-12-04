@@ -23,8 +23,11 @@ from sqlalchemy import orm
 
 from neutron.api.v2 import attributes
 from neutron.common import constants
+from neutron.common import exceptions as n_exc
 from neutron.common import utils as n_utils
 from neutron.db import agents_db
+from neutron.db import l3_attrs_db
+from neutron.db import l3_db
 from neutron.db import l3_dvr_db
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -47,12 +50,14 @@ L3_HA_OPTS = [
                 help=_('Enable HA mode for virtual routers.')),
     cfg.IntOpt('max_l3_agents_per_router',
                default=3,
-               help=_('Maximum number of agents on which a router will be '
-                      'scheduled.')),
+               help=_("Maximum number of L3 agents which a HA router will be "
+                      "scheduled on. If it is set to 0 then the router will "
+                      "be scheduled on every agent.")),
     cfg.IntOpt('min_l3_agents_per_router',
                default=constants.MINIMUM_AGENTS_FOR_HA,
-               help=_('Minimum number of agents on which a router will be '
-                      'scheduled.')),
+               help=_("Minimum number of L3 agents which a HA router will be "
+                      "scheduled on. If it is set to 0 then the router will "
+                      "be scheduled on every agent.")),
     cfg.StrOpt('l3_ha_net_cidr',
                default='169.254.192.0/18',
                help=_('Subnet used for the l3 HA admin network.')),
@@ -404,28 +409,48 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         return router_dict
 
     def _update_router_db(self, context, router_id, data, gw_info):
-        ha = data.pop('ha', None)
+        router_db = self._get_router(context, router_id)
 
-        if ha and data.get('distributed'):
+        original_distributed_state = router_db.extra_attributes.distributed
+        original_ha_state = router_db.extra_attributes.ha
+
+        requested_ha_state = data.pop('ha', None)
+        requested_distributed_state = data.get('distributed', None)
+
+        if ((original_ha_state and requested_distributed_state) or
+            (requested_ha_state and original_distributed_state) or
+            (requested_ha_state and requested_distributed_state)):
             raise l3_ha.DistributedHARouterNotSupported()
 
         with context.session.begin(subtransactions=True):
             router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
                 context, router_id, data, gw_info)
 
-            ha_not_changed = ha is None or ha == router_db.extra_attributes.ha
+            ha_not_changed = (requested_ha_state is None or
+                              requested_ha_state == original_ha_state)
             if ha_not_changed:
                 return router_db
 
+            if router_db.admin_state_up:
+                msg = _('Cannot change HA attribute of active routers. Please '
+                        'set router admin_state_up to False prior to upgrade.')
+                raise n_exc.BadRequest(resource='router', msg=msg)
+
             ha_network = self.get_ha_network(context,
                                              router_db.tenant_id)
-            router_db.extra_attributes.ha = ha
-            if not ha:
+            router_db.extra_attributes.ha = requested_ha_state
+            if not requested_ha_state:
                 self._delete_vr_id_allocation(
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 router_db.extra_attributes.ha_vr_id = None
 
-        if ha:
+        # The HA attribute has changed. First unbind the router from agents
+        # to force a proper re-scheduling to agents.
+        # TODO(jschwarz): This will have to be more selective to get HA + DVR
+        # working (Only unbind from dvr_snat nodes).
+        self._unbind_ha_router(context, router_id)
+
+        if requested_ha_state:
             if not ha_network:
                 ha_network = self._create_ha_network(context,
                                                      router_db.tenant_id)
@@ -439,6 +464,21 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
         return router_db
 
+    def _delete_ha_network(self, context, net):
+        admin_ctx = context.elevated()
+        self._core_plugin.delete_network(admin_ctx, net.network_id)
+
+    def _ha_routers_present(self, context, tenant_id):
+        ha = True
+        routers = context.session.query(l3_db.Router).filter(
+            l3_db.Router.tenant_id == tenant_id).subquery()
+        ha_routers = context.session.query(
+            l3_attrs_db.RouterExtraAttributes).join(
+            routers,
+            l3_attrs_db.RouterExtraAttributes.router_id == routers.c.id
+        ).filter(l3_attrs_db.RouterExtraAttributes.ha == ha).first()
+        return ha_routers is not None
+
     def delete_router(self, context, id):
         router_db = self._get_router(context, id)
         super(L3_HA_NAT_db_mixin, self).delete_router(context, id)
@@ -450,6 +490,25 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 self._delete_vr_id_allocation(
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 self._delete_ha_interfaces(context, router_db.id)
+            try:
+                if not self._ha_routers_present(context,
+                                                router_db.tenant_id):
+                    self._delete_ha_network(context, ha_network)
+                    LOG.info(_LI("HA network %(network)s was deleted as "
+                                 "no HA routers are present in tenant "
+                                 "%(tenant)s."),
+                             {'network': ha_network.network_id,
+                              'tenant': router_db.tenant_id})
+            except n_exc.NetworkNotFound:
+                LOG.debug("HA network %s was already deleted.",
+                          ha_network.network_id)
+            except sa.exc.InvalidRequestError:
+                LOG.info(_LI("HA network %s can not be deleted."),
+                         ha_network.network_id)
+
+    def _unbind_ha_router(self, context, router_id):
+        for agent in self.get_l3_agents_hosting_routers(context, [router_id]):
+            self.remove_router_from_l3_agent(context, agent['id'], router_id)
 
     def get_ha_router_port_bindings(self, context, router_ids, host=None):
         if not router_ids:
@@ -469,7 +528,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
             self, context, router_id):
         """Return a list of [(agent, ha_state), ...]."""
         bindings = self.get_ha_router_port_bindings(context, [router_id])
-        return [(binding.agent, binding.state) for binding in bindings]
+        return [(binding.agent, binding.state) for binding in bindings
+                if binding.agent is not None]
 
     def get_active_host_for_ha_router(self, context, router_id):
         bindings = self.get_l3_bindings_hosting_router_with_ha_states(

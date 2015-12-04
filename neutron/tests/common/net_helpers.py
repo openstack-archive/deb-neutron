@@ -43,6 +43,8 @@ from neutron.tests import base as tests_base
 from neutron.tests.common import base as common_base
 from neutron.tests import tools
 
+UNDEFINED = object()
+
 NS_PREFIX = 'test-'
 BR_PREFIX = 'test-br'
 PORT_PREFIX = 'test-port'
@@ -325,7 +327,7 @@ class NetcatTester(object):
             address=self.address)
         if self.protocol == self.UDP:
             # Create an ASSURED entry in conntrack table for UDP packets,
-            # that requires 3-way communcation
+            # that requires 3-way communication
             # 1st transmission creates UNREPLIED
             # 2nd transmission removes UNREPLIED
             # 3rd transmission creates ASSURED
@@ -417,13 +419,14 @@ class VethFixture(fixtures.Fixture):
     def destroy(self):
         for port in self.ports:
             ip_wrapper = ip_lib.IPWrapper(port.namespace)
-            try:
-                ip_wrapper.del_veth(port.name)
-                break
-            except RuntimeError:
-                # NOTE(cbrandily): It seems a veth is automagically deleted
-                # when a namespace owning a veth endpoint is deleted.
-                pass
+            if ip_wrapper.netns.exists(port.namespace):
+                try:
+                    ip_wrapper.del_veth(port.name)
+                    break
+                except RuntimeError:
+                    # NOTE(cbrandily): It seems a veth is automagically deleted
+                    # when a namespace owning a veth endpoint is deleted.
+                    pass
 
     @staticmethod
     def get_peer_name(name):
@@ -526,10 +529,16 @@ class LinuxBridgeFixture(fixtures.Fixture):
     :type namespace: str
     """
 
+    def __init__(self, prefix=BR_PREFIX, namespace=UNDEFINED):
+        super(LinuxBridgeFixture, self).__init__()
+        self.prefix = prefix
+        self.namespace = namespace
+
     def _setUp(self):
-        self.namespace = self.useFixture(NamespaceFixture()).name
+        if self.namespace is UNDEFINED:
+            self.namespace = self.useFixture(NamespaceFixture()).name
         self.bridge = common_base.create_resource(
-            BR_PREFIX,
+            self.prefix,
             bridge_lib.BridgeDevice.addbr,
             namespace=self.namespace)
         self.addCleanup(self.bridge.delbr)

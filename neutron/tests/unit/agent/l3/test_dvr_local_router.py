@@ -51,7 +51,6 @@ class TestDvrRouterOperations(base.BaseTestCase):
         self.conf.register_opts(l3_config.OPTS)
         self.conf.register_opts(ha.OPTS)
         agent_config.register_interface_driver_opts_helper(self.conf)
-        agent_config.register_use_namespaces_opts_helper(self.conf)
         agent_config.register_process_monitor_opts(self.conf)
         self.conf.register_opts(interface.OPTS)
         self.conf.register_opts(external_process.OPTS)
@@ -75,7 +74,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
         self.utils_exec = self.utils_exec_p.start()
 
         self.utils_replace_file_p = mock.patch(
-            'neutron.agent.linux.utils.replace_file')
+            'neutron.common.utils.replace_file')
         self.utils_replace_file = self.utils_replace_file_p.start()
 
         self.external_process_p = mock.patch(
@@ -124,7 +123,8 @@ class TestDvrRouterOperations(base.BaseTestCase):
                                          'gateway_ip': '152.2.0.1',
                                          'id': subnet_id_1}],
                            'network_id': _uuid(),
-                           'device_owner': 'network:router_centralized_snat',
+                           'device_owner':
+                           l3_constants.DEVICE_OWNER_ROUTER_SNAT,
                            'mac_address': 'fa:16:3e:80:8d:80',
                            'fixed_ips': [{'subnet_id': subnet_id_1,
                                           'ip_address': '152.2.0.13',
@@ -134,7 +134,8 @@ class TestDvrRouterOperations(base.BaseTestCase):
                                         'gateway_ip': '152.10.0.1',
                                         'id': subnet_id_2}],
                            'network_id': _uuid(),
-                           'device_owner': 'network:router_centralized_snat',
+                           'device_owner':
+                           l3_constants.DEVICE_OWNER_ROUTER_SNAT,
                            'mac_address': 'fa:16:3e:80:8d:80',
                            'fixed_ips': [{'subnet_id': subnet_id_2,
                                          'ip_address': '152.10.0.13',
@@ -194,14 +195,27 @@ class TestDvrRouterOperations(base.BaseTestCase):
         ri.fip_ns = mock.Mock()
         ri.fip_ns.agent_gateway_port = agent_gw_port
         ri.fip_ns.allocate_rule_priority.return_value = FIP_PRI
-        ri.rtr_fip_subnet = lla.LinkLocalAddressPair('169.254.30.42/31')
+        subnet = lla.LinkLocalAddressPair('169.254.30.42/31')
+        ri.rtr_fip_subnet = subnet
+        ri.fip_ns.local_subnets = mock.Mock()
+        ri.fip_ns.local_subnets.allocate.return_value = subnet
         ri.dist_fip_count = 0
         ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
         ri.floating_ip_added_dist(fip, ip_cidr)
         mIPRule().rule.add.assert_called_with(ip='192.168.0.1',
                                               table=16,
                                               priority=FIP_PRI)
+        ri.fip_ns.local_subnets.allocate.assert_not_called()
         self.assertEqual(1, ri.dist_fip_count)
+
+        # Validate that fip_ns.local_subnets is called when
+        # rtr_fip_subnet is None
+        ri.rtr_fip_subnet = None
+        ri.floating_ip_added_dist(fip, ip_cidr)
+        mIPRule().rule.add.assert_called_with(ip='192.168.0.1',
+                                              table=16,
+                                              priority=FIP_PRI)
+        ri.fip_ns.local_subnets.allocate.assert_called_once_with(ri.router_id)
         # TODO(mrsmith): add more asserts
 
     @mock.patch.object(ip_lib, 'IPWrapper')
@@ -232,26 +246,28 @@ class TestDvrRouterOperations(base.BaseTestCase):
         ri.fip_ns.agent_gateway_port = agent_gw_port
         s = lla.LinkLocalAddressPair('169.254.30.42/31')
         ri.rtr_fip_subnet = s
+        ri.fip_ns.local_subnets = mock.Mock()
         ri.floating_ip_removed_dist(fip_cidr)
         mIPRule().rule.delete.assert_called_with(
             ip=str(netaddr.IPNetwork(fip_cidr).ip), table=16, priority=FIP_PRI)
         mIPDevice().route.delete_route.assert_called_with(fip_cidr, str(s.ip))
         self.assertFalse(ri.fip_ns.unsubscribe.called)
+        ri.fip_ns.local_subnets.allocate.assert_not_called()
 
         ri.dist_fip_count = 1
-        ri.rtr_fip_subnet = lla.LinkLocalAddressPair('15.1.2.3/32')
-        _, fip_to_rtr = ri.rtr_fip_subnet.get_pair()
+        s1 = lla.LinkLocalAddressPair('15.1.2.3/32')
+        ri.rtr_fip_subnet = None
+        ri.fip_ns.local_subnets.allocate.return_value = s1
+        _, fip_to_rtr = s1.get_pair()
         fip_ns = ri.fip_ns
-        with mock.patch.object(self.plugin_api,
-                               'delete_agent_gateway_port') as del_fip_gw:
-            ri.floating_ip_removed_dist(fip_cidr)
-            self.assertTrue(del_fip_gw.called)
-            self.assertTrue(fip_ns.destroyed)
-            mIPWrapper().del_veth.assert_called_once_with(
-                fip_ns.get_int_device_name(router['id']))
-            mIPDevice().route.delete_gateway.assert_called_once_with(
-                str(fip_to_rtr.ip), table=16)
-            fip_ns.unsubscribe.assert_called_once_with(ri.router_id)
+        ri.floating_ip_removed_dist(fip_cidr)
+        self.assertTrue(fip_ns.destroyed)
+        mIPWrapper().del_veth.assert_called_once_with(
+            fip_ns.get_int_device_name(router['id']))
+        mIPDevice().route.delete_gateway.assert_called_once_with(
+            str(fip_to_rtr.ip), table=16)
+        fip_ns.unsubscribe.assert_called_once_with(ri.router_id)
+        ri.fip_ns.local_subnets.allocate.assert_called_once_with(ri.router_id)
 
     def _test_add_floating_ip(self, ri, fip, is_failure):
         ri._add_fip_addr_to_device = mock.Mock(return_value=is_failure)
@@ -303,7 +319,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
         port = {'fixed_ips': [{'subnet_id': mock.sentinel.subnet_id}]}
         router_ports = [port]
         ri.router.get.return_value = router_ports
-        self.assertEqual(None, ri._get_internal_port(mock.sentinel.subnet_id2))
+        self.assertIsNone(ri._get_internal_port(mock.sentinel.subnet_id2))
 
     def test__get_snat_idx_ipv4(self):
         ip_cidr = '101.12.13.00/24'
@@ -336,7 +352,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
         ports = ri.router.get(l3_constants.INTERFACE_KEY, [])
         subnet_id = l3_test_common.get_subnet_id(ports[0])
         test_ports = [{'mac_address': '00:11:22:33:44:55',
-                      'device_owner': 'network:dhcp',
+                      'device_owner': l3_constants.DEVICE_OWNER_DHCP,
                       'fixed_ips': [{'ip_address': '1.2.3.4',
                                      'prefixlen': 24,
                                      'subnet_id': subnet_id}]}]
@@ -346,7 +362,10 @@ class TestDvrRouterOperations(base.BaseTestCase):
         # Test basic case
         ports[0]['subnets'] = [{'id': subnet_id,
                                 'cidr': '1.2.3.0/24'}]
-        ri._set_subnet_arp_info(subnet_id)
+        with mock.patch.object(ri,
+                               '_process_arp_cache_for_internal_port') as parp:
+            ri._set_subnet_arp_info(subnet_id)
+        self.assertEqual(1, parp.call_count)
         self.mock_ip_dev.neigh.add.assert_called_once_with(
             '1.2.3.4', '00:11:22:33:44:55')
 
@@ -395,6 +414,48 @@ class TestDvrRouterOperations(base.BaseTestCase):
             ri._update_arp_entry(mock.ANY, mock.ANY, 'foo_subnet_id', 'add')
         self.assertFalse(f.call_count)
 
+    def _setup_test_for_arp_entry_cache(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        router = l3_test_common.prepare_router_data(num_internal_ports=2)
+        router['distributed'] = True
+        ri = dvr_router.DvrLocalRouter(
+            agent, HOSTNAME, router['id'], router, **self.ri_kwargs)
+        subnet_id = l3_test_common.get_subnet_id(
+            ri.router[l3_constants.INTERFACE_KEY][0])
+        return ri, subnet_id
+
+    def test__update_arp_entry_calls_arp_cache_with_no_device(self):
+        ri, subnet_id = self._setup_test_for_arp_entry_cache()
+        state = True
+        with mock.patch.object(l3_agent.ip_lib, 'IPDevice') as rtrdev,\
+                mock.patch.object(ri, '_cache_arp_entry') as arp_cache:
+                rtrdev.return_value.exists.return_value = False
+                state = ri._update_arp_entry(
+                    mock.ANY, mock.ANY, subnet_id, 'add')
+        self.assertFalse(state)
+        self.assertTrue(arp_cache.called)
+        arp_cache.assert_called_once_with(mock.ANY, mock.ANY,
+                                          subnet_id, 'add')
+        self.assertFalse(rtrdev.neigh.add.called)
+
+    def test__process_arp_cache_for_internal_port(self):
+        ri, subnet_id = self._setup_test_for_arp_entry_cache()
+        ri._cache_arp_entry('1.7.23.11', '00:11:22:33:44:55',
+                            subnet_id, 'add')
+        self.assertEqual(1, len(ri._pending_arp_set))
+        with mock.patch.object(ri, '_update_arp_entry') as update_arp:
+            update_arp.return_value = True
+        ri._process_arp_cache_for_internal_port(subnet_id)
+        self.assertEqual(0, len(ri._pending_arp_set))
+
+    def test__delete_arp_cache_for_internal_port(self):
+        ri, subnet_id = self._setup_test_for_arp_entry_cache()
+        ri._cache_arp_entry('1.7.23.11', '00:11:22:33:44:55',
+                            subnet_id, 'add')
+        self.assertEqual(1, len(ri._pending_arp_set))
+        ri._delete_arp_cache_for_internal_port(subnet_id)
+        self.assertEqual(0, len(ri._pending_arp_set))
+
     def test_del_arp_entry(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         router = l3_test_common.prepare_router_data(num_internal_ports=2)
@@ -427,7 +488,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
                            'gateway_ip': '20.0.0.1'}],
               'id': _uuid(),
               'binding:host_id': 'myhost',
-              'device_owner': 'network:floatingip_agent_gateway',
+              'device_owner': l3_constants.DEVICE_OWNER_AGENT_GW,
               'network_id': fake_network_id,
               'mac_address': 'ca:fe:de:ad:be:ef'}]
         )

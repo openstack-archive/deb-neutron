@@ -48,7 +48,6 @@ def setup_conf():
     conf.register_opts(l3_config.OPTS)
     conf.register_opts(interface.OPTS)
     agent_config.register_interface_driver_opts_helper(conf)
-    agent_config.register_use_namespaces_opts_helper(conf)
     return conf
 
 
@@ -67,8 +66,8 @@ def delete_neutron_ports(ports):
     Non-internal OVS ports need to be removed manually.
     """
     for port in ports:
-        if ip_lib.device_exists(port):
-            device = ip_lib.IPDevice(port)
+        device = ip_lib.IPDevice(port)
+        if device.exists():
             device.link.delete()
             LOG.info(_LI("Deleting port: %s"), port)
 

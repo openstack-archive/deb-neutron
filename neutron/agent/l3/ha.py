@@ -117,13 +117,14 @@ class AgentMixin(object):
 
         try:
             ri = self.router_info[router_id]
-        except AttributeError:
+        except KeyError:
             LOG.info(_LI('Router %s is not managed by this agent. It was '
                          'possibly deleted concurrently.'), router_id)
             return
 
         self._configure_ipv6_ra_on_ext_gw_port_if_necessary(ri, state)
-        self._update_metadata_proxy(ri, router_id, state)
+        if self.conf.enable_metadata_proxy:
+            self._update_metadata_proxy(ri, router_id, state)
         self._update_radvd_daemon(ri, state)
         self.state_change_notifier.queue_event((router_id, state))
 
@@ -137,7 +138,11 @@ class AgentMixin(object):
             gateway_ips = ri._get_external_gw_ips(ri.ex_gw_port)
             if not ri.is_v6_gateway_set(gateway_ips):
                 interface_name = ri.get_external_device_name(ex_gw_port_id)
-                ri.driver.configure_ipv6_ra(ri.ns_name, interface_name)
+                if ri.router.get('distributed', False):
+                    namespace = ri.ha_namespace
+                else:
+                    namespace = ri.ns_name
+                ri.driver.configure_ipv6_ra(namespace, interface_name)
 
     def _update_metadata_proxy(self, ri, router_id, state):
         if state == 'master':

@@ -13,10 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-"""
-Policy engine for neutron.  Largely copied from nova.
-"""
-
 import collections
 import re
 
@@ -414,13 +410,3 @@ def check_is_advsvc(context):
     if ADVSVC_CTX_POLICY not in _ENFORCER.rules:
         return False
     return _ENFORCER.enforce(ADVSVC_CTX_POLICY, credentials, credentials)
-
-
-def _extract_roles(rule, roles):
-    if isinstance(rule, policy.RoleCheck):
-        roles.append(rule.match.lower())
-    elif isinstance(rule, policy.RuleCheck):
-        _extract_roles(_ENFORCER.rules[rule.match], roles)
-    elif hasattr(rule, 'rules'):
-        for rule in rule.rules:
-            _extract_roles(rule, roles)

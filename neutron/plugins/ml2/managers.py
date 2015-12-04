@@ -369,10 +369,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         VlanTransparencyDriverError if any mechanism driver doesn't
         support vlan transparency.
         """
-        if context.current['vlan_transparent'] is None:
-            return
-
-        if context.current['vlan_transparent']:
+        if context.current.get('vlan_transparent'):
             for driver in self.ordered_mech_drivers:
                 if not driver.obj.check_vlan_transparency(context):
                     raise vlantransparent.VlanTransparencyDriverError()
@@ -749,7 +746,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         # To prevent a possible binding loop, don't try to bind with
         # this driver if the same driver has already bound at a higher
         # level to one of the segments we are currently trying to
-        # bind. Note that is is OK for the same driver to bind at
+        # bind. Note that it is OK for the same driver to bind at
         # multiple levels using different segments.
         for level in binding_levels:
             if (level.driver == driver and

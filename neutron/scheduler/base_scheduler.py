@@ -17,10 +17,6 @@ import abc
 from operator import attrgetter
 import random
 
-from oslo_log import log as logging
-
-LOG = logging.getLogger(__name__)
-
 
 class BaseScheduler(object):
     """The base scheduler (agnostic to resource type).
@@ -32,7 +28,7 @@ class BaseScheduler(object):
 
     @abc.abstractmethod
     def select(self, plugin, context, resource_hostable_agents,
-               num_agents_needed):
+               resource_hosted_agents, num_agents_needed):
         """Return a subset of agents based on the specific scheduling logic."""
 
     def schedule(self, plugin, context, resource):
@@ -44,8 +40,9 @@ class BaseScheduler(object):
             plugin, context, resource)
         num_agents = filtered_agents_dict['n_agents']
         hostable_agents = filtered_agents_dict['hostable_agents']
+        hosted_agents = filtered_agents_dict['hosted_agents']
         chosen_agents = self.select(plugin, context, hostable_agents,
-                                    num_agents)
+                                    hosted_agents, num_agents)
         # bind the resource to the agents
         self.resource_filter.bind(context, chosen_agents, resource['id'])
         return chosen_agents
@@ -58,7 +55,7 @@ class BaseChanceScheduler(BaseScheduler):
         self.resource_filter = resource_filter
 
     def select(self, plugin, context, resource_hostable_agents,
-               num_agents_needed):
+               resource_hosted_agents, num_agents_needed):
         chosen_agents = random.sample(resource_hostable_agents,
                                       num_agents_needed)
         return chosen_agents
@@ -71,7 +68,7 @@ class BaseWeightScheduler(BaseScheduler):
         self.resource_filter = resource_filter
 
     def select(self, plugin, context, resource_hostable_agents,
-               num_agents_needed):
+               resource_hosted_agents, num_agents_needed):
         chosen_agents = sorted(resource_hostable_agents,
                            key=attrgetter('load'))[0:num_agents_needed]
         return chosen_agents

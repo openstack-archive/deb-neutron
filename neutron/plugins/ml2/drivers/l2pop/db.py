@@ -20,7 +20,6 @@ from neutron.common import constants as const
 from neutron.db import agents_db
 from neutron.db import common_db_mixin as base_db
 from neutron.db import models_v2
-from neutron.plugins.ml2.drivers.l2pop import constants as l2_const
 from neutron.plugins.ml2 import models as ml2_models
 
 
@@ -48,12 +47,14 @@ class L2populationDbMixin(base_db.CommonDbMixin):
         return configuration.get('l2pop_network_types')
 
     def get_agent_by_host(self, session, agent_host):
+        """Return a L2 agent on the host."""
+
         with session.begin(subtransactions=True):
             query = session.query(agents_db.Agent)
-            query = query.filter(agents_db.Agent.host == agent_host,
-                                 agents_db.Agent.agent_type.in_(
-                                     l2_const.SUPPORTED_AGENT_TYPES))
-            return query.first()
+            query = query.filter(agents_db.Agent.host == agent_host)
+        for agent in query:
+            if self.get_agent_ip(agent):
+                return agent
 
     def _get_active_network_ports(self, session, network_id):
         with session.begin(subtransactions=True):
@@ -65,15 +66,15 @@ class L2populationDbMixin(base_db.CommonDbMixin):
             query = query.join(models_v2.Port)
             query = query.filter(models_v2.Port.network_id == network_id,
                                  models_v2.Port.status ==
-                                 const.PORT_STATUS_ACTIVE,
-                                 agents_db.Agent.agent_type.in_(
-                                     l2_const.SUPPORTED_AGENT_TYPES))
+                                 const.PORT_STATUS_ACTIVE)
             return query
 
     def get_nondvr_active_network_ports(self, session, network_id):
         query = self._get_active_network_ports(session, network_id)
-        return query.filter(models_v2.Port.device_owner !=
-                            const.DEVICE_OWNER_DVR_INTERFACE)
+        query = query.filter(models_v2.Port.device_owner !=
+                             const.DEVICE_OWNER_DVR_INTERFACE)
+        return [(bind, agent) for bind, agent in query.all()
+                if self.get_agent_ip(agent)]
 
     def get_dvr_active_network_ports(self, session, network_id):
         with session.begin(subtransactions=True):
@@ -87,10 +88,9 @@ class L2populationDbMixin(base_db.CommonDbMixin):
                                  models_v2.Port.status ==
                                  const.PORT_STATUS_ACTIVE,
                                  models_v2.Port.device_owner ==
-                                 const.DEVICE_OWNER_DVR_INTERFACE,
-                                 agents_db.Agent.agent_type.in_(
-                                     l2_const.SUPPORTED_AGENT_TYPES))
-            return query
+                                 const.DEVICE_OWNER_DVR_INTERFACE)
+        return [(bind, agent) for bind, agent in query.all()
+                if self.get_agent_ip(agent)]
 
     def get_agent_network_active_port_count(self, session, agent_host,
                                             network_id):

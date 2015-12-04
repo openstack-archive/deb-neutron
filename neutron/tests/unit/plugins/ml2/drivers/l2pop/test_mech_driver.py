@@ -43,7 +43,7 @@ HOST_5 = HOST + '_5'
 
 
 NOTIFIER = 'neutron.plugins.ml2.rpc.AgentNotifierApi'
-DEVICE_OWNER_COMPUTE = 'compute:None'
+DEVICE_OWNER_COMPUTE = constants.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
 
 
 class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
@@ -808,7 +808,7 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
 
     def test_get_tunnels(self):
         tunnels = self._test_get_tunnels('20.0.0.1')
-        self.assertTrue('20.0.0.1' in tunnels)
+        self.assertIn('20.0.0.1', tunnels)
 
     def test_get_tunnels_no_ip(self):
         tunnels = self._test_get_tunnels(None)
@@ -818,10 +818,10 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
         tunnels = self._test_get_tunnels(None, exclude_host=False)
         self.assertEqual(0, len(tunnels))
 
-    def _test_create_agent_fdb(self, fdb_network_ports_query, agent_ips):
+    def _test_create_agent_fdb(self, fdb_network_ports, agent_ips):
         mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
-        tunnel_network_ports_query, tunnel_agent = (
-            self._mock_network_ports_query(HOST + '1', None))
+        tunnel_network_ports, tunnel_agent = (
+            self._mock_network_ports(HOST + '1', None))
         agent_ips[tunnel_agent] = '10.0.0.1'
 
         def agent_ip_side_effect(agent):
@@ -832,10 +832,10 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                                side_effect=agent_ip_side_effect),\
                 mock.patch.object(l2pop_db.L2populationDbMixin,
                                   'get_nondvr_active_network_ports',
-                                  new=fdb_network_ports_query),\
+                                  return_value=fdb_network_ports),\
                 mock.patch.object(l2pop_db.L2populationDbMixin,
                                   'get_dvr_active_network_ports',
-                                  new=tunnel_network_ports_query):
+                                  return_value=tunnel_network_ports):
             session = mock.Mock()
             agent = mock.Mock()
             agent.host = HOST
@@ -845,24 +845,20 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                                                  segment,
                                                  'network_id')
 
-    def _mock_network_ports_query(self, host_name, binding):
+    def _mock_network_ports(self, host_name, binding):
         agent = mock.Mock()
         agent.host = host_name
-        result = [(binding, agent)]
-        all_mock = mock.Mock()
-        all_mock.all = mock.Mock(return_value=result)
-        mock_query = mock.Mock(return_value=all_mock)
-        return mock_query, agent
+        return [(binding, agent)], agent
 
     def test_create_agent_fdb(self):
         binding = mock.Mock()
         binding.port = {'mac_address': '00:00:DE:AD:BE:EF',
                         'fixed_ips': [{'ip_address': '1.1.1.1'}]}
-        fdb_network_ports_query, fdb_agent = (
-            self._mock_network_ports_query(HOST + '2', binding))
+        fdb_network_ports, fdb_agent = (
+            self._mock_network_ports(HOST + '2', binding))
         agent_ips = {fdb_agent: '20.0.0.1'}
 
-        agent_fdb = self._test_create_agent_fdb(fdb_network_ports_query,
+        agent_fdb = self._test_create_agent_fdb(fdb_network_ports,
                                                 agent_ips)
         result = agent_fdb['network_id']
 
@@ -879,10 +875,7 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
         self.assertEqual(expected_result, result)
 
     def test_create_agent_fdb_only_tunnels(self):
-        all_mock = mock.Mock()
-        all_mock.all = mock.Mock(return_value=[])
-        fdb_network_ports_query = mock.Mock(return_value=all_mock)
-        agent_fdb = self._test_create_agent_fdb(fdb_network_ports_query, {})
+        agent_fdb = self._test_create_agent_fdb([], {})
         result = agent_fdb['network_id']
 
         expected_result = {'segment_id': 1,
@@ -894,7 +887,7 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
 
     def test_update_port_precommit_mac_address_changed_raises(self):
         port = {'status': u'ACTIVE',
-                'device_owner': u'compute:None',
+                'device_owner': DEVICE_OWNER_COMPUTE,
                 'mac_address': u'12:34:56:78:4b:0e',
                 'id': u'1'}
 

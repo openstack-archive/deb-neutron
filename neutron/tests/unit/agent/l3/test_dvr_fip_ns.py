@@ -15,9 +15,11 @@
 import mock
 from oslo_utils import uuidutils
 
+from neutron.agent.common import utils
 from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import link_local_allocator as lla
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import iptables_manager
 from neutron.tests import base
 
 _uuid = uuidutils.generate_uuid
@@ -87,12 +89,47 @@ class TestDvrFipNs(base.BaseTestCase):
         device_exists.return_value = False
         self.fip_ns._gateway_added(agent_gw_port,
                                    mock.sentinel.interface_name)
-        self.assertEqual(self.driver.plug.call_count, 1)
-        self.assertEqual(self.driver.init_l3.call_count, 1)
+        self.assertEqual(1, self.driver.plug.call_count)
+        self.assertEqual(1, self.driver.init_l3.call_count)
         send_adv_notif.assert_called_once_with(self.fip_ns.get_name(),
                                                mock.sentinel.interface_name,
                                                '20.0.0.30',
                                                mock.ANY)
+
+    @mock.patch.object(iptables_manager, 'IptablesManager')
+    @mock.patch.object(utils, 'execute')
+    @mock.patch.object(ip_lib.IpNetnsCommand, 'exists')
+    def _test_create(self, old_kernel, exists, execute, IPTables):
+        exists.return_value = True
+        # There are up to four sysctl calls - two for ip_nonlocal_bind,
+        # and two to enable forwarding
+        execute.side_effect = [RuntimeError if old_kernel else None,
+                               None, None, None]
+
+        self.fip_ns._iptables_manager = IPTables()
+        self.fip_ns.create()
+
+        ns_name = self.fip_ns.get_name()
+
+        netns_cmd = ['ip', 'netns', 'exec', ns_name]
+        bind_cmd = ['sysctl', '-w', 'net.ipv4.ip_nonlocal_bind=1']
+        expected = [mock.call(netns_cmd + bind_cmd, check_exit_code=True,
+                              extra_ok_codes=None, log_fail_as_error=False,
+                              run_as_root=True)]
+
+        if old_kernel:
+            expected.append(mock.call(bind_cmd, check_exit_code=True,
+                                      extra_ok_codes=None,
+                                      log_fail_as_error=True,
+                                      run_as_root=True))
+
+        execute.assert_has_calls(expected)
+
+    def test_create_old_kernel(self):
+        self._test_create(True)
+
+    def test_create_new_kernel(self):
+        self._test_create(False)
 
     @mock.patch.object(ip_lib, 'IPWrapper')
     def test_destroy(self, IPWrapper):
@@ -103,9 +140,10 @@ class TestDvrFipNs(base.BaseTestCase):
         dev2.name = 'fg-aaaa'
         ip_wrapper.get_devices.return_value = [dev1, dev2]
 
-        self.conf.router_delete_namespaces = False
-
-        self.fip_ns.delete()
+        with mock.patch.object(self.fip_ns.ip_wrapper_root.netns,
+                               'delete') as delete:
+            self.fip_ns.delete()
+            delete.assert_called_once_with(mock.ANY)
 
         ext_net_bridge = self.conf.external_network_bridge
         ns_name = self.fip_ns.get_name()
@@ -144,7 +182,7 @@ class TestDvrFipNs(base.BaseTestCase):
 
         device = IPDevice()
         device.link.set_mtu.assert_called_with(2000)
-        self.assertEqual(device.link.set_mtu.call_count, 2)
+        self.assertEqual(2, device.link.set_mtu.call_count)
         device.route.add_gateway.assert_called_once_with(
             '169.254.31.29', table=16)
 

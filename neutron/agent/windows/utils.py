@@ -57,17 +57,8 @@ def execute(cmd, process_input=None, addl_env=None,
         obj, cmd = create_process(cmd, addl_env=addl_env)
         _stdout, _stderr = obj.communicate(_process_input)
         obj.stdin.close()
-        if six.PY3:
-            if isinstance(_stdout, bytes):
-                try:
-                    _stdout = _stdout.decode(encoding='utf-8')
-                except UnicodeError:
-                    pass
-            if isinstance(_stderr, bytes):
-                try:
-                    _stderr = _stderr.decode(encoding='utf-8')
-                except UnicodeError:
-                    pass
+        _stdout = utils.safe_decode_utf8(_stdout)
+        _stderr = utils.safe_decode_utf8(_stderr)
 
         m = _("\nCommand: %(cmd)s\nExit code: %(code)s\nStdin: %(stdin)s\n"
               "Stdout: %(stdout)s\nStderr: %(stderr)s") % \
@@ -81,10 +72,11 @@ def execute(cmd, process_input=None, addl_env=None,
         if obj.returncode and obj.returncode in extra_ok_codes:
             obj.returncode = None
 
+        log_msg = m.strip().replace('\n', '; ')
         if obj.returncode and log_fail_as_error:
-            LOG.error(m)
+            LOG.error(log_msg)
         else:
-            LOG.debug(m)
+            LOG.debug(log_msg)
 
         if obj.returncode and check_exit_code:
             raise RuntimeError(m)

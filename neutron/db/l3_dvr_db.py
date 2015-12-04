@@ -32,7 +32,7 @@ from neutron.db import l3_dvrscheduler_db as l3_dvrsched_db
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
-from neutron.i18n import _LI
+from neutron.i18n import _LI, _LW
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as p_utils
@@ -80,8 +80,10 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             router_res.get('distributed') is False):
             LOG.info(_LI("Centralizing distributed router %s "
                          "is not supported"), router_db['id'])
-            raise n_exc.NotSupported(msg=_("Migration from distributed router "
-                                           "to centralized"))
+            raise n_exc.BadRequest(
+                resource='router',
+                msg=_("Migration from distributed router to centralized is "
+                      "not supported"))
         elif (not router_db.extra_attributes.distributed and
               router_res.get('distributed')):
             # router should be disabled in order for upgrade
@@ -159,7 +161,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
               self)._delete_current_gw_port(context, router_id,
                                             router, new_network)
         if (is_distributed_router(router) and
-            gw_ext_net_id != new_network):
+            gw_ext_net_id != new_network and gw_ext_net_id is not None):
             self.delete_csnat_router_interface_ports(
                 context.elevated(), router)
             # NOTE(Swami): Delete the Floatingip agent gateway port
@@ -172,6 +174,10 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if not ext_net_gw_ports:
                 self.delete_floatingip_agent_gateway_port(
                     context.elevated(), None, gw_ext_net_id)
+                # Send the information to all the L3 Agent hosts
+                # to clean up the fip namespace as it is no longer required.
+                self.l3_rpc_notifier.delete_fipnamespace_for_ext_net(
+                    context, gw_ext_net_id)
 
     def _create_gw_port(self, context, router_id, router, new_network,
                         ext_ips):
@@ -257,6 +263,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             port, subnets, new_port = self._add_interface_by_subnet(
                     context, router, interface_info['subnet_id'], device_owner)
 
+        subnet = subnets[0]
+
         if new_port:
             if router.extra_attributes.distributed and router.gw_port:
                 try:
@@ -280,38 +288,104 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 )
                 context.session.add(router_port)
 
+        # NOTE: For IPv6 additional subnets added to the same
+        # network we need to update the CSNAT port with respective
+        # IPv6 subnet
+        elif subnet and port:
+            fixed_ip = {'subnet_id': subnet['id']}
+            if subnet['ip_version'] == 6:
+                # Add new prefix to an existing ipv6 csnat port with the
+                # same network id if one exists
+                cs_port = self._find_router_port_by_network_and_device_owner(
+                    router, subnet['network_id'],
+                    l3_const.DEVICE_OWNER_ROUTER_SNAT)
+                if cs_port:
+                    fixed_ips = list(cs_port['port']['fixed_ips'])
+                    fixed_ips.append(fixed_ip)
+                    updated_port = self._core_plugin.update_port(
+                        context.elevated(),
+                        cs_port['port_id'], {'port': {'fixed_ips': fixed_ips}})
+                    LOG.debug("CSNAT port updated for IPv6 subnet: "
+                              "%s", updated_port)
         router_interface_info = self._make_router_interface_info(
-            router_id, port['tenant_id'], port['id'], subnets[-1]['id'],
-            [subnet['id'] for subnet in subnets])
+            router_id, port['tenant_id'], port['id'], subnet['id'],
+            [subnet['id']])
         self.notify_router_interface_action(
             context, router_interface_info, 'add')
         return router_interface_info
 
-    def _port_has_ipv6_address(self, port):
+    def _port_has_ipv6_address(self, port, csnat_port_check=True):
         """Overridden to return False if DVR SNAT port."""
-        if port['device_owner'] == l3_const.DEVICE_OWNER_ROUTER_SNAT:
-            return False
+        if csnat_port_check:
+            if port['device_owner'] == l3_const.DEVICE_OWNER_ROUTER_SNAT:
+                return False
         return super(L3_NAT_with_dvr_db_mixin,
                      self)._port_has_ipv6_address(port)
 
+    def _find_router_port_by_network_and_device_owner(
+        self, router, net_id, device_owner):
+        for port in router.attached_ports:
+            p = port['port']
+            if (p['network_id'] == net_id and
+                p['device_owner'] == device_owner and
+                self._port_has_ipv6_address(p, csnat_port_check=False)):
+                return port
+
+    def _check_for_multiprefix_csnat_port_and_update(
+        self, context, router, subnet, port):
+        """Checks if the csnat port contains multiple ipv6 prefixes.
+
+        If the csnat port contains multiple ipv6 prefixes for the given
+        network when a router interface is deleted, make sure we don't
+        delete the port when a single subnet is deleted and just update
+        it with the right fixed_ip.
+        This function returns true if it is a multiprefix port.
+        """
+        subnet_id = subnet['id']
+        if router.gw_port:
+            # If router has a gateway port, check if it has IPV6 subnet
+            cs_port = (
+                self._find_router_port_by_network_and_device_owner(
+                    router, subnet['network_id'],
+                    l3_const.DEVICE_OWNER_ROUTER_SNAT))
+            if cs_port:
+                fixed_ips = (
+                    [fixedip for fixedip in
+                        cs_port['port']['fixed_ips']
+                        if fixedip['subnet_id'] != subnet_id])
+                if fixed_ips:
+                    # multiple prefix port - delete prefix from port
+                    self._core_plugin.update_port(
+                        context.elevated(),
+                        cs_port['port_id'], {'port': {'fixed_ips': fixed_ips}})
+                    return True
+        return False
+
     def _check_dvr_router_remove_required_and_notify_agent(
-        self, context, router, port, subnets):
+        self, context, router, port, subnet):
         if router.extra_attributes.distributed:
-            if router.gw_port and subnets[0]['id']:
+            is_multiple_prefix_csport = (
+                self._check_for_multiprefix_csnat_port_and_update(
+                    context, router, subnet, port))
+            if not is_multiple_prefix_csport:
+                # Single prefix port - go ahead and delete the port
                 self.delete_csnat_router_interface_ports(
-                    context.elevated(), router, subnet_id=subnets[0]['id'])
+                    context.elevated(), router, subnet_id=subnet['id'])
             plugin = manager.NeutronManager.get_service_plugins().get(
                         constants.L3_ROUTER_NAT)
             l3_agents = plugin.get_l3_agents_hosting_routers(context,
                                                              [router['id']])
-            for l3_agent in l3_agents:
-                if not plugin.check_ports_exist_on_l3agent(context, l3_agent,
-                                                           router['id']):
-                    plugin.remove_router_from_l3_agent(
-                        context, l3_agent['id'], router['id'])
+            subnet_ids = plugin.get_subnet_ids_on_router(
+                context, router['id'])
+            if subnet_ids:
+                for l3_agent in l3_agents:
+                    if not plugin.check_ports_exist_on_l3agent(
+                        context, l3_agent, subnet_ids):
+                        plugin.remove_router_from_l3_agent(
+                            context, l3_agent['id'], router['id'])
         router_interface_info = self._make_router_interface_info(
-            router['id'], port['tenant_id'], port['id'], subnets[0]['id'],
-            [subnet['id'] for subnet in subnets])
+            router['id'], port['tenant_id'], port['id'], subnet['id'],
+            [subnet['id']])
         self.notify_router_interface_action(
             context, router_interface_info, 'remove')
         return router_interface_info
@@ -335,9 +409,11 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         else:
             port, subnets = self._remove_interface_by_subnet(
                     context, router_id, subnet_id, device_owner)
+
+        subnet = subnets[0]
         router_interface_info = (
             self._check_dvr_router_remove_required_and_notify_agent(
-                context, router, port, subnets))
+                context, router, port, subnet))
         return router_interface_info
 
     def _get_snat_sync_interfaces(self, context, router_ids):
@@ -658,12 +734,12 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
 
         # TODO(markmcclain): This is suboptimal but was left to reduce
         # changeset size since it is late in cycle
-        ports = (
+        ports = [
             rp.port.id for rp in
             router.attached_ports.filter_by(
                     port_type=l3_const.DEVICE_OWNER_ROUTER_SNAT)
             if rp.port
-        )
+        ]
 
         c_snat_ports = self._core_plugin.get_ports(
             context,
@@ -680,6 +756,49 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     self._core_plugin.delete_port(context,
                                                   p['id'],
                                                   l3_port_check=False)
+
+    def create_floatingip(self, context, floatingip,
+                          initial_status=l3_const.FLOATINGIP_STATUS_ACTIVE):
+        floating_ip = self._create_floatingip(
+            context, floatingip, initial_status)
+        self._notify_floating_ip_change(context, floating_ip)
+        return floating_ip
+
+    def _notify_floating_ip_change(self, context, floating_ip):
+        router_id = floating_ip['router_id']
+        fixed_port_id = floating_ip['port_id']
+        # we need to notify agents only in case Floating IP is associated
+        if not router_id or not fixed_port_id:
+            return
+
+        try:
+            # using admin context as router may belong to admin tenant
+            router = self._get_router(context.elevated(), router_id)
+        except l3.RouterNotFound:
+            LOG.warning(_LW("Router %s was not found. "
+                            "Skipping agent notification."),
+                        router_id)
+            return
+
+        if is_distributed_router(router):
+            host = self._get_vm_port_hostid(context, fixed_port_id)
+            self.l3_rpc_notifier.routers_updated_on_host(
+                context, [router_id], host)
+        else:
+            self.notify_router_updated(context, router_id)
+
+    def update_floatingip(self, context, id, floatingip):
+        old_floatingip, floatingip = self._update_floatingip(
+            context, id, floatingip)
+        self._notify_floating_ip_change(context, old_floatingip)
+        if (floatingip['router_id'] != old_floatingip['router_id'] or
+                floatingip['port_id'] != old_floatingip['port_id']):
+            self._notify_floating_ip_change(context, floatingip)
+        return floatingip
+
+    def delete_floatingip(self, context, id):
+        floating_ip = self._delete_floatingip(context, id)
+        self._notify_floating_ip_change(context, floating_ip)
 
 
 def is_distributed_router(router):

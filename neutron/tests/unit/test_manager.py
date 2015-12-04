@@ -21,6 +21,7 @@ from neutron import manager
 from neutron.plugins.common import constants
 from neutron.tests import base
 from neutron.tests.unit import dummy_plugin
+from neutron.tests.unit import testlib_api
 
 
 LOG = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ class NeutronManagerTestCase(base.BaseTestCase):
                               "MultiServiceCorePlugin")
         mgr = manager.NeutronManager.get_instance()
         svc_plugins = mgr.get_service_plugins()
-        self.assertEqual(4, len(svc_plugins))
+        self.assertEqual(3, len(svc_plugins))
         self.assertIn(constants.CORE, svc_plugins.keys())
         self.assertIn(constants.LOADBALANCER, svc_plugins.keys())
         self.assertIn(constants.DUMMY, svc_plugins.keys())
@@ -139,3 +140,12 @@ class NeutronManagerTestCase(base.BaseTestCase):
                     'dummy': 'dummy_agent_notifier'}
         core_plugin = manager.NeutronManager.get_plugin()
         self.assertEqual(expected, core_plugin.agent_notifiers)
+
+    def test_load_class_for_provider(self):
+        manager.NeutronManager.load_class_for_provider(
+            'neutron.core_plugins', 'ml2')
+
+    def test_load_class_for_provider_wrong_plugin(self):
+        with testlib_api.ExpectedException(ImportError):
+            manager.NeutronManager.load_class_for_provider(
+                    'neutron.core_plugins', 'ml2XXXXXX')

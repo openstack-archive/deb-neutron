@@ -13,25 +13,33 @@
 #    under the License.
 
 import os
-import six
 
 from alembic import command as alembic_command
 from alembic import config as alembic_config
 from alembic import environment
 from alembic import script as alembic_script
 from alembic import util as alembic_util
+import debtcollector
 from oslo_config import cfg
+from oslo_utils import fileutils
 from oslo_utils import importutils
 import pkg_resources
+import six
 
 from neutron.common import utils
 from neutron.db import migration
 
 
-# TODO(ihrachyshka): maintain separate HEAD files per branch
 HEAD_FILENAME = 'HEAD'
 HEADS_FILENAME = 'HEADS'
-CURRENT_RELEASE = migration.LIBERTY
+CONTRACT_HEAD_FILENAME = 'CONTRACT_HEAD'
+EXPAND_HEAD_FILENAME = 'EXPAND_HEAD'
+
+CURRENT_RELEASE = migration.MITAKA
+RELEASES = (
+    migration.LIBERTY,
+    migration.MITAKA,
+)
 
 EXPAND_BRANCH = 'expand'
 CONTRACT_BRANCH = 'contract'
@@ -43,6 +51,10 @@ migration_entrypoints = {
     for entrypoint in pkg_resources.iter_entry_points(MIGRATION_ENTRYPOINTS)
 }
 
+
+BRANCHLESS_WARNING = 'Branchless migration chains are deprecated as of Mitaka.'
+
+
 neutron_alembic_ini = os.path.join(os.path.dirname(__file__), 'alembic.ini')
 
 VALID_SERVICES = ['fwaas', 'lbaas', 'vpnaas']
@@ -53,12 +65,14 @@ INSTALLED_SUBPROJECTS = [project_ for project_ in migration_entrypoints]
 _core_opts = [
     cfg.StrOpt('core_plugin',
                default='',
-               help=_('Neutron plugin provider module')),
+               help=_('Neutron plugin provider module'),
+               deprecated_for_removal=True),
     cfg.StrOpt('service',
                choices=INSTALLED_SERVICES,
                help=(_("(Deprecated. Use '--subproject neutron-SERVICE' "
                        "instead.) The advanced service to execute the "
-                       "command against."))),
+                       "command against.")),
+               deprecated_for_removal=True),
     cfg.StrOpt('subproject',
                choices=INSTALLED_SUBPROJECTS,
                help=(_("The subproject to execute the command against. "
@@ -72,7 +86,8 @@ _core_opts = [
 _quota_opts = [
     cfg.StrOpt('quota_driver',
                default='',
-               help=_('Neutron quota driver class')),
+               help=_('Neutron quota driver class'),
+               deprecated_for_removal=True),
 ]
 
 _db_opts = [
@@ -83,7 +98,8 @@ _db_opts = [
                help=_('URL to database')),
     cfg.StrOpt('engine',
                default='',
-               help=_('Database engine')),
+               help=_('Database engine for which script will be generated '
+                      'when using offline migration.')),
 ]
 
 CONF = cfg.ConfigOpts()
@@ -117,14 +133,25 @@ def _get_alembic_entrypoint(project):
     return migration_entrypoints[project]
 
 
+def do_generic_show(config, cmd):
+    kwargs = {'verbose': CONF.command.verbose}
+    do_alembic_command(config, cmd, **kwargs)
+
+
 def do_check_migration(config, cmd):
     do_alembic_command(config, 'branches')
-    validate_labels(config)
-    validate_heads_file(config)
+    validate_revisions(config)
+    validate_head_file(config)
 
 
 def add_alembic_subparser(sub, cmd):
     return sub.add_parser(cmd, help=getattr(alembic_command, cmd).__doc__)
+
+
+def add_branch_options(parser):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--expand', action='store_true')
+    group.add_argument('--contract', action='store_true')
 
 
 def _find_milestone_revisions(config, milestone, branch=None):
@@ -132,7 +159,7 @@ def _find_milestone_revisions(config, milestone, branch=None):
     script = alembic_script.ScriptDirectory.from_config(config)
     return [
         (m.revision, label)
-        for m in script.walk_revisions(base='base', head='heads')
+        for m in _get_revisions(script)
         for label in (m.branch_labels or [None])
         if milestone in getattr(m.module, 'neutron_milestone', []) and
         (branch is None or branch in m.branch_labels)
@@ -211,22 +238,32 @@ def _check_bootstrap_new_branch(branch, version_path, addn_kwargs):
     if not os.path.exists(version_path):
         # Bootstrap initial directory structure
         utils.ensure_dir(version_path)
-        addn_kwargs['branch_label'] = branch
 
 
 def do_revision(config, cmd):
-    '''Generate new revision files, one per branch.'''
-    do_alembic_command(config, cmd,
-                       message=CONF.command.message,
-                       autogenerate=CONF.command.autogenerate,
-                       sql=CONF.command.sql)
-    update_heads_file(config)
+    kwargs = {
+        'message': CONF.command.message,
+        'autogenerate': CONF.command.autogenerate,
+        'sql': CONF.command.sql,
+    }
+    if CONF.command.expand:
+        kwargs['head'] = 'expand@head'
+    elif CONF.command.contract:
+        kwargs['head'] = 'contract@head'
+
+    do_alembic_command(config, cmd, **kwargs)
+    if _use_separate_migration_branches(config):
+        update_head_files(config)
+    else:
+        update_head_file(config)
 
 
 def _get_release_labels(labels):
     result = set()
     for label in labels:
-        result.add('%s_%s' % (CURRENT_RELEASE, label))
+        # release labels were introduced Liberty for a short time and dropped
+        # in that same release cycle
+        result.add('%s_%s' % (migration.LIBERTY, label))
     return result
 
 
@@ -234,7 +271,7 @@ def _compare_labels(revision, expected_labels):
     # validate that the script has expected labels only
     bad_labels = revision.branch_labels - expected_labels
     if bad_labels:
-        # NOTE(ihrachyshka): this hack is temporary to accomodate those
+        # NOTE(ihrachyshka): this hack is temporary to accommodate those
         # projects that already initialized their branches with liberty_*
         # labels. Let's notify them about the deprecation for now and drop it
         # later.
@@ -280,53 +317,131 @@ def _validate_revision(script_dir, revision):
     _validate_single_revision_labels(script_dir, revision)
 
 
-def validate_labels(config):
+def validate_revisions(config):
     script_dir = alembic_script.ScriptDirectory.from_config(config)
-    revisions = [v for v in script_dir.walk_revisions(base='base',
-                                                      head='heads')]
+    revisions = _get_revisions(script_dir)
+
     for revision in revisions:
         _validate_revision(script_dir, revision)
 
+    branchpoints = _get_branch_points(script_dir)
+    if len(branchpoints) > 1:
+        branchpoints = ', '.join(p.revision for p in branchpoints)
+        alembic_util.err(
+            _('Unexpected number of alembic branch points: %(branchpoints)s') %
+            {'branchpoints': branchpoints}
+        )
 
-def _get_sorted_heads(script):
-    '''Get the list of heads for all branches, sorted.'''
-    return sorted(script.get_heads())
+
+def _get_revisions(script):
+    return list(script.walk_revisions(base='base', head='heads'))
 
 
-def validate_heads_file(config):
-    '''Check that HEADS file contains the latest heads for each branch.'''
+def _get_branch_points(script):
+    branchpoints = []
+    for revision in _get_revisions(script):
+        if revision.is_branch_point:
+            branchpoints.append(revision)
+    return branchpoints
+
+
+def validate_head_file(config):
+    '''Check that HEAD file contains the latest head for the branch.'''
+    if _use_separate_migration_branches(config):
+        _validate_head_files(config)
+    else:
+        _validate_head_file(config)
+
+
+@debtcollector.removals.remove(message=BRANCHLESS_WARNING)
+def _validate_head_file(config):
+    '''Check that HEAD file contains the latest head for the branch.'''
     script = alembic_script.ScriptDirectory.from_config(config)
-    expected_heads = _get_sorted_heads(script)
-    heads_path = _get_active_head_file_path(config)
+    expected_head = script.get_heads()
+    head_path = _get_head_file_path(config)
     try:
-        with open(heads_path) as file_:
-            observed_heads = file_.read().split()
-            if observed_heads == expected_heads:
+        with open(head_path) as file_:
+            observed_head = file_.read().split()
+            if observed_head == expected_head:
                 return
     except IOError:
         pass
     alembic_util.err(
-        _('HEADS file does not match migration timeline heads, expected: %s')
-        % ', '.join(expected_heads))
+        _('HEAD file does not match migration timeline head, expected: %s')
+        % expected_head)
 
 
-def update_heads_file(config):
-    '''Update HEADS file with the latest branch heads.'''
+def _get_heads_map(config):
     script = alembic_script.ScriptDirectory.from_config(config)
-    heads = _get_sorted_heads(script)
-    heads_path = _get_active_head_file_path(config)
-    with open(heads_path, 'w+') as f:
-        f.write('\n'.join(heads))
-    if _use_separate_migration_branches(config):
-        old_head_file = _get_head_file_path(config)
-        if os.path.exists(old_head_file):
-            os.remove(old_head_file)
+    heads = script.get_heads()
+    head_map = {}
+    for head in heads:
+        if CONTRACT_BRANCH in script.get_revision(head).branch_labels:
+            head_map[CONTRACT_BRANCH] = head
+        else:
+            head_map[EXPAND_BRANCH] = head
+    return head_map
+
+
+def _check_head(branch_name, head_file, head):
+    try:
+        with open(head_file) as file_:
+            observed_head = file_.read().strip()
+    except IOError:
+        pass
+    else:
+        if observed_head != head:
+            alembic_util.err(
+                _('%(branch)s HEAD file does not match migration timeline '
+                  'head, expected: %(head)s') % {'branch': branch_name.title(),
+                                                 'head': head})
+
+
+def _validate_head_files(config):
+    '''Check that HEAD files contain the latest head for the branch.'''
+    contract_head = _get_contract_head_file_path(config)
+    expand_head = _get_expand_head_file_path(config)
+    if not os.path.exists(contract_head) or not os.path.exists(expand_head):
+        alembic_util.warn(_("Repository does not contain HEAD files for "
+                            "contract and expand branches."))
+        return
+    head_map = _get_heads_map(config)
+    _check_head(CONTRACT_BRANCH, contract_head, head_map[CONTRACT_BRANCH])
+    _check_head(EXPAND_BRANCH, expand_head, head_map[EXPAND_BRANCH])
+
+
+def update_head_files(config):
+    '''Update HEAD files with the latest branch heads.'''
+    head_map = _get_heads_map(config)
+    contract_head = _get_contract_head_file_path(config)
+    expand_head = _get_expand_head_file_path(config)
+    with open(contract_head, 'w+') as f:
+        f.write(head_map[CONTRACT_BRANCH] + '\n')
+    with open(expand_head, 'w+') as f:
+        f.write(head_map[EXPAND_BRANCH] + '\n')
+
+    old_head_file = _get_head_file_path(config)
+    old_heads_file = _get_heads_file_path(config)
+    for file_ in (old_head_file, old_heads_file):
+        fileutils.delete_if_exists(file_)
+
+
+@debtcollector.removals.remove(message=BRANCHLESS_WARNING)
+def update_head_file(config):
+    script = alembic_script.ScriptDirectory.from_config(config)
+    head = script.get_heads()
+    with open(_get_head_file_path(config), 'w+') as f:
+        f.write('\n'.join(head))
 
 
 def add_command_parsers(subparsers):
-    for name in ['current', 'history', 'branches']:
+    for name in ['current', 'history', 'branches', 'heads']:
         parser = add_alembic_subparser(subparsers, name)
-        parser.set_defaults(func=do_alembic_command)
+        parser.set_defaults(func=do_generic_show)
+        parser.add_argument('--verbose',
+                            action='store_true',
+                            help='Display more verbose output for the '
+                                 'specified command')
 
     help_text = (getattr(alembic_command, 'branches').__doc__ +
                  ' and validate head file')
@@ -341,10 +456,7 @@ def add_command_parsers(subparsers):
                         default='',
                         help='Change MySQL storage engine of current '
                              'existing tables')
-
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--expand', action='store_true')
-    group.add_argument('--contract', action='store_true')
+    add_branch_options(parser)
 
     parser.set_defaults(func=do_upgrade)
 
@@ -361,6 +473,7 @@ def add_command_parsers(subparsers):
     parser.add_argument('-m', '--message')
     parser.add_argument('--autogenerate', action='store_true')
     parser.add_argument('--sql', action='store_true')
+    add_branch_options(parser)
     parser.set_defaults(func=do_revision)
 
 
@@ -412,41 +525,62 @@ def _get_head_file_path(config):
 
 
 def _get_heads_file_path(config):
-    '''Return the path of the file that contains all latest heads, sorted.'''
+    '''
+    Return the path of the file that was once used to maintain the list of
+    latest heads.
+    '''
     return os.path.join(
         _get_root_versions_dir(config),
         HEADS_FILENAME)
 
 
-def _get_active_head_file_path(config):
-    '''Return the path of the file that contains latest head(s), depending on
-       whether multiple branches are used.
+def _get_contract_head_file_path(config):
     '''
-    if _use_separate_migration_branches(config):
-        return _get_heads_file_path(config)
-    return _get_head_file_path(config)
+    Return the path of the file that is used to maintain contract head
+    '''
+    return os.path.join(
+        _get_root_versions_dir(config),
+        CONTRACT_HEAD_FILENAME)
 
 
-def _get_version_branch_path(config, branch=None):
+def _get_expand_head_file_path(config):
+    '''
+    Return the path of the file that is used to maintain expand head
+    '''
+    return os.path.join(
+        _get_root_versions_dir(config),
+        EXPAND_HEAD_FILENAME)
+
+
+def _get_version_branch_path(config, release=None, branch=None):
     version_path = _get_root_versions_dir(config)
-    if branch:
-        return os.path.join(version_path, CURRENT_RELEASE, branch)
+    if branch and release:
+        return os.path.join(version_path, release, branch)
     return version_path
 
 
 def _use_separate_migration_branches(config):
     '''Detect whether split migration branches should be used.'''
-    return (CONF.split_branches or
-            # Use HEADS file to indicate the new, split migration world
-            os.path.exists(_get_heads_file_path(config)))
+    if CONF.split_branches:
+        return True
+
+    script_dir = alembic_script.ScriptDirectory.from_config(config)
+    if _get_branch_points(script_dir):
+        return True
+
+    return False
 
 
 def _set_version_locations(config):
     '''Make alembic see all revisions in all migration branches.'''
+    split_branches = False
     version_paths = [_get_version_branch_path(config)]
-    if _use_separate_migration_branches(config):
+    for release in RELEASES:
         for branch in MIGRATION_BRANCHES:
-            version_paths.append(_get_version_branch_path(config, branch))
+            version_path = _get_version_branch_path(config, release, branch)
+            if split_branches or os.path.exists(version_path):
+                split_branches = True
+                version_paths.append(version_path)
 
     config.set_main_option('version_locations', ' '.join(version_paths))
 
@@ -544,6 +678,10 @@ def run_sanity_checks(config, revision):
 def validate_cli_options():
     if CONF.subproject and CONF.service:
         alembic_util.err(_("Cannot specify both --service and --subproject."))
+
+
+def get_engine_config():
+    return [obj for obj in _db_opts if obj.name == 'engine']
 
 
 def main():
