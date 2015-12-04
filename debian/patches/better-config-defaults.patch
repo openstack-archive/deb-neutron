@@ -3,20 +3,20 @@ Description: Better config defaults
  minimize the efforts needed to be done by newbies.
 Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
-Last-Update: 2015-09-25
+Last-Update: 2015-12-04
 
---- neutron-7.0.0~rc1.orig/etc/dhcp_agent.ini
-+++ neutron-7.0.0~rc1/etc/dhcp_agent.ini
+--- neutron-8.0.0~b1.orig/etc/dhcp_agent.ini
++++ neutron-8.0.0~b1/etc/dhcp_agent.ini
 @@ -9,14 +9,13 @@
  
  # The DHCP agent requires an interface driver be set. Choose the one that best
  # matches your plugin.
 -# interface_driver =
++interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
  
  # Example of interface_driver option for OVS based plugins(OVS, Ryu, NEC, NVP,
  # BigSwitch/Floodlight)
--# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
-+interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+-# interface_driver = openvswitch
  
  # Name of Open vSwitch bridge to use
 -# ovs_integration_bridge = br-int
@@ -24,24 +24,16 @@ Last-Update: 2015-09-25
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-@@ -28,13 +27,13 @@
+@@ -28,7 +27,7 @@
  
  # The agent can use other DHCP drivers.  Dnsmasq is the simplest and requires
  # no additional setup of the DHCP server.
 -# dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
 +dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
  
- # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
- # iproute2 package that supports namespaces). This option is deprecated and
- # will be removed in a future release, at which point the old behavior of
--# use_namespaces = True will be enforced.
--# use_namespaces = True
-+# the use_namespaces = True will be enforced.
-+use_namespaces = True
- 
  # In some cases the neutron router is not present to provide the metadata
  # IP but the DHCP server can be used to provide this info. Setting this
-@@ -49,7 +48,7 @@
+@@ -43,7 +42,7 @@
  # be activated when the subnet does not contain any router port. The guest
  # instance must be configured to request host routes via DHCP (Option 121).
  # This option doesn't have any effect when force_metadata is set to True.
@@ -50,7 +42,7 @@ Last-Update: 2015-09-25
  
  # Allows for serving metadata requests coming from a dedicated metadata
  # access network whose cidr is 169.254.169.254/16 (or larger prefix), and
-@@ -71,7 +70,7 @@
+@@ -65,7 +64,7 @@
  # dhcp_domain = openstacklocal
  
  # Override the default dnsmasq settings with this file
@@ -59,8 +51,8 @@ Last-Update: 2015-09-25
  
  # Comma-separated list of DNS servers which will be used by dnsmasq
  # as forwarders.
---- neutron-7.0.0~rc1.orig/etc/l3_agent.ini
-+++ neutron-7.0.0~rc1/etc/l3_agent.ini
+--- neutron-8.0.0~b1.orig/etc/l3_agent.ini
++++ neutron-8.0.0~b1/etc/l3_agent.ini
 @@ -4,11 +4,10 @@
  
  # L3 requires that an interface driver be set. Choose the one that best
@@ -69,25 +61,12 @@ Last-Update: 2015-09-25
  
  # Example of interface_driver option for OVS based plugins (OVS, Ryu, NEC)
  # that supports L3 agent
--# interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
-+interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver
+-# interface_driver = openvswitch
++interface_driver = openvswitch
  
  # Use veth for an OVS interface or not.
  # Support kernels with limited namespace support
-@@ -20,9 +19,9 @@
- 
- # Allow overlapping IP (Must have kernel build with CONFIG_NET_NS=y and
- # iproute2 package that supports namespaces). This option is deprecated and
--# will be removed in a future release, at which point the old behavior of
--# use_namespaces = True will be enforced.
--# use_namespaces = True
-+# will be removed in a future release, at which point the old behavior
-+# of use_namespaces = True will be enforced.
-+use_namespaces = True
- 
- # If use_namespaces is set as False then the agent can only configure one router.
- 
-@@ -59,13 +58,13 @@
+@@ -53,13 +52,13 @@
  # an external network gateway configured.  This option should be True only
  # for a single agent in a Neutron deployment, and may be False for all agents
  # if all routers must have an external network gateway
@@ -103,7 +82,7 @@ Last-Update: 2015-09-25
  
  # TCP Port used by Neutron metadata server
  # metadata_port = 9697
-@@ -83,7 +82,7 @@
+@@ -77,7 +76,7 @@
  
  # enable_metadata_proxy, which is true by default, can be set to False
  # if the Nova metadata server is not available
@@ -112,16 +91,7 @@ Last-Update: 2015-09-25
  
  # Iptables mangle mark used to mark metadata valid requests
  # metadata_access_mark = 0x1
-@@ -100,7 +99,7 @@
- # This should not be a problem any more.  Refer to bug:
- # https://bugs.launchpad.net/neutron/+bug/1418079
- # This option is deprecated and will be removed in the M release
--# router_delete_namespaces = True
-+router_delete_namespaces = False
- 
- # Timeout for ovs-vsctl commands.
- # If the timeout expires, ovs commands will fail with ALARMCLOCK error.
-@@ -115,7 +114,7 @@
+@@ -98,7 +97,7 @@
  # - dvr_snat: this enables centralized SNAT support in conjunction with
  #   DVR. This mode must be used for an L3 agent running on a centralized
  #   node (or in single-host deployments, e.g. devstack).
@@ -130,7 +100,7 @@ Last-Update: 2015-09-25
  
  # Location to store keepalived and all HA configurations
  # ha_confs_path = $state_path/ha_confs
-@@ -129,6 +128,8 @@
+@@ -112,6 +111,8 @@
  # The advertisement interval in seconds
  # ha_vrrp_advert_int = 2
  
@@ -139,9 +109,9 @@ Last-Update: 2015-09-25
  [AGENT]
  # Log agent heartbeats from this L3 agent
  # log_agent_heartbeats = False
---- neutron-7.0.0~rc1.orig/etc/metadata_agent.ini
-+++ neutron-7.0.0~rc1/etc/metadata_agent.ini
-@@ -23,7 +23,7 @@ admin_password = %SERVICE_PASSWORD%
+--- neutron-8.0.0~b1.orig/etc/metadata_agent.ini
++++ neutron-8.0.0~b1/etc/metadata_agent.ini
+@@ -9,7 +9,7 @@
  # nova_metadata_port = 8775
  
  # Which protocol to use for requests to Nova metadata server, http or https
@@ -150,28 +120,26 @@ Last-Update: 2015-09-25
  
  # Whether insecure SSL connection should be accepted for Nova metadata server
  # requests
---- neutron-7.0.0~rc1.orig/etc/neutron.conf
-+++ neutron-7.0.0~rc1/etc/neutron.conf
-@@ -57,8 +57,8 @@
- # previous versions, the class name of a plugin can be specified instead of its
+--- neutron-8.0.0~b1.orig/etc/neutron.conf
++++ neutron-8.0.0~b1/etc/neutron.conf
+@@ -58,7 +58,7 @@
  # entrypoint name.
  #
--# core_plugin =
- # Example: core_plugin = ml2
-+core_plugin = neutron.plugins.ml2.plugin.Ml2Plugin
+ # core_plugin =
+-# Example: core_plugin = ml2
++core_plugin = ml2
  
  # (StrOpt) Neutron IPAM (IP address management) driver to be loaded from the
  # neutron.ipam_drivers namespace. See setup.cfg for the entry point names.
-@@ -74,8 +74,8 @@
+@@ -74,7 +74,7 @@
  # with previous versions, the class name of a plugin can be specified instead
  # of its entrypoint name.
  #
 -# service_plugins =
- # Example: service_plugins = router,firewall,lbaas,vpnaas,metering,qos
 +service_plugins = router,metering
+ # Example: service_plugins = router,firewall,lbaas,vpnaas,metering,qos
  
  # Paste configuration file
- # api_paste_config = api-paste.ini
 @@ -89,7 +89,7 @@
  
  # The strategy to be used for auth.
@@ -181,17 +149,16 @@ Last-Update: 2015-09-25
  
  # Base MAC address. The first 3 octets will remain unchanged. If the
  # 4h octet is not 00, it will also be used. The others will be
-@@ -129,7 +129,8 @@
+@@ -129,7 +129,7 @@
  # Enable or disable overlapping IPs for subnets
  # Attention: the following parameter MUST be set to False if Neutron is
  # being used in conjunction with nova security groups
 -# allow_overlapping_ips = False
 +allow_overlapping_ips = True
-+
  # Ensure that configured gateway is on subnet. For IPv6, validate only if
  # gateway is not a link local address. Deprecated, to be removed during the
  # K release, at which point the check will be mandatory.
-@@ -357,20 +358,20 @@
+@@ -394,11 +394,11 @@
  
  # ======== neutron nova interactions ==========
  # Send notification to nova when port status is active.
@@ -203,42 +170,9 @@ Last-Update: 2015-09-25
 -# notify_nova_on_port_data_changes = True
 +notify_nova_on_port_data_changes = True
  
- # URL for connection to nova (Only supports one nova region currently).
- # nova_url = http://127.0.0.1:8774/v2
- 
- # Name of nova region to use. Useful if keystone manages more than one region
--# nova_region_name =
-+nova_region_name = regionOne
- 
- # Username for connection to nova in admin context
--# nova_admin_username =
-+nova_admin_username = admin
- 
- # The uuid of the admin nova tenant
- # nova_admin_tenant_id =
-@@ -469,7 +470,7 @@
- 
- # The RabbitMQ broker address where a single node is used.
- # (string value)
--# rabbit_host=localhost
-+rabbit_host=localhost
- 
- # The RabbitMQ broker port where a single node is used.
- # (integer value)
-@@ -482,10 +483,10 @@
- # rabbit_use_ssl=false
- 
- # The RabbitMQ userid. (string value)
--# rabbit_userid=guest
-+rabbit_userid=guest
- 
- # The RabbitMQ password. (string value)
--# rabbit_password=guest
-+rabbit_password=guest
- 
- # the RabbitMQ login method (string value)
- # rabbit_login_method=AMQPLAIN
-@@ -570,7 +571,7 @@
+ # Number of seconds between sending events to nova if there are any events to send
+ # send_events_interval = 2
+@@ -584,7 +584,7 @@
  
  # The messaging driver to use, defaults to rabbit. Other
  # drivers include qpid and zmq. (string value)
@@ -247,7 +181,7 @@ Last-Update: 2015-09-25
  
  # The default exchange under which topics are scoped. May be
  # overridden by an exchange name specified in the
-@@ -683,7 +684,7 @@
+@@ -702,7 +702,7 @@
  # Use "sudo neutron-rootwrap /etc/neutron/rootwrap.conf" to use the real
  # root filter facility.
  # Change to "sudo" to skip the filtering and just run the command directly
@@ -256,7 +190,7 @@ Last-Update: 2015-09-25
  
  # Set to true to add comments to generated iptables rules that describe
  # each rule's purpose. (System must support the iptables comments module.)
-@@ -722,15 +723,14 @@ admin_password = %SERVICE_PASSWORD%
+@@ -744,11 +744,10 @@ admin_password = %SERVICE_PASSWORD%
  
  [database]
  # This line MUST be changed to actually run the plugin.
@@ -266,66 +200,87 @@ Last-Update: 2015-09-25
  # Replace 127.0.0.1 above with the IP address of the database used by the
  # main neutron server. (Leave it as is if the database runs on this host.)
 -# connection = sqlite://
++connection = sqlite:///var/lib/neutron/neutrondb
  # NOTE: In deployment the [database] section and its connection attribute may
  # be set in the corresponding core plugin '.ini' file. However, it is suggested
  # to put the [database] section and its connection attribute in this
- # configuration file.
-+connection = sqlite:///var/lib/neutron/neutrondb
+@@ -810,7 +809,7 @@ admin_password = %SERVICE_PASSWORD%
+ # keyfile =
  
- # Database engine for which script will be generated when using offline
- # migration
---- neutron-7.0.0~rc1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
-+++ neutron-7.0.0~rc1/etc/neutron/plugins/ml2/ml2_conf.ini
-@@ -2,25 +2,25 @@
+ # Name of nova region to use. Useful if keystone manages more than one region.
+-# region_name =
++region_name = regionOne
+ 
+ # Timeout value for http requests
+ # timeout =
+@@ -1001,7 +1000,7 @@ lock_path = $state_path/lock
+ 
+ # The RabbitMQ broker address where a single node is used. (string value)
+ # Deprecated group/name - [DEFAULT]/rabbit_host
+-# rabbit_host = localhost
++rabbit_host = localhost
+ 
+ # The RabbitMQ broker port where a single node is used. (integer value)
+ # Deprecated group/name - [DEFAULT]/rabbit_port
+@@ -1017,11 +1016,11 @@ lock_path = $state_path/lock
+ 
+ # The RabbitMQ userid. (string value)
+ # Deprecated group/name - [DEFAULT]/rabbit_userid
+-# rabbit_userid = guest
++rabbit_userid = guest
+ 
+ # The RabbitMQ password. (string value)
+ # Deprecated group/name - [DEFAULT]/rabbit_password
+-# rabbit_password = guest
++rabbit_password = guest
+ 
+ # The RabbitMQ login method. (string value)
+ # Deprecated group/name - [DEFAULT]/rabbit_login_method
+--- neutron-8.0.0~b1.orig/etc/neutron/plugins/ml2/ml2_conf.ini
++++ neutron-8.0.0~b1/etc/neutron/plugins/ml2/ml2_conf.ini
+@@ -2,20 +2,20 @@
  # (ListOpt) List of network type driver entrypoints to be loaded from
  # the neutron.ml2.type_drivers namespace.
  #
 -# type_drivers = local,flat,vlan,gre,vxlan,geneve
- # Example: type_drivers = flat,vlan,gre,vxlan,geneve
 +type_drivers = flat,gre
+ # Example: type_drivers = flat,vlan,gre,vxlan,geneve
  
  # (ListOpt) Ordered list of network_types to allocate as tenant
  # networks. The default value 'local' is useful for single-box testing
  # but provides no connectivity between hosts.
  #
 -# tenant_network_types = local
- # Example: tenant_network_types = vlan,gre,vxlan,geneve
 +tenant_network_types = gre
+ # Example: tenant_network_types = vlan,gre,vxlan,geneve
  
  
  # (ListOpt) Ordered list of networking mechanism driver entrypoints
  # to be loaded from the neutron.ml2.mechanism_drivers namespace.
 -# mechanism_drivers =
++mechanism_drivers = openvswitch,l2population
  # Example: mechanism_drivers = openvswitch,mlnx
  # Example: mechanism_drivers = arista
  # Example: mechanism_drivers = openvswitch,cisco_nexus,logger
- # Example: mechanism_drivers = openvswitch,brocade
- # Example: mechanism_drivers = linuxbridge,brocade
-+mechanism_drivers = openvswitch,l2population
- 
- # (ListOpt) Ordered list of extension driver entrypoints
- # to be loaded from the neutron.ml2.extension_drivers namespace.
-@@ -64,9 +64,9 @@
- # can be created. Use * to allow flat networks with arbitrary
- # physical_network names.
+@@ -64,7 +64,7 @@
+ # can be created. Use default '*' to allow flat networks with arbitrary
+ # physical_network names. Use an empty list to disable flat networks.
  #
--# flat_networks =
- # Example:flat_networks = physnet1,physnet2
- # Example:flat_networks = *
+-# flat_networks = *
 +flat_networks = external
+ # Example:flat_networks = physnet1,physnet2
+ # Example:flat_networks =
  
- [ml2_type_vlan]
- # (ListOpt) List of <physical_network>[:<vlan_min>:<vlan_max>] tuples
-@@ -79,7 +79,7 @@
- 
+@@ -80,7 +80,7 @@
  [ml2_type_gre]
- # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges of GRE tunnel IDs that are available for tenant network allocation
+ # (ListOpt) Comma-separated list of <tun_min>:<tun_max> tuples enumerating
+ # ranges of GRE tunnel IDs that are available for tenant network allocation.
 -# tunnel_id_ranges =
 +tunnel_id_ranges = 1:1000
  
  [ml2_type_vxlan]
  # (ListOpt) Comma-separated list of <vni_min>:<vni_max> tuples enumerating
-@@ -113,8 +113,8 @@
+@@ -114,8 +114,8 @@
  [securitygroup]
  # Controls if neutron security group is enabled or not.
  # It should be false when you use nova security group.
@@ -336,8 +291,8 @@ Last-Update: 2015-09-25
  # requires that ipset is installed on L2 agent node.
 -# enable_ipset = True
 +enable_ipset = True
---- neutron-7.0.0~rc1.orig/etc/neutron/plugins/ml2/openvswitch_agent.ini
-+++ neutron-7.0.0~rc1/etc/neutron/plugins/ml2/openvswitch_agent.ini
+--- neutron-8.0.0~b1.orig/etc/neutron/plugins/ml2/openvswitch_agent.ini
++++ neutron-8.0.0~b1/etc/neutron/plugins/ml2/openvswitch_agent.ini
 @@ -5,7 +5,7 @@
  # attached to this bridge and then "patched" according to their network
  # connectivity.
@@ -347,17 +302,16 @@ Last-Update: 2015-09-25
  
  # Only used for the agent if tunnel_id_ranges is not empty for
  # the server.  In most cases, the default value should be fine.
-@@ -35,8 +35,8 @@
+@@ -35,7 +35,7 @@
  # Note: If you remove a bridge from this mapping, make sure to disconnect it
  # from the integration bridge as it won't be managed by the agent anymore.
  #
 -# bridge_mappings =
- # Example: bridge_mappings = physnet1:br-eth1
 +bridge_mappings = external:br-ex
+ # Example: bridge_mappings = physnet1:br-eth1
  
  # (BoolOpt) Use veths instead of patch ports to interconnect the integration
- # bridge to physical networks. Support kernel without ovs patch port support
-@@ -87,7 +87,7 @@
+@@ -91,7 +91,7 @@
  # log_agent_heartbeats = False
  
  # Agent's polling interval in seconds
@@ -366,19 +320,16 @@ Last-Update: 2015-09-25
  
  # Minimize polling by monitoring ovsdb for interface changes
  # minimize_polling = True
-@@ -102,10 +102,10 @@
+@@ -106,7 +106,7 @@
  # disable tunneling support in the agent.
  # You can specify as many values here as your compute hosts supports.
  #
 -# tunnel_types =
++tunnel_types = gre
  # Example: tunnel_types = gre
  # Example: tunnel_types = vxlan
  # Example: tunnel_types = vxlan, gre
-+tunnel_types = gre
- 
- # (IntOpt) The port number to utilize if tunnel_types includes 'vxlan'. By
- # default, this will make use of the Open vSwitch default value of '4789' if
-@@ -127,12 +127,12 @@
+@@ -131,12 +131,12 @@
  # RPC calbbacks instead of tunnel_sync/update) on OVS agents in order to
  # optimize tunnel management.
  #
@@ -393,7 +344,7 @@ Last-Update: 2015-09-25
  
  # Enable suppression of ARP responses that don't match an IP address that
  # belongs to the port from which they originate.
-@@ -151,7 +151,7 @@
+@@ -155,7 +155,7 @@
  # (BoolOpt) Set to True on L2 agents to enable support
  # for distributed virtual routing.
  #
@@ -402,15 +353,17 @@ Last-Update: 2015-09-25
  
  # (IntOpt) Set new timeout in seconds for new rpc calls after agent receives
  # SIGTERM. If value is set to 0, rpc timeout won't be changed"
-@@ -180,30 +180,8 @@
- # Firewall driver for realizing neutron security group function.
- # firewall_driver = neutron.agent.firewall.NoopFirewallDriver
- # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
-+firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+@@ -182,32 +182,8 @@
  
+ [securitygroup]
+ # Firewall driver for realizing neutron security group function.
+-# firewall_driver = neutron.agent.firewall.NoopFirewallDriver
++firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+ # Example: firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+-
  # Controls if neutron security group is enabled or not.
  # It should be false when you use nova security group.
--# enable_security_group = True
+ # enable_security_group = True
 -
 -#-----------------------------------------------------------------------------
 -# Sample Configurations.
@@ -434,24 +387,3 @@ Last-Update: 2015-09-25
 -# local_ip = 10.0.0.3
 -# [agent]
 -# tunnel_types = vxlan
-+enable_security_group = True
---- neutron-7.0.0~rc1.orig/etc/neutron/plugins/ovsvapp/ovsvapp_agent.ini
-+++ neutron-7.0.0~rc1/etc/neutron/plugins/ovsvapp/ovsvapp_agent.ini
-@@ -45,14 +45,13 @@
- # local_ip =
- 
- # OVS integration bridge.
--# integration_bridge = br-int
-+integration_bridge = br-int
- 
- # Provide bridge mappings for VLAN networks.
--# bridge_mappings =
- #
--# Example:
--# bridge_mappings = physnet1:br-eth1
-+# Example: bridge_mappings = physnet1:br-eth1
- # where eth1 is data interface.
-+bridge_mappings = external:br-ex
- 
- # Firewall driver for OVSvApp.
- # firewall_driver = networking_vsphere.drivers.ovs_firewall.OVSFirewallDriver
