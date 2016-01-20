@@ -153,7 +153,6 @@ Depends: adduser,
          python-openstackclient,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Description: OpenStack virtual network service - server
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -208,7 +207,6 @@ Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Description: OpenStack virtual network service - NEC agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -227,7 +225,6 @@ Depends: adduser,
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Recommends: openvswitch-switch,
 Conflicts: neutron-vpn-agent,
 Description: OpenStack virtual network service - l3 agent
@@ -247,7 +244,6 @@ Depends: adduser,
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Description: OpenStack virtual network service - DHCP agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -262,7 +258,6 @@ Depends: adduser,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Description: OpenStack virtual network service - metadata agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -279,7 +274,6 @@ Depends: adduser,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Provides: neutron-plugin-metering-agent,
 Description: OpenStack virtual network service - metering agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -299,7 +293,6 @@ Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Recommends: openvswitch-datapath-dkms,
 Description: OpenStack virtual network service - Open vSwitch agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -320,7 +313,6 @@ Depends: bridge-utils,
          sudo,
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends},
 Description: OpenStack virtual network service - Linux bridge agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
