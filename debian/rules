@@ -16,29 +16,35 @@ override_dh_auto_install:
 override_dh_install:
 	dh_install --fail-missing -X/usr/etc -X/usr/bin
 
+	mkdir -p $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.base.agent \
 		--namespace neutron.dhcp.agent \
 		--namespace oslo.log
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-l3-agent/etc/l3_agent.ini \
+	mkdir -p $(CURDIR)/debian/neutron-l3-agent/etc/neutron
+	oslo-config-generator --output-file $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.base.agent \
 		--namespace neutron.l3.agent \
 		--namespace oslo.log
+	mkdir -p $(CURDIR)/debian/neutron-linuxbridge-agent/etc/neutron/plugins/ml2
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-linuxbridge-agent/etc/neutron/plugins/ml2/linuxbridge_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.linuxbridge.agent \
 		--namespace oslo.log
+	mkdir -p $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.metadata.agent \
 		--namespace oslo.log
 	sed -i -e 's|^# nova_metadata_ip = 127.0.0.1|nova_metadata_ip = 127.0.0.1|'	$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+	mkdir -p $(CURDIR)/debian/neutron-metering-agent/etc/neutron
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-metering-agent/etc/neutron/metering_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.metering.agent \
 		--namespace oslo.log
+	mkdir -p $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2 \
@@ -47,7 +53,8 @@ override_dh_install:
 		--wrap-width 140 \
 		--namespace neutron.ml2.sriov \
 		--namespace oslo.log
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/neutron.conf \
+	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
+	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf \
 		--wrap-width 140 \
 		--namespace neutron \
 		--namespace neutron.agent \
@@ -64,10 +71,12 @@ override_dh_install:
 		--namespace oslo.service.sslutils \
 		--namespace oslo.service.wsgi \
 		--namespace keystonemiddleware.auth_token
+	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.ovs.agent \
 		--namespace oslo.log
+	mkdir -p $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/sriov_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.sriov.agent \
