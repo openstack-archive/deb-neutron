@@ -26,7 +26,6 @@ override_dh_install:
 	done
 	dh_install -O--buildsystem=python_distutils --fail-missing -X/usr/etc -X/usr/bin
 	rm -rf $(CURDIR)/debian/neutron-common/usr/lib
-	rm -rf $(CURDIR)/debian/neutron-common/usr/bin/quantum*
 	rm -rf $(CURDIR)/debian/neutron-common/usr/etc
 
 	install -D -m 0640 etc/neutron/plugins/ml2/openvswitch_agent.ini		$(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
@@ -40,10 +39,8 @@ override_dh_install:
 
 override_dh_auto_clean:
 	dh_auto_clean
-	rm -f neutron/vcsversion.py
 	find . -type f -name "*.pyc" | xargs rm -fr
 	rm -rf build neutron.egg-info
-	rm -rf setuptools_git-*-py*.egg/
 	rm -f debian/neutron-common.config \
 		debian/neutron-common.postinst \
 		debian/neutron-server.config \
