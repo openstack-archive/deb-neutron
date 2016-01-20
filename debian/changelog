@@ -5,6 +5,8 @@ neutron (1:8.0.0~b2-1) experimental; urgency=medium
   * Rebased better-config-defaults.patch.
   * Added extend-diff-ignore = "^[^/]*[.]egg-info/" in d/source/options.
   * Did some cleanups in debian/rules.
+  * Using oslo-config-generator to generate config files, as upstream moved to
+    use that as well.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 04 Dec 2015 09:03:42 +0100
 
