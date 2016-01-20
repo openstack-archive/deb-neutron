@@ -11,7 +11,6 @@ PYTHONS:=$(shell pyversions -vr)
 override_dh_auto_install:
 	python2.7 setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp
 	cp -auxf neutron $(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages
-	rm -rf $(CURDIR)/debian/tmp/usr/lib
 	rm -rf $(CURDIR)/debian/tmp/usr/etc
 
 override_dh_install:
