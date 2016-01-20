@@ -17,7 +17,7 @@ override_dh_install:
 	dh_install --fail-missing -X/usr/etc -X/usr/bin
 
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini \
-		--wrap_width 140 \
+		--wrap-width 140 \
 		--namespace neutron.base.agent \
 		--namespace neutron.dhcp.agent \
 		--namespace oslo.log
@@ -65,11 +65,11 @@ override_dh_install:
 		--namespace oslo.service.wsgi \
 		--namespace keystonemiddleware.auth_token
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini \
-		--wrap_width 140 \
+		--wrap-width 140 \
 		--namespace neutron.ml2.ovs.agent \
 		--namespace oslo.log
 	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/sriov_agent.ini \
-		--wrap_width 140 \
+		--wrap-width 140 \
 		--namespace neutron.ml2.sriov.agent \
 		--namespace oslo.log
 	
