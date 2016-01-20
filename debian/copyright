@@ -2,19 +2,44 @@ Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Neutron
 Source: git://github.com/openstack/neutron.git
 
-Files: debian/*
-Copyright: 2012-2013, Thomas Goirand <zigo@debian.org>
-	(c) 2012, Mehdi Abaakouk <sileht@sileht.net>
-	(c) 2011-2012, Ghe Rivero <ghe.rivero@stackops.com>
-	(c) 2012, Loic Dachary (OuoU) <loic@debian.org>
-	(c) 2012, Ola Lundqvist <opal@debian.org>
+Files: *
+Copyright: (c) 2011-2016, OpenStack Foundation <openstack-dev@lists.openstack.org>
+           (c) 2011-2016, Cisco Systems
+           (c) 2011-2016, Nicira Networks
+           (c) 2011-2016, Citrix Systems
+           (c) 2012-2016, Hewlett-Packard Development Company, L.P.
+           (c) 2011-2016, VMware, Inc
+           (c) 2012, Nachi Ueno, NTT MCL, Inc.
+           (c) 2012-2016, Intel Corporation
+           (c) 2012-2016, Mirantis Inc.
+           (c) 2013-2016, Red Hat, Inc.
+           (c) 2013-2016, IBM Corp.
+           (c) 2014-2016, VA Linux Systems Japan K.K.
+           (c) 2014-2015, Thales Services SAS
+           (c) 2014-2015, Deutsche Telekom AG
+           (c) 2014-2015, SUSE Linux Products GmbH
+           (c) 2013-2015, NEC Corporation
+           (c) 2011-2015, VMware, Inc.
+           (c) 2012-2015, Cisco Systems, Inc.
+           (c) 2013, Huawei Technologies Co.,LTD.
+           (c) 2012-2015, New Dream Network, LLC (DreamHost)
+           (c) 2014-2015, Mellanox Technologies, Ltd
+           (c) 2013-2015, eNovance SAS <licensing@enovance.com>
+           (c) 2013-2015, Rackspace, Inc.
+           (c) 2015, Infoblox Inc.
+           (c) 2015, Cloudbase Solutions.
+           (c) 2015, Infoblox Inc.
+           (c) 2015, Taturiello Consulting, Meh.
+           (c) 2001-2010, Twisted Matrix Laboratories.
+           (c) 2012, Locaweb.
 License: Apache-2.0
 
-Files: *
-Copyright: 2011 OpenStack, LLC.
-		   2011 Cisco Systems
-		   2011 Nicira Networks
-           2011 Citrix Systems
+Files: debian/*
+Copyright: (c) 2012-2016, Thomas Goirand <zigo@debian.org>
+           (c) 2012, Mehdi Abaakouk <sileht@sileht.net>
+           (c) 2011-2012, Ghe Rivero <ghe.rivero@stackops.com>
+           (c) 2012, Loic Dachary (OuoU) <loic@debian.org>
+           (c) 2012, Ola Lundqvist <opal@debian.org>
 License: Apache-2.0
 
 License: Apache-2.0
