@@ -41,11 +41,12 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import importutils
+from oslo_utils import reflection
 import six
 from stevedore import driver
 
+from neutron._i18n import _, _LE
 from neutron.common import constants as n_const
-from neutron.i18n import _LE
 
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 LOG = logging.getLogger(__name__)
@@ -64,9 +65,11 @@ class cache_method_results(object):
         self._not_cached = object()
 
     def _get_from_cache(self, target_self, *args, **kwargs):
+        target_self_cls_name = reflection.get_class_name(target_self,
+                                                         fully_qualified=False)
         func_name = "%(module)s.%(class)s.%(func_name)s" % {
             'module': target_self.__module__,
-            'class': target_self.__class__.__name__,
+            'class': target_self_cls_name,
             'func_name': self.func.__name__,
         }
         key = (func_name,) + args
@@ -90,19 +93,21 @@ class cache_method_results(object):
         return item
 
     def __call__(self, target_self, *args, **kwargs):
+        target_self_cls_name = reflection.get_class_name(target_self,
+                                                         fully_qualified=False)
         if not hasattr(target_self, '_cache'):
             raise NotImplementedError(
-                "Instance of class %(module)s.%(class)s must contain _cache "
-                "attribute" % {
+                _("Instance of class %(module)s.%(class)s must contain _cache "
+                  "attribute") % {
                     'module': target_self.__module__,
-                    'class': target_self.__class__.__name__})
+                    'class': target_self_cls_name})
         if not target_self._cache:
             if self._first_call:
                 LOG.debug("Instance of class %(module)s.%(class)s doesn't "
                           "contain attribute _cache therefore results "
                           "cannot be cached for %(func_name)s.",
                           {'module': target_self.__module__,
-                           'class': target_self.__class__.__name__,
+                           'class': target_self_cls_name,
                            'func_name': self.func.__name__})
                 self._first_call = False
             return self.func(target_self, *args, **kwargs)
@@ -367,6 +372,18 @@ class exception_logger(object):
         return call
 
 
+def get_other_dvr_serviced_device_owners():
+    """Return device_owner names for ports that should be serviced by DVR
+
+    This doesn't return DEVICE_OWNER_COMPUTE_PREFIX since it is a
+    prefix, not a complete device_owner name, so should be handled
+    separately (see is_dvr_serviced() below)
+    """
+    return [n_const.DEVICE_OWNER_LOADBALANCER,
+            n_const.DEVICE_OWNER_LOADBALANCERV2,
+            n_const.DEVICE_OWNER_DHCP]
+
+
 def is_dvr_serviced(device_owner):
     """Check if the port need to be serviced by DVR
 
@@ -375,11 +392,8 @@ def is_dvr_serviced(device_owner):
     if they are required for DVR or any service directly or
     indirectly associated with DVR.
     """
-    dvr_serviced_device_owners = (n_const.DEVICE_OWNER_LOADBALANCER,
-                                  n_const.DEVICE_OWNER_LOADBALANCERV2,
-                                  n_const.DEVICE_OWNER_DHCP)
     return (device_owner.startswith(n_const.DEVICE_OWNER_COMPUTE_PREFIX) or
-            device_owner in dvr_serviced_device_owners)
+            device_owner in get_other_dvr_serviced_device_owners())
 
 
 @debtcollector.removals.remove(message="This will removed in the N cycle.")

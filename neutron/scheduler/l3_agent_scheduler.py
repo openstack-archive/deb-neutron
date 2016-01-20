@@ -14,6 +14,8 @@
 #    under the License.
 
 import abc
+import collections
+import itertools
 import random
 
 from oslo_config import cfg
@@ -22,12 +24,13 @@ from oslo_log import log as logging
 import six
 from sqlalchemy import sql
 
+from neutron._i18n import _LE, _LW
 from neutron.common import constants
 from neutron.common import utils
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_db
 from neutron.db import l3_hamode_db
-from neutron.i18n import _LE, _LW
+from neutron.extensions import availability_zone as az_ext
 
 
 LOG = logging.getLogger(__name__)
@@ -167,33 +170,30 @@ class L3Scheduler(object):
             # one enabled l3 agent hosting since active is just a
             # timing problem. Non-active l3 agent can return to
             # active any time
-            l3_agents = plugin.get_l3_agents_hosting_routers(
+            current_l3_agents = plugin.get_l3_agents_hosting_routers(
                 context, [sync_router['id']], admin_state_up=True)
-            if l3_agents and not sync_router.get('distributed', False):
+            is_router_distributed = sync_router.get('distributed', False)
+            if current_l3_agents and not is_router_distributed:
                 LOG.debug('Router %(router_id)s has already been hosted '
                           'by L3 agent %(agent_id)s',
                           {'router_id': sync_router['id'],
-                           'agent_id': l3_agents[0]['id']})
+                           'agent_id': current_l3_agents[0]['id']})
                 return []
 
             active_l3_agents = plugin.get_l3_agents(context, active=True)
             if not active_l3_agents:
                 LOG.warn(_LW('No active L3 agents'))
                 return []
-            new_l3agents = plugin.get_l3_agent_candidates(context,
-                                                          sync_router,
-                                                          active_l3_agents)
-            old_l3agentset = set(l3_agents)
-            if sync_router.get('distributed', False):
-                new_l3agentset = set(new_l3agents)
-                candidates = list(new_l3agentset - old_l3agentset)
-            else:
-                candidates = new_l3agents
-                if not candidates:
+            potential_candidates = list(
+                set(active_l3_agents) - set(current_l3_agents))
+            new_l3agents = []
+            if potential_candidates:
+                new_l3agents = plugin.get_l3_agent_candidates(
+                    context, sync_router, potential_candidates)
+                if not new_l3agents:
                     LOG.warn(_LW('No L3 agents can host the router %s'),
                              sync_router['id'])
-
-            return candidates
+            return new_l3agents
 
     def _bind_routers(self, context, plugin, routers, l3_agent):
         for router in routers:
@@ -292,11 +292,15 @@ class L3Scheduler(object):
                                 tenant_id, agent):
         """Creates and binds a new HA port for this agent."""
         ha_network = plugin.get_ha_network(context, tenant_id)
+        port_binding = plugin.add_ha_port(context.elevated(), router_id,
+                                          ha_network.network.id, tenant_id)
         with context.session.begin(subtransactions=True):
-            port_binding = plugin.add_ha_port(context.elevated(), router_id,
-                                              ha_network.network.id, tenant_id)
             port_binding.l3_agent_id = agent['id']
         self.bind_router(context, router_id, agent)
+
+    def get_ha_routers_l3_agents_counts(self, context, plugin, filters=None):
+        """Return a mapping (router, # agents) matching specified filters."""
+        return plugin.get_ha_routers_l3_agents_count(context)
 
     def _schedule_ha_routers_to_additional_agent(self, plugin, context, agent):
         """Bind already scheduled routers to the agent.
@@ -306,18 +310,19 @@ class L3Scheduler(object):
         is not yet reached.
         """
 
-        routers_agents = plugin.get_ha_routers_l3_agents_count(context)
-
+        routers_agents = self.get_ha_routers_l3_agents_counts(context, plugin,
+                                                              agent)
         scheduled = False
         admin_ctx = context.elevated()
-        for router_id, tenant_id, agents in routers_agents:
+        for router, agents in routers_agents:
             max_agents_not_reached = (
                 not self.max_ha_agents or agents < self.max_ha_agents)
             if max_agents_not_reached:
-                if not self._router_has_binding(admin_ctx, router_id,
+                if not self._router_has_binding(admin_ctx, router['id'],
                                                 agent.id):
                     self.create_ha_port_and_bind(plugin, admin_ctx,
-                                                 router_id, tenant_id,
+                                                 router['id'],
+                                                 router['tenant_id'],
                                                  agent)
                     scheduled = True
 
@@ -386,3 +391,79 @@ class LeastRoutersScheduler(L3Scheduler):
         ordered_agents = plugin.get_l3_agents_ordered_by_num_routers(
             context, [candidate['id'] for candidate in candidates])
         return ordered_agents[:num_agents]
+
+
+class AZLeastRoutersScheduler(LeastRoutersScheduler):
+    """Availability zone aware scheduler.
+
+       If a router is ha router, allocate L3 agents distributed AZs
+       according to router's az_hints.
+    """
+    def _get_az_hints(self, router):
+        return (router.get(az_ext.AZ_HINTS) or
+                cfg.CONF.default_availability_zones)
+
+    def _get_routers_can_schedule(self, context, plugin, routers, l3_agent):
+        """Overwrite L3Scheduler's method to filter by availability zone."""
+        target_routers = []
+        for r in routers:
+            az_hints = self._get_az_hints(r)
+            if not az_hints or l3_agent['availability_zone'] in az_hints:
+                target_routers.append(r)
+
+        if not target_routers:
+            return
+
+        return super(AZLeastRoutersScheduler, self)._get_routers_can_schedule(
+            context, plugin, target_routers, l3_agent)
+
+    def _get_candidates(self, plugin, context, sync_router):
+        """Overwrite L3Scheduler's method to filter by availability zone."""
+        all_candidates = (
+            super(AZLeastRoutersScheduler, self)._get_candidates(
+                plugin, context, sync_router))
+
+        candidates = []
+        az_hints = self._get_az_hints(sync_router)
+        for agent in all_candidates:
+            if not az_hints or agent['availability_zone'] in az_hints:
+                candidates.append(agent)
+
+        return candidates
+
+    def get_ha_routers_l3_agents_counts(self, context, plugin, filters=None):
+        """Overwrite L3Scheduler's method to filter by availability zone."""
+        all_routers_agents = (
+            super(AZLeastRoutersScheduler, self).
+            get_ha_routers_l3_agents_counts(context, plugin, filters))
+        if filters is None:
+            return all_routers_agents
+
+        routers_agents = []
+        for router, agents in all_routers_agents:
+            az_hints = self._get_az_hints(router)
+            if az_hints and filters['availability_zone'] not in az_hints:
+                continue
+            routers_agents.append((router, agents))
+
+        return routers_agents
+
+    def _choose_router_agents_for_ha(self, plugin, context, candidates):
+        ordered_agents = plugin.get_l3_agents_ordered_by_num_routers(
+            context, [candidate['id'] for candidate in candidates])
+        num_agents = self._get_num_of_agents_for_ha(len(ordered_agents))
+
+        # Order is kept in each az
+        group_by_az = collections.defaultdict(list)
+        for agent in ordered_agents:
+            az = agent['availability_zone']
+            group_by_az[az].append(agent)
+
+        selected_agents = []
+        for az, agents in itertools.cycle(group_by_az.items()):
+            if not agents:
+                continue
+            selected_agents.append(agents.pop(0))
+            if len(selected_agents) >= num_agents:
+                break
+        return selected_agents

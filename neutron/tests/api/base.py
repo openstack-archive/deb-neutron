@@ -14,7 +14,6 @@
 #    under the License.
 
 import netaddr
-from oslo_log import log as logging
 from tempest_lib.common.utils import data_utils
 from tempest_lib import exceptions as lib_exc
 
@@ -24,8 +23,6 @@ from neutron.tests.tempest import exceptions
 import neutron.tests.tempest.test
 
 CONF = config.CONF
-
-LOG = logging.getLogger(__name__)
 
 
 class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
@@ -74,10 +71,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         cls.subnets = []
         cls.ports = []
         cls.routers = []
-        cls.pools = []
-        cls.vips = []
-        cls.members = []
-        cls.health_monitors = []
         cls.vpnservices = []
         cls.ikepolicies = []
         cls.floating_ips = []
@@ -93,6 +86,8 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         cls.ethertype = "IPv" + str(cls._ip_version)
         cls.address_scopes = []
         cls.admin_address_scopes = []
+        cls.subnetpools = []
+        cls.admin_subnetpools = []
 
     @classmethod
     def resource_cleanup(cls):
@@ -133,23 +128,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
             for router in cls.routers:
                 cls._try_delete_resource(cls.delete_router,
                                          router)
-
-            # Clean up health monitors
-            for health_monitor in cls.health_monitors:
-                cls._try_delete_resource(cls.client.delete_health_monitor,
-                                         health_monitor['id'])
-            # Clean up members
-            for member in cls.members:
-                cls._try_delete_resource(cls.client.delete_member,
-                                         member['id'])
-            # Clean up vips
-            for vip in cls.vips:
-                cls._try_delete_resource(cls.client.delete_vip,
-                                         vip['id'])
-            # Clean up pools
-            for pool in cls.pools:
-                cls._try_delete_resource(cls.client.delete_pool,
-                                         pool['id'])
             # Clean up metering label rules
             for metering_label_rule in cls.metering_label_rules:
                 cls._try_delete_resource(
@@ -188,6 +166,14 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
                 cls._try_delete_resource(cls.admin_client.delete_network,
                                          network['id'])
 
+            for subnetpool in cls.subnetpools:
+                cls._try_delete_resource(cls.client.delete_subnetpool,
+                                         subnetpool['id'])
+
+            for subnetpool in cls.admin_subnetpools:
+                cls._try_delete_resource(cls.admin_client.delete_subnetpool,
+                                         subnetpool['id'])
+
             for address_scope in cls.address_scopes:
                 cls._try_delete_resource(cls.client.delete_address_scope,
                                          address_scope['id'])
@@ -201,7 +187,7 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         super(BaseNetworkTest, cls).resource_cleanup()
 
     @classmethod
-    def _try_delete_resource(self, delete_callable, *args, **kwargs):
+    def _try_delete_resource(cls, delete_callable, *args, **kwargs):
         """Cleanup resources in case of test-failure
 
         Some resources are explicitly deleted by the test.
@@ -325,78 +311,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         return fip
 
     @classmethod
-    def create_pool(cls, name, lb_method, protocol, subnet):
-        """Wrapper utility that returns a test pool."""
-        body = cls.client.create_pool(
-            name=name,
-            lb_method=lb_method,
-            protocol=protocol,
-            subnet_id=subnet['id'])
-        pool = body['pool']
-        cls.pools.append(pool)
-        return pool
-
-    @classmethod
-    def update_pool(cls, name):
-        """Wrapper utility that returns a test pool."""
-        body = cls.client.update_pool(name=name)
-        pool = body['pool']
-        return pool
-
-    @classmethod
-    def create_vip(cls, name, protocol, protocol_port, subnet, pool):
-        """Wrapper utility that returns a test vip."""
-        body = cls.client.create_vip(name=name,
-                                     protocol=protocol,
-                                     protocol_port=protocol_port,
-                                     subnet_id=subnet['id'],
-                                     pool_id=pool['id'])
-        vip = body['vip']
-        cls.vips.append(vip)
-        return vip
-
-    @classmethod
-    def update_vip(cls, name):
-        body = cls.client.update_vip(name=name)
-        vip = body['vip']
-        return vip
-
-    @classmethod
-    def create_member(cls, protocol_port, pool, ip_version=None):
-        """Wrapper utility that returns a test member."""
-        ip_version = ip_version if ip_version is not None else cls._ip_version
-        member_address = "fd00::abcd" if ip_version == 6 else "10.0.9.46"
-        body = cls.client.create_member(address=member_address,
-                                        protocol_port=protocol_port,
-                                        pool_id=pool['id'])
-        member = body['member']
-        cls.members.append(member)
-        return member
-
-    @classmethod
-    def update_member(cls, admin_state_up):
-        body = cls.client.update_member(admin_state_up=admin_state_up)
-        member = body['member']
-        return member
-
-    @classmethod
-    def create_health_monitor(cls, delay, max_retries, Type, timeout):
-        """Wrapper utility that returns a test health monitor."""
-        body = cls.client.create_health_monitor(delay=delay,
-                                                max_retries=max_retries,
-                                                type=Type,
-                                                timeout=timeout)
-        health_monitor = body['health_monitor']
-        cls.health_monitors.append(health_monitor)
-        return health_monitor
-
-    @classmethod
-    def update_health_monitor(cls, admin_state_up):
-        body = cls.client.update_vip(admin_state_up=admin_state_up)
-        health_monitor = body['health_monitor']
-        return health_monitor
-
-    @classmethod
     def create_router_interface(cls, router_id, subnet_id):
         """Wrapper utility that returns a router interface."""
         interface = cls.client.add_router_interface_with_subnet_id(
@@ -490,6 +404,16 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
             cls.address_scopes.append(body['address_scope'])
         return body['address_scope']
 
+    @classmethod
+    def create_subnetpool(cls, name, is_admin=False, **kwargs):
+        if is_admin:
+            body = cls.admin_client.create_subnetpool(name=name, **kwargs)
+            cls.admin_subnetpools.append(body['subnetpool'])
+        else:
+            body = cls.client.create_subnetpool(name=name, **kwargs)
+            cls.subnetpools.append(body['subnetpool'])
+        return body['subnetpool']
+
 
 class BaseAdminNetworkTest(BaseNetworkTest):
 
@@ -545,3 +469,43 @@ class BaseAdminNetworkTest(BaseNetworkTest):
         service_profile = body['service_profile']
         cls.service_profiles.append(service_profile)
         return service_profile
+
+    @classmethod
+    def get_unused_ip(cls, net_id, ip_version=None):
+        """Get an unused ip address in a allocaion pool of net"""
+        body = cls.admin_client.list_ports(network_id=net_id)
+        ports = body['ports']
+        used_ips = []
+        for port in ports:
+            used_ips.extend(
+                [fixed_ip['ip_address'] for fixed_ip in port['fixed_ips']])
+        body = cls.admin_client.list_subnets(network_id=net_id)
+        subnets = body['subnets']
+
+        for subnet in subnets:
+            if ip_version and subnet['ip_version'] != ip_version:
+                continue
+            cidr = subnet['cidr']
+            allocation_pools = subnet['allocation_pools']
+            iterators = []
+            if allocation_pools:
+                for allocation_pool in allocation_pools:
+                    iterators.append(netaddr.iter_iprange(
+                        allocation_pool['start'], allocation_pool['end']))
+            else:
+                net = netaddr.IPNetwork(cidr)
+
+                def _iterip():
+                    for ip in net:
+                        if ip not in (net.network, net.broadcast):
+                            yield ip
+                iterators.append(iter(_iterip()))
+
+            for iterator in iterators:
+                for ip in iterator:
+                    if str(ip) not in used_ips:
+                        return str(ip)
+
+        message = (
+            "net(%s) has no usable IP address in allocation pools" % net_id)
+        raise exceptions.InvalidConfiguration(message)

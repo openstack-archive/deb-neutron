@@ -26,15 +26,18 @@ from oslo_db import exception as db_exc
 from oslo_utils import uuidutils
 from sqlalchemy.orm import exc as sqla_exc
 
+from neutron._i18n import _
 from neutron.callbacks import registry
 from neutron.common import constants
 from neutron.common import exceptions as exc
 from neutron.common import utils
 from neutron import context
+from neutron.db import agents_db
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2 as base_plugin
 from neutron.db import l3_db
 from neutron.db import models_v2
+from neutron.extensions import availability_zone as az_ext
 from neutron.extensions import external_net
 from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
@@ -392,6 +395,21 @@ class TestMl2NetworksWithVlanTransparencyAndMTU(TestMl2NetworksV2):
         self.assertIn('vlan_transparent', network)
 
 
+class TestMl2NetworksWithAvailabilityZone(TestMl2NetworksV2):
+    def test_create_network_availability_zone(self):
+        az_hints = ['az1', 'az2']
+        data = {'network': {'name': 'net1',
+                            az_ext.AZ_HINTS: az_hints,
+                            'tenant_id': 'tenant_one'}}
+        with mock.patch.object(agents_db.AgentAvailabilityZoneMixin,
+                               'validate_availability_zones'):
+            network_req = self.new_create_request('networks', data)
+            res = network_req.get_response(self.api)
+            self.assertEqual(201, res.status_int)
+            network = self.deserialize(self.fmt, res)['network']
+            self.assertEqual(az_hints, network[az_ext.AZ_HINTS])
+
+
 class TestMl2SubnetsV2(test_plugin.TestSubnetsV2,
                        Ml2PluginV2TestCase):
     def test_delete_subnet_race_with_dhcp_port_creation(self):
@@ -433,6 +451,41 @@ class TestMl2SubnetsV2(test_plugin.TestSubnetsV2,
                     req = self.new_delete_request('subnets', subnet_id)
                     res = req.get_response(self.api)
                     self.assertEqual(204, res.status_int)
+
+
+class TestMl2DbOperationBounds(test_plugin.DbOperationBoundMixin,
+                               Ml2PluginV2TestCase):
+    """Test cases to assert constant query count for list operations.
+
+    These test cases assert that an increase in the number of objects
+    does not result in an increase of the number of db operations. All
+    database lookups during a list operation should be performed in bulk
+    so the number of queries required for 2 objects instead of 1 should
+    stay the same.
+    """
+
+    def make_network(self):
+        return self._make_network(self.fmt, 'name', True)
+
+    def make_subnet(self):
+        net = self.make_network()
+        setattr(self, '_subnet_count', getattr(self, '_subnet_count', 0) + 1)
+        cidr = '1.%s.0.0/24' % self._subnet_count
+        return self._make_subnet(self.fmt, net, None, cidr)
+
+    def make_port(self):
+        net = self.make_network()
+        return self._make_port(self.fmt, net['network']['id'])
+
+    def test_network_list_queries_constant(self):
+        self._assert_object_list_queries_constant(self.make_network,
+                                                  'networks')
+
+    def test_subnet_list_queries_constant(self):
+        self._assert_object_list_queries_constant(self.make_subnet, 'subnets')
+
+    def test_port_list_queries_constant(self):
+        self._assert_object_list_queries_constant(self.make_port, 'ports')
 
 
 class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
@@ -675,10 +728,10 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
         ctx = context.get_admin_context()
         with self.network() as net:
             with self.subnet(network=net) as subnet:
-                segments = ml2_db.get_network_segments(ctx.session,
-                                                       net['network']['id'])
+                segments = ml2_db.get_networks_segments(ctx.session,
+                                                        [net['network']['id']])
                 with mock.patch('neutron.plugins.ml2.plugin.'
-                                'db.get_network_segments') as get_seg_mock:
+                                'db.get_networks_segments') as get_seg_mock:
                     get_seg_mock.side_effect = [db_exc.DBDeadlock, segments,
                                                 segments, segments]
                     with self.port(subnet=subnet) as port:
@@ -702,9 +755,80 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
                 self.assertRaises(
                     exc.PortNotFound, plugin.get_port, ctx, port['port']['id'])
 
+    def test_port_create_resillient_to_duplicate_records(self):
+
+        def make_port():
+            with self.port():
+                pass
+
+        self._test_operation_resillient_to_ipallocation_failure(make_port)
+
+    def test_port_update_resillient_to_duplicate_records(self):
+        with self.port() as p:
+            data = {'port': {'fixed_ips': [{'ip_address': '10.0.0.9'}]}}
+            req = self.new_update_request('ports', data, p['port']['id'])
+
+            def do_request():
+                self.assertEqual(200, req.get_response(self.api).status_int)
+
+            self._test_operation_resillient_to_ipallocation_failure(do_request)
+
+    def _test_operation_resillient_to_ipallocation_failure(self, func):
+        from sqlalchemy import event
+
+        class IPAllocationsGrenade(object):
+            insert_ip_called = False
+            except_raised = False
+
+            def execute(self, con, curs, stmt, *args, **kwargs):
+                if 'INSERT INTO ipallocations' in stmt:
+                    self.insert_ip_called = True
+
+            def commit(self, con):
+                # we blow up on commit to simulate another thread/server
+                # stealing our IP before our transaction was done
+                if self.insert_ip_called and not self.except_raised:
+                    self.except_raised = True
+                    raise db_exc.DBDuplicateEntry()
+
+        listener = IPAllocationsGrenade()
+        engine = db_api.get_engine()
+        event.listen(engine, 'before_cursor_execute', listener.execute)
+        event.listen(engine, 'commit', listener.commit)
+        self.addCleanup(event.remove, engine, 'before_cursor_execute',
+                        listener.execute)
+        self.addCleanup(event.remove, engine, 'commit',
+                        listener.commit)
+        func()
+        # make sure that the grenade went off during the commit
+        self.assertTrue(listener.except_raised)
+
 
 class TestMl2PluginOnly(Ml2PluginV2TestCase):
     """For testing methods that don't call drivers"""
+
+    def test__verify_service_plugins_requirements(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with mock.patch.dict(ml2_plugin.SERVICE_PLUGINS_REQUIRED_DRIVERS,
+                             {self.l3_plugin: self._mechanism_drivers}),\
+                mock.patch.object(plugin.extension_manager,
+                                  'names',
+                                  return_value=self._mechanism_drivers):
+
+            plugin._verify_service_plugins_requirements()
+
+    def test__verify_service_plugins_requirements_missing_driver(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with mock.patch.dict(ml2_plugin.SERVICE_PLUGINS_REQUIRED_DRIVERS,
+                             {self.l3_plugin: ['test_required_driver']}),\
+                mock.patch.object(plugin.extension_manager,
+                                  'names',
+                                  return_value=self._mechanism_drivers):
+
+            self.assertRaises(
+                ml2_exc.ExtensionDriverNotFound,
+                plugin._verify_service_plugins_requirements
+            )
 
     def _test_check_mac_update_allowed(self, vif_type, expect_change=True):
         plugin = manager.NeutronManager.get_plugin()
@@ -814,7 +938,8 @@ class TestMl2DvrPortsV2(TestMl2PortsV2):
             p_const.L3_ROUTER_NAT]
         r = plugin.create_router(
             self.context,
-            {'router': {'name': 'router', 'admin_state_up': True}})
+            {'router': {'name': 'router', 'admin_state_up': True,
+             'tenant_id': self.context.tenant_id}})
         with self.subnet() as s:
             p = plugin.add_router_interface(self.context, r['id'],
                                             {'subnet_id': s['subnet']['id']})
@@ -994,7 +1119,7 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
         plugin = manager.NeutronManager.get_plugin()
         port = {
             'id': 'foo_port_id',
-            'binding:host_id': 'foo_host',
+            portbindings.HOST_ID: 'foo_host',
         }
         with mock.patch.object(ml2_db, 'ensure_dvr_port_binding') as mock_dvr:
             plugin.update_dvr_port_binding(
@@ -1250,8 +1375,8 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
             req = self.new_delete_request('networks', network_id)
             res = req.get_response(self.api)
             self.assertEqual(2, rs.call_count)
-        self.assertEqual(ml2_db.get_network_segments(
-            self.context.session, network_id), [])
+        self.assertEqual([], ml2_db.get_network_segments(
+            self.context.session, network_id))
         self.assertIsNone(ml2_db.get_dynamic_segment(
             self.context.session, network_id, 'physnet2'))
 
@@ -1658,14 +1783,12 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
         exit = transaction.__exit__.call_count
         self.assertEqual(enter, exit)
 
-    def _create_plugin_for_create_update_port(self, new_host_port):
+    def _create_plugin_for_create_update_port(self):
         plugin = ml2_plugin.Ml2Plugin()
         plugin.extension_manager = mock.Mock()
         plugin.type_manager = mock.Mock()
         plugin.mechanism_manager = mock.Mock()
         plugin.notifier = mock.Mock()
-        plugin._get_host_port_if_changed = mock.Mock(
-            return_value=new_host_port)
         plugin._check_mac_update_allowed = mock.Mock(return_value=True)
         plugin._extend_availability_zone = mock.Mock()
 
@@ -1674,76 +1797,19 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
 
         return plugin
 
-    def _test__get_host_port_if_changed(
-        self, mech_context, attrs=None, expected_retval=None):
-        with mock.patch.object(ml2_plugin.Ml2Plugin,
-                               '__init__',
-                               return_value=None):
-            plugin = ml2_plugin.Ml2Plugin()
-            test_return = plugin._get_host_port_if_changed(mech_context, attrs)
-            self.assertEqual(expected_retval, test_return)
-
-    def test__get_host_port_if_changed_no_attrs(self):
-        mech_context = mock.Mock()
-        mech_context._binding.host = 'Host-1'
-        self._test__get_host_port_if_changed(
-            mech_context, attrs=None, expected_retval=None)
-
-    def test__get_host_port_if_changed_no_binding_change(self):
-        mech_context = mock.Mock()
-        mech_context._binding.host = 'Host-1'
-        mech_context.current = {
-            'id': 'fake-id',
-            'mac_address': '2a:2b:2c:2d:2e:2f'
-        }
-        attrs = {'mac_address': '0a:0b:0c:0d:0e:0f'}
-        self._test__get_host_port_if_changed(
-            mech_context, attrs=attrs, expected_retval=None)
-
-        attrs = {
-            portbindings.HOST_ID: 'Host-1',
-            'mac_address': '0a:0b:0c:0d:0e:0f',
-        }
-        self._test__get_host_port_if_changed(
-            mech_context, attrs=attrs, expected_retval=None)
-
-    def test__get_host_port_if_changed_with_binding_removed(self):
-        expected_return = {
-            'id': 'fake-id',
-            portbindings.HOST_ID: None,
-            'mac_address': '2a:2b:2c:2d:2e:2f'
-        }
-        mech_context = mock.Mock()
-        mech_context._binding.host = 'Host-1'
-        mech_context.current = expected_return
-        attrs = {portbindings.HOST_ID: None}
-        self._test__get_host_port_if_changed(
-            mech_context, attrs=attrs, expected_retval=expected_return)
-
-    def test__get_host_port_if_changed_with_binding_added(self):
-        expected_return = {
-            'id': 'fake-id',
-            portbindings.HOST_ID: 'host-1',
-            'mac_address': '2a:2b:2c:2d:2e:2f'
-        }
-        mech_context = mock.Mock()
-        mech_context.current = expected_return
-        attrs = {portbindings.HOST_ID: 'host-1'}
-        self._test__get_host_port_if_changed(
-            mech_context, attrs=attrs, expected_retval=expected_return)
-
     def test_create_port_rpc_outside_transaction(self):
         with mock.patch.object(ml2_plugin.Ml2Plugin, '__init__') as init,\
                 mock.patch.object(base_plugin.NeutronDbPluginV2,
-                                  'create_port'):
+                                  'create_port') as db_create_port:
             init.return_value = None
 
-            new_host_port = mock.Mock()
-            plugin = self._create_plugin_for_create_update_port(new_host_port)
+            new_port = mock.MagicMock()
+            db_create_port.return_value = new_port
+            plugin = self._create_plugin_for_create_update_port()
 
             plugin.create_port(self.context, mock.MagicMock())
 
-            kwargs = {'context': self.context, 'port': new_host_port}
+            kwargs = {'context': self.context, 'port': new_port}
             self.notify.assert_called_once_with('port', 'after_create',
                 plugin, **kwargs)
 
@@ -1772,17 +1838,18 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
                 mock.patch.object(ml2_db, 'get_locked_port_and_binding',
                                   return_value=(original_port_db, binding)),\
                 mock.patch.object(base_plugin.NeutronDbPluginV2,
-                                  'update_port'):
+                                  'update_port') as db_update_port:
             init.return_value = None
-            new_host_port = mock.Mock()
-            plugin = self._create_plugin_for_create_update_port(new_host_port)
+            updated_port = mock.MagicMock()
+            db_update_port.return_value = updated_port
+            plugin = self._create_plugin_for_create_update_port()
             original_port = plugin._make_port_dict(original_port_db)
 
             plugin.update_port(self.context, port_id, mock.MagicMock())
 
             kwargs = {
                 'context': self.context,
-                'port': new_host_port,
+                'port': updated_port,
                 'mac_address_updated': True,
                 'original_port': original_port,
             }
@@ -1803,7 +1870,7 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
                 mock.patch.object(manager.NeutronManager,
                                   'get_service_plugins',
                                   return_value={'L3_ROUTER_NAT': l3plugin}):
-            plugin = self._create_plugin_for_create_update_port(mock.Mock())
+            plugin = self._create_plugin_for_create_update_port()
             # Set backend manually here since __init__ was mocked
             plugin.set_ipam_backend()
             # deleting the port will call registry.notify, which will

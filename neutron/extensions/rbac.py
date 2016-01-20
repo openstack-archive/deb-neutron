@@ -14,6 +14,7 @@
 #    under the License.
 from oslo_config import cfg
 
+from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
@@ -70,7 +71,8 @@ RESOURCE_ATTRIBUTE_MAP = {
 }
 
 rbac_quota_opts = [
-    cfg.IntOpt('quota_rbac_entry', default=10,
+    cfg.IntOpt('quota_rbac_policy', default=10,
+               deprecated_name='quota_rbac_entry',
                help=_('Default number of RBAC entries allowed per tenant. '
                       'A negative value means unlimited.'))
 ]
@@ -95,7 +97,7 @@ class Rbac(extensions.ExtensionDescriptor):
 
     @classmethod
     def get_updated(cls):
-        return "2015-06-17T12:15:12-30:00"
+        return "2015-06-17T12:15:12-00:00"
 
     @classmethod
     def get_resources(cls):

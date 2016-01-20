@@ -16,6 +16,8 @@
 
 from oslo_config import cfg
 
+from neutron._i18n import _
+
 DHCP_AGENT_OPTS = [
     cfg.IntOpt('resync_interval', default=5,
                help=_("The DHCP agent will resync its state with Neutron to "
@@ -83,6 +85,13 @@ DNSMASQ_OPTS = [
                       "The log contains DHCP and DNS log information and "
                       "is useful for debugging issues with either DHCP or "
                       "DNS. If this section is null, disable dnsmasq log.")),
+    cfg.BoolOpt('dnsmasq_local_resolv', default=True,
+                help=_("Enables the dnsmasq service to provide name "
+                       "resolution for instances via DNS resolvers on the "
+                       "host running the DHCP agent. Effectively removes the "
+                       "'--no-resolv' option from the dnsmasq process "
+                       "arguments. Adding custom DNS resolvers to the "
+                       "'dnsmasq_dns_servers' option disables this feature.")),
     cfg.IntOpt(
         'dnsmasq_lease_max',
         default=(2 ** 24),

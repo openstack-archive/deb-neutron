@@ -15,6 +15,7 @@
 
 from keystonemiddleware import auth_token
 from oslo_config import cfg
+from oslo_middleware import cors
 from oslo_middleware import request_id
 import pecan
 
@@ -45,7 +46,7 @@ def setup_app(*args, **kwargs):
         hooks.ExceptionTranslationHook(),  # priority 100
         hooks.ContextHook(),  # priority 95
         hooks.MemberActionHook(),  # piority 95
-        hooks.AttributePopulationHook(),  # priority 120
+        hooks.BodyValidationHook(),  # priority 120
         hooks.OwnershipValidationHook(),  # priority 125
         hooks.QuotaEnforcementHook(),  # priority 130
         hooks.PolicyHook(),  # priority 135
@@ -74,4 +75,20 @@ def _wrap_app(app):
     else:
         raise n_exc.InvalidConfigurationOption(
             opt_name='auth_strategy', opt_value=cfg.CONF.auth_strategy)
+
+    # This should be the last middleware in the list (which results in
+    # it being the first in the middleware chain). This is to ensure
+    # that any errors thrown by other middleware, such as an auth
+    # middleware - are annotated with CORS headers, and thus accessible
+    # by the browser.
+    app = cors.CORS(app, cfg.CONF)
+    app.set_latent(
+        allow_headers=['X-Auth-Token', 'X-Identity-Status', 'X-Roles',
+                       'X-Service-Catalog', 'X-User-Id', 'X-Tenant-Id',
+                       'X-OpenStack-Request-ID'],
+        allow_methods=['GET', 'PUT', 'POST', 'DELETE', 'PATCH'],
+        expose_headers=['X-Auth-Token', 'X-Subject-Token', 'X-Service-Token',
+                        'X-OpenStack-Request-ID']
+    )
+
     return app

@@ -12,9 +12,9 @@
 
 from oslo_log import log as logging
 
+from neutron._i18n import _LE
 from neutron.agent.l3 import router_info as router
 from neutron.common import constants as l3_constants
-from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ class DvrRouterBase(router.RouterInfo):
         self.agent = agent
         self.host = host
 
-    def process(self, agent, delete=False):
-        super(DvrRouterBase, self).process(agent, delete)
+    def process(self, agent):
+        super(DvrRouterBase, self).process(agent)
         # NOTE:  Keep a copy of the interfaces around for when they are removed
         self.snat_ports = self.get_snat_interfaces()
 

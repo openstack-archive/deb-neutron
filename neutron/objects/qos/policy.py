@@ -16,6 +16,7 @@
 from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import fields as obj_fields
 
+from neutron._i18n import _
 from neutron.common import exceptions
 from neutron.db import api as db_api
 from neutron.db.qos import api as qos_db_api
@@ -26,6 +27,8 @@ from neutron.objects.qos import rule as rule_obj_impl
 
 @obj_base.VersionedObjectRegistry.register
 class QosPolicy(base.NeutronDbObject):
+    # Version 1.0: Initial version
+    VERSION = '1.0'
 
     db_model = qos_db_model.QosPolicy
 
@@ -54,7 +57,8 @@ class QosPolicy(base.NeutronDbObject):
     def obj_load_attr(self, attrname):
         if attrname != 'rules':
             raise exceptions.ObjectActionError(
-                action='obj_load_attr', reason='unable to load %s' % attrname)
+                action='obj_load_attr',
+                reason=_('unable to load %s') % attrname)
 
         if not hasattr(self, attrname):
             self.reload_rules()

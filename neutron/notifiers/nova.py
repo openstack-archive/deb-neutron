@@ -13,8 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from keystoneclient import auth as ks_auth
-from keystoneclient import session as ks_session
+from keystoneauth1 import loading as ks_loading
 from novaclient import client as nova_client
 from novaclient import exceptions as nova_exceptions
 from oslo_config import cfg
@@ -22,9 +21,9 @@ from oslo_log import log as logging
 from oslo_utils import uuidutils
 from sqlalchemy.orm import attributes as sql_attr
 
+from neutron._i18n import _LE, _LI, _LW
 from neutron.common import constants
 from neutron import context
-from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
 from neutron.notifiers import batch_notifier
 
@@ -47,11 +46,12 @@ class Notifier(object):
         # and each Notifier is handling it's own auth. That means that we are
         # authenticating the exact same thing len(controllers) times. This
         # should be an easy thing to optimize.
-        auth = ks_auth.load_from_conf_options(cfg.CONF, 'nova')
+        auth = ks_loading.load_auth_from_conf_options(cfg.CONF, 'nova')
 
-        session = ks_session.Session.load_from_conf_options(cfg.CONF,
-                                                            'nova',
-                                                            auth=auth)
+        session = ks_loading.load_session_from_conf_options(
+            cfg.CONF,
+            'nova',
+            auth=auth)
 
         extensions = [
             ext for ext in nova_client.discover_extensions(NOVA_API_VERSION)
@@ -60,6 +60,7 @@ class Notifier(object):
             NOVA_API_VERSION,
             session=session,
             region_name=cfg.CONF.nova.region_name,
+            endpoint_type=cfg.CONF.nova.endpoint_type,
             extensions=extensions)
         self.batch_notifier = batch_notifier.BatchNotifier(
             cfg.CONF.send_events_interval, self.send_events)

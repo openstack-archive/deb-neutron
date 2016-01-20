@@ -18,6 +18,9 @@ import mock
 from oslo_config import cfg
 from oslo_utils import uuidutils
 
+from neutron.agent.l2.extensions import manager as l2_ext_manager
+from neutron.agent import rpc as agent_rpc
+from neutron.extensions import portbindings
 from neutron.plugins.ml2.drivers.mech_sriov.agent.common import config  # noqa
 from neutron.plugins.ml2.drivers.mech_sriov.agent.common import exceptions
 from neutron.plugins.ml2.drivers.mech_sriov.agent import sriov_nic_agent
@@ -283,7 +286,7 @@ class TestSriovNicSwitchRpcCallbacks(base.BaseTestCase):
 
     def _create_fake_port(self):
         return {'id': uuidutils.generate_uuid(),
-                'binding:profile': {'pci_slot': PCI_SLOT},
+                portbindings.PROFILE: {'pci_slot': PCI_SLOT},
                 'mac_address': DEVICE_MAC}
 
     def test_port_update_with_pci_slot(self):
@@ -293,9 +296,37 @@ class TestSriovNicSwitchRpcCallbacks(base.BaseTestCase):
         self.assertEqual(set([(DEVICE_MAC, PCI_SLOT)]),
                          self.agent.updated_devices)
 
-    def test_port_update_without_pci_slot(self):
+    def test_port_update_with_vnic_physical_direct(self):
         port = self._create_fake_port()
-        port['binding:profile'] = None
+        port[portbindings.VNIC_TYPE] = portbindings.VNIC_DIRECT_PHYSICAL
         kwargs = {'context': self.context, 'port': port}
         self.sriov_rpc_callback.port_update(**kwargs)
         self.assertEqual(set(), self.agent.updated_devices)
+
+    def test_port_update_without_pci_slot(self):
+        port = self._create_fake_port()
+        port[portbindings.PROFILE] = None
+        kwargs = {'context': self.context, 'port': port}
+        self.sriov_rpc_callback.port_update(**kwargs)
+        self.assertEqual(set(), self.agent.updated_devices)
+
+
+class TestSRIOVAgentExtensionConfig(base.BaseTestCase):
+    def setUp(self):
+        super(TestSRIOVAgentExtensionConfig, self).setUp()
+        l2_ext_manager.register_opts(cfg.CONF)
+        # disable setting up periodic state reporting
+        cfg.CONF.set_override('report_interval', 0, group='AGENT')
+        cfg.CONF.set_override('extensions', ['qos'], group='agent')
+
+    @mock.patch("neutron.plugins.ml2.drivers.mech_sriov.agent.eswitch_manager"
+               ".ESwitchManager.get_assigned_devices_info", return_value=[])
+    def test_report_loaded_extension(self, *args):
+        with mock.patch.object(agent_rpc.PluginReportStateAPI,
+                               'report_state') as mock_report_state:
+            agent = sriov_nic_agent.SriovNicSwitchAgent({}, {}, 0)
+            agent._report_state()
+            mock_report_state.assert_called_with(
+                agent.context, agent.agent_state)
+            self.assertEqual(
+                ['qos'], agent.agent_state['configurations']['extensions'])

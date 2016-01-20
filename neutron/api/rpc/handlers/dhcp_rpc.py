@@ -23,13 +23,13 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import excutils
 
+from neutron._i18n import _, _LW
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.extensions import portbindings
-from neutron.i18n import _LW
 from neutron import manager
 from neutron.plugins.common import utils as p_utils
 from neutron.quota import resource_registry
@@ -146,7 +146,7 @@ class DhcpRpcCallback(object):
         return networks
 
     def get_network_info(self, context, **kwargs):
-        """Retrieve and return a extended information about a network."""
+        """Retrieve and return extended information about a network."""
         network_id = kwargs.get('network_id')
         host = kwargs.get('host')
         LOG.debug('Network %(network_id)s requested from '

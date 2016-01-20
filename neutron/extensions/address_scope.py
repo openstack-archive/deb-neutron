@@ -14,6 +14,7 @@
 
 import abc
 
+from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
@@ -50,6 +51,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'is_visible': True,
                       'required_by_policy': True,
                       'enforce_policy': True},
+        'ip_version': {'allow_post': True, 'allow_put': False,
+                       'convert_to': attr.convert_to_int,
+                       'validate': {'type:values': [4, 6]},
+                       'is_visible': True},
     },
     attr.SUBNETPOOLS: {
         ADDRESS_SCOPE_ID: {'allow_post': True,

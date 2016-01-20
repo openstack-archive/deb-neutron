@@ -39,6 +39,9 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.validate_log_translations(debug, debug, 'f'))))
         for log in logs:
+            bad = 'LOG.%s(_("Bad"))' % log
+            self.assertEqual(
+                1, len(list(checks.validate_log_translations(bad, bad, 'f'))))
             bad = 'LOG.%s("Bad")' % log
             self.assertEqual(
                 1, len(list(checks.validate_log_translations(bad, bad, 'f'))))
@@ -212,4 +215,48 @@ class HackingTestCase(base.BaseTestCase):
                                             "neutron/tests/test_assert.py"))))
         self.assertEqual(
             0, len(list(checks.check_assertfalse(pass_code,
+                                            "neutron/tests/test_assert.py"))))
+
+    def test_assertempty(self):
+        fail_code = """
+                test_empty = %s
+                self.assertEqual(test_empty, %s)
+                """
+        pass_code1 = """
+                test_empty = %s
+                self.assertEqual(%s, test_empty)
+                """
+        pass_code2 = """
+                self.assertEqual(123, foo(abc, %s))
+                """
+        empty_cases = ['{}', '[]', '""', "''", '()', 'set()']
+        for ec in empty_cases:
+            self.assertEqual(
+                1, len(list(checks.check_assertempty(fail_code % (ec, ec),
+                                            "neutron/tests/test_assert.py"))))
+            self.assertEqual(
+                0, len(list(checks.check_assertfalse(pass_code1 % (ec, ec),
+                                            "neutron/tests/test_assert.py"))))
+            self.assertEqual(
+                0, len(list(checks.check_assertfalse(pass_code2 % ec,
+                                            "neutron/tests/test_assert.py"))))
+
+    def test_assertisinstance(self):
+        fail_code = """
+               self.assertTrue(isinstance(observed, ANY_TYPE))
+               """
+        pass_code1 = """
+               self.assertEqual(ANY_TYPE, type(observed))
+               """
+        pass_code2 = """
+               self.assertIsInstance(observed, ANY_TYPE)
+               """
+        self.assertEqual(
+            1, len(list(checks.check_assertisinstance(fail_code,
+                                        "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assertisinstance(pass_code1,
+                                            "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            0, len(list(checks.check_assertisinstance(pass_code2,
                                             "neutron/tests/test_assert.py"))))

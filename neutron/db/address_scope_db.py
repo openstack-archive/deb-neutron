@@ -12,25 +12,24 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
 from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy.orm import exc
 
+from neutron._i18n import _
+from neutron.api.v2 import attributes as attr
 from neutron.db import model_base
-from neutron.db import models_v2
 from neutron.extensions import address_scope as ext_address_scope
 
-LOG = logging.getLogger(__name__)
 
-
-class AddressScope(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class AddressScope(model_base.BASEV2, model_base.HasId, model_base.HasTenant):
     """Represents a neutron address scope."""
 
     __tablename__ = "address_scopes"
 
-    name = sa.Column(sa.String(255), nullable=False)
+    name = sa.Column(sa.String(attr.NAME_MAX_LEN), nullable=False)
     shared = sa.Column(sa.Boolean, nullable=False)
+    ip_version = sa.Column(sa.Integer(), nullable=False)
 
 
 class AddressScopeDbMixin(ext_address_scope.AddressScopePluginBase):
@@ -42,7 +41,8 @@ class AddressScopeDbMixin(ext_address_scope.AddressScopePluginBase):
         res = {'id': address_scope['id'],
                'name': address_scope['name'],
                'tenant_id': address_scope['tenant_id'],
-               'shared': address_scope['shared']}
+               'shared': address_scope['shared'],
+               'ip_version': address_scope['ip_version']}
         return self._fields(res, fields)
 
     def _get_address_scope(self, context, id):
@@ -66,16 +66,20 @@ class AddressScopeDbMixin(ext_address_scope.AddressScopePluginBase):
         return context.is_admin or (
             address_scope.tenant_id == context.tenant_id)
 
+    def get_ip_version_for_address_scope(self, context, id):
+        address_scope = self._get_address_scope(context, id)
+        return address_scope.ip_version
+
     def create_address_scope(self, context, address_scope):
-        """Create a address scope."""
+        """Create an address scope."""
         a_s = address_scope['address_scope']
-        tenant_id = self._get_tenant_id_for_create(context, a_s)
         address_scope_id = a_s.get('id') or uuidutils.generate_uuid()
         with context.session.begin(subtransactions=True):
-            pool_args = {'tenant_id': tenant_id,
+            pool_args = {'tenant_id': a_s['tenant_id'],
                          'id': address_scope_id,
                          'name': a_s['name'],
-                         'shared': a_s['shared']}
+                         'shared': a_s['shared'],
+                         'ip_version': a_s['ip_version']}
             address_scope = AddressScope(**pool_args)
             context.session.add(address_scope)
 

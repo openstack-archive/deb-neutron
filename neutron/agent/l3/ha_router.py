@@ -18,13 +18,14 @@ import shutil
 import netaddr
 from oslo_log import log as logging
 
+from neutron._i18n import _LE
 from neutron.agent.l3 import router_info as router
 from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import keepalived
 from neutron.common import constants as n_consts
 from neutron.common import utils as common_utils
-from neutron.i18n import _LE
+from neutron.extensions import portbindings
 
 LOG = logging.getLogger(__name__)
 HA_DEV_PREFIX = 'ha-'
@@ -157,10 +158,7 @@ class HaRouter(router.RouterInfo):
 
     def _add_vips(self, port, interface_name):
         for ip_cidr in common_utils.fixed_ip_cidrs(port['fixed_ips']):
-            try:
-                self._add_vip(ip_cidr, interface_name)
-            except keepalived.VIPDuplicateAddressException:
-                LOG.debug("%s has already been added to keepalive", ip_cidr)
+            self._add_vip(ip_cidr, interface_name)
 
     def _add_vip(self, ip_cidr, interface, scope=None):
         instance = self._get_keepalived_instance()
@@ -181,15 +179,12 @@ class HaRouter(router.RouterInfo):
     def get_router_cidrs(self, device):
         return set(self._get_cidrs_from_keepalived(device.name))
 
-    def routes_updated(self):
-        new_routes = self.router['routes']
-
+    def routes_updated(self, old_routes, new_routes):
         instance = self._get_keepalived_instance()
         instance.virtual_routes.extra_routes = [
             keepalived.KeepalivedVirtualRoute(
                 route['destination'], route['nexthop'])
             for route in new_routes]
-        self.routes = new_routes
 
     def _add_default_gw_virtual_route(self, ex_gw_port, interface_name):
         gateway_ips = self._get_external_gw_ips(ex_gw_port)
@@ -348,7 +343,7 @@ class HaRouter(router.RouterInfo):
         def _get_filtered_dict(d, ignore):
             return {k: v for k, v in d.items() if k not in ignore}
 
-        keys_to_ignore = set(['binding:host_id'])
+        keys_to_ignore = set([portbindings.HOST_ID])
         port1_filtered = _get_filtered_dict(port1, keys_to_ignore)
         port2_filtered = _get_filtered_dict(port2, keys_to_ignore)
         return port1_filtered == port2_filtered
@@ -385,8 +380,8 @@ class HaRouter(router.RouterInfo):
         self.ha_network_removed()
         self.disable_keepalived()
 
-    def process(self, agent, delete=False):
-        super(HaRouter, self).process(agent, delete)
+    def process(self, agent):
+        super(HaRouter, self).process(agent)
 
         if self.ha_port:
             self.enable_keepalived()

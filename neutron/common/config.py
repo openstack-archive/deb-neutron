@@ -19,17 +19,16 @@ Routines for configuring Neutron
 
 import sys
 
-from keystoneclient import auth
-from keystoneclient import session as ks_session
+from keystoneauth1 import loading as ks_loading
 from oslo_config import cfg
 from oslo_db import options as db_options
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import wsgi
 
+from neutron._i18n import _, _LI
 from neutron.api.v2 import attributes
 from neutron.common import utils
-from neutron.i18n import _LI
 from neutron import policy
 from neutron import version
 
@@ -167,6 +166,11 @@ core_opts = [
     cfg.BoolOpt('vlan_transparent', default=False,
                 help=_('If True, then allow plugins that support it to '
                        'create VLAN transparent networks.')),
+    cfg.StrOpt('web_framework', default='legacy',
+               choices=('legacy', 'pecan'),
+               help=_("This will choose the web framework in which to run "
+                      "the Neutron API server. 'pecan' is a new experiemental "
+                      "rewrite of the API server."))
 ]
 
 core_cli_opts = [
@@ -198,13 +202,19 @@ set_db_defaults()
 
 NOVA_CONF_SECTION = 'nova'
 
-ks_session.Session.register_conf_options(cfg.CONF, NOVA_CONF_SECTION)
-auth.register_conf_options(cfg.CONF, NOVA_CONF_SECTION)
+ks_loading.register_auth_conf_options(cfg.CONF, NOVA_CONF_SECTION)
+ks_loading.register_session_conf_options(cfg.CONF, NOVA_CONF_SECTION)
 
 nova_opts = [
     cfg.StrOpt('region_name',
                help=_('Name of nova region to use. Useful if keystone manages'
                       ' more than one region.')),
+    cfg.StrOpt('endpoint_type',
+               default='public',
+               choices=['public', 'admin', 'internal'],
+               help=_('Type of the nova endpoint to use.  This endpoint will'
+                      ' be looked up in the keystone catalog and should be'
+                      ' one of public, internal or admin.')),
 ]
 cfg.CONF.register_opts(nova_opts, group=NOVA_CONF_SECTION)
 

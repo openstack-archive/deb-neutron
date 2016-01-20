@@ -19,11 +19,13 @@ import mock
 import netaddr
 
 from neutron.agent.l3 import agent as neutron_l3_agent
+from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_snat_ns
 from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import constants as l3_constants
+from neutron.extensions import portbindings
 from neutron.tests.common import l3_test_common
 from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.l3 import framework
@@ -33,6 +35,18 @@ DEVICE_OWNER_COMPUTE = l3_constants.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
 
 
 class TestDvrRouter(framework.L3AgentTestFramework):
+    def manage_router(self, agent, router):
+        def _safe_fipnamespace_delete_on_ext_net(ext_net_id):
+            try:
+                agent.fipnamespace_delete_on_ext_net(None, ext_net_id)
+            except RuntimeError:
+                pass
+        self.addCleanup(
+            _safe_fipnamespace_delete_on_ext_net,
+            router['gw_port']['network_id'])
+
+        return super(TestDvrRouter, self).manage_router(agent, router)
+
     def test_dvr_router_lifecycle_without_ha_without_snat_with_fips(self):
         self._dvr_router_lifecycle(enable_ha=False, enable_snat=False)
 
@@ -101,7 +115,7 @@ class TestDvrRouter(framework.L3AgentTestFramework):
 
         # We get the router info particular to a dvr router
         router_info = self.generate_dvr_router_info(
-            enable_ha, enable_snat)
+            enable_ha, enable_snat, extra_routes=True)
 
         # We need to mock the get_agent_gateway_port return value
         # because the whole L3PluginApi is mocked and we need the port
@@ -150,7 +164,6 @@ class TestDvrRouter(framework.L3AgentTestFramework):
         self._assert_snat_chains(router)
         self._assert_floating_ip_chains(router)
         self._assert_metadata_chains(router)
-        self._assert_extra_routes(router)
         self._assert_rfp_fpr_mtu(router, custom_mtu)
         if enable_snat:
             ip_versions = [4, 6] if (ip_version == 6 or dual_stack) else [4]
@@ -158,7 +171,14 @@ class TestDvrRouter(framework.L3AgentTestFramework):
                 router.router_id)
             self._assert_onlink_subnet_routes(
                 router, ip_versions, snat_ns_name)
+            self._assert_extra_routes(router, namespace=snat_ns_name)
 
+        # During normal operation, a router-gateway-clear followed by
+        # a router delete results in two notifications to the agent.  This
+        # code flow simulates the exceptional case where the notification of
+        # the clearing of the gateway hast been missed, so we are checking
+        # that the L3 agent is robust enough to handle that case and delete
+        # the router correctly.
         self._delete_router(self.agent, router.router_id)
         self._assert_fip_namespace_deleted(ext_gateway_port)
         self._assert_router_does_not_exist(router)
@@ -168,6 +188,7 @@ class TestDvrRouter(framework.L3AgentTestFramework):
                                  enable_ha=False,
                                  enable_snat=False,
                                  agent=None,
+                                 extra_routes=False,
                                  **kwargs):
         if not agent:
             agent = self.agent
@@ -175,11 +196,13 @@ class TestDvrRouter(framework.L3AgentTestFramework):
             enable_snat=enable_snat,
             enable_floating_ip=True,
             enable_ha=enable_ha,
+            extra_routes=extra_routes,
+            num_internal_ports=2,
             **kwargs)
         internal_ports = router.get(l3_constants.INTERFACE_KEY, [])
         router['distributed'] = True
         router['gw_port_host'] = agent.conf.host
-        router['gw_port']['binding:host_id'] = agent.conf.host
+        router['gw_port'][portbindings.HOST_ID] = agent.conf.host
         floating_ip = router['_floatingips'][0]
         floating_ip['floating_network_id'] = router['gw_port']['network_id']
         floating_ip['host'] = agent.conf.host
@@ -216,7 +239,7 @@ class TestDvrRouter(framework.L3AgentTestFramework):
                  'network_id': external_gw_port['network_id'],
                  'device_owner': l3_constants.DEVICE_OWNER_AGENT_GW,
                  'mac_address': 'fa:16:3e:80:8d:89',
-                 'binding:host_id': self.agent.conf.host,
+                 portbindings.HOST_ID: self.agent.conf.host,
                  'fixed_ips': [{'subnet_id': fixed_ip['subnet_id'],
                                 'ip_address': fip_gw_port_ip,
                                 'prefixlen': prefixlen}],
@@ -630,8 +653,28 @@ class TestDvrRouter(framework.L3AgentTestFramework):
         self._assert_ip_addresses_in_dvr_ha_snat_namespace(router2)
         self._assert_no_ip_addresses_in_dvr_ha_snat_namespace(router1)
 
+    def test_dvr_router_static_routes(self):
+        """Test to validate the extra routes on dvr routers."""
+        self.agent.conf.agent_mode = 'dvr_snat'
+        router_info = self.generate_dvr_router_info(enable_snat=True)
+        router1 = self.manage_router(self.agent, router_info)
+        self.assertTrue(self._namespace_exists(router1.ns_name))
+        self._assert_snat_namespace_exists(router1)
+        snat_ns_name = dvr_snat_ns.SnatNamespace.get_snat_ns_name(
+            router1.router_id)
+        # Now try to add routes that are suitable for both the
+        # router namespace and the snat namespace.
+        router1.router['routes'] = [{'destination': '8.8.4.0/24',
+                                     'nexthop': '35.4.0.20'}]
+        self.agent._process_updated_router(router1.router)
+        router_updated = self.agent.router_info[router_info['id']]
+        self._assert_extra_routes(router_updated, namespace=snat_ns_name)
+        self._assert_extra_routes(router_updated)
+
     def _assert_fip_namespace_deleted(self, ext_gateway_port):
         ext_net_id = ext_gateway_port['network_id']
         self.agent.fipnamespace_delete_on_ext_net(
             self.agent.context, ext_net_id)
         self._assert_interfaces_deleted_from_ovs()
+        fip_ns_name = dvr_fip_ns.FipNamespace._get_ns_name(ext_net_id)
+        self.assertFalse(self._namespace_exists(fip_ns_name))

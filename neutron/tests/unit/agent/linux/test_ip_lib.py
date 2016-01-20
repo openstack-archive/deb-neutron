@@ -125,6 +125,13 @@ ADDR_SAMPLE2 = ("""
        valid_lft forever preferred_lft forever
 """)
 
+
+ADDR_SAMPLE3 = ("""
+2: eth0@NONE: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP
+    link/ether dd:cc:aa:b9:76:ce brd ff:ff:ff:ff:ff:ff
+    inet 172.16.77.240/24 brd 172.16.77.255 scope global eth0
+""")
+
 GATEWAY_SAMPLE1 = ("""
 default via 10.35.19.254  metric 100
 10.35.16.0/22  proto kernel  scope link  src 10.35.17.97
@@ -403,7 +410,7 @@ class TestIpWrapper(base.BaseTestCase):
                 ip_ns_cmd_cls.assert_has_calls([mock.call().exists('ns')])
                 self.assertNotIn(mock.call().delete('ns'),
                                  ip_ns_cmd_cls.return_value.mock_calls)
-                self.assertEqual(mock_is_empty.mock_calls, [])
+                self.assertEqual([], mock_is_empty.mock_calls)
 
     def test_garbage_collect_namespace_existing_empty_ns(self):
         with mock.patch.object(ip_lib, 'IpNetnsCommand') as ip_ns_cmd_cls:
@@ -478,7 +485,7 @@ class TestIpWrapper(base.BaseTestCase):
     def test_add_device_to_namespace_is_none(self):
         dev = mock.Mock()
         ip_lib.IPWrapper().add_device_to_namespace(dev)
-        self.assertEqual(dev.mock_calls, [])
+        self.assertEqual([], dev.mock_calls)
 
 
 class TestIPDevice(base.BaseTestCase):
@@ -851,6 +858,12 @@ class TestIpAddrCommand(TestIPCmdBase):
                              filters=['permanent']), expected)
             self._assert_call([], ('show', 'tap0', 'permanent', 'scope',
                               'global'))
+
+    def test_get_devices_with_ip(self):
+        self.parent._run.return_value = ADDR_SAMPLE3
+        devices = self.addr_cmd.get_devices_with_ip('172.16.77.240/24')
+        self.assertEqual(1, len(devices))
+        self.assertEqual('eth0', devices[0]['name'])
 
 
 class TestIpRouteCommand(TestIPCmdBase):

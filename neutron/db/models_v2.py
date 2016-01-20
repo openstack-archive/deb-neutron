@@ -18,6 +18,7 @@ from sqlalchemy import orm
 
 from neutron.api.v2 import attributes as attr
 from neutron.common import constants
+from neutron.db import agentschedulers_db as agt
 from neutron.db import model_base
 from neutron.db import rbac_db_models
 
@@ -234,7 +235,7 @@ class SubnetPool(model_base.HasStandardAttributes, model_base.BASEV2,
     """Represents a neutron subnet pool.
     """
 
-    name = sa.Column(sa.String(255))
+    name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     ip_version = sa.Column(sa.Integer, nullable=False)
     default_prefixlen = sa.Column(sa.Integer, nullable=False)
     min_prefixlen = sa.Column(sa.Integer, nullable=False)
@@ -267,3 +268,6 @@ class Network(model_base.HasStandardAttributes, model_base.BASEV2,
                                     backref='network', lazy='joined',
                                     cascade='all, delete, delete-orphan')
     availability_zone_hints = sa.Column(sa.String(255))
+    dhcp_agents = orm.relationship(
+        'Agent', lazy='joined', viewonly=True,
+        secondary=agt.NetworkDhcpAgentBinding.__table__)

@@ -15,9 +15,9 @@ import collections
 from oslo_log import log as logging
 from oslo_utils import reflection
 
+from neutron._i18n import _LE
 from neutron.callbacks import events
 from neutron.callbacks import exceptions
-from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class CallbacksManager(object):
         if errors and event.startswith(events.BEFORE):
             abort_event = event.replace(
                 events.BEFORE, events.ABORT)
-            self._notify_loop(resource, abort_event, trigger)
+            self._notify_loop(resource, abort_event, trigger, **kwargs)
             raise exceptions.CallbackFailure(errors=errors)
 
     def clear(self):

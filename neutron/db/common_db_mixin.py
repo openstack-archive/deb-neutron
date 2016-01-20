@@ -15,11 +15,13 @@
 
 import weakref
 
+from debtcollector import removals
 import six
 from sqlalchemy import and_
 from sqlalchemy import or_
 from sqlalchemy import sql
 
+from neutron._i18n import _
 from neutron.common import exceptions as n_exc
 from neutron.db import sqlalchemyutils
 
@@ -168,6 +170,7 @@ class CommonDbMixin(object):
                          if key in fields))
         return resource
 
+    @removals.remove(message='This method will be removed in N')
     def _get_tenant_id_for_create(self, context, resource):
         if context.is_admin and 'tenant_id' in resource:
             tenant_id = resource['tenant_id']

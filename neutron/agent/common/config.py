@@ -16,12 +16,9 @@
 import os
 
 from oslo_config import cfg
-from oslo_log import log as logging
 
+from neutron._i18n import _
 from neutron.common import config
-
-
-LOG = logging.getLogger(__name__)
 
 
 ROOT_HELPER_OPTS = [
@@ -158,7 +155,8 @@ def setup_conf():
     bind_opts = [
         cfg.StrOpt('state_path',
                    default='/var/lib/neutron',
-                   help=_('Top-level directory for maintaining dhcp state')),
+                   help=_("Where to store Neutron state files. "
+                          "This directory must be writable by the agent.")),
     ]
 
     conf = cfg.ConfigOpts()

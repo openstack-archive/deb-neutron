@@ -19,6 +19,7 @@ set -e
 # Control variable used to determine whether to execute this script
 # directly or allow the gate_hook to import.
 IS_GATE=${IS_GATE:-False}
+USE_CONSTRAINT_ENV=${USE_CONSTRAINT_ENV:-True}
 
 
 if [[ "$IS_GATE" != "True" ]] && [[ "$#" -lt 1 ]]; then
@@ -50,6 +51,11 @@ done
 # Default to environment variables to permit the gate_hook to override
 # when sourcing.
 VENV=${VENV:-dsvm-functional}
+# If executed in the gate, run in a constrained env
+if [[ "$IS_GATE" == "True" && "$USE_CONSTRAINT_ENV" == "True" ]]
+then
+    VENV=$VENV-constraints
+fi
 DEVSTACK_PATH=${DEVSTACK_PATH:-$1}
 PROJECT_NAME=${PROJECT_NAME:-neutron}
 REPO_BASE=${GATE_DEST:-$(cd $(dirname "$0")/../.. && pwd)}

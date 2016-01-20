@@ -19,6 +19,7 @@ from oslo_utils import excutils
 import six
 import stevedore
 
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as exc
 from neutron.extensions import external_net
@@ -26,7 +27,6 @@ from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as provider
 from neutron.extensions import vlantransparent
-from neutron.i18n import _LE, _LI, _LW
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
@@ -148,10 +148,20 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         return value
 
     def extend_network_dict_provider(self, context, network):
-        id = network['id']
-        segments = db.get_network_segments(context.session, id)
+        # this method is left for backward compat even though it would be
+        # easy to change the callers in tree to use the bulk function
+        return self.extend_networks_dict_provider(context, [network])
+
+    def extend_networks_dict_provider(self, context, networks):
+        ids = [network['id'] for network in networks]
+        net_segments = db.get_networks_segments(context.session, ids)
+        for network in networks:
+            segments = net_segments[network['id']]
+            self._extend_network_dict_provider(network, segments)
+
+    def _extend_network_dict_provider(self, network, segments):
         if not segments:
-            LOG.error(_LE("Network %s has no segments"), id)
+            LOG.error(_LE("Network %s has no segments"), network['id'])
             for attr in provider.ATTRIBUTES:
                 network[attr] = None
         elif len(segments) > 1:

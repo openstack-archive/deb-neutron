@@ -16,10 +16,10 @@
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron._i18n import _LW
 from neutron.common import constants as const
 from neutron import context as n_context
 from neutron.db import api as db_api
-from neutron.i18n import _LW
 from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2.drivers.l2pop import config  # noqa
@@ -29,8 +29,7 @@ from neutron.plugins.ml2.drivers.l2pop import rpc as l2pop_rpc
 LOG = logging.getLogger(__name__)
 
 
-class L2populationMechanismDriver(api.MechanismDriver,
-                                  l2pop_db.L2populationDbMixin):
+class L2populationMechanismDriver(api.MechanismDriver):
 
     def __init__(self):
         super(L2populationMechanismDriver, self).__init__()
@@ -72,11 +71,12 @@ class L2populationMechanismDriver(api.MechanismDriver,
             agent_host = context.host
         else:
             agent_host = context.original_host
-        port_infos = self._get_port_infos(
-            context, orig, agent_host)
-        if not port_infos:
+
+        if not agent_host:
             return
-        agent, agent_ip, segment, port_fdb_entries = port_infos
+
+        agent_ip = l2pop_db.get_agent_ip_by_host(db_api.get_session(),
+                                                 agent_host)
 
         orig_mac_ip = [l2pop_rpc.PortInfo(mac_address=port['mac_address'],
                                           ip_address=ip)
@@ -152,34 +152,20 @@ class L2populationMechanismDriver(api.MechanismDriver,
                     self.L2populationAgentNotify.remove_fdb_entries(
                         self.rpc_ctx, fdb_entries)
 
-    def _get_port_infos(self, context, port, agent_host):
-        if not agent_host:
-            return
-
-        session = db_api.get_session()
-        agent = self.get_agent_by_host(session, agent_host)
-        if not agent:
-            LOG.warning(_LW("Unable to retrieve active L2 agent on host %s"),
-                        agent_host)
-            return
-
-        agent_ip = self.get_agent_ip(agent)
-
+    def _get_and_validate_segment(self, context, port_id, agent):
         segment = context.bottom_bound_segment
         if not segment:
             LOG.debug("Port %(port)s updated by agent %(agent)s isn't bound "
-                      "to any segment", {'port': port['id'], 'agent': agent})
+                      "to any segment", {'port': port_id, 'agent': agent})
             return
 
-        network_types = self.get_agent_l2pop_network_types(agent)
+        network_types = l2pop_db.get_agent_l2pop_network_types(agent)
         if network_types is None:
-            network_types = self.get_agent_tunnel_types(agent)
+            network_types = l2pop_db.get_agent_tunnel_types(agent)
         if segment['network_type'] not in network_types:
             return
 
-        fdb_entries = self._get_port_fdb_entries(port)
-
-        return agent, agent_ip, segment, fdb_entries
+        return segment
 
     def _create_agent_fdb(self, session, agent, segment, network_id):
         agent_fdb_entries = {network_id:
@@ -187,16 +173,16 @@ class L2populationMechanismDriver(api.MechanismDriver,
                               'network_type': segment['network_type'],
                               'ports': {}}}
         tunnel_network_ports = (
-            self.get_dvr_active_network_ports(session, network_id))
+            l2pop_db.get_dvr_active_network_ports(session, network_id))
         fdb_network_ports = (
-            self.get_nondvr_active_network_ports(session, network_id))
+            l2pop_db.get_nondvr_active_network_ports(session, network_id))
         ports = agent_fdb_entries[network_id]['ports']
         ports.update(self._get_tunnels(
             fdb_network_ports + tunnel_network_ports,
             agent.host))
         for agent_ip, fdbs in ports.items():
             for binding, agent in fdb_network_ports:
-                if self.get_agent_ip(agent) == agent_ip:
+                if l2pop_db.get_agent_ip(agent) == agent_ip:
                     fdbs.extend(self._get_port_fdb_entries(binding.port))
 
         return agent_fdb_entries
@@ -207,7 +193,7 @@ class L2populationMechanismDriver(api.MechanismDriver,
             if agent.host == exclude_host:
                 continue
 
-            ip = self.get_agent_ip(agent)
+            ip = l2pop_db.get_agent_ip(agent)
             if not ip:
                 LOG.debug("Unable to retrieve the agent ip, check "
                           "the agent %s configuration.", agent.host)
@@ -221,25 +207,28 @@ class L2populationMechanismDriver(api.MechanismDriver,
     def _update_port_up(self, context):
         port = context.current
         agent_host = context.host
-        port_infos = self._get_port_infos(context, port, agent_host)
-        if not port_infos:
+        session = db_api.get_session()
+        agent = l2pop_db.get_agent_by_host(session, agent_host)
+        if not agent:
+            LOG.warning(_LW("Unable to retrieve active L2 agent on host %s"),
+                        agent_host)
             return
-        agent, agent_ip, segment, port_fdb_entries = port_infos
 
         network_id = port['network_id']
 
-        session = db_api.get_session()
-        agent_active_ports = self.get_agent_network_active_port_count(
+        agent_active_ports = l2pop_db.get_agent_network_active_port_count(
             session, agent_host, network_id)
 
-        other_fdb_entries = {network_id:
-                             {'segment_id': segment['segmentation_id'],
-                              'network_type': segment['network_type'],
-                              'ports': {agent_ip: []}}}
+        agent_ip = l2pop_db.get_agent_ip(agent)
+        segment = self._get_and_validate_segment(context, port['id'], agent)
+        if not segment:
+            return
+        other_fdb_entries = self._get_fdb_entries_template(
+            segment, agent_ip, network_id)
         other_fdb_ports = other_fdb_entries[network_id]['ports']
 
-        if agent_active_ports == 1 or (
-                self.get_agent_uptime(agent) < cfg.CONF.l2pop.agent_boot_time):
+        if agent_active_ports == 1 or (l2pop_db.get_agent_uptime(agent) <
+                                       cfg.CONF.l2pop.agent_boot_time):
             # First port activated on current agent in this network,
             # we have to provide it with the whole list of fdb entries
             agent_fdb_entries = self._create_agent_fdb(session,
@@ -256,27 +245,29 @@ class L2populationMechanismDriver(api.MechanismDriver,
 
         # Notify other agents to add fdb rule for current port
         if port['device_owner'] != const.DEVICE_OWNER_DVR_INTERFACE:
-            other_fdb_ports[agent_ip] += port_fdb_entries
+            other_fdb_ports[agent_ip] += self._get_port_fdb_entries(port)
 
         self.L2populationAgentNotify.add_fdb_entries(self.rpc_ctx,
                                                      other_fdb_entries)
 
     def _get_agent_fdb(self, context, port, agent_host):
-        port_infos = self._get_port_infos(context, port, agent_host)
-        if not port_infos:
+        if not agent_host:
             return
-        agent, agent_ip, segment, port_fdb_entries = port_infos
 
         network_id = port['network_id']
 
         session = db_api.get_session()
-        agent_active_ports = self.get_agent_network_active_port_count(
+        agent_active_ports = l2pop_db.get_agent_network_active_port_count(
             session, agent_host, network_id)
 
-        other_fdb_entries = {network_id:
-                             {'segment_id': segment['segmentation_id'],
-                              'network_type': segment['network_type'],
-                              'ports': {agent_ip: []}}}
+        agent = l2pop_db.get_agent_by_host(db_api.get_session(), agent_host)
+        segment = self._get_and_validate_segment(context, port['id'], agent)
+        if not segment:
+            return
+
+        agent_ip = l2pop_db.get_agent_ip(agent)
+        other_fdb_entries = self._get_fdb_entries_template(
+            segment, agent_ip, port['network_id'])
         if agent_active_ports == 0:
             # Agent is removing its last activated port in this network,
             # other agents needs to be notified to delete their flooding entry.
@@ -284,7 +275,15 @@ class L2populationMechanismDriver(api.MechanismDriver,
                 const.FLOODING_ENTRY)
         # Notify other agents to remove fdb rules for current port
         if port['device_owner'] != const.DEVICE_OWNER_DVR_INTERFACE:
-            fdb_entries = port_fdb_entries
+            fdb_entries = self._get_port_fdb_entries(port)
             other_fdb_entries[network_id]['ports'][agent_ip] += fdb_entries
 
         return other_fdb_entries
+
+    @classmethod
+    def _get_fdb_entries_template(cls, segment, agent_ip, network_id):
+        return {
+            network_id:
+                {'segment_id': segment['segmentation_id'],
+                 'network_type': segment['network_type'],
+                 'ports': {agent_ip: []}}}

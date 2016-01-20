@@ -24,11 +24,11 @@ import retrying
 import six
 import uuid
 
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent.common import utils
 from neutron.agent.linux import ip_lib
 from neutron.agent.ovsdb import api as ovsdb
 from neutron.common import exceptions
-from neutron.i18n import _LE, _LI, _LW
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common \
     import constants
@@ -99,10 +99,11 @@ class VifPort(object):
         self.switch = switch
 
     def __str__(self):
-        return ("iface-id=" + self.vif_id + ", vif_mac=" +
-                self.vif_mac + ", port_name=" + self.port_name +
-                ", ofport=" + str(self.ofport) + ", bridge_name=" +
-                self.switch.br_name)
+        return ("iface-id=%s, vif_mac=%s, port_name=%s, ofport=%s, "
+                "bridge_name=%s") % (
+                    self.vif_id, self.vif_mac,
+                    self.port_name, self.ofport,
+                    self.switch.br_name)
 
 
 class BaseOVS(object):
@@ -229,8 +230,12 @@ class OVSBridge(BaseOVS):
 
     def replace_port(self, port_name, *interface_attr_tuples):
         """Replace existing port or create it, and configure port interface."""
+
+        # NOTE(xiaohhui): If del_port is inside the transaction, there will
+        # only be one command for replace_port. This will cause the new port
+        # not be found by system, which will lead to Bug #1519926.
+        self.ovsdb.del_port(port_name).execute()
         with self.ovsdb.transaction() as txn:
-            txn.add(self.ovsdb.del_port(port_name))
             txn.add(self.ovsdb.add_port(self.br_name, port_name,
                                         may_exist=False))
             if interface_attr_tuples:

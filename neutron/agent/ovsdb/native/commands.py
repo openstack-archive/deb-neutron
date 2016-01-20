@@ -17,9 +17,9 @@ import collections
 from oslo_log import log as logging
 from oslo_utils import excutils
 
+from neutron._i18n import _, _LE
 from neutron.agent.ovsdb import api
 from neutron.agent.ovsdb.native import idlutils
-from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -61,6 +61,8 @@ class AddBridgeCommand(BaseCommand):
             br = idlutils.row_by_value(self.api.idl, 'Bridge', 'name',
                                        self.name, None)
             if br:
+                if self.datapath_type:
+                    br.datapath_type = self.datapath_type
                 return
         row = txn.insert(self.api._tables['Bridge'])
         row.name = self.name

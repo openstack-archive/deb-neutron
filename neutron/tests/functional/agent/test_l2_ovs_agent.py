@@ -41,14 +41,14 @@ class TestOVSAgent(base.OVSAgentTestFramework):
                                      "OVS")
         agent = self.create_agent()
         self.start_agent(agent)
-        actual = self.ovs.db_get_val('Bridge',
-                                     agent.int_br.br_name,
-                                     'datapath_type')
-        self.assertEqual(expected, actual)
-        actual = self.ovs.db_get_val('Bridge',
-                                     agent.tun_br.br_name,
-                                     'datapath_type')
-        self.assertEqual(expected, actual)
+        for br_name in (getattr(self, br) for br in
+                        ('br_int', 'br_tun', 'br_phys')):
+            actual = self.ovs.db_get_val('Bridge', br_name, 'datapath_type')
+            self.assertEqual(expected, actual)
+
+    def test_datapath_type_change(self):
+        self._check_datapath_type_netdev('system')
+        self._check_datapath_type_netdev('netdev')
 
     def test_datapath_type_netdev(self):
         self._check_datapath_type_netdev(
@@ -114,7 +114,8 @@ class TestOVSAgent(base.OVSAgentTestFramework):
         self.agent = self.create_agent(create_tunnels=False)
         self.network = self._create_test_network_dict()
         self._plug_ports(self.network, self.ports, self.agent)
-        self.start_agent(self.agent, unplug_ports=[self.ports[1]])
+        self.start_agent(self.agent, ports=self.ports,
+                         unplug_ports=[self.ports[1]])
         self.wait_until_ports_state([self.ports[0]], up=True)
         self.assertRaises(
             Timeout, self.wait_until_ports_state, [self.ports[1]], up=True,

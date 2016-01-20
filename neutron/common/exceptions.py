@@ -20,6 +20,8 @@ Neutron base exception handling.
 from oslo_utils import excutils
 import six
 
+from neutron._i18n import _
+
 
 class NeutronException(Exception):
     """Base Neutron Exception.
@@ -500,6 +502,12 @@ class IllegalSubnetPoolAssociationToAddressScope(BadRequest):
     message = _("Illegal subnetpool association: subnetpool %(subnetpool_id)s "
                 "cannot be associated with address scope "
                 "%(address_scope_id)s.")
+
+
+class IllegalSubnetPoolIpVersionAssociationToAddressScope(BadRequest):
+    message = _("Illegal subnetpool association: subnetpool %(subnetpool_id)s "
+                "cannot associate with address scope %(address_scope_id)s "
+                "because subnetpool ip_version is not %(ip_version)s.")
 
 
 class IllegalSubnetPoolUpdate(BadRequest):

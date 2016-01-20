@@ -13,8 +13,9 @@ test_files=$(find ${test_path} -iname 'test_*.py')
 ignore_regexes=(
     # The following vendor plugins are not required to confrm to the
     # structural requirements.
-    "^plugins/brocade.*$"
     "^plugins/ibm.*$"
+    # The following test is required for oslo.versionedobjects
+    "^objects/test_objects.py$"
     # The following open source plugin tests are not actually unit
     # tests and are ignored pending their relocation to the functional
     # test tree.
@@ -24,6 +25,7 @@ ignore_regexes=(
     "^plugins/ml2/test_extension_driver_api.py$"
     "^plugins/ml2/test_ext_portsecurity.py$"
     "^plugins/ml2/test_agent_scheduler.py$"
+    "^plugins/ml2/test_tracked_resources.py$"
     "^plugins/ml2/drivers/openvswitch/agent/test_agent_scheduler.py$"
     "^plugins/ml2/drivers/openvswitch/agent/test_ovs_tunnel.py$"
     "^plugins/openvswitch/test_agent_scheduler.py$"

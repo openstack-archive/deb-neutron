@@ -12,6 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import testtools
 
 from tempest_lib.common.utils import data_utils
 from tempest_lib import exceptions as lib_exc
@@ -132,3 +133,30 @@ class FloatingIPAdminTestJSON(base.BaseAdminNetworkTest):
         self.assertRaises(lib_exc.BadRequest,
                           self.admin_client.update_floatingip,
                           floating_ip['id'], port_id=port['port']['id'])
+
+    @testtools.skipUnless(
+        CONF.network_feature_enabled.specify_floating_ip_address_available,
+        "Feature for specifying floating IP address is disabled")
+    @test.attr(type='smoke')
+    @test.idempotent_id('332a8ae4-402e-4b98-bb6f-532e5a87b8e0')
+    def test_create_floatingip_with_specified_ip_address(self):
+        # other tests may end up stealing the IP before we can use it
+        # since it's on the external network so we need to retry if it's
+        # in use.
+        for i in range(100):
+            fip = self.get_unused_ip(self.ext_net_id, ip_version=4)
+            try:
+                body = self.admin_client.create_floatingip(
+                    floating_network_id=self.ext_net_id,
+                    floating_ip_address=fip)
+                break
+            except lib_exc.Conflict:
+                pass
+        else:
+            self.fail("Could not get an unused IP after 100 attempts")
+        created_floating_ip = body['floatingip']
+        self.addCleanup(self.admin_client.delete_floatingip,
+                        created_floating_ip['id'])
+        self.assertIsNotNone(created_floating_ip['id'])
+        self.assertIsNotNone(created_floating_ip['tenant_id'])
+        self.assertEqual(created_floating_ip['floating_ip_address'], fip)

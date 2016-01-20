@@ -21,9 +21,9 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import importutils
 
+from neutron._i18n import _, _LI, _LW
 from neutron.agent import firewall
 from neutron.api.rpc.handlers import securitygroups_rpc
-from neutron.i18n import _LI, _LW
 
 LOG = logging.getLogger(__name__)
 
@@ -200,7 +200,8 @@ class SecurityGroupAgentRpc(object):
             if sec_grp_set & set(device.get(attribute, [])):
                 devices.append(device['device'])
         if devices:
-            self.firewall.security_group_updated(action_type, sec_grp_set)
+            if self.use_enhanced_rpc:
+                self.firewall.security_group_updated(action_type, sec_grp_set)
             if self.defer_refresh_firewall:
                 LOG.debug("Adding %s devices to the list of devices "
                           "for which firewall needs to be refreshed",
@@ -293,8 +294,9 @@ class SecurityGroupAgentRpc(object):
             LOG.debug("Refreshing firewall for all filtered devices")
             self.refresh_firewall()
         else:
-            self.firewall.security_group_updated('sg_member', [],
-                                                 updated_devices)
+            if self.use_enhanced_rpc:
+                self.firewall.security_group_updated('sg_member', [],
+                                                     updated_devices)
             # If a device is both in new and updated devices
             # avoid reprocessing it
             updated_devices = ((updated_devices | devices_to_refilter) -

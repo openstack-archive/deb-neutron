@@ -45,8 +45,8 @@ class TestFakePortContext(base.FakePortContext):
         @property
         def current(self):
             return {'id': base.PORT_ID,
-                    'binding:vnic_type': self._bound_vnic_type,
-                    'binding:profile': self._bound_profile}
+                    portbindings.VNIC_TYPE: self._bound_vnic_type,
+                    portbindings.PROFILE: self._bound_profile}
 
         def set_binding(self, segment_id, vif_type, vif_details, state):
             self._bound_segment_id = segment_id
@@ -148,6 +148,10 @@ class SriovSwitchMechVnicTypeTestCase(SriovNicSwitchMechanismBaseTestCase):
         self._check_vif_type_for_vnic_type(portbindings.VNIC_MACVTAP,
                                            mech_driver.VIF_TYPE_HW_VEB)
 
+    def test_vnic_type_direct_physical(self):
+        self._check_vif_type_for_vnic_type(portbindings.VNIC_DIRECT_PHYSICAL,
+                                           mech_driver.VIF_TYPE_HW_VEB)
+
 
 class SriovSwitchMechProfileTestCase(SriovNicSwitchMechanismBaseTestCase):
     def _check_vif_for_pci_info(self, pci_vendor_info, expected_vif_type):
@@ -232,6 +236,15 @@ class SriovSwitchMechVifDetailsTestCase(SriovNicSwitchMechanismBaseTestCase):
 
         self.driver.bind_port(context)
         self.assertEqual(constants.PORT_STATUS_DOWN, context._bound_state)
+
+    def test_get_vif_details_with_agent_direct_physical(self):
+        context = TestFakePortContext(self.AGENT_TYPE,
+                                      self.AGENTS,
+                                      self.VLAN_SEGMENTS,
+                                      portbindings.VNIC_DIRECT_PHYSICAL)
+
+        self.driver.bind_port(context)
+        self.assertEqual(constants.PORT_STATUS_ACTIVE, context._bound_state)
 
 
 class SriovSwitchMechConfigTestCase(SriovNicSwitchMechanismBaseTestCase):

@@ -13,7 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy import orm
 
@@ -24,10 +23,7 @@ from neutron.db import models_v2
 from neutron.extensions import extra_dhcp_opt as edo_ext
 
 
-LOG = logging.getLogger(__name__)
-
-
-class ExtraDhcpOpt(model_base.BASEV2, models_v2.HasId):
+class ExtraDhcpOpt(model_base.BASEV2, model_base.HasId):
     """Represent a generic concept of extra options associated to a port.
 
     Each port may have none to many dhcp opts associated to it that can

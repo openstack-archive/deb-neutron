@@ -21,9 +21,9 @@ import six
 from six.moves.urllib import parse
 from webob import exc
 
+from neutron._i18n import _, _LW
 from neutron.common import constants
 from neutron.common import exceptions
-from neutron.i18n import _LW
 
 
 LOG = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def get_limit_and_marker(request):
                     pagination, then return None.
     """
     max_limit = _get_pagination_max_limit()
-    limit = _get_limit_param(request, max_limit)
+    limit = _get_limit_param(request)
     if max_limit > 0:
         limit = min(max_limit, limit) or max_limit
     if not limit:
@@ -108,7 +108,7 @@ def _get_pagination_max_limit():
     return max_limit
 
 
-def _get_limit_param(request, max_limit):
+def _get_limit_param(request):
     """Extract integer limit from request or fail."""
     try:
         limit = int(request.GET.get('limit', 0))

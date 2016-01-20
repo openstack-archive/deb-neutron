@@ -17,11 +17,11 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 
+from neutron._i18n import _LE, _LW
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
-from neutron.i18n import _LE, _LW
 from neutron import manager
 
 
@@ -77,6 +77,8 @@ class DhcpAgentNotifyAPI(object):
 
     def _get_enabled_agents(self, context, network, agents, method, payload):
         """Get the list of agents who can provide services."""
+        if not agents:
+            return []
         network_id = network['id']
         enabled_agents = agents
         if not cfg.CONF.enable_services_on_agents_with_admin_state_down:
@@ -134,7 +136,10 @@ class DhcpAgentNotifyAPI(object):
                 not self._is_reserved_dhcp_port(payload['port']))
             if schedule_required:
                 agents = self._schedule_network(admin_ctx, network, agents)
-
+            if not agents:
+                LOG.debug("Network %s is not hosted by any dhcp agent",
+                          network_id)
+                return
             enabled_agents = self._get_enabled_agents(
                 context, network, agents, method, payload)
             for agent in enabled_agents:

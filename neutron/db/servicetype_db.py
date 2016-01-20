@@ -18,6 +18,7 @@ from itertools import chain
 from oslo_log import log as logging
 import sqlalchemy as sa
 
+from neutron.api.v2 import attributes as attr
 from neutron.db import model_base
 from neutron.services import provider_configuration as pconf
 
@@ -25,7 +26,7 @@ LOG = logging.getLogger(__name__)
 
 
 class ProviderResourceAssociation(model_base.BASEV2):
-    provider_name = sa.Column(sa.String(255),
+    provider_name = sa.Column(sa.String(attr.NAME_MAX_LEN),
                               nullable=False, primary_key=True)
     # should be manually deleted on resource deletion
     resource_id = sa.Column(sa.String(36), nullable=False, primary_key=True,
@@ -92,6 +93,14 @@ class ServiceTypeManager(object):
             assoc = ProviderResourceAssociation(provider_name=provider_name,
                                                 resource_id=resource_id)
             context.session.add(assoc)
+        # NOTE(blogan): the ProviderResourceAssociation relationship will not
+        # be populated if a resource was created before this.  The expire_all
+        # will force the session to go retrieve the new data when that
+        # resource will be read again.  It has been suggested that we can
+        # crawl through everything in the mapper to find the resource with
+        # the ID that matches resource_id and expire that one, but we can
+        # just start with this.
+        context.session.expire_all()
 
     def del_resource_associations(self, context, resource_ids):
         if not resource_ids:

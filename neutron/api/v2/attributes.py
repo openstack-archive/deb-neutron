@@ -15,12 +15,14 @@
 
 import re
 
+import functools
 import netaddr
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 import six
 import webob.exc
 
+from neutron._i18n import _
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 
@@ -34,9 +36,6 @@ SHARED = 'shared'
 # Used by range check to indicate no limit for a bound.
 UNLIMITED = None
 
-# TODO(watanabe.isao): A fix like in neutron/db/models_v2.py needs to be
-# done in other db modules, to reuse the following constants.
-# Common definitions for maximum string field length
 NAME_MAX_LEN = 255
 TENANT_ID_MAX_LEN = 255
 DESCRIPTION_MAX_LEN = 255
@@ -77,6 +76,21 @@ def _verify_dict_keys(expected_keys, target_dict, strict=True):
 
 def is_attr_set(attribute):
     return not (attribute is None or attribute is ATTR_NOT_SPECIFIED)
+
+
+def _validate_list_of_items(item_validator, data, *args, **kwargs):
+    if not isinstance(data, list):
+        msg = _("'%s' is not a list") % data
+        return msg
+
+    if len(set(data)) != len(data):
+        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
+        return msg
+
+    for item in data:
+        msg = item_validator(item, *args, **kwargs)
+        if msg:
+            return msg
 
 
 def _validate_values(data, valid_values=None):
@@ -120,19 +134,8 @@ def _validate_string(data, max_len=None):
         return msg
 
 
-def validate_list_of_unique_strings(data, max_string_len=None):
-    if not isinstance(data, list):
-        msg = _("'%s' is not a list") % data
-        return msg
-
-    if len(set(data)) != len(data):
-        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
-        return msg
-
-    for item in data:
-        msg = _validate_string(item, max_string_len)
-        if msg:
-            return msg
+validate_list_of_unique_strings = functools.partial(_validate_list_of_items,
+                                                    _validate_string)
 
 
 def _validate_boolean(data, valid_values=None):
@@ -206,8 +209,12 @@ def _validate_mac_address_or_none(data, valid_values=None):
 
 
 def _validate_ip_address(data, valid_values=None):
+    msg = None
     try:
-        netaddr.IPAddress(_validate_no_whitespace(data))
+        # netaddr.core.ZEROFILL is only applicable to IPv4.
+        # it will remove leading zeros from IPv4 address octets.
+        ip = netaddr.IPAddress(_validate_no_whitespace(data),
+                               flags=netaddr.core.ZEROFILL)
         # The followings are quick checks for IPv6 (has ':') and
         # IPv4.  (has 3 periods like 'xx.xx.xx.xx')
         # NOTE(yamamoto): netaddr uses libraries provided by the underlying
@@ -222,11 +229,19 @@ def _validate_ip_address(data, valid_values=None):
         #   IPAddress('199.28.113.199')
         #   >>>
         if ':' not in data and data.count('.') != 3:
-            raise ValueError()
+            msg = _("'%s' is not a valid IP address") % data
+        # A leading '0' in IPv4 address may be interpreted as an octal number,
+        # e.g. 011 octal is 9 decimal. Since there is no standard saying
+        # whether IP address with leading '0's should be interpreted as octal
+        # or decimal, hence we reject leading '0's to avoid ambiguity.
+        if ip.version == 4 and str(ip) != data:
+            msg = _("'%(data)s' is not an accepted IP address, "
+                    "'%(ip)s' is recommended") % {"data": data, "ip": ip}
     except Exception:
         msg = _("'%s' is not a valid IP address") % data
+    if msg:
         LOG.debug(msg)
-        return msg
+    return msg
 
 
 def _validate_ip_pools(data, valid_values=None):
@@ -349,26 +364,13 @@ def _validate_subnet(data, valid_values=None):
     return msg
 
 
-def _validate_subnet_list(data, valid_values=None):
-    if not isinstance(data, list):
-        msg = _("'%s' is not a list") % data
-        LOG.debug(msg)
-        return msg
-
-    if len(set(data)) != len(data):
-        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
-        LOG.debug(msg)
-        return msg
-
-    for item in data:
-        msg = _validate_subnet(item)
-        if msg:
-            return msg
-
-
 def _validate_subnet_or_none(data, valid_values=None):
     if data is not None:
         return _validate_subnet(data, valid_values)
+
+
+_validate_subnet_list = functools.partial(_validate_list_of_items,
+                                          _validate_subnet)
 
 
 def _validate_regex(data, valid_values=None):
@@ -410,21 +412,8 @@ def _validate_uuid_or_none(data, valid_values=None):
         return _validate_uuid(data)
 
 
-def _validate_uuid_list(data, valid_values=None):
-    if not isinstance(data, list):
-        msg = _("'%s' is not a list") % data
-        LOG.debug(msg)
-        return msg
-
-    for item in data:
-        msg = _validate_uuid(item)
-        if msg:
-            return msg
-
-    if len(set(data)) != len(data):
-        msg = _("Duplicate items in the list: '%s'") % ', '.join(data)
-        LOG.debug(msg)
-        return msg
+_validate_uuid_list = functools.partial(_validate_list_of_items,
+                                        _validate_uuid)
 
 
 def _validate_dict_item(key, key_validator, data):
@@ -535,7 +524,7 @@ def convert_to_int(data):
     try:
         return int(data)
     except (ValueError, TypeError):
-        msg = _("'%s' is not a integer") % data
+        msg = _("'%s' is not an integer") % data
         raise n_exc.InvalidInput(error_message=msg)
 
 
@@ -904,6 +893,7 @@ RESOURCE_FOREIGN_KEYS = {
     NETWORKS: 'network_id'
 }
 
+# Store plural/singular mappings
 PLURALS = {NETWORKS: NETWORK,
            PORTS: PORT,
            SUBNETS: SUBNET,
@@ -913,6 +903,31 @@ PLURALS = {NETWORKS: NETWORK,
            'allocation_pools': 'allocation_pool',
            'fixed_ips': 'fixed_ip',
            'extensions': 'extension'}
+# Store singular/plural mappings. This dictionary is populated by
+# get_resource_info
+REVERSED_PLURALS = {}
+
+
+def get_collection_info(collection):
+    """Helper function to retrieve attribute info.
+
+    :param collection: Collection or plural name of the resource
+    """
+    return RESOURCE_ATTRIBUTE_MAP.get(collection)
+
+
+def get_resource_info(resource):
+    """Helper function to retrive attribute info
+
+    :param resource: resource name
+    """
+    plural_name = REVERSED_PLURALS.get(resource)
+    if not plural_name:
+        for (plural, singular) in PLURALS.items():
+            if singular == resource:
+                plural_name = plural
+                REVERSED_PLURALS[resource] = plural_name
+    return RESOURCE_ATTRIBUTE_MAP.get(plural_name)
 
 
 def fill_default_value(attr_info, res_dict,

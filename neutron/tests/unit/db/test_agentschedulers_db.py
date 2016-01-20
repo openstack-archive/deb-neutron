@@ -720,6 +720,26 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                 self._take_down_agent_and_run_reschedule(DHCP_HOSTC)
                 self.assertFalse(rr.called)
 
+    def test_router_is_not_rescheduled_if_agent_is_back_online(self):
+        plugin = manager.NeutronManager.get_service_plugins().get(
+            service_constants.L3_ROUTER_NAT)
+        l3_rpc_cb = l3_rpc.L3RpcCallback()
+        agent = helpers.register_l3_agent(host=L3_HOSTA)
+        with self.router(),\
+                self.router(),\
+                mock.patch.object(plugin, 'reschedule_router') as rs_mock,\
+                mock.patch.object(plugin, '_get_agent') as get_agent_mock:
+
+            # schedule the routers to the agent
+            l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA)
+            self._take_down_agent_and_run_reschedule(L3_HOSTA)
+            # since _get_agent is mocked it will return Mock object and
+            # agent.is_active will return true, so no rescheduling will be done
+            self.assertFalse(rs_mock.called)
+            # should be called only once as for second router alive agent id
+            # will be in cache
+            get_agent_mock.assert_called_once_with(mock.ANY, agent['id'])
+
     def test_router_reschedule_from_dead_agent(self):
         with self.router():
             l3_rpc_cb = l3_rpc.L3RpcCallback()
@@ -755,21 +775,21 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.assertFalse(ret_b)
 
     def test_router_is_not_rescheduled_from_dvr_agent(self):
-        router = {'name': 'router1',
-                  'admin_state_up': True,
-                  'distributed': True}
-        subnet_ids = {'id': '1234'}
-        r = self.l3plugin.create_router(
-            self.adminContext, {'router': router})
-        dvr_agent = self._register_dvr_agents()[1]
+        with self.subnet() as s, \
+                mock.patch.object(
+                        self.l3plugin,
+                        'check_dvr_serviceable_ports_on_host') as port_exists:
+            net_id = s['subnet']['network_id']
+            self._set_net_external(net_id)
+            router = {'name': 'router1',
+                      'admin_state_up': True,
+                      'tenant_id': 'tenant_id',
+                      'external_gateway_info': {'network_id': net_id},
+                      'distributed': True}
+            r = self.l3plugin.create_router(
+                self.adminContext, {'router': router})
+            dvr_snat_agent, dvr_agent = self._register_dvr_agents()
 
-        with mock.patch.object(
-                self.l3plugin,
-                'check_ports_exist_on_l3agent') as port_exists,\
-            mock.patch.object(
-                self.l3plugin,
-                'get_subnet_ids_on_router') as rtr_subnets:
-            rtr_subnets.return_value = [subnet_ids]
             port_exists.return_value = True
             self.l3plugin.schedule_router(
                 self.adminContext, r['id'])
@@ -777,7 +797,19 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.assertEqual(2, len(agents['agents']))
             self.assertIn(dvr_agent['host'],
                           [a['host'] for a in agents['agents']])
+            # router should not be unscheduled from dvr agent
             self._take_down_agent_and_run_reschedule(dvr_agent['host'])
+            agents = self._list_l3_agents_hosting_router(r['id'])
+            self.assertEqual(2, len(agents['agents']))
+            self.assertIn(dvr_agent['host'],
+                          [a['host'] for a in agents['agents']])
+
+            # another dvr_snat agent is needed to test that router is not
+            # unscheduled from dead dvr agent in case rescheduling between
+            # dvr_snat agents happens
+            helpers.register_l3_agent(
+                host='hostC', agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
+            self._take_down_agent_and_run_reschedule(dvr_snat_agent['host'])
             agents = self._list_l3_agents_hosting_router(r['id'])
             self.assertEqual(2, len(agents['agents']))
             self.assertIn(dvr_agent['host'],
@@ -1056,13 +1088,14 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 
             router = {'name': 'router1',
                       'external_gateway_info': {'network_id': net_id},
+                      'tenant_id': 'tenant_id',
                       'admin_state_up': True,
                       'distributed': True}
             r = self.l3plugin.create_router(self.adminContext,
                                             {'router': router})
             with mock.patch.object(
                     self.l3plugin,
-                    'check_ports_exist_on_l3agent') as ports_exist:
+                    'check_dvr_serviceable_ports_on_host') as ports_exist:
                 # emulating dvr serviceable ports exist on compute node
                 ports_exist.return_value = True
                 self.l3plugin.schedule_router(
@@ -1088,6 +1121,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self._set_net_external(net_id)
 
             router = {'name': 'router1',
+                      'tenant_id': 'tenant_id',
                       'admin_state_up': True,
                       'distributed': True}
             r = self.l3plugin.create_router(self.adminContext,
@@ -1095,9 +1129,9 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             # add router interface first
             self.l3plugin.add_router_interface(self.adminContext, r['id'],
                 {'subnet_id': s_int['subnet']['id']})
-            # check that router is scheduled to both dvr_snat agents
+            # Check if the router is not scheduled to any of the agents
             l3agents = self._list_l3_agents_hosting_router(r['id'])
-            self.assertEqual(2, len(l3agents['agents']))
+            self.assertEqual(0, len(l3agents['agents']))
             # check that snat is not scheduled as router is not connected to
             # external network
             snat_agents = self.l3plugin.get_snat_bindings(
@@ -1107,9 +1141,9 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             # connect router to external network
             self.l3plugin.update_router(self.adminContext, r['id'],
                 {'router': {'external_gateway_info': {'network_id': net_id}}})
-            # router should still be scheduled to both dvr_snat agents
+            # router should still be scheduled to one of the dvr_snat agents
             l3agents = self._list_l3_agents_hosting_router(r['id'])
-            self.assertEqual(2, len(l3agents['agents']))
+            self.assertEqual(1, len(l3agents['agents']))
             # now snat portion should be scheduled as router is connected
             # to external network
             snat_agents = self.l3plugin.get_snat_bindings(
@@ -1127,6 +1161,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 
             router = {'name': 'router1',
                       'external_gateway_info': {'network_id': net_id},
+                      'tenant_id': 'tenant_id',
                       'admin_state_up': True,
                       'distributed': True}
             r = self.l3plugin.create_router(self.adminContext,
@@ -1134,7 +1169,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.l3plugin.schedule_router(
                     self.adminContext, r['id'])
             l3agents = self._list_l3_agents_hosting_router(r['id'])
-            self.assertEqual(2, len(l3agents['agents']))
+            self.assertEqual(1, len(l3agents['agents']))
             csnat_agent_host = self.l3plugin.get_snat_bindings(
                 self.adminContext, [r['id']])[0]['l3_agent']['host']
             self._take_down_agent_and_run_reschedule(csnat_agent_host)
@@ -1155,6 +1190,7 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 
             router = {'name': 'router1',
                       'external_gateway_info': {'network_id': net_id},
+                      'tenant_id': 'tenant_id',
                       'admin_state_up': True,
                       'distributed': True}
             r = self.l3plugin.create_router(self.adminContext,
@@ -1163,24 +1199,27 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
                     self.adminContext, r['id'])
             l3agents = self.l3plugin.list_l3_agents_hosting_router(
                 self.adminContext, r['id'])
-            self.assertEqual(2, len(l3agents['agents']))
+            self.assertEqual(1, len(l3agents['agents']))
             csnat_agent = self.l3plugin.get_snat_bindings(
                 self.adminContext, [r['id']])[0]['l3_agent']
-
+            # NOTE: Removing the router from the l3_agent will
+            # remove all the namespace since there is no other
+            # serviceable ports in the node that requires it.
             self.l3plugin.remove_router_from_l3_agent(
                 self.adminContext, csnat_agent['id'], r['id'])
 
             l3agents = self.l3plugin.list_l3_agents_hosting_router(
                 self.adminContext, r['id'])
-            self.assertEqual(1, len(l3agents['agents']))
+            self.assertEqual(0, len(l3agents['agents']))
             self.assertFalse(self.l3plugin.get_snat_bindings(
                 self.adminContext, [r['id']]))
 
             self.l3plugin.add_router_to_l3_agent(
                 self.adminContext, csnat_agent['id'], r['id'])
 
-            l3agents = self._list_l3_agents_hosting_router(r['id'])
-            self.assertEqual(2, len(l3agents['agents']))
+            l3agents = self.l3plugin.list_l3_agents_hosting_router(
+                self.adminContext, r['id'])
+            self.assertEqual(1, len(l3agents['agents']))
             new_csnat_agent = self.l3plugin.get_snat_bindings(
                 self.adminContext, [r['id']])[0]['l3_agent']
             self.assertEqual(csnat_agent['id'], new_csnat_agent['id'])

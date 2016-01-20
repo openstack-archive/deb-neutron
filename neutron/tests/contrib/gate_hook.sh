@@ -22,14 +22,9 @@ then
     sudo chown -R $STACK_USER:$STACK_USER $BASE
 
     configure_host_for_func_testing
-elif [ "$VENV" == "api" ]
+elif [ "$VENV" == "api" -o "$VENV" == "api-pecan" -o "$VENV" == "full-pecan" ]
 then
     cat > $DEVSTACK_PATH/local.conf <<EOF
-[[post-config|/etc/neutron/neutron_lbaas.conf]]
-
-[service_providers]
-service_provider=LOADBALANCER:Haproxy:neutron_lbaas.services.loadbalancer.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default
-
 [[post-config|/etc/neutron/neutron_vpnaas.conf]]
 
 [service_providers]
@@ -37,9 +32,30 @@ service_provider=VPN:openswan:neutron_vpnaas.services.vpn.service_drivers.ipsec.
 
 EOF
 
+    if [ "$VENV" == "api-pecan" -o "$VENV" == "full-pecan" ]
+    then
+        cat >> $DEVSTACK_PATH/local.conf <<EOF
+[[post-config|/etc/neutron/neutron.conf]]
+
+[default]
+web_framework=pecan
+
+EOF
+    fi
+
     export DEVSTACK_LOCAL_CONFIG+="
 enable_plugin neutron-vpnaas git://git.openstack.org/openstack/neutron-vpnaas
 enable_plugin neutron git://git.openstack.org/openstack/neutron
+enable_service q-qos
+"
+
+    $BASE/new/devstack-gate/devstack-vm-gate.sh
+elif [ "$VENV" == "dsvm-plus" ]
+then
+    # We need the qos service enabled to add corresponding scenario tests to tempest
+    export DEVSTACK_LOCAL_CONFIG+="
+enable_plugin neutron git://git.openstack.org/openstack/neutron
+enable_service qos
 "
 
     $BASE/new/devstack-gate/devstack-vm-gate.sh

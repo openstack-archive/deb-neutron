@@ -23,6 +23,7 @@ from oslo_service import periodic_task
 from oslo_utils import excutils
 from oslo_utils import timeutils
 
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent.common import utils as common_utils
 from neutron.agent.l3 import dvr
 from neutron.agent.l3 import dvr_edge_ha_router
@@ -48,7 +49,6 @@ from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
-from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
 
 try:
@@ -63,6 +63,11 @@ LOG = logging.getLogger(__name__)
 NS_PREFIX = namespaces.NS_PREFIX
 INTERNAL_DEV_PREFIX = namespaces.INTERNAL_DEV_PREFIX
 EXTERNAL_DEV_PREFIX = namespaces.EXTERNAL_DEV_PREFIX
+
+# Number of routers to fetch from server at a time on resync.
+# Needed to reduce load on server side and to speed up resync on agent side.
+SYNC_ROUTERS_MAX_CHUNK_SIZE = 256
+SYNC_ROUTERS_MIN_CHUNK_SIZE = 32
 
 
 class L3PluginApi(object):
@@ -82,6 +87,8 @@ class L3PluginApi(object):
         1.6 - Added process_prefix_update
         1.7 - DVR support: new L3 plugin methods added.
               - delete_agent_gateway_port
+        1.8 - Added address scope information
+        1.9 - Added get_router_ids
     """
 
     def __init__(self, topic, host):
@@ -94,6 +101,11 @@ class L3PluginApi(object):
         cctxt = self.client.prepare()
         return cctxt.call(context, 'sync_routers', host=self.host,
                           router_ids=router_ids)
+
+    def get_router_ids(self, context):
+        """Make a remote process call to retrieve scheduled routers ids."""
+        cctxt = self.client.prepare(version='1.9')
+        return cctxt.call(context, 'get_router_ids', host=self.host)
 
     def get_external_network_id(self, context):
         """Make a remote process call to retrieve the external network id.
@@ -187,6 +199,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self.context = n_context.get_admin_context_without_session()
         self.plugin_rpc = L3PluginApi(topics.L3PLUGIN, host)
         self.fullsync = True
+        self.sync_routers_chunk_size = SYNC_ROUTERS_MAX_CHUNK_SIZE
 
         # Get the list of service plugins from Neutron Server
         # This is the first place where we contact neutron-server on startup
@@ -437,6 +450,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         ri.process(self)
         registry.notify(resources.ROUTER, events.AFTER_UPDATE, self, router=ri)
 
+    def _resync_router(self, router_update,
+                       priority=queue.PRIORITY_SYNC_ROUTERS_TASK):
+        router_update.timestamp = timeutils.utcnow()
+        router_update.priority = priority
+        router_update.router = None  # Force the agent to resync the router
+        self._queue.add(router_update)
+
     def _process_router_update(self):
         for rp, update in self._queue.each_update_to_next_router():
             LOG.debug("Starting router update for %s, action %s, priority %s",
@@ -454,7 +474,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                 except Exception:
                     msg = _LE("Failed to fetch router information for '%s'")
                     LOG.exception(msg, update.id)
-                    self.fullsync = True
+                    self._resync_router(update)
                     continue
 
                 if routers:
@@ -463,10 +483,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             if not router:
                 removed = self._safe_router_removed(update.id)
                 if not removed:
-                    # TODO(Carl) Stop this fullsync non-sense.  Just retry this
-                    # one router by sticking the update at the end of the queue
-                    # at a lower priority.
-                    self.fullsync = True
+                    self._resync_router(update)
                 else:
                     # need to update timestamp of removed router in case
                     # there are older events for the same router in the
@@ -488,7 +505,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             except Exception:
                 msg = _LE("Failed to process compatible router '%s'")
                 LOG.exception(msg, update.id)
-                self.fullsync = True
+                self._resync_router(update)
                 continue
 
             LOG.debug("Finished a router update for %s", update.id)
@@ -527,45 +544,68 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
 
     def fetch_and_sync_all_routers(self, context, ns_manager):
         prev_router_ids = set(self.router_info)
+        curr_router_ids = set()
         timestamp = timeutils.utcnow()
 
         try:
-            if self.conf.router_id:
-                routers = self.plugin_rpc.get_routers(context,
-                                                      [self.conf.router_id])
+            router_ids = ([self.conf.router_id] if self.conf.router_id else
+                          self.plugin_rpc.get_router_ids(context))
+            # fetch routers by chunks to reduce the load on server and to
+            # start router processing earlier
+            for i in range(0, len(router_ids), self.sync_routers_chunk_size):
+                routers = self.plugin_rpc.get_routers(
+                    context, router_ids[i:i + self.sync_routers_chunk_size])
+                LOG.debug('Processing :%r', routers)
+                for r in routers:
+                    curr_router_ids.add(r['id'])
+                    ns_manager.keep_router(r['id'])
+                    if r.get('distributed'):
+                        # need to keep fip namespaces as well
+                        ext_net_id = (r['external_gateway_info'] or {}).get(
+                            'network_id')
+                        if ext_net_id:
+                            ns_manager.keep_ext_net(ext_net_id)
+                    update = queue.RouterUpdate(
+                        r['id'],
+                        queue.PRIORITY_SYNC_ROUTERS_TASK,
+                        router=r,
+                        timestamp=timestamp)
+                    self._queue.add(update)
+        except oslo_messaging.MessagingTimeout:
+            if self.sync_routers_chunk_size > SYNC_ROUTERS_MIN_CHUNK_SIZE:
+                self.sync_routers_chunk_size = max(
+                    self.sync_routers_chunk_size / 2,
+                    SYNC_ROUTERS_MIN_CHUNK_SIZE)
+                LOG.error(_LE('Server failed to return info for routers in '
+                              'required time, decreasing chunk size to: %s'),
+                          self.sync_routers_chunk_size)
             else:
-                routers = self.plugin_rpc.get_routers(context)
+                LOG.error(_LE('Server failed to return info for routers in '
+                              'required time even with min chunk size: %s. '
+                              'It might be under very high load or '
+                              'just inoperable'),
+                          self.sync_routers_chunk_size)
+            raise
         except oslo_messaging.MessagingException:
             LOG.exception(_LE("Failed synchronizing routers due to RPC error"))
             raise n_exc.AbortSyncRouters()
-        else:
-            LOG.debug('Processing :%r', routers)
-            for r in routers:
-                ns_manager.keep_router(r['id'])
-                if r.get('distributed'):
-                    # need to keep fip namespaces as well
-                    ext_net_id = (r['external_gateway_info'] or {}).get(
-                        'network_id')
-                    if ext_net_id:
-                        ns_manager.keep_ext_net(ext_net_id)
-                update = queue.RouterUpdate(r['id'],
-                                            queue.PRIORITY_SYNC_ROUTERS_TASK,
-                                            router=r,
-                                            timestamp=timestamp)
-                self._queue.add(update)
-            self.fullsync = False
-            LOG.debug("periodic_sync_routers_task successfully completed")
 
-            curr_router_ids = set([r['id'] for r in routers])
+        self.fullsync = False
+        LOG.debug("periodic_sync_routers_task successfully completed")
+        # adjust chunk size after successful sync
+        if self.sync_routers_chunk_size < SYNC_ROUTERS_MAX_CHUNK_SIZE:
+            self.sync_routers_chunk_size = min(
+                self.sync_routers_chunk_size + SYNC_ROUTERS_MIN_CHUNK_SIZE,
+                SYNC_ROUTERS_MAX_CHUNK_SIZE)
 
-            # Delete routers that have disappeared since the last sync
-            for router_id in prev_router_ids - curr_router_ids:
-                ns_manager.keep_router(router_id)
-                update = queue.RouterUpdate(router_id,
-                                            queue.PRIORITY_SYNC_ROUTERS_TASK,
-                                            timestamp=timestamp,
-                                            action=queue.DELETE_ROUTER)
-                self._queue.add(update)
+        # Delete routers that have disappeared since the last sync
+        for router_id in prev_router_ids - curr_router_ids:
+            ns_manager.keep_router(router_id)
+            update = queue.RouterUpdate(router_id,
+                                        queue.PRIORITY_SYNC_ROUTERS_TASK,
+                                        timestamp=timestamp,
+                                        action=queue.DELETE_ROUTER)
+            self._queue.add(update)
 
     def after_start(self):
         # Note: the FWaaS' vArmourL3NATAgent is a subclass of L3NATAgent. It

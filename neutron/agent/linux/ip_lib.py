@@ -23,10 +23,10 @@ from oslo_utils import excutils
 import re
 import six
 
+from neutron._i18n import _, _LE
 from neutron.agent.common import utils
 from neutron.common import constants
 from neutron.common import exceptions
-from neutron.i18n import _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -44,6 +44,17 @@ SYS_NET_PATH = '/sys/class/net'
 DEFAULT_GW_PATTERN = re.compile(r"via (\S+)")
 METRIC_PATTERN = re.compile(r"metric (\S+)")
 DEVICE_NAME_PATTERN = re.compile(r"(\d+?): (\S+?):.*")
+
+
+def remove_interface_suffix(interface):
+    """Remove a possible "<if>@<endpoint>" suffix from an interface' name.
+
+    This suffix can appear in some kernel versions, and intends on specifying,
+    for example, a veth's pair. However, this interface name is useless to us
+    as further 'ip' commands require that the suffix be removed.
+    """
+    # If '@' is not present, this will do nothing.
+    return interface.partition("@")[0]
 
 
 class AddressNotReady(exceptions.NeutronException):
@@ -556,7 +567,7 @@ class IpAddrCommand(IpDeviceCommandBase):
             if match:
                 # Found a match for a device name, but its' addresses will
                 # only appear in following lines, so we may as well continue.
-                device_name = match.group(2)
+                device_name = remove_interface_suffix(match.group(2))
                 continue
             elif not line.startswith('inet'):
                 continue
@@ -599,7 +610,7 @@ class IpAddrCommand(IpDeviceCommandBase):
                 return True
             if addr_info['dadfailed']:
                 raise AddressNotReady(
-                    address=address, reason=_('Duplicate adddress detected'))
+                    address=address, reason=_('Duplicate address detected'))
         errmsg = _("Exceeded %s second limit waiting for "
                    "address to leave the tentative state.") % wait_time
         utils.utils.wait_until_true(

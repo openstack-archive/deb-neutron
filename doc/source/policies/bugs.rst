@@ -44,12 +44,13 @@ various Neutron teams when a bug has been triaged. In addition, the bug
 deputy should be reporting "High" and "Critical" priority bugs.
 
 To avoid burnout, and to give a chance to everyone to gain experience in
-defect management, the Neutron bug deputy is a rotating role: every member
-of the Neutron core team is invited to fill in the role, and the rotation
+defect management, the Neutron bug deputy is a rotating role. The rotation
 will be set on a period (typically one or two weeks) determined by the team
 during the weekly Neutron IRC meeting and/or according to holidays. During
 the Neutron IRC meeting we will expect a volunteer to step up for the period.
-Non-core volunteers are encouraged in taking up the role.
+Members of the Neutron core team are invited to fill in the role,
+however non-core Neutron contributors who are interested are also
+encouraged to take up the role.
 
 This contributor is going to be the bug deputy for the period, and he/she
 will be asked to report to the team during the subsequent IRC meeting. The
@@ -328,6 +329,8 @@ more will be added over time if needed.
 +-------------------------------+---------------------------------------+----------------------+
 | needs-attention_              | A bug that needs further screening    | PTL/Bug Deputy       |
 +-------------------------------+---------------------------------------+----------------------+
+| opnfv_                        | Reported by/affecting OPNFV initiative| Drivers team         |
++-------------------------------+---------------------------------------+----------------------+
 | ops_                          | Reported by or affecting operators    | Drivers Team         |
 +-------------------------------+---------------------------------------+----------------------+
 | oslo_                         | An interop/cross-project issue        | Ihar Hrachyshka      |
@@ -351,6 +354,8 @@ more will be added over time if needed.
 | sg-fw_                        | A bug affecting security groups       | Kevin Benton         |
 +-------------------------------+---------------------------------------+----------------------+
 | sriov-pci-pt_                 | A bug affecting Sriov/PCI PassThrough | Moshe Levi           |
++-------------------------------+---------------------------------------+----------------------+
+| troubleshooting_              | An issue affecting ease of debugging  | Assaf Muller         |
 +-------------------------------+---------------------------------------+----------------------+
 | unittest_                     | A bug affecting the unit test subtree | Cedric Brandily      |
 +-------------------------------+---------------------------------------+----------------------+
@@ -536,6 +541,13 @@ Needs Attention
 
 * `Needs Attention - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=needs-attention>`_
 
+.. _opnfv:
+
+OPNFV
++++++
+
+* `OPNFV - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=opnfv>`_
+
 .. _ops:
 
 Operators/Operations (ops)
@@ -630,6 +642,14 @@ SG-FW
 
 * `Security groups - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=sg-fw>`_
 * `Security groups - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=sg-fw>`_
+
+.. _troubleshooting:
+
+Troubleshooting
++++++++++++++++
+
+* `Troubleshooting - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=Troubleshooting>`_
+* `Troubleshooting - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=Troubleshooting>`_
 
 .. _unittest:
 

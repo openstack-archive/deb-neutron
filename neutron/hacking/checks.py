@@ -30,6 +30,9 @@ import six
 #    neutron/tests/unit/hacking/test_checks.py
 
 _all_log_levels = {
+    'reserved': '_',  # this should never be used with a log unless
+                      # it is a variable used for a log message and
+                      # a exception
     'error': '_LE',
     'info': '_LI',
     'warn': '_LW',
@@ -205,6 +208,26 @@ def check_assertfalse(logical_line, filename):
             yield (0, msg)
 
 
+def check_assertempty(logical_line, filename):
+    if 'neutron/tests/' in filename:
+        msg = ("N330: Use assertEqual(*empty*, observed) instead of "
+               "assertEqual(observed, *empty*). *empty* contains "
+               "{}, [], (), set(), '', \"\"")
+        empties = r"(\[\s*\]|\{\s*\}|\(\s*\)|set\(\s*\)|'\s*'|\"\s*\")"
+        reg = r"assertEqual\(([^,]*,\s*)+?%s\)\s*$" % empties
+        if re.search(reg, logical_line):
+            yield (0, msg)
+
+
+def check_assertisinstance(logical_line, filename):
+    if 'neutron/tests/' in filename:
+        if re.search(r"assertTrue\(\s*isinstance\(\s*[^,]*,\s*[^,]*\)\)",
+                     logical_line):
+            msg = ("N331: Use assertIsInstance(observed, type) instead "
+                   "of assertTrue(isinstance(observed, type))")
+            yield (0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
@@ -218,3 +241,5 @@ def factory(register):
     register(check_asserttrue)
     register(no_mutable_default_args)
     register(check_assertfalse)
+    register(check_assertempty)
+    register(check_assertisinstance)

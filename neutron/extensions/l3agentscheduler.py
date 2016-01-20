@@ -18,6 +18,7 @@ import abc
 from oslo_log import log as logging
 import webob.exc
 
+from neutron._i18n import _, _LE
 from neutron.api import extensions
 from neutron.api.v2 import base
 from neutron.api.v2 import resource
@@ -25,7 +26,6 @@ from neutron.common import constants
 from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.extensions import agent
-from neutron.i18n import _LE
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
 from neutron import policy
@@ -169,14 +169,13 @@ class RouterReschedulingFailed(exceptions.Conflict):
 
 
 class RouterL3AgentMismatch(exceptions.Conflict):
-    message = _("Cannot host %(router_type)s router %(router_id)s "
-                "on %(agent_mode)s L3 agent %(agent_id)s.")
+    message = _("Cannot host distributed router %(router_id)s "
+                "on legacy L3 agent %(agent_id)s.")
 
 
 class DVRL3CannotAssignToDvrAgent(exceptions.Conflict):
-    message = _("Not allowed to manually assign a %(router_type)s "
-                "router %(router_id)s from an existing DVR node "
-                "to another L3 agent %(agent_id)s.")
+    message = _("Not allowed to manually assign a router to an "
+                "agent in 'dvr' mode.")
 
 
 class L3AgentSchedulerPluginBase(object):

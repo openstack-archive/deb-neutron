@@ -20,13 +20,13 @@ from oslo_concurrency import lockutils
 from oslo_log import log as logging
 import six
 
+from neutron._i18n import _LW, _LI
 from neutron.agent.l2 import agent_extension
 from neutron.api.rpc.callbacks.consumer import registry
 from neutron.api.rpc.callbacks import events
 from neutron.api.rpc.callbacks import resources
 from neutron.api.rpc.handlers import resources_rpc
 from neutron.common import exceptions
-from neutron.i18n import _LW, _LI
 from neutron import manager
 
 LOG = logging.getLogger(__name__)
@@ -237,14 +237,20 @@ class QosAgentExtension(agent_extension.AgentCoreResourceExtension):
     def delete_port(self, context, port):
         self._process_reset_port(port)
 
+    def _policy_rules_modified(self, old_policy, policy):
+        return not (len(old_policy.rules) == len(policy.rules) and
+                    all(i in old_policy.rules for i in policy.rules))
+
     def _process_update_policy(self, qos_policy):
         old_qos_policy = self.policy_map.get_policy(qos_policy.id)
-        for port in self.policy_map.get_ports(qos_policy):
-            #NOTE(QoS): for now, just reflush the rules on the port. Later, we
-            #           may want to apply the difference between the old and
-            #           new rule lists.
-            self.qos_driver.delete(port, old_qos_policy)
-            self.qos_driver.update(port, qos_policy)
+        if old_qos_policy:
+            if self._policy_rules_modified(old_qos_policy, qos_policy):
+                for port in self.policy_map.get_ports(qos_policy):
+                    #NOTE(QoS): for now, just reflush the rules on the port.
+                    #           Later, we may want to apply the difference
+                    #           between the old and new rule lists.
+                    self.qos_driver.delete(port, old_qos_policy)
+                    self.qos_driver.update(port, qos_policy)
             self.policy_map.update_policy(qos_policy)
 
     def _process_reset_port(self, port):

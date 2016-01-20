@@ -11,15 +11,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
-
 from neutron.api.v2 import attributes
 from neutron.db import common_db_mixin
 from neutron.extensions import availability_zone as az_ext
 from neutron.extensions import network_availability_zone as net_az
-
-
-LOG = logging.getLogger(__name__)
 
 
 class NetworkAvailabilityZoneMixin(net_az.NetworkAvailabilityZonePluginBase):
@@ -29,7 +24,7 @@ class NetworkAvailabilityZoneMixin(net_az.NetworkAvailabilityZonePluginBase):
         net_res[az_ext.AZ_HINTS] = az_ext.convert_az_string_to_list(
             net_db[az_ext.AZ_HINTS])
         net_res[az_ext.AVAILABILITY_ZONES] = (
-            self.get_network_availability_zones(net_db['id']))
+            self.get_network_availability_zones(net_db))
 
     common_db_mixin.CommonDbMixin.register_dict_extend_funcs(
         attributes.NETWORKS, ['_extend_availability_zone'])

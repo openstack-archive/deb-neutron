@@ -22,6 +22,7 @@ import mock
 import netaddr
 from oslo_log import log
 import oslo_messaging
+from oslo_utils import timeutils
 from oslo_utils import uuidutils
 import six
 from testtools import matchers
@@ -36,6 +37,7 @@ from neutron.agent.l3 import legacy_router
 from neutron.agent.l3 import link_local_allocator as lla
 from neutron.agent.l3 import namespaces
 from neutron.agent.l3 import router_info as l3router
+from neutron.agent.l3 import router_processing_queue
 from neutron.agent.linux import dibbler
 from neutron.agent.linux import external_process
 from neutron.agent.linux import interface
@@ -46,6 +48,7 @@ from neutron.agent import rpc as agent_rpc
 from neutron.common import config as base_config
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
+from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 from neutron.tests import base
 from neutron.tests.common import l3_test_common
@@ -72,10 +75,14 @@ class BasicRouterOperationsFramework(base.BaseTestCase):
         agent_config.register_availability_zone_opts_helper(self.conf)
         self.conf.register_opts(interface.OPTS)
         self.conf.register_opts(external_process.OPTS)
+        self.conf.register_opts(pd.OPTS)
+        self.conf.register_opts(ra.OPTS)
         self.conf.set_override('interface_driver',
                                'neutron.agent.linux.interface.NullDriver')
         self.conf.set_override('send_arp_for_ha', 1)
         self.conf.set_override('state_path', '')
+        self.conf.set_override('ra_confs', '/tmp')
+        self.conf.set_override('pd_dhcp_driver', '')
 
         self.device_exists_p = mock.patch(
             'neutron.agent.linux.ip_lib.device_exists')
@@ -168,7 +175,8 @@ class BasicRouterOperationsFramework(base.BaseTestCase):
             ri.radvd = ra.DaemonMonitor(router['id'],
                                         ri.ns_name,
                                         agent.process_monitor,
-                                        ri.get_internal_device_name)
+                                        ri.get_internal_device_name,
+                                        self.conf)
         ri.process(agent)
 
 
@@ -197,6 +205,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
     def test_periodic_sync_routers_task_raise_exception(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        self.plugin_api.get_router_ids.return_value = ['fake_id']
         self.plugin_api.get_routers.side_effect = ValueError
         self.assertRaises(ValueError,
                           agent.periodic_sync_routers_task,
@@ -244,6 +253,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         stale_router_ids = [_uuid(), _uuid()]
         active_routers = [{'id': _uuid()}, {'id': _uuid()}]
+        self.plugin_api.get_router_ids.return_value = [r['id'] for r
+                                                       in active_routers]
         self.plugin_api.get_routers.return_value = active_routers
         namespace_list = [namespaces.NS_PREFIX + r_id
                           for r_id in stale_router_ids]
@@ -352,7 +363,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                       'subnets': [{'gateway_ip': '20.0.0.1'}],
                       'extra_subnets': [{'cidr': '172.16.0.0/24'}],
                       'id': _uuid(),
-                      'binding:host_id': HOSTNAME,
+                      portbindings.HOST_ID: HOSTNAME,
                       'network_id': _uuid(),
                       'mac_address': 'ca:fe:de:ad:be:ef'}
         ri.snat_ports = sn_port
@@ -1059,7 +1070,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         # IpTablesRule instances
         nat_rules_delta = [r for r in orig_nat_rules
                            if r not in ri.iptables_manager.ipv4['nat'].rules]
-        self.assertEqual(3, len(nat_rules_delta))
+        self.assertEqual(2, len(nat_rules_delta))
         mangle_rules_delta = [
             r for r in orig_mangle_rules
             if r not in ri.iptables_manager.ipv4['mangle'].rules]
@@ -1086,7 +1097,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         # IpTablesRule instances
         nat_rules_delta = [r for r in ri.iptables_manager.ipv4['nat'].rules
                            if r not in orig_nat_rules]
-        self.assertEqual(3, len(nat_rules_delta))
+        self.assertEqual(2, len(nat_rules_delta))
         mangle_rules_delta = [
             r for r in ri.iptables_manager.ipv4['mangle'].rules
             if r not in orig_mangle_rules]
@@ -1095,14 +1106,14 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                                        router)
         self.assertEqual(1, self.send_adv_notif.call_count)
 
-    def test_update_routing_table(self):
-        # Just verify the correct namespace was used in the call
+    def _test_update_routing_table(self, is_snat_host=True):
         router = l3_test_common.prepare_router_data()
         uuid = router['id']
-        netns = 'snat-' + uuid
+        s_netns = 'snat-' + uuid
+        q_netns = 'qrouter-' + uuid
         fake_route1 = {'destination': '135.207.0.0/16',
-                       'nexthop': '1.2.3.4'}
-
+                       'nexthop': '19.4.4.200'}
+        calls = [mock.call('replace', fake_route1, q_netns)]
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = dvr_router.DvrEdgeRouter(
             agent,
@@ -1112,10 +1123,19 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             **self.ri_kwargs)
         ri._update_routing_table = mock.Mock()
 
-        ri.update_routing_table('replace', fake_route1)
-        ri._update_routing_table.assert_called_once_with('replace',
-                                                         fake_route1,
-                                                         netns)
+        with mock.patch.object(ri, '_is_this_snat_host') as snat_host:
+            snat_host.return_value = is_snat_host
+            ri.update_routing_table('replace', fake_route1)
+            if is_snat_host:
+                ri._update_routing_table('replace', fake_route1, s_netns)
+                calls += [mock.call('replace', fake_route1, s_netns)]
+            ri._update_routing_table.assert_has_calls(calls, any_order=True)
+
+    def test_process_update_snat_routing_table(self):
+        self._test_update_routing_table()
+
+    def test_process_not_update_snat_routing_table(self):
+        self._test_update_routing_table(is_snat_host=False)
 
     def test_process_router_interface_added(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -1147,20 +1167,31 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         # Get NAT rules with the gw_port
         router['gw_port'] = gw_port
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
-        orig_ext_gw_nat_rules = ri.external_gateway_nat_rules
-        with mock.patch.object(
-                ri,
-                'external_gateway_nat_rules') as external_gateway_nat_rules:
-            external_gateway_nat_rules.side_effect = orig_ext_gw_nat_rules
+        p = ri.external_gateway_nat_postroute_rules
+        s = ri.external_gateway_nat_snat_rules
+        attrs_to_mock = dict(
+            [(a, mock.DEFAULT) for a in
+                ['external_gateway_nat_postroute_rules',
+                 'external_gateway_nat_snat_rules']]
+        )
+        with mock.patch.multiple(ri, **attrs_to_mock) as mocks:
+            mocks['external_gateway_nat_postroute_rules'].side_effect = p
+            mocks['external_gateway_nat_snat_rules'].side_effect = s
             self._process_router_instance_for_agent(agent, ri, router)
             new_nat_rules = ri.iptables_manager.ipv4['nat'].rules[:]
 
             # NAT rules should only change for dual_stack operation
             if dual_stack:
-                self.assertTrue(external_gateway_nat_rules.called)
+                self.assertTrue(
+                    mocks['external_gateway_nat_postroute_rules'].called)
+                self.assertTrue(
+                    mocks['external_gateway_nat_snat_rules'].called)
                 self.assertNotEqual(orig_nat_rules, new_nat_rules)
             else:
-                self.assertFalse(external_gateway_nat_rules.called)
+                self.assertFalse(
+                    mocks['external_gateway_nat_postroute_rules'].called)
+                self.assertFalse(
+                    mocks['external_gateway_nat_snat_rules'].called)
                 self.assertEqual(orig_nat_rules, new_nat_rules)
 
     def test_process_ipv6_only_gw(self):
@@ -1203,7 +1234,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         return expected_calls
 
     def _process_router_ipv6_subnet_added(
-            self, router, ipv6_subnet_modes=None):
+            self, router, ipv6_subnet_modes=None, dns_nameservers=None):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         agent.external_gateway_added = mock.Mock()
@@ -1214,7 +1245,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             router,
             count=len(ipv6_subnet_modes),
             ip_version=6,
-            ipv6_subnet_modes=ipv6_subnet_modes)
+            ipv6_subnet_modes=ipv6_subnet_modes,
+            dns_nameservers=dns_nameservers)
         # Reassign the router object to RouterInfo
         self._process_router_instance_for_agent(agent, ri, router)
         return ri
@@ -1792,36 +1824,59 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         self.conf.set_override('router_id', '1234')
         self._configure_metadata_proxy()
 
-    def test_process_routers_update_rpc_timeout_on_get_routers(self):
+    def _test_process_routers_update_rpc_timeout(self, ext_net_call=False,
+                                                 ext_net_call_failed=False):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.fullsync = False
         agent._process_router_if_compatible = mock.Mock()
-        self.plugin_api.get_routers.side_effect = (
-            oslo_messaging.MessagingTimeout)
+        if ext_net_call_failed:
+            agent._process_router_if_compatible.side_effect = (
+                oslo_messaging.MessagingTimeout)
         agent._queue = mock.Mock()
+        agent._resync_router = mock.Mock()
         update = mock.Mock()
         update.router = None
         agent._queue.each_update_to_next_router.side_effect = [
             [(None, update)]]
-
         agent._process_router_update()
-        self.assertTrue(agent.fullsync)
-        self.assertFalse(agent._process_router_if_compatible.called)
+        self.assertFalse(agent.fullsync)
+        self.assertEqual(ext_net_call,
+                         agent._process_router_if_compatible.called)
+        agent._resync_router.assert_called_with(update)
+
+    def test_process_routers_update_rpc_timeout_on_get_routers(self):
+        self.plugin_api.get_routers.side_effect = (
+            oslo_messaging.MessagingTimeout)
+        self._test_process_routers_update_rpc_timeout()
+
+    def test_process_routers_update_resyncs_failed_router(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+
+        # Attempting to configure the router will fail
+        agent._process_router_if_compatible = mock.MagicMock()
+        agent._process_router_if_compatible.side_effect = RuntimeError()
+
+        # Queue an update from a full sync
+        update = router_processing_queue.RouterUpdate(
+            42,
+            router_processing_queue.PRIORITY_SYNC_ROUTERS_TASK,
+            router=mock.Mock(),
+            timestamp=timeutils.utcnow())
+        agent._queue.add(update)
+        agent._process_router_update()
+
+        # The update contained the router object, get_routers won't be called
+        self.assertFalse(agent.plugin_rpc.get_routers.called)
+
+        # The update failed, assert that get_routers was called
+        agent._process_router_update()
+        self.assertTrue(agent.plugin_rpc.get_routers.called)
 
     def test_process_routers_update_rpc_timeout_on_get_ext_net(self):
-        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
-        agent.fullsync = False
-        agent._process_router_if_compatible = mock.Mock()
-        agent._process_router_if_compatible.side_effect = (
-            oslo_messaging.MessagingTimeout)
-        agent._queue = mock.Mock()
-        agent._queue.each_update_to_next_router.side_effect = [
-            [(None, mock.Mock())]]
+        self._test_process_routers_update_rpc_timeout(ext_net_call=True,
+                                                      ext_net_call_failed=True)
 
-        agent._process_router_update()
-        self.assertTrue(agent.fullsync)
-
-    def test_process_routers_update_router_deleted(self):
+    def _test_process_routers_update_router_deleted(self, error=False):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent._queue = mock.Mock()
         update = mock.Mock()
@@ -1832,11 +1887,26 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         router_processor = mock.Mock()
         agent._queue.each_update_to_next_router.side_effect = [
             [(router_processor, update)]]
+        agent._resync_router = mock.Mock()
+        if error:
+            agent._safe_router_removed = mock.Mock()
+            agent._safe_router_removed.return_value = False
         agent._process_router_update()
-        router_info.delete.assert_called_once_with(agent)
-        self.assertFalse(agent.router_info)
-        router_processor.fetched_and_processed.assert_called_once_with(
-            update.timestamp)
+        if error:
+            self.assertFalse(router_processor.fetched_and_processed.called)
+            agent._resync_router.assert_called_with(update)
+        else:
+            router_info.delete.assert_called_once_with(agent)
+            self.assertFalse(agent.router_info)
+            self.assertFalse(agent._resync_router.called)
+            router_processor.fetched_and_processed.assert_called_once_with(
+                update.timestamp)
+
+    def test_process_routers_update_router_deleted_success(self):
+        self._test_process_routers_update_router_deleted()
+
+    def test_process_routers_update_router_deleted_error(self):
+        self._test_process_routers_update_router_deleted(True)
 
     def test_process_router_if_compatible_with_no_ext_net_in_conf(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -2129,7 +2199,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             router['id'],
             namespaces.RouterNamespace._get_ns_name(router['id']),
             agent.process_monitor,
-            l3_test_common.FakeDev)
+            l3_test_common.FakeDev,
+            self.conf)
         radvd.enable(router['_interfaces'])
 
         cmd = execute.call_args[0][0]
@@ -2175,6 +2246,21 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             assertFlag(managed_flag)('AdvManagedFlag on;',
                 self.utils_replace_file.call_args[0][1])
 
+    def test_generate_radvd_rdnss_conf(self):
+        router = l3_test_common.prepare_router_data()
+        ipv6_subnet_modes = [{'ra_mode': l3_constants.IPV6_SLAAC,
+                             'address_mode': l3_constants.IPV6_SLAAC}]
+        dns_list = ['fd01:1::100', 'fd01:1::200', 'fd01::300', 'fd01::400']
+        ri = self._process_router_ipv6_subnet_added(router,
+                                                    ipv6_subnet_modes,
+                                                    dns_nameservers=dns_list)
+        ri.radvd._generate_radvd_conf(router[l3_constants.INTERFACE_KEY])
+        # Verify that radvd configuration file includes RDNSS entries
+        expected = "RDNSS  "
+        for dns in dns_list[0:ra.MAX_RDNSS_ENTRIES]:
+            expected += "%s  " % dns
+        self.assertIn(expected, self.utils_replace_file.call_args[0][1])
+
     def _pd_expected_call_external_process(self, requestor, ri, enable=True):
         expected_calls = []
         if enable:
@@ -2207,7 +2293,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             ri.radvd = ra.DaemonMonitor(router['id'],
                                         ri.ns_name,
                                         agent.process_monitor,
-                                        ri.get_internal_device_name)
+                                        ri.get_internal_device_name,
+                                        self.conf)
         return agent, router, ri
 
     def _pd_remove_gw_interface(self, intfs, agent, router, ri):

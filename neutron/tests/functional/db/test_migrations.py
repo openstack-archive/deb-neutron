@@ -23,6 +23,7 @@ from oslo_db.sqlalchemy import test_base
 from oslo_db.sqlalchemy import test_migrations
 import sqlalchemy
 from sqlalchemy import event
+import sqlalchemy.types as types
 
 import neutron.db.migration as migration_help
 from neutron.db.migration.alembic_migrations import external
@@ -131,7 +132,25 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
             object_, name, type_, reflected, compare_to)
 
     def filter_metadata_diff(self, diff):
-        return filter(self.remove_unrelated_errors, diff)
+        return list(filter(self.remove_unrelated_errors, diff))
+
+    # TODO(akamyshikova): remove this method as soon as comparison with Variant
+    # will be implemented in oslo.db or alembic
+    def compare_type(self, ctxt, insp_col, meta_col, insp_type, meta_type):
+        if isinstance(meta_type, types.Variant):
+            orig_type = meta_col.type
+            meta_col.type = meta_type.impl
+            try:
+                return self.compare_type(ctxt, insp_col, meta_col, insp_type,
+                                         meta_type.impl)
+            finally:
+                meta_col.type = orig_type
+        else:
+            ret = super(_TestModelsMigrations, self).compare_type(
+                ctxt, insp_col, meta_col, insp_type, meta_type)
+            if ret is not None:
+                return ret
+            return ctxt.impl.compare_type(insp_col, meta_col)
 
     # Remove some difference that are not mistakes just specific of
     # dialects, etc
@@ -269,34 +288,6 @@ class TestModelsMigrationsMysql(_TestModelsMigrations,
 class TestModelsMigrationsPsql(_TestModelsMigrations,
                                base.PostgreSQLTestCase):
     pass
-
-
-class TestSanityCheck(test_base.DbTestCase):
-
-    def setUp(self):
-        super(TestSanityCheck, self).setUp()
-        self.alembic_config = migration.get_neutron_config()
-        self.alembic_config.neutron_config = cfg.CONF
-
-    def test_check_sanity_14be42f3d0a5(self):
-        SecurityGroup = sqlalchemy.Table(
-            'securitygroups', sqlalchemy.MetaData(),
-            sqlalchemy.Column('id', sqlalchemy.String(length=36),
-                              nullable=False),
-            sqlalchemy.Column('name', sqlalchemy.String(255)),
-            sqlalchemy.Column('tenant_id', sqlalchemy.String(255)))
-
-        with self.engine.connect() as conn:
-            SecurityGroup.create(conn)
-            conn.execute(SecurityGroup.insert(), [
-                {'id': '123d4s', 'tenant_id': 'sssda1', 'name': 'default'},
-                {'id': '123d4', 'tenant_id': 'sssda1', 'name': 'default'}
-            ])
-            script_dir = alembic_script.ScriptDirectory.from_config(
-                self.alembic_config)
-            script = script_dir.get_revision("14be42f3d0a5").module
-            self.assertRaises(script.DuplicateSecurityGroupsNamedDefault,
-                              script.check_sanity, conn)
 
 
 class TestWalkMigrations(test_base.DbTestCase):

@@ -19,13 +19,13 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 from sqlalchemy import and_
 
+from neutron._i18n import _, _LE
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.db import ipam_backend_mixin
 from neutron.db import models_v2
-from neutron.i18n import _LE
 from neutron.ipam import driver
 from neutron.ipam import exceptions as ipam_exc
 from neutron.ipam import requests as ipam_req
@@ -263,7 +263,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                         not is_auto_addr_subnet):
                     fixed_ip_list.append({'subnet_id': subnet['id']})
 
-        self._validate_max_ips_per_port(fixed_ip_list)
+        self._validate_max_ips_per_port(fixed_ip_list, device_owner)
         return fixed_ip_list
 
     def _update_ips_for_port(self, context, port,

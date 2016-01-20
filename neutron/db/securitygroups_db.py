@@ -21,6 +21,7 @@ from sqlalchemy import orm
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import scoped_session
 
+from neutron._i18n import _
 from neutron.api.v2 import attributes
 from neutron.callbacks import events
 from neutron.callbacks import exceptions
@@ -44,17 +45,18 @@ IP_PROTOCOL_MAP = {constants.PROTO_NAME_TCP: constants.PROTO_NUM_TCP,
 
 
 class SecurityGroup(model_base.HasStandardAttributes, model_base.BASEV2,
-                    models_v2.HasId, models_v2.HasTenant):
+                    model_base.HasId, model_base.HasTenant):
     """Represents a v2 neutron security group."""
 
-    name = sa.Column(sa.String(255))
-    description = sa.Column(sa.String(255))
+    name = sa.Column(sa.String(attributes.NAME_MAX_LEN))
+    description = sa.Column(sa.String(attributes.DESCRIPTION_MAX_LEN))
 
 
 class DefaultSecurityGroup(model_base.BASEV2):
     __tablename__ = 'default_security_group'
 
-    tenant_id = sa.Column(sa.String(255), primary_key=True, nullable=False)
+    tenant_id = sa.Column(sa.String(attributes.TENANT_ID_MAX_LEN),
+                          primary_key=True, nullable=False)
     security_group_id = sa.Column(sa.String(36),
                                   sa.ForeignKey("securitygroups.id",
                                                 ondelete="CASCADE"),
@@ -86,7 +88,7 @@ class SecurityGroupPortBinding(model_base.BASEV2):
 
 
 class SecurityGroupRule(model_base.HasStandardAttributes, model_base.BASEV2,
-                        models_v2.HasId, models_v2.HasTenant):
+                        model_base.HasId, model_base.HasTenant):
     """Represents a v2 neutron security group rule."""
 
     security_group_id = sa.Column(sa.String(36),
@@ -147,7 +149,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         except exceptions.CallbackFailure as e:
             raise ext_sg.SecurityGroupConflict(reason=e)
 
-        tenant_id = self._get_tenant_id_for_create(context, s)
+        tenant_id = s['tenant_id']
 
         if not default_sg:
             self._ensure_default_security_group(context, tenant_id)
@@ -391,11 +393,10 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         except exceptions.CallbackFailure as e:
             raise ext_sg.SecurityGroupConflict(reason=e)
 
-        tenant_id = self._get_tenant_id_for_create(context, rule_dict)
         with context.session.begin(subtransactions=True):
             db = SecurityGroupRule(
                 id=(rule_dict.get('id') or uuidutils.generate_uuid()),
-                tenant_id=tenant_id,
+                tenant_id=rule_dict['tenant_id'],
                 security_group_id=rule_dict['security_group_id'],
                 direction=rule_dict['direction'],
                 remote_group_id=rule_dict.get('remote_group_id'),
@@ -430,7 +431,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             raise ext_sg.SecurityGroupProtocolRequiredWithPorts()
         ip_proto = self._get_ip_proto_number(rule['protocol'])
         if ip_proto in [constants.PROTO_NUM_TCP, constants.PROTO_NUM_UDP]:
-            if (rule['port_range_min'] is not None and
+            if rule['port_range_min'] == 0 or rule['port_range_max'] == 0:
+                raise ext_sg.SecurityGroupInvalidPortValue(port=0)
+            elif (rule['port_range_min'] is not None and
                 rule['port_range_max'] is not None and
                 rule['port_range_min'] <= rule['port_range_max']):
                 pass
@@ -727,8 +730,8 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         port = port['port']
         if port.get('device_owner') and utils.is_port_trusted(port):
             return
-        tenant_id = self._get_tenant_id_for_create(context, port)
-        default_sg = self._ensure_default_security_group(context, tenant_id)
+        default_sg = self._ensure_default_security_group(context,
+                                                         port['tenant_id'])
         if not attributes.is_attr_set(port.get(ext_sg.SECURITYGROUPS)):
             port[ext_sg.SECURITYGROUPS] = [default_sg]
 

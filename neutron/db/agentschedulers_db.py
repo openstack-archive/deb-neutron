@@ -25,6 +25,7 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.common import constants
 from neutron.common import utils
 from neutron import context as ncontext
@@ -33,7 +34,6 @@ from neutron.db.availability_zone import network as network_az
 from neutron.db import model_base
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import dhcpagentscheduler
-from neutron.i18n import _LE, _LI, _LW
 
 
 LOG = logging.getLogger(__name__)
@@ -464,15 +464,9 @@ class AZDhcpAgentSchedulerDbMixin(DhcpAgentSchedulerDbMixin,
                                   network_az.NetworkAvailabilityZoneMixin):
     """Mixin class to add availability_zone supported DHCP agent scheduler."""
 
-    def get_network_availability_zones(self, network_id):
-        context = ncontext.get_admin_context()
-        with context.session.begin():
-            query = context.session.query(agents_db.Agent.availability_zone)
-            query = query.join(NetworkDhcpAgentBinding)
-            query = query.filter(
-                NetworkDhcpAgentBinding.network_id == network_id)
-            query = query.group_by(agents_db.Agent.availability_zone)
-            return [item[0] for item in query]
+    def get_network_availability_zones(self, network):
+        zones = {agent.availability_zone for agent in network.dhcp_agents}
+        return list(zones)
 
 
 # helper functions for readability.

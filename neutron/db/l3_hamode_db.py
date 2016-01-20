@@ -21,11 +21,13 @@ from oslo_utils import excutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 
+from neutron._i18n import _, _LI
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import utils as n_utils
 from neutron.db import agents_db
+from neutron.db.availability_zone import router as router_az_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
 from neutron.db import l3_dvr_db
@@ -34,7 +36,6 @@ from neutron.db import models_v2
 from neutron.extensions import l3_ext_ha_mode as l3_ha
 from neutron.extensions import portbindings
 from neutron.extensions import providernet
-from neutron.i18n import _LI
 from neutron.plugins.common import utils as p_utils
 
 
@@ -114,8 +115,8 @@ class L3HARouterNetwork(model_base.BASEV2):
 
     __tablename__ = 'ha_router_networks'
 
-    tenant_id = sa.Column(sa.String(255), primary_key=True,
-                          nullable=False)
+    tenant_id = sa.Column(sa.String(attributes.TENANT_ID_MAX_LEN),
+                          primary_key=True, nullable=False)
     network_id = sa.Column(sa.String(36),
                            sa.ForeignKey('networks.id', ondelete="CASCADE"),
                            nullable=False, primary_key=True)
@@ -136,11 +137,13 @@ class L3HARouterVRIdAllocation(model_base.BASEV2):
     vr_id = sa.Column(sa.Integer(), nullable=False, primary_key=True)
 
 
-class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
+class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
+                         router_az_db.RouterAvailabilityZoneMixin):
     """Mixin class to add high availability capability to routers."""
 
     extra_attributes = (
-        l3_dvr_db.L3_NAT_with_dvr_db_mixin.extra_attributes + [
+        l3_dvr_db.L3_NAT_with_dvr_db_mixin.extra_attributes +
+        router_az_db.RouterAvailabilityZoneMixin.extra_attributes + [
             {'name': 'ha', 'default': cfg.CONF.l3_ha},
             {'name': 'ha_vr_id', 'default': 0}])
 
@@ -188,7 +191,9 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
     def _allocate_vr_id(self, context, network_id, router_id):
         for count in range(MAX_ALLOCATION_TRIES):
             try:
-                with context.session.begin(subtransactions=True):
+                # NOTE(kevinbenton): we disallow subtransactions because the
+                # retry logic will bust any parent transactions
+                with context.session.begin():
                     allocated_vr_ids = self._get_allocated_vr_id(context,
                                                                  network_id)
                     available_vr_ids = VR_ID_RANGE - allocated_vr_ids
@@ -221,9 +226,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 vr_id=vr_id).delete()
 
     def _set_vr_id(self, context, router, ha_network):
-        with context.session.begin(subtransactions=True):
-            router.extra_attributes.ha_vr_id = self._allocate_vr_id(
-                context, ha_network.network_id, router.id)
+        router.extra_attributes.ha_vr_id = self._allocate_vr_id(
+            context, ha_network.network_id, router.id)
 
     def _create_ha_subnet(self, context, network_id, tenant_id):
         args = {'network_id': network_id,
@@ -315,6 +319,15 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
         return portbinding
 
     def add_ha_port(self, context, router_id, network_id, tenant_id):
+        # NOTE(kevinbenton): we have to block any ongoing transactions because
+        # our exception handling will try to delete the port using the normal
+        # core plugin API. If this function is called inside of a transaction
+        # the exception will mangle the state, cause the delete call to fail,
+        # and end up relying on the DB rollback to remove the port instead of
+        # proper delete_port call.
+        if context.session.is_active:
+            raise RuntimeError(_('add_ha_port cannot be called inside of a '
+                                 'transaction.'))
         args = {'tenant_id': '',
                 'network_id': network_id,
                 'admin_state_up': True,
@@ -408,7 +421,7 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
             router_dict['ha_vr_id'] = router_db.extra_attributes.ha_vr_id
         return router_dict
 
-    def _update_router_db(self, context, router_id, data, gw_info):
+    def _update_router_db(self, context, router_id, data):
         router_db = self._get_router(context, router_id)
 
         original_distributed_state = router_db.extra_attributes.distributed
@@ -424,7 +437,7 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
         with context.session.begin(subtransactions=True):
             router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
-                context, router_id, data, gw_info)
+                context, router_id, data)
 
             ha_not_changed = (requested_ha_state is None or
                               requested_ha_state == original_ha_state)
@@ -490,21 +503,31 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
                 self._delete_vr_id_allocation(
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 self._delete_ha_interfaces(context, router_db.id)
-            try:
+
+                # In case that create HA router failed because of the failure
+                # in HA network creation. So here put this deleting HA network
+                # procedure under 'if ha_network' block.
                 if not self._ha_routers_present(context,
                                                 router_db.tenant_id):
-                    self._delete_ha_network(context, ha_network)
-                    LOG.info(_LI("HA network %(network)s was deleted as "
-                                 "no HA routers are present in tenant "
-                                 "%(tenant)s."),
-                             {'network': ha_network.network_id,
-                              'tenant': router_db.tenant_id})
-            except n_exc.NetworkNotFound:
-                LOG.debug("HA network %s was already deleted.",
-                          ha_network.network_id)
-            except sa.exc.InvalidRequestError:
-                LOG.info(_LI("HA network %s can not be deleted."),
-                         ha_network.network_id)
+                    try:
+                        self._delete_ha_network(context, ha_network)
+                    except (n_exc.NetworkNotFound,
+                            orm.exc.ObjectDeletedError):
+                        LOG.debug(
+                            "HA network for tenant %s was already deleted.",
+                            router_db.tenant_id)
+                    except sa.exc.InvalidRequestError:
+                        LOG.info(_LI("HA network %s can not be deleted."),
+                                 ha_network.network_id)
+                    except n_exc.NetworkInUse:
+                        LOG.debug("HA network %s is still in use.",
+                                  ha_network.network_id)
+                    else:
+                        LOG.info(_LI("HA network %(network)s was deleted as "
+                                     "no HA routers are present in tenant "
+                                     "%(tenant)s."),
+                                 {'network': ha_network.network_id,
+                                  'tenant': router_db.tenant_id})
 
     def _unbind_ha_router(self, context, router_id):
         for agent in self.get_l3_agents_hosting_routers(context, [router_id]):
@@ -565,14 +588,14 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin):
 
         return list(routers_dict.values())
 
-    def get_ha_sync_data_for_host(self, context, host=None, router_ids=None,
-                                  active=None):
-        if n_utils.is_extension_supported(self,
-                                          constants.L3_DISTRIBUTED_EXT_ALIAS):
+    def get_ha_sync_data_for_host(self, context, host, agent,
+                                  router_ids=None, active=None):
+        agent_mode = self._get_agent_mode(agent)
+        dvr_agent_mode = (agent_mode in [constants.L3_AGENT_MODE_DVR_SNAT,
+                                         constants.L3_AGENT_MODE_DVR])
+        if (dvr_agent_mode and n_utils.is_extension_supported(
+                self, constants.L3_DISTRIBUTED_EXT_ALIAS)):
             # DVR has to be handled differently
-            agent = self._get_agent_by_type_and_host(context,
-                                                     constants.AGENT_TYPE_L3,
-                                                     host)
             sync_data = self._get_dvr_sync_data(context, host, agent,
                                                 router_ids, active)
         else:

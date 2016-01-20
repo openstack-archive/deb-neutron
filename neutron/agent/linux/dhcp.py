@@ -27,6 +27,7 @@ import oslo_messaging
 from oslo_utils import uuidutils
 import six
 
+from neutron._i18n import _, _LI, _LW, _LE
 from neutron.agent.common import utils as agent_common_utils
 from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
@@ -36,7 +37,6 @@ from neutron.common import exceptions
 from neutron.common import ipv6_utils
 from neutron.common import utils as common_utils
 from neutron.extensions import extra_dhcp_opt as edo_ext
-from neutron.i18n import _LI, _LW, _LE
 
 LOG = logging.getLogger(__name__)
 
@@ -307,7 +307,6 @@ class Dnsmasq(DhcpLocalProcess):
         cmd = [
             'dnsmasq',
             '--no-hosts',
-            '--no-resolv',
             '--strict-order',
             '--except-interface=lo',
             '--pid-file=%s' % pid_file,
@@ -369,7 +368,7 @@ class Dnsmasq(DhcpLocalProcess):
                 possible_leases += cidr.size
 
         if cfg.CONF.advertise_mtu:
-            mtu = self.network.mtu
+            mtu = getattr(self.network, 'mtu', 0)
             # Do not advertise unknown mtu
             if mtu > 0:
                 cmd.append('--dhcp-option-force=option:mtu,%d' % mtu)
@@ -384,6 +383,11 @@ class Dnsmasq(DhcpLocalProcess):
             cmd.extend(
                 '--server=%s' % server
                 for server in self.conf.dnsmasq_dns_servers)
+        else:
+            # We only look at 'dnsmasq_local_resolv' if 'dnsmasq_dns_servers'
+            # is not set, which explicitly overrides 'dnsmasq_local_resolv'.
+            if not self.conf.dnsmasq_local_resolv:
+                cmd.append('--no-resolv')
 
         if self.conf.dhcp_domain:
             cmd.append('--domain=%s' % self.conf.dhcp_domain)

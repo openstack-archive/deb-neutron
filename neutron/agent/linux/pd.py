@@ -23,6 +23,7 @@ from stevedore import driver
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron._i18n import _
 from neutron.agent.linux import utils as linux_utils
 from neutron.callbacks import events
 from neutron.callbacks import registry
@@ -38,8 +39,6 @@ OPTS = [
                default='dibbler',
                help=_('Service to handle DHCPv6 Prefix delegation.')),
 ]
-
-cfg.CONF.register_opts(OPTS)
 
 
 class PrefixDelegation(object):

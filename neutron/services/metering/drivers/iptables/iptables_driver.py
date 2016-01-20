@@ -18,12 +18,12 @@ from oslo_log import log as logging
 from oslo_utils import importutils
 import six
 
+from neutron._i18n import _, _LE, _LI
 from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import iptables_manager
 from neutron.common import constants as constants
 from neutron.common import ipv6_utils
-from neutron.i18n import _LE, _LI
 from neutron.services.metering.drivers import abstract_driver
 
 
@@ -176,9 +176,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def _prepare_rule(self, ext_dev, rule, label_chain):
         remote_ip = rule['remote_ip_prefix']
         if rule['direction'] == 'egress':
-            dir_opt = '-o %s -s %s' % (ext_dev, remote_ip)
+            dir_opt = '-o %s -d %s' % (ext_dev, remote_ip)
         else:
-            dir_opt = '-i %s -d %s' % (ext_dev, remote_ip)
+            dir_opt = '-i %s -s %s' % (ext_dev, remote_ip)
 
         if rule['excluded']:
             ipt_rule = '%s -j RETURN' % dir_opt

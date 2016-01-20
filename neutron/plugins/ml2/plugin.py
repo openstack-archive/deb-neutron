@@ -26,6 +26,7 @@ from oslo_utils import uuidutils
 from sqlalchemy import exc as sql_exc
 from sqlalchemy.orm import exc as sa_exc
 
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
@@ -66,7 +67,6 @@ from neutron.extensions import portbindings
 from neutron.extensions import portsecurity as psec
 from neutron.extensions import providernet as provider
 from neutron.extensions import vlantransparent
-from neutron.i18n import _LE, _LI, _LW
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
 from neutron.plugins.ml2.common import exceptions as ml2_exc
@@ -74,6 +74,7 @@ from neutron.plugins.ml2 import config  # noqa
 from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
 from neutron.plugins.ml2 import driver_context
+from neutron.plugins.ml2.extensions import qos as qos_ext
 from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import models
 from neutron.plugins.ml2 import rpc
@@ -83,6 +84,11 @@ from neutron.services.qos import qos_consts
 LOG = log.getLogger(__name__)
 
 MAX_BIND_TRIES = 10
+
+
+SERVICE_PLUGINS_REQUIRED_DRIVERS = {
+    'qos': [qos_ext.QOS_EXT_DRIVER_ALIAS]
+}
 
 
 class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
@@ -152,6 +158,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self._setup_dhcp()
         self._start_rpc_notifiers()
         self.add_agent_status_check(self.agent_health_check)
+        self._verify_service_plugins_requirements()
         LOG.info(_LI("Modular L2 Plugin initialization complete"))
 
     def _setup_rpc(self):
@@ -172,6 +179,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             cfg.CONF.network_scheduler_driver
         )
         self.start_periodic_dhcp_agent_status_check()
+
+    def _verify_service_plugins_requirements(self):
+        for service_plugin in cfg.CONF.service_plugins:
+            extension_drivers = SERVICE_PLUGINS_REQUIRED_DRIVERS.get(
+                service_plugin, []
+            )
+            for extension_driver in extension_drivers:
+                if extension_driver not in self.extension_manager.names():
+                    raise ml2_exc.ExtensionDriverNotFound(
+                        driver=extension_driver, service_plugin=service_plugin
+                    )
 
     @property
     def supported_qos_rule_types(self):
@@ -210,12 +228,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 for network in networks
                 if self.type_manager.network_matches_filters(network, filters)
                 ]
-
-    def _get_host_port_if_changed(self, mech_context, attrs):
-        binding = mech_context._binding
-        if attrs and portbindings.HOST_ID in attrs:
-            if binding.host != attrs.get(portbindings.HOST_ID):
-                return mech_context.current
 
     def _check_mac_update_allowed(self, orig_port, port, binding):
         unplugged_types = (portbindings.VIF_TYPE_BINDING_FAILED,
@@ -622,7 +634,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def _create_network_db(self, context, network):
         net_data = network[attributes.NETWORK]
-        tenant_id = self._get_tenant_id_for_create(context, net_data)
+        tenant_id = net_data['tenant_id']
         session = context.session
         with session.begin(subtransactions=True):
             self._ensure_default_security_group(context, tenant_id)
@@ -648,9 +660,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                                  net_data[az_ext.AZ_HINTS])
                 az_hints = az_ext.convert_az_list_to_string(
                                                 net_data[az_ext.AZ_HINTS])
-                super(Ml2Plugin, self).update_network(context,
+                res = super(Ml2Plugin, self).update_network(context,
                     result['id'], {'network': {az_ext.AZ_HINTS: az_hints}})
-                result[az_ext.AZ_HINTS] = az_hints
+                result[az_ext.AZ_HINTS] = res[az_ext.AZ_HINTS]
 
             # Update the transparent vlan if configured
             if utils.is_extension_supported(self, 'vlan-transparent'):
@@ -728,8 +740,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             nets = super(Ml2Plugin,
                          self).get_networks(context, filters, None, sorts,
                                             limit, marker, page_reverse)
-            for net in nets:
-                self.type_manager.extend_network_dict_provider(context, net)
+            self.type_manager.extend_networks_dict_provider(context, nets)
 
             nets = self._filter_nets_provider(context, nets, filters)
 
@@ -1028,7 +1039,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             attrs['status'] = const.PORT_STATUS_DOWN
 
         session = context.session
-        with session.begin(subtransactions=True):
+        with db_api.exc_to_retry(os_db_exception.DBDuplicateEntry),\
+                session.begin(subtransactions=True):
             dhcp_opts = attrs.get(edo_ext.EXTRADHCPOPTS, [])
             result = super(Ml2Plugin, self).create_port(context, port)
             self.extension_manager.process_create_port(context, attrs, result)
@@ -1054,11 +1066,9 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         return result, mech_context
 
     def create_port(self, context, port):
-        attrs = port[attributes.PORT]
         result, mech_context = self._create_port_db(context, port)
-        new_host_port = self._get_host_port_if_changed(mech_context, attrs)
         # notify any plugin that is interested in port create events
-        kwargs = {'context': context, 'port': new_host_port}
+        kwargs = {'context': context, 'port': result}
         registry.notify(resources.PORT, events.AFTER_CREATE, self, **kwargs)
 
         try:
@@ -1094,9 +1104,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         for obj in objects:
             attrs = obj['attributes']
             if attrs and attrs.get(portbindings.HOST_ID):
-                new_host_port = self._get_host_port_if_changed(
-                    obj['mech_context'], attrs)
-                kwargs = {'context': context, 'port': new_host_port}
+                kwargs = {'context': context, 'port': obj['result']}
                 registry.notify(
                     resources.PORT, events.AFTER_CREATE, self, **kwargs)
 
@@ -1160,7 +1168,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         session = context.session
         bound_mech_contexts = []
 
-        with session.begin(subtransactions=True):
+        with db_api.exc_to_retry(os_db_exception.DBDuplicateEntry),\
+                session.begin(subtransactions=True):
             port_db, binding = db.get_locked_port_and_binding(session, id)
             if not port_db:
                 raise exc.PortNotFound(port_id=id)
@@ -1200,8 +1209,6 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             mech_context = driver_context.PortContext(
                 self, context, updated_port, network, binding, levels,
                 original_port=original_port)
-            new_host_port = self._get_host_port_if_changed(
-                mech_context, attrs)
             need_port_update_notify |= self._process_port_binding(
                 mech_context, attrs)
             # For DVR router interface ports we need to retrieve the
@@ -1233,7 +1240,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         # Notifications must be sent after the above transaction is complete
         kwargs = {
             'context': context,
-            'port': new_host_port,
+            'port': updated_port,
             'mac_address_updated': mac_address_updated,
             'original_port': original_port,
         }

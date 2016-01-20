@@ -17,10 +17,16 @@ import string
 import testtools
 
 import mock
+import netaddr
+import webob.exc
 
+from oslo_utils import uuidutils
+
+from neutron._i18n import _
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
+from neutron import context
 from neutron.tests import base
 from neutron.tests import tools
 
@@ -269,6 +275,28 @@ class TestAttributes(base.BaseTestCase):
             msg = attributes._validate_ip_address(ip_addr)
             self.assertEqual("'%s' is not a valid IP address" % ip_addr, msg)
 
+    def test_validate_ip_address_with_leading_zero(self):
+        ip_addr = '1.1.1.01'
+        expected_msg = ("'%(data)s' is not an accepted IP address, "
+                        "'%(ip)s' is recommended")
+        msg = attributes._validate_ip_address(ip_addr)
+        self.assertEqual(expected_msg % {"data": ip_addr, "ip": '1.1.1.1'},
+                         msg)
+
+        ip_addr = '1.1.1.011'
+        msg = attributes._validate_ip_address(ip_addr)
+        self.assertEqual(expected_msg % {"data": ip_addr, "ip": '1.1.1.11'},
+                         msg)
+
+        ip_addr = '1.1.1.09'
+        msg = attributes._validate_ip_address(ip_addr)
+        self.assertEqual(expected_msg % {"data": ip_addr, "ip": '1.1.1.9'},
+                         msg)
+
+        ip_addr = "fe80:0:0:0:0:0:0:0001"
+        msg = attributes._validate_ip_address(ip_addr)
+        self.assertIsNone(msg)
+
     def test_validate_ip_address_bsd(self):
         # NOTE(yamamoto):  On NetBSD and OS X, netaddr.IPAddress() accepts
         # '1' * 59 as a valid address.  The behaviour is inherited from
@@ -278,7 +306,8 @@ class TestAttributes(base.BaseTestCase):
         ip_addr = '1' * 59
         with mock.patch('netaddr.IPAddress') as ip_address_cls:
             msg = attributes._validate_ip_address(ip_addr)
-        ip_address_cls.assert_called_once_with(ip_addr)
+        ip_address_cls.assert_called_once_with(ip_addr,
+                                               flags=netaddr.core.ZEROFILL)
         self.assertEqual("'%s' is not a valid IP address" % ip_addr, msg)
 
     def test_validate_ip_pools(self):
@@ -609,54 +638,47 @@ class TestAttributes(base.BaseTestCase):
                                   allow_none=True)
 
     def test_validate_uuid(self):
-        msg = attributes._validate_uuid('garbage')
-        self.assertEqual("'garbage' is not a valid UUID", msg)
+        invalid_uuids = [None,
+                         123,
+                         '123',
+                         't5069610-744b-42a7-8bd8-ceac1a229cd4',
+                         'e5069610-744bb-42a7-8bd8-ceac1a229cd4']
+        for uuid in invalid_uuids:
+            msg = attributes._validate_uuid(uuid)
+            error = "'%s' is not a valid UUID" % uuid
+            self.assertEqual(error, msg)
 
         msg = attributes._validate_uuid('00000000-ffff-ffff-ffff-000000000000')
         self.assertIsNone(msg)
 
-    def test_validate_uuid_list(self):
+    def test__validate_list_of_items(self):
         # check not a list
-        uuids = [None,
+        items = [None,
                  123,
                  'e5069610-744b-42a7-8bd8-ceac1a229cd4',
                  '12345678123456781234567812345678',
                  {'uuid': 'e5069610-744b-42a7-8bd8-ceac1a229cd4'}]
-        for uuid in uuids:
-            msg = attributes._validate_uuid_list(uuid)
-            error = "'%s' is not a list" % uuid
-            self.assertEqual(error, msg)
-
-        # check invalid uuid in a list
-        invalid_uuid_lists = [[None],
-                              [123],
-                              [123, 'e5069610-744b-42a7-8bd8-ceac1a229cd4'],
-                              ['123', '12345678123456781234567812345678'],
-                              ['t5069610-744b-42a7-8bd8-ceac1a229cd4'],
-                              ['e5069610-744b-42a7-8bd8-ceac1a229cd44'],
-                              ['e50696100-744b-42a7-8bd8-ceac1a229cd4'],
-                              ['e5069610-744bb-42a7-8bd8-ceac1a229cd4']]
-        for uuid_list in invalid_uuid_lists:
-            msg = attributes._validate_uuid_list(uuid_list)
-            error = "'%s' is not a valid UUID" % uuid_list[0]
+        for item in items:
+            msg = attributes._validate_list_of_items(mock.Mock(), item)
+            error = "'%s' is not a list" % item
             self.assertEqual(error, msg)
 
         # check duplicate items in a list
-        duplicate_uuids = ['e5069610-744b-42a7-8bd8-ceac1a229cd4',
+        duplicate_items = ['e5069610-744b-42a7-8bd8-ceac1a229cd4',
                            'f3eeab00-8367-4524-b662-55e64d4cacb5',
                            'e5069610-744b-42a7-8bd8-ceac1a229cd4']
-        msg = attributes._validate_uuid_list(duplicate_uuids)
+        msg = attributes._validate_list_of_items(mock.Mock(), duplicate_items)
         error = ("Duplicate items in the list: "
-                 "'%s'" % ', '.join(duplicate_uuids))
+                 "'%s'" % ', '.join(duplicate_items))
         self.assertEqual(error, msg)
 
-        # check valid uuid lists
-        valid_uuid_lists = [['e5069610-744b-42a7-8bd8-ceac1a229cd4'],
-                            ['f3eeab00-8367-4524-b662-55e64d4cacb5'],
-                            ['e5069610-744b-42a7-8bd8-ceac1a229cd4',
-                             'f3eeab00-8367-4524-b662-55e64d4cacb5']]
-        for uuid_list in valid_uuid_lists:
-            msg = attributes._validate_uuid_list(uuid_list)
+        # check valid lists
+        valid_lists = [[],
+                       [1, 2, 3],
+                       ['a', 'b', 'c']]
+        for list_obj in valid_lists:
+            msg = attributes._validate_list_of_items(
+                mock.Mock(return_value=None), list_obj)
             self.assertIsNone(msg)
 
     def test_validate_dict_type(self):
@@ -991,3 +1013,64 @@ class TestResDict(base.BaseTestCase):
                           attr_info, {'key': 1}, {'key': 1})
         self.assertRaises(self._EXC_CLS, attributes.convert_value,
                           attr_info, {'key': 1}, self._EXC_CLS)
+
+    def test_populate_tenant_id(self):
+        tenant_id_1 = uuidutils.generate_uuid()
+        tenant_id_2 = uuidutils.generate_uuid()
+        # apart from the admin, nobody can create a res on behalf of another
+        # tenant
+        ctx = context.Context(user_id=None, tenant_id=tenant_id_1)
+        res_dict = {'tenant_id': tenant_id_2}
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          attributes.populate_tenant_id,
+                          ctx, res_dict, None, None)
+        ctx.is_admin = True
+        self.assertIsNone(attributes.populate_tenant_id(ctx, res_dict,
+                                                        None, None))
+
+        # for each create request, the tenant_id should be added to the
+        # req body
+        res_dict2 = {}
+        attributes.populate_tenant_id(ctx, res_dict2, None, True)
+        self.assertEqual({'tenant_id': ctx.tenant_id}, res_dict2)
+
+        # if the tenant_id is mandatory for the resource and not specified
+        # in the request nor in the context, an exception should be raised
+        res_dict3 = {}
+        attr_info = {'tenant_id': {'allow_post': True}, }
+        ctx.tenant_id = None
+        self.assertRaises(webob.exc.HTTPBadRequest,
+                          attributes.populate_tenant_id,
+                          ctx, res_dict3, attr_info, True)
+
+
+class TestHelpers(base.DietTestCase):
+
+    def _verify_port_attributes(self, attrs):
+        for test_attribute in ('id', 'name', 'mac_address', 'network_id',
+                               'tenant_id', 'fixed_ips', 'status'):
+            self.assertIn(test_attribute, attrs)
+
+    def test_get_collection_info(self):
+        attrs = attributes.get_collection_info('ports')
+        self._verify_port_attributes(attrs)
+
+    def test_get_collection_info_missing(self):
+        self.assertFalse(attributes.get_collection_info('meh'))
+
+    def test_get_resource_info(self):
+        attributes.REVERSED_PLURALS.pop('port', None)
+        attrs = attributes.get_resource_info('port')
+        self._verify_port_attributes(attrs)
+        # verify side effect
+        self.assertIn('port', attributes.REVERSED_PLURALS)
+
+    def test_get_resource_info_missing(self):
+        self.assertFalse(attributes.get_resource_info('meh'))
+
+    def test_get_resource_info_cached(self):
+        with mock.patch('neutron.api.v2.attributes.PLURALS') as mock_plurals:
+            attributes.REVERSED_PLURALS['port'] = 'ports'
+            attrs = attributes.get_resource_info('port')
+            self._verify_port_attributes(attrs)
+        self.assertEqual(0, mock_plurals.items.call_count)

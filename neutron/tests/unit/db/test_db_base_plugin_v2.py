@@ -22,6 +22,7 @@ import netaddr
 from oslo_config import cfg
 from oslo_utils import importutils
 import six
+from sqlalchemy import event
 from sqlalchemy import orm
 import testtools
 from testtools import matchers
@@ -40,6 +41,7 @@ from neutron.common import ipv6_utils
 from neutron.common import test_lib
 from neutron.common import utils
 from neutron import context
+from neutron.db import api as db_api
 from neutron.db import db_base_plugin_common
 from neutron.db import ipam_non_pluggable_backend as non_ipam
 from neutron.db import l3_db
@@ -957,6 +959,23 @@ class TestPortsV2(NeutronDbPluginV2TestCase):
                 self.assertEqual(expected_error, data['NeutronError']['type'])
                 self.assertEqual(msg, data['NeutronError']['message'])
 
+    def test_create_port_with_too_many_fixed_ips(self):
+        with self.network() as network:
+            with self.subnet(network=network, cidr='10.0.0.0/24') as subnet:
+                fixed_ips = [{'subnet_id': subnet['subnet']['id'],
+                              'ip_address': '10.0.0.%s' % id}
+                             for id in range(3,
+                                 cfg.CONF.max_fixed_ips_per_port + 4)]
+                res = self._create_port(self.fmt,
+                                        network['network']['id'],
+                                        webob.exc.HTTPBadRequest.code,
+                                        fixed_ips=fixed_ips,
+                                        set_context=True)
+                data = self.deserialize(self.fmt, res)
+                expected_error = 'InvalidInput'
+                self.assertEqual(expected_error,
+                                 data['NeutronError']['type'])
+
     def test_create_ports_bulk_native(self):
         if self._skip_native_bulk:
             self.skipTest("Plugin does not support native bulk port create")
@@ -1247,6 +1266,32 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
         self.check_update_port_mac()
         # sub-classes for plugins/drivers that support mac address update
         # override this method
+
+    def test_update_dhcp_port_with_exceeding_fixed_ips(self):
+        """
+        Max fixed ips per port is configured in configuration file
+        by max_fixed_ips_per_port parameter.
+
+        DHCP port is not restricted by this parameter.
+        """
+        with self.subnet() as subnet:
+            updated_fixed_ips = [{'subnet_id': subnet['subnet']['id'],
+                                  'ip_address': '10.0.0.%s' % id}
+                                 for id in range(3,
+                                     cfg.CONF.max_fixed_ips_per_port + 4)]
+            host_arg = None or {}
+            arg_list = None or []
+            with self.port(device_owner=constants.DEVICE_OWNER_DHCP,
+                           subnet=subnet, arg_list=arg_list,
+                           **host_arg) as port:
+                data = {'port': {'fixed_ips': updated_fixed_ips}}
+                req = self.new_update_request('ports',
+                                              data, port['port']['id'])
+                res = req.get_response(self.api)
+                self.assertEqual(res.status_int, webob.exc.HTTPOk.code)
+                result = self.deserialize(self.fmt, res)
+                for fixed_ip in updated_fixed_ips:
+                    self.assertIn(fixed_ip, result['port']['fixed_ips'])
 
     def test_update_port_mac_ip(self):
         with self.subnet() as subnet:
@@ -5867,3 +5912,34 @@ class TestNetworks(testlib_api.SqlTestCase):
     def test_update_shared_net_used_by_floating_ip(self):
         self._test_update_shared_net_used(
             constants.DEVICE_OWNER_FLOATINGIP)
+
+
+class DbOperationBoundMixin(object):
+    """Mixin to support tests that assert constraints on DB operations."""
+
+    def setUp(self, *args, **kwargs):
+        super(DbOperationBoundMixin, self).setUp(*args, **kwargs)
+        self._db_execute_count = 0
+
+        def _event_incrementer(*args, **kwargs):
+            self._db_execute_count += 1
+
+        engine = db_api.get_engine()
+        event.listen(engine, 'after_execute', _event_incrementer)
+        self.addCleanup(event.remove, engine, 'after_execute',
+                        _event_incrementer)
+
+    def _list_and_count_queries(self, resource):
+        self._db_execute_count = 0
+        self.assertNotEqual([], self._list(resource))
+        query_count = self._db_execute_count
+        # sanity check to make sure queries are being observed
+        self.assertNotEqual(0, query_count)
+        return query_count
+
+    def _assert_object_list_queries_constant(self, obj_creator, plural):
+        obj_creator()
+        before_count = self._list_and_count_queries(plural)
+        # one more thing shouldn't change the db query count
+        obj_creator()
+        self.assertEqual(before_count, self._list_and_count_queries(plural))

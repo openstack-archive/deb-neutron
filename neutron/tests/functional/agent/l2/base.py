@@ -19,7 +19,6 @@ import random
 import eventlet
 import mock
 from oslo_config import cfg
-from oslo_log import log as logging
 from oslo_utils import uuidutils
 
 from neutron.agent.common import config as agent_config
@@ -46,8 +45,6 @@ from neutron.plugins.ml2.drivers.openvswitch.agent import ovs_neutron_agent \
 from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.linux import base
 
-LOG = logging.getLogger(__name__)
-
 
 class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
 
@@ -61,6 +58,8 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
                                          prefix='br-int')
         self.br_tun = base.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
                                          prefix='br-tun')
+        self.br_phys = base.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
+                                          prefix='br-phys')
         patch_name_len = n_const.DEVICE_NAME_MAX_LEN - len("-patch-tun")
         self.patch_tun = "%s-patch-tun" % self.br_int[patch_name_len:]
         self.patch_int = "%s-patch-int" % self.br_tun[patch_name_len:]
@@ -105,25 +104,53 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
             tunnel_types = [p_const.TYPE_VXLAN]
         else:
             tunnel_types = None
-        bridge_mappings = ['physnet:%s' % self.br_int]
+        bridge_mappings = ['physnet:%s' % self.br_phys]
         self.config.set_override('tunnel_types', tunnel_types, "AGENT")
         self.config.set_override('polling_interval', 1, "AGENT")
         self.config.set_override('prevent_arp_spoofing', False, "AGENT")
         self.config.set_override('local_ip', '192.168.10.1', "OVS")
         self.config.set_override('bridge_mappings', bridge_mappings, "OVS")
+        # Physical bridges should be created prior to running
+        self._bridge_classes()['br_phys'](self.br_phys).create()
         agent = ovs_agent.OVSNeutronAgent(self._bridge_classes(),
                                           self.config)
         self.addCleanup(self.ovs.delete_bridge, self.br_int)
         if tunnel_types:
             self.addCleanup(self.ovs.delete_bridge, self.br_tun)
+        self.addCleanup(self.ovs.delete_bridge, self.br_phys)
         agent.sg_agent = mock.Mock()
+        agent.ancillary_brs = []
         return agent
 
-    def start_agent(self, agent, unplug_ports=None):
+    def _mock_get_events(self, agent, polling_manager, ports):
+        get_events = polling_manager.get_events
+        p_ids = [p['id'] for p in ports]
+
+        def filter_events():
+            events = get_events()
+            filtered_ports = []
+            for dev in events['added']:
+                iface_id = agent.int_br.portid_from_external_ids(
+                    dev.get('external_ids', []))
+                if iface_id in p_ids:
+                    # if the event is not about a port that was created by
+                    # this test, we filter the event out. Since these tests are
+                    # not run in isolation processing all the events might make
+                    # some test fail ( e.g. the agent might keep resycing
+                    # because it keeps finding not ready ports that are created
+                    # by other tests)
+                    filtered_ports.append(dev)
+            return {'added': filtered_ports, 'removed': events['removed']}
+        polling_manager.get_events = mock.Mock(side_effect=filter_events)
+
+    def start_agent(self, agent, ports=None, unplug_ports=None):
         if unplug_ports is None:
             unplug_ports = []
+        if ports is None:
+            ports = []
         self.setup_agent_rpc_mocks(agent, unplug_ports)
         polling_manager = polling.InterfacePollingMinimizer()
+        self._mock_get_events(agent, polling_manager, ports)
         self.addCleanup(polling_manager.stop)
         polling_manager.start()
         agent_utils.wait_until_true(
@@ -137,6 +164,7 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
             rpc_loop_thread.wait()
 
         self.addCleanup(stop_agent, agent, t)
+        return polling_manager
 
     def _create_test_port_dict(self):
         return {'id': uuidutils.generate_uuid(),
@@ -280,10 +308,10 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
 
     def setup_agent_and_ports(self, port_dicts, create_tunnels=True,
                               trigger_resync=False):
-        self.agent = self.create_agent(create_tunnels=create_tunnels)
-        self.start_agent(self.agent)
-        self.network = self._create_test_network_dict()
         self.ports = port_dicts
+        self.agent = self.create_agent(create_tunnels=create_tunnels)
+        self.polling_manager = self.start_agent(self.agent, ports=self.ports)
+        self.network = self._create_test_network_dict()
         if trigger_resync:
             self._prepare_resync_trigger(self.agent)
         self._plug_ports(self.network, self.ports, self.agent)

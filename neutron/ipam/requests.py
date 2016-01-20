@@ -17,6 +17,7 @@ from oslo_config import cfg
 from oslo_utils import uuidutils
 import six
 
+from neutron._i18n import _
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import ipv6_utils
@@ -234,8 +235,8 @@ class AutomaticAddressRequest(SpecificAddressRequest):
         generating it can be passed as optional keyword arguments.
 
         :param address_type: the type of address to generate.
-            It could be a eui-64 address, a random IPv6 address, or
-            a ipv4 link-local address.
+            It could be an eui-64 address, a random IPv6 address, or
+            an ipv4 link-local address.
             For the Kilo release only eui-64 addresses will be supported.
         """
         address_generator = self._address_generators.get(address_type)
