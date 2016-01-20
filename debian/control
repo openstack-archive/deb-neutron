@@ -336,10 +336,11 @@ Depends: neutron-linuxbridge-agent,
 Architecture: all
 Section: oldlibs
 description: transitional dummy package for switching to Neutron Linuxbridge agent.
- This is a transitional dummy package due to the move of the Linuxbridge agent from
- core plugin to ML2 MechanismDriver.
- Once you have upgraded, this package can safely be removed. This package provides a
- transition path from neutron-plugin-linuxbridge-agent to neutron-linuxbridge-agent.
+ This is a transitional dummy package due to the move of the Linuxbridge agent
+ from core plugin to ML2 MechanismDriver.
+ Once you have upgraded, this package can safely be removed. This package
+ provides a transition path from neutron-plugin-linuxbridge-agent to
+ neutron-linuxbridge-agent.
 
 Package: neutron-plugin-openvswitch-agent
 Depends: neutron-openvswitch-agent,
@@ -347,7 +348,8 @@ Depends: neutron-openvswitch-agent,
 Architecture: all
 Section: oldlibs
 description: transitional dummy package for switching to Neutron OpenVswitch agent.
- This is a transitional dummy package due to the move of the OpenVswitch agent from
- core plugin to ML2 MechanismDriver.
- Once you have upgraded, this package can safely be removed. This package provides a
- transition path from neutron-plugin-openvswitch-agent to neutron-openvswitch-agent.
+ This is a transitional dummy package due to the move of the OpenVswitch agent
+ from core plugin to ML2 MechanismDriver.
+ Once you have upgraded, this package can safely be removed. This package
+ provides a transition path from neutron-plugin-openvswitch-agent to
+ neutron-openvswitch-agent.
