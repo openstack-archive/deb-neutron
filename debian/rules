@@ -9,52 +9,86 @@ PYTHONS:=$(shell pyversions -vr)
 	dh $@ --buildsystem=python_distutils --with python2,systemd
 
 override_dh_auto_install:
+	echo "Do nothing"
+
+override_dh_install:
+	rm -rf $(CURDIR)/debian/tmp
 	python2.7 setup.py install --install-layout=deb --root=$(CURDIR)/debian/tmp
 	cp -auxf neutron $(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages
 	rm -rf $(CURDIR)/debian/tmp/usr/etc
 
-override_dh_install:
-	dh_install --fail-missing -X/usr/etc -X/usr/bin
-
+	# dhcp_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.base.agent \
 		--namespace neutron.dhcp.agent \
 		--namespace oslo.log
+	sed -i 's|^[ #\t]*interface_driver[ \t]*=.*|interface_driver = neutron.agent.linux.interface.OVSInterfaceDriver|' $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini
+	sed -i 's|^[ #\t]*ovs_integration_bridge[ \t]*=.*|ovs_integration_bridge = br-int|' $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini
+	sed -i 's|^[ #\t]*dhcp_driver[ \t]*=.*|dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq|' $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini
+	sed -i 's|^[ #\t]*enable_isolated_metadata[ \t]*=.*|enable_isolated_metadata = False|' $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini
+	sed -i 's|^[ #\t]*dnsmasq_config_file[ \t]*=.*|dnsmasq_config_file = /etc/neutron/dnsmasq-neutron.conf|' $(CURDIR)/debian/neutron-dhcp-agent/etc/neutron/dhcp_agent.ini
+
+	# l3_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-l3-agent/etc/neutron
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.base.agent \
 		--namespace neutron.l3.agent \
 		--namespace oslo.log
+	sed -i 's|^[ #\t]*interface_driver[ \t]*=.*|interface_driver = openvswitch|' $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini
+	sed -i 's|^[ #\t]*handle_internal_only_routers[ \t]*=.*|handle_internal_only_routers = True|' $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini
+	sed -i 's|^[ #\t]*external_network_bridge[ \t]*=.*|external_network_bridge = br-ex|' $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini
+	sed -i 's|^[ #\t]*enable_metadata_proxy[ \t]*=.*|enable_metadata_proxy = True|' $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini
+	sed -i 's|^[ #\t]*agent_mode[ \t]*=.*|agent_mode = legacy|' $(CURDIR)/debian/neutron-l3-agent/etc/neutron/l3_agent.ini
+
+	# linuxbridge_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-linuxbridge-agent/etc/neutron/plugins/ml2
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-linuxbridge-agent/etc/neutron/plugins/ml2/linuxbridge_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-linuxbridge-agent/etc/neutron/plugins/ml2/linuxbridge_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.linuxbridge.agent \
 		--namespace oslo.log
+
+	# metadata_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.metadata.agent \
 		--namespace oslo.log
-	sed -i -e 's|^# nova_metadata_ip = 127.0.0.1|nova_metadata_ip = 127.0.0.1|'	$(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+	sed -i 's|^[ #\t]*nova_metadata_protocol[ \t]*=.*|nova_metadata_protocol = http|' $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+	sed -i 's|^[ #\t]*nova_metadata_ip[ \t]*=.*|nova_metadata_ip = 127.0.0.1|' $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
+
+	# metering_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-metering-agent/etc/neutron
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-metering-agent/etc/neutron/metering_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp oslo-config-generator --output-file $(CURDIR)/debian/neutron-metering-agent/etc/neutron/metering_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.metering.agent \
 		--namespace oslo.log
+
+	# ml2_conf.ini
 	mkdir -p $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2 \
 		--namespace oslo.log
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf_sriov.ini \
+	sed -i 's|^[ #\t]*type_drivers[ \t]*=.*|type_drivers = flat,gre|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*tenant_network_types[ \t]*=.*|tenant_network_types = gre|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*mechanism_drivers[ \t]*=.*|mechanism_drivers = openvswitch,l2population|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*flat_networks[ \t]*=.*|flat_networks = external|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*tunnel_id_ranges[ \t]*=.*|tunnel_id_ranges = 1:1000|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*enable_security_group[ \t]*=.*|enable_security_group = True|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	sed -i 's|^[ #\t]*enable_ipset[ \t]*=.*|enable_ipset = True |' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+
+	# ml2_conf_sriov.ini
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf_sriov.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.sriov \
 		--namespace oslo.log
+
+	# neutron.conf
 	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf \
 		--wrap-width 140 \
 		--namespace neutron \
 		--namespace neutron.agent \
@@ -71,16 +105,42 @@ override_dh_install:
 		--namespace oslo.service.sslutils \
 		--namespace oslo.service.wsgi \
 		--namespace keystonemiddleware.auth_token
+	sed -i 's|^[ #\t]*core_plugin[ \t]*=.*|core_plugin = ml2|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*service_plugins[ \t]*=.*|service_plugins = router,metering|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*auth_strategy[ \t]*=.*|auth_strategy = keystone|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*allow_overlapping_ips[ \t]*=.*|allow_overlapping_ips = True|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*notify_nova_on_port_status_changes[ \t]*=.*|notify_nova_on_port_status_changes = True |' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*rpc_backend[ \t]*=.*|rpc_backend = rabbit|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*root_helper[ \t]*=.*|root_helper = sudo neutron-rootwrap /etc/neutron/rootwrap.conf|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*connection[ \t]*=.*|connection = sqlite:///var/lib/neutron/neutrondb|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*region_name[ \t]*=.*|region_name = regionOne|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*rabbit_host[ \t]*=.*|rabbit_host = localhost|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*rabbit_userid[ \t]*=.*|rabbit_userid = guest|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*rabbit_password[ \t]*=.*|rabbit_password = guest|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+
+	# openvswitch_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.ovs.agent \
 		--namespace oslo.log
+	sed -i 's|^[ #\t]*integration_bridge[ \t]*=.*|integration_bridge = br-int|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*bridge_mappings[ \t]*=.*|bridge_mappings = external:br-ex|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*polling_interval[ \t]*=.*|polling_interval = 15|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*tunnel_types[ \t]*=.*|tunnel_types = gre|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*l2_population[ \t]*=.*|l2_population = True|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*arp_responder[ \t]*=.*|arp_responder = False|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*enable_distributed_routing[ \t]*=.*|enable_distributed_routing = False|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+	sed -i 's|^[ #\t]*firewall_driver[ \t]*=.*|firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini
+
+	# sriov_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2
-	oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/sriov_agent.ini \
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/sriov_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.ml2.sriov.agent \
 		--namespace oslo.log
+
+	dh_install --fail-missing -X/usr/etc -X/usr/bin
 	
 override_dh_auto_clean:
 	dh_auto_clean
