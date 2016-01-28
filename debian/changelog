@@ -1,3 +1,9 @@
+neutron (2:8.0.0~b2-3) UNRELEASED; urgency=medium
+
+  * Bumped EPOCH to align with Ubuntu.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 28 Jan 2016 07:34:12 +0000
+
 neutron (1:8.0.0~b2-2) experimental; urgency=medium
 
   * Fixed config file generation.
