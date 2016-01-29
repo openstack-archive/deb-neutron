@@ -2,6 +2,7 @@ neutron (2:8.0.0~b2-3) UNRELEASED; urgency=medium
 
   * Bumped EPOCH to align with Ubuntu.
   * Allow unit test to fail, because they do in Trusty.
+  * Do not -X/usr/bin when calling dh_install.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 28 Jan 2016 07:34:12 +0000
 
