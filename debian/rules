@@ -118,6 +118,7 @@ override_dh_install:
 	sed -i 's|^[ #\t]*rabbit_userid[ \t]*=.*|rabbit_userid = guest|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*rabbit_password[ \t]*=.*|rabbit_password = guest|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf oslo_concurrency lock_path /var/lock/neutron
 
 	# openvswitch_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
