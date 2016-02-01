@@ -120,6 +120,17 @@ override_dh_install:
 	sed -i 's/^[ \t#]*auth_protocol[ \t]*=[ \t].*/auth_protocol = http/' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf oslo_concurrency lock_path /var/lock/neutron
 
+	# Fix v3 auth for the [nova] section
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova user_domain_id default
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova project_name admin
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova auth_plugin v3password
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova auth_url http://127.0.0.1:5000/v3
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova tenant_name admin
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova username admin
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova user_domain_name default
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova project_domain_name default
+
+
 	# openvswitch_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-common/usr/share/neutron-common
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/usr/share/neutron-common/openvswitch_agent.ini \
