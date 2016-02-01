@@ -85,11 +85,11 @@ db_get neutron/plugin-select
 NEUTRON_PLUGIN_NAME=${RET}
 
 read_nova_admin_credentials () {
-	pkgos_read_config -p high ${N_CONF} DEFAULT nova_url neutron/nova_url
-	pkgos_read_config -p high ${N_CONF} DEFAULT nova_region_name neutron/nova_region
-	pkgos_read_config -p medium ${N_CONF} DEFAULT nova_admin_tenant_id neutron/nova_admin_tenant_id
-	pkgos_read_config -p medium ${N_CONF} DEFAULT nova_admin_username neutron/nova_admin_username
-	pkgos_read_config -p high ${N_CONF} DEFAULT nova_admin_password neutron/nova_admin_password
+	pkgos_read_config -p high ${N_CONF} nova url neutron/nova_url
+	pkgos_read_config -p high ${N_CONF} nova region_name neutron/nova_region
+	pkgos_read_config -p medium ${N_CONF} nova project_name neutron/nova_admin_tenant_name
+	pkgos_read_config -p medium ${N_CONF} nova username neutron/nova_admin_username
+	pkgos_read_config -p high ${N_CONF} nova password neutron/nova_admin_password
 }
 
 # OVS specific configurations (if that's the one selected)

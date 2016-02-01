@@ -59,15 +59,21 @@ neutron_core_plugin_class () {
 
 write_nova_admin_credentials () {
         db_get neutron/nova_url
-	pkgos_inifile set ${N_CONF} DEFAULT nova_url ${RET}
+	pkgos_inifile set ${N_CONF} nova url ${RET}
+
 	db_get neutron/nova_region
-	pkgos_inifile set ${N_CONF} DEFAULT nova_region_name ${RET}
-	db_get neutron/nova_admin_tenant_id
-	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_tenant_id ${RET}
+	pkgos_inifile set ${N_CONF} nova region_name ${RET}
+
+	db_get neutron/nova_admin_tenant_name
+	NOVA_TENANT_NAME_IN_NEUTRON=${RET}
+	pkgos_inifile set ${N_CONF} nova tenant_name ${RET}
+	pkgos_inifile set ${N_CONF} nova project_name ${RET}
+
 	db_get neutron/nova_admin_username
-	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_username ${RET}
+	pkgos_inifile set ${N_CONF} nova username ${RET}
+
 	db_get neutron/nova_admin_password
-	pkgos_inifile set ${N_CONF} DEFAULT nova_admin_password ${RET}
+	pkgos_inifile set ${N_CONF} nova password ${RET}
 }
 
 if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then

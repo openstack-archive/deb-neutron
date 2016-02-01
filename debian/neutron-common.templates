@@ -139,12 +139,12 @@ Default: regionOne
 _Description: Nova server region name:
  Please enter the region of the Nova server.
 
-Template: neutron/nova_admin_tenant_id
+Template: neutron/nova_admin_tenant_name
 Type: string
 Default: admin
-_Description: Nova admin tenant ID:
+_Description: Nova admin tenant name:
  Neutron needs to be able to communicate with Nova through Keystone. Therefore
- Neutron needs to know the Nova admin tenant ID, username and password.
+ Neutron needs to know the Nova admin tenant name, username and password.
  .
  Please enter the ID of the admin tenant for Nova.
 
