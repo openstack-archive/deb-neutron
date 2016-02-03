@@ -1,2 +1,2 @@
-etc/neutron/rootwrap.d
 etc/neutron/plugins
+etc/neutron/rootwrap.d
