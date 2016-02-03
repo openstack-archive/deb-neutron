@@ -1,4 +1,4 @@
-neutron (2:8.0.0~b2-3) UNRELEASED; urgency=medium
+neutron (2:8.0.0~b2-3) experimental; urgency=medium
 
   * Bumped EPOCH to align with Ubuntu.
   * Allow unit test to fail, because they do in Trusty.
@@ -7,6 +7,7 @@ neutron (2:8.0.0~b2-3) UNRELEASED; urgency=medium
   * Drop Provides: argparse (Closes: #810728).
   * neutron-linuxbridge-agent Breaks + Replaes older neutron-common
     (Closes: #813068).
+  * New pt_BR.po debconf translation (Closes: #811530).
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 28 Jan 2016 07:34:12 +0000
 
