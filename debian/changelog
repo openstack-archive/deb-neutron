@@ -1,8 +1,14 @@
 neutron (2:8.0.0~b2-4) UNRELEASED; urgency=medium
 
+  [ Thomas Goirand ]
   * Added a neutron-sriov-agent package.
 
- -- Thomas Goirand <zigo@debian.org>  Fri, 26 Feb 2016 21:53:13 +0800
+  [ Ivan Udovichenko]
+  * d/neutron-openvswitch-agent.upstart.in: Remove legacy custom Upstart script.
+  * d/neutron-linuxbridge-agent.init.in d/neutron-openvswitch-agent.init.in:
+      Add custom ML2 config files instead of the default one (LP#1527005).
+
+ -- Ivan Udovichenko <iudovichenko@mirantis.com>  Fri, 26 Feb 2016 16:05:47 +0200
 
 neutron (2:8.0.0~b2-3) experimental; urgency=medium
 

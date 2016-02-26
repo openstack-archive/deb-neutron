@@ -25,5 +25,5 @@ NAME=${PROJECT_NAME}-linuxbridge-agent
 # replaced by ml2 as core_plugin and lb as agent. Making ml2 mandatory
 # to use this agent
 
-DAEMON_ARGS="--config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini --config-file=/etc/neutron/plugins/ml2/ml2_conf.ini"
+DAEMON_ARGS="--config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini --config-file=/etc/neutron/plugins/ml2/linuxbridge_agent.ini"
 
