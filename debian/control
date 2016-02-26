@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Thomas Goirand <zigo@debian.org>,
            Gustavo Panizzo <gfa@zumbi.com.ar>,
+           Ivan Udovichenko <iudovichenko@mirantis.com>,
 Build-Depends: debhelper (>= 9),
                dh-python,
                dh-systemd,
