@@ -346,3 +346,17 @@ description: transitional dummy package for switching to Neutron OpenVswitch age
  Once you have upgraded, this package can safely be removed. This package
  provides a transition path from neutron-plugin-openvswitch-agent to
  neutron-openvswitch-agent.
+
+Package: neutron-sriov-agent
+Architecture: all
+Depends: neutron-common (= ${source:Version}),
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends},
+Description: OpenStack virtual network service - SR-IOV agent
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package provides the Mellanox SR-IOV agent.

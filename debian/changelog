@@ -1,3 +1,9 @@
+neutron (2:8.0.0~b2-4) UNRELEASED; urgency=medium
+
+  * Added a neutron-sriov-agent package.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 26 Feb 2016 21:53:13 +0800
+
 neutron (2:8.0.0~b2-3) experimental; urgency=medium
 
   * Bumped EPOCH to align with Ubuntu.
