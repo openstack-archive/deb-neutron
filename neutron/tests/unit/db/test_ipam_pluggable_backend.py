@@ -15,10 +15,9 @@
 
 import mock
 import netaddr
-import webob.exc
-
 from oslo_config import cfg
 from oslo_utils import uuidutils
+import webob.exc
 
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
@@ -294,6 +293,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
         cidr = constants.PROVISIONAL_IPV6_PD_PREFIX
         allocation_pools = [netaddr.IPRange('::2', '::ffff:ffff:ffff:ffff')]
         with self.subnet(cidr=None, ip_version=6,
+                         subnetpool_id=constants.IPV6_PD_POOL_ID,
                          ipv6_ra_mode=constants.IPV6_SLAAC,
                          ipv6_address_mode=constants.IPV6_SLAAC):
             pool_mock.get_instance.assert_called_once_with(None, mock.ANY)
@@ -463,7 +463,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             with self.port(subnet=subnet) as port:
                 ips = port['port']['fixed_ips']
                 self.assertEqual(1, len(ips))
-                self.assertEqual(ips[0]['ip_address'], auto_ip)
+                self.assertEqual(auto_ip, ips[0]['ip_address'])
                 # Update port with another new ip
                 data = {"port": {"fixed_ips": [{
                         'subnet_id': subnet['subnet']['id'],
@@ -490,7 +490,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             with self.port(subnet=subnet) as port:
                 ips = port['port']['fixed_ips']
                 self.assertEqual(1, len(ips))
-                self.assertEqual(ips[0]['ip_address'], auto_ip)
+                self.assertEqual(auto_ip, ips[0]['ip_address'])
                 req = self.new_delete_request('ports', port['port']['id'])
                 res = req.get_response(self.api)
 
@@ -503,14 +503,14 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             with self.port(subnet=subnet) as port:
                 ips = port['port']['fixed_ips']
                 self.assertEqual(1, len(ips))
-                self.assertEqual(ips[0]['ip_address'], ip)
+                self.assertEqual(ip, ips[0]['ip_address'])
                 req = self.new_delete_request('ports', port['port']['id'])
                 res = req.get_response(self.api)
                 self.assertEqual(webob.exc.HTTPNoContent.code, res.status_int)
                 with self.port(subnet=subnet, fixed_ips=ips) as port:
                     ips = port['port']['fixed_ips']
                     self.assertEqual(1, len(ips))
-                    self.assertEqual(ips[0]['ip_address'], ip)
+                    self.assertEqual(ip, ips[0]['ip_address'])
 
     @mock.patch('neutron.ipam.driver.Pool')
     def test_update_ips_for_port_passes_port_dict_to_factory(self, pool_mock):
@@ -542,3 +542,43 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
         address_factory.get_request.assert_called_once_with(context,
                                                             port_dict,
                                                             ip_dict)
+
+    @mock.patch('neutron.ipam.driver.Pool')
+    def test_update_ips_for_port_passes_port_id_to_factory(self, pool_mock):
+        port_id = mock.Mock()
+        network_id = uuidutils.generate_uuid()
+        address_factory = mock.Mock()
+        mocks = self._prepare_mocks_with_pool_mock(
+            pool_mock, address_factory=address_factory)
+        context = mock.Mock()
+
+        ip_dict = {'ip_address': '192.1.1.10',
+                   'subnet_id': uuidutils.generate_uuid()}
+        port_dict = {'port': {'device_owner': uuidutils.generate_uuid(),
+                              'network_id': network_id,
+                              'fixed_ips': [ip_dict]}}
+        subnets = [{'id': ip_dict['subnet_id'],
+                    'network_id': network_id,
+                    'cidr': '192.1.1.0/24',
+                    'ipv6_address_mode': None,
+                    'ipv6_ra_mode': None}]
+        get_subnets_mock = mock.Mock(return_value=subnets)
+        get_subnet_mock = mock.Mock(return_value=subnets[0])
+        mocks['ipam'] = ipam_pluggable_backend.IpamPluggableBackend()
+        mocks['ipam']._get_subnets = get_subnets_mock
+        mocks['ipam']._get_subnet = get_subnet_mock
+
+        mocks['ipam'].allocate_ips_for_port_and_store(context,
+                                                      port_dict,
+                                                      port_id)
+
+        mocks['driver'].get_address_request_factory.assert_called_once_with()
+
+        port_dict_with_id = port_dict['port'].copy()
+        port_dict_with_id['id'] = port_id
+        # Validate port id is added to port dict before address_factory call
+        address_factory.get_request.assert_called_once_with(context,
+                                                            port_dict_with_id,
+                                                            ip_dict)
+        # Verify incoming port dict is not changed ('id' is not added to it)
+        self.assertIsNone(port_dict['port'].get('id'))

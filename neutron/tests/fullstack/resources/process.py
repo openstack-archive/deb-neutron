@@ -15,6 +15,7 @@
 import datetime
 from distutils import spawn
 import os
+import signal
 
 import fixtures
 from neutronclient.common import exceptions as nc_exc
@@ -34,13 +35,16 @@ DEFAULT_LOG_DIR = '/tmp/dsvm-fullstack-logs/'
 
 
 class ProcessFixture(fixtures.Fixture):
-    def __init__(self, test_name, process_name, exec_name, config_filenames):
+    def __init__(self, test_name, process_name, exec_name, config_filenames,
+                 namespace=None, kill_signal=signal.SIGKILL):
         super(ProcessFixture, self).__init__()
         self.test_name = test_name
         self.process_name = process_name
         self.exec_name = exec_name
         self.config_filenames = config_filenames
         self.process = None
+        self.kill_signal = kill_signal
+        self.namespace = namespace
 
     def _setUp(self):
         self.start()
@@ -59,14 +63,21 @@ class ProcessFixture(fixtures.Fixture):
                '--log-file', log_file]
         for filename in self.config_filenames:
             cmd += ['--config-file', filename]
-        self.process = async_process.AsyncProcess(cmd)
+        run_as_root = bool(self.namespace)
+        self.process = async_process.AsyncProcess(
+            cmd, run_as_root=run_as_root, namespace=self.namespace
+        )
         self.process.start(block=True)
 
     def stop(self):
-        self.process.stop(block=True)
+        self.process.stop(block=True, kill_signal=self.kill_signal)
 
 
 class RabbitmqEnvironmentFixture(fixtures.Fixture):
+
+    def __init__(self, host="127.0.0.1"):
+        super(RabbitmqEnvironmentFixture, self).__init__()
+        self.host = host
 
     def _setUp(self):
         self.user = base.get_rand_name(prefix='user')
@@ -94,6 +105,7 @@ class NeutronServerFixture(fixtures.Fixture):
 
     def __init__(self, env_desc, host_desc,
                  test_name, neutron_cfg_fixture, plugin_cfg_fixture):
+        super(NeutronServerFixture, self).__init__()
         self.env_desc = env_desc
         self.host_desc = host_desc
         self.test_name = test_name
@@ -108,7 +120,8 @@ class NeutronServerFixture(fixtures.Fixture):
             test_name=self.test_name,
             process_name=self.NEUTRON_SERVER,
             exec_name=self.NEUTRON_SERVER,
-            config_filenames=config_filenames))
+            config_filenames=config_filenames,
+            kill_signal=signal.SIGTERM))
 
         utils.wait_until_true(self.server_is_live)
 
@@ -132,6 +145,7 @@ class OVSAgentFixture(fixtures.Fixture):
 
     def __init__(self, env_desc, host_desc,
                  test_name, neutron_cfg_fixture, agent_cfg_fixture):
+        super(OVSAgentFixture, self).__init__()
         self.env_desc = env_desc
         self.host_desc = host_desc
         self.test_name = test_name
@@ -151,36 +165,75 @@ class OVSAgentFixture(fixtures.Fixture):
         self.process_fixture = self.useFixture(ProcessFixture(
             test_name=self.test_name,
             process_name=self.NEUTRON_OVS_AGENT,
-            exec_name=self.NEUTRON_OVS_AGENT,
+            exec_name=spawn.find_executable(
+                'ovs_agent.py',
+                path=os.path.join(base.ROOTDIR, 'common', 'agents')),
             config_filenames=config_filenames))
+
+
+class LinuxBridgeAgentFixture(fixtures.Fixture):
+
+    NEUTRON_LINUXBRIDGE_AGENT = "neutron-linuxbridge-agent"
+
+    def __init__(self, env_desc, host_desc, test_name,
+                 neutron_cfg_fixture, agent_cfg_fixture,
+                 namespace=None):
+        super(LinuxBridgeAgentFixture, self).__init__()
+        self.env_desc = env_desc
+        self.host_desc = host_desc
+        self.test_name = test_name
+        self.neutron_cfg_fixture = neutron_cfg_fixture
+        self.neutron_config = self.neutron_cfg_fixture.config
+        self.agent_cfg_fixture = agent_cfg_fixture
+        self.agent_config = agent_cfg_fixture.config
+        self.namespace = namespace
+
+    def _setUp(self):
+        config_filenames = [self.neutron_cfg_fixture.filename,
+                            self.agent_cfg_fixture.filename]
+
+        self.process_fixture = self.useFixture(
+            ProcessFixture(
+                test_name=self.test_name,
+                process_name=self.NEUTRON_LINUXBRIDGE_AGENT,
+                exec_name=self.NEUTRON_LINUXBRIDGE_AGENT,
+                config_filenames=config_filenames,
+                namespace=self.namespace
+            )
+        )
 
 
 class L3AgentFixture(fixtures.Fixture):
 
     NEUTRON_L3_AGENT = "neutron-l3-agent"
 
-    def __init__(self, env_desc, host_desc,
-                 test_name, neutron_cfg_fixture, l3_agent_cfg_fixture):
+    def __init__(self, env_desc, host_desc, test_name,
+                 neutron_cfg_fixture, l3_agent_cfg_fixture,
+                 namespace=None):
         super(L3AgentFixture, self).__init__()
         self.env_desc = env_desc
         self.host_desc = host_desc
         self.test_name = test_name
         self.neutron_cfg_fixture = neutron_cfg_fixture
         self.l3_agent_cfg_fixture = l3_agent_cfg_fixture
+        self.namespace = namespace
 
     def _setUp(self):
         self.plugin_config = self.l3_agent_cfg_fixture.config
 
         config_filenames = [self.neutron_cfg_fixture.filename,
                             self.l3_agent_cfg_fixture.filename]
-
-        self.process_fixture = self.useFixture(ProcessFixture(
-            test_name=self.test_name,
-            process_name=self.NEUTRON_L3_AGENT,
-            exec_name=spawn.find_executable(
-                'l3_agent.py',
-                path=os.path.join(base.ROOTDIR, 'common', 'agents')),
-            config_filenames=config_filenames))
+        self.process_fixture = self.useFixture(
+            ProcessFixture(
+                test_name=self.test_name,
+                process_name=self.NEUTRON_L3_AGENT,
+                exec_name=spawn.find_executable(
+                    'l3_agent.py',
+                    path=os.path.join(base.ROOTDIR, 'common', 'agents')),
+                config_filenames=config_filenames,
+                namespace=self.namespace
+            )
+        )
 
     def get_namespace_suffix(self):
         return self.plugin_config.DEFAULT.test_namespace_suffix

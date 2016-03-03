@@ -115,12 +115,14 @@ def check_assert_called_once_with(logical_line, filename):
     #    assert_called_once
     #    assertCalledOnceWith
     #    assert_has_called
+    #    called_once_with
     if 'neutron/tests/' in filename:
         if '.assert_called_once_with(' in logical_line:
             return
         uncased_line = logical_line.lower().replace('_', '')
 
-        if '.assertcalledonce' in uncased_line:
+        check_calls = ['.assertcalledonce', '.calledoncewith']
+        if any(x for x in check_calls if x in uncased_line):
             msg = ("N322: Possible use of no-op mock method. "
                    "please use assert_called_once_with.")
             yield (0, msg)
@@ -228,6 +230,15 @@ def check_assertisinstance(logical_line, filename):
             yield (0, msg)
 
 
+def check_assertequal_for_httpcode(logical_line, filename):
+    msg = ("N332: Use assertEqual(expected_http_code, observed_http_code) "
+           "instead of assertEqual(observed_http_code, expected_http_code)")
+    if 'neutron/tests/' in filename:
+        if re.search(r"assertEqual\(\s*[^,]*,[^,]*HTTP[^\.]*\.code\s*\)",
+                     logical_line):
+            yield (0, msg)
+
+
 def factory(register):
     register(validate_log_translations)
     register(use_jsonutils)
@@ -243,3 +254,4 @@ def factory(register):
     register(check_assertfalse)
     register(check_assertempty)
     register(check_assertisinstance)
+    register(check_assertequal_for_httpcode)

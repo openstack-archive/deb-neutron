@@ -1,0 +1,51 @@
+..
+      Licensed under the Apache License, Version 2.0 (the "License"); you may
+      not use this file except in compliance with the License. You may obtain
+      a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+      WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+      License for the specific language governing permissions and limitations
+      under the License.
+
+
+      Convention for heading levels in Neutron devref:
+      =======  Heading 0 (reserved for the title in a document)
+      -------  Heading 1
+      ~~~~~~~  Heading 2
+      +++++++  Heading 3
+      '''''''  Heading 4
+      (Avoid deeper levels because they do not render well.)
+
+
+Service Extensions
+==================
+
+Historically, Neutron supported the following advanced services:
+
+#. **FWaaS** (*Firewall-as-a-Service*): runs as part of the L3 agent.
+#. **LBaaS** (*Load-Balancer-as-a-Service*): implemented purely inside
+   neutron-server, does not interact directly with agents.
+#. **VPNaaS** (*VPN-as-a-Service*): derives from L3 agent to add
+   VPNaaS functionality.
+
+Starting with the Kilo release, these services are split into separate
+repositories, and more extensions are being developed as well. Service
+plugins are a clean way of adding functionality in a cohesive manner
+and yet, keeping them decoupled from the guts of the framework. The
+aforementioned features are developed as extensions (also known as
+service plugins), and more capabilities are being added to Neutron
+following the same pattern. For those that are deemed 'orthogonal'
+to any network service (e.g. tags, timestamps, auto_allocate, etc),
+there is an informal `mechanism <https://github.com/openstack/neutron/blob/aadf2f30f84dff3d85f380a7ff4e16dbbb0c6bb0/neutron/plugins/common/constants.py#L41>`_
+to have these loaded automatically at server startup. If you
+consider adding an entry to the dictionary, please be kind and
+reach out to your PTL or a member of the drivers team for approval.
+
+#. http://git.openstack.org/cgit/openstack/neutron-fwaas/
+#. http://git.openstack.org/cgit/openstack/neutron-lbaas/
+#. http://git.openstack.org/cgit/openstack/neutron-vpnaas/
+

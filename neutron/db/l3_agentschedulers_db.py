@@ -33,9 +33,7 @@ from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import l3_attrs_db
 from neutron.db import model_base
-from neutron.db import models_v2
 from neutron.extensions import l3agentscheduler
-from neutron.extensions import portbindings
 from neutron.extensions import router_availability_zone as router_az
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
@@ -120,15 +118,6 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                         agents_back_online.add(binding.l3_agent_id)
                         continue
 
-                agent_mode = self._get_agent_mode(binding.l3_agent)
-                if agent_mode == constants.L3_AGENT_MODE_DVR:
-                    # rescheduling from l3 dvr agent on compute node doesn't
-                    # make sense. Router will be removed from that agent once
-                    # there are no dvr serviceable ports on that compute node
-                    LOG.warn(_LW('L3 DVR agent on node %(host)s is down. '
-                                 'Not rescheduling from agent in \'dvr\' '
-                                 'mode.'), {'host': binding.l3_agent.host})
-                    continue
                 LOG.warn(_LW(
                     "Rescheduling router %(router)s from agent %(agent)s "
                     "because the agent did not report to the server in "
@@ -180,19 +169,11 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
 
         is_suitable_agent = (
             agentschedulers_db.services_available(agent['admin_state_up']) and
-            (self.get_l3_agent_candidates(context, router,
+            self.get_l3_agent_candidates(context, router,
                                          [agent],
-                                         ignore_admin_state=True) or
-            self.get_snat_candidates(router, [agent]))
-        )
+                                         ignore_admin_state=True))
         if not is_suitable_agent:
             raise l3agentscheduler.InvalidL3Agent(id=agent['id'])
-
-    def check_l3_agent_router_binding(self, context, router_id, agent_id):
-        query = context.session.query(RouterL3AgentBinding)
-        bindings = query.filter_by(router_id=router_id,
-                                   l3_agent_id=agent_id).all()
-        return bool(bindings)
 
     def check_agent_router_scheduling_needed(self, context, agent, router):
         """Check if the router scheduling is needed.
@@ -260,6 +241,10 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
         which leads to re-schedule or be added to another agent manually.
         """
         agent = self._get_agent(context, agent_id)
+        agent_mode = self._get_agent_mode(agent)
+        if agent_mode == constants.L3_AGENT_MODE_DVR:
+            raise l3agentscheduler.DVRL3CannotRemoveFromDvrAgent()
+
         self._unbind_router(context, router_id, agent_id)
 
         router = self.get_router(context, router_id)
@@ -366,6 +351,14 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
             context, constants.AGENT_TYPE_L3, host)
         if not agentschedulers_db.services_available(agent.admin_state_up):
             return []
+        return self._get_router_ids_for_agent(context, agent, router_ids)
+
+    def _get_router_ids_for_agent(self, context, agent, router_ids):
+        """Get IDs of routers that the agent should host
+
+        Overridden for DVR to handle agents in 'dvr' mode which have
+        no explicit bindings with routers
+        """
         query = context.session.query(RouterL3AgentBinding.router_id)
         query = query.filter(
             RouterL3AgentBinding.l3_agent_id == agent.id)
@@ -378,10 +371,13 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
 
     def list_active_sync_routers_on_active_l3_agent(
             self, context, host, router_ids):
-        router_ids = self.list_router_ids_on_host(context, host, router_ids)
+        agent = self._get_agent_by_type_and_host(
+            context, constants.AGENT_TYPE_L3, host)
+        if not agentschedulers_db.services_available(agent.admin_state_up):
+            return []
+        router_ids = self._get_router_ids_for_agent(
+            context, agent, router_ids)
         if router_ids:
-            agent = self._get_agent_by_type_and_host(
-                context, constants.AGENT_TYPE_L3, host)
             return self._get_active_l3_agent_routers_sync_data(context, host,
                                                                agent,
                                                                router_ids)
@@ -452,75 +448,46 @@ class L3AgentSchedulerDbMixin(l3agentscheduler.L3AgentSchedulerPluginBase,
                 if agentschedulers_db.AgentSchedulerDbMixin.is_eligible_agent(
                     active, l3_agent)]
 
-    def check_dvr_serviceable_ports_on_host(
-            self, context, host, subnet_ids, except_port=None):
-        """Check for existence of dvr serviceable ports on host
-
-        :param context: request context
-        :param host: host to look ports on
-        :param subnet_ids: IDs of subnets to look ports on
-        :param except_port: ID of the port to ignore (used when checking if
-        DVR router should be removed from host before actual port remove)
-        :return:
-        """
-        # db query will return ports for all subnets if subnet_ids is empty,
-        # so need to check first
-        if not subnet_ids:
-            return False
-
-        core_plugin = manager.NeutronManager.get_plugin()
-        filters = {'fixed_ips': {'subnet_id': subnet_ids},
-                   portbindings.HOST_ID: [host]}
-        ports_query = core_plugin._get_ports_query(context, filters=filters)
-        owner_filter = or_(
-            models_v2.Port.device_owner.startswith(
-                constants.DEVICE_OWNER_COMPUTE_PREFIX),
-            models_v2.Port.device_owner.in_(
-                n_utils.get_other_dvr_serviced_device_owners()))
-        if except_port:
-            ports_query = ports_query.filter(models_v2.Port.id != except_port)
-        ports_query = ports_query.filter(owner_filter)
-        return ports_query.first() is not None
-
     def get_l3_agent_candidates(self, context, sync_router, l3_agents,
                                 ignore_admin_state=False):
-        """Get the valid l3 agents for the router from a list of l3_agents."""
+        """Get the valid l3 agents for the router from a list of l3_agents.
+
+        It will not return agents in 'dvr' mode for a dvr router as dvr
+        routers are not explicitly scheduled to l3 agents on compute nodes
+        """
         candidates = []
         is_router_distributed = sync_router.get('distributed', False)
-        if is_router_distributed:
-            subnet_ids = self.get_subnet_ids_on_router(
-                context, sync_router['id'])
         for l3_agent in l3_agents:
             if not ignore_admin_state and not l3_agent.admin_state_up:
                 # ignore_admin_state True comes from manual scheduling
                 # where admin_state_up judgement is already done.
                 continue
+
             agent_conf = self.get_configuration_dict(l3_agent)
+            agent_mode = agent_conf.get(constants.L3_AGENT_MODE,
+                                        constants.L3_AGENT_MODE_LEGACY)
+            if (agent_mode == constants.L3_AGENT_MODE_DVR or
+                    (agent_mode == constants.L3_AGENT_MODE_LEGACY and
+                     is_router_distributed)):
+                continue
+
             router_id = agent_conf.get('router_id', None)
+            if router_id and router_id != sync_router['id']:
+                continue
+
             handle_internal_only_routers = agent_conf.get(
                 'handle_internal_only_routers', True)
             gateway_external_network_id = agent_conf.get(
                 'gateway_external_network_id', None)
-            agent_mode = agent_conf.get(constants.L3_AGENT_MODE,
-                                        constants.L3_AGENT_MODE_LEGACY)
-            if router_id and router_id != sync_router['id']:
-                continue
+
             ex_net_id = (sync_router['external_gateway_info'] or {}).get(
                 'network_id')
             if ((not ex_net_id and not handle_internal_only_routers) or
                 (ex_net_id and gateway_external_network_id and
                  ex_net_id != gateway_external_network_id)):
                 continue
-            if agent_mode in (
-                constants.L3_AGENT_MODE_LEGACY,
-                constants.L3_AGENT_MODE_DVR_SNAT) and (
-                not is_router_distributed):
-                candidates.append(l3_agent)
-            elif (is_router_distributed and subnet_ids and
-                    agent_mode.startswith(constants.L3_AGENT_MODE_DVR) and (
-                        self.check_dvr_serviceable_ports_on_host(
-                            context, l3_agent['host'], subnet_ids))):
-                candidates.append(l3_agent)
+
+            candidates.append(l3_agent)
         return candidates
 
     def auto_schedule_routers(self, context, host, router_ids):

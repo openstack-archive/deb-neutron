@@ -20,6 +20,7 @@ from neutron import context
 from neutron.extensions import portbindings
 from neutron import manager
 from neutron.plugins.ml2 import config as config
+from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2 import models as ml2_models
 from neutron.tests.unit.db import test_db_base_plugin_v2 as test_plugin
 
@@ -47,16 +48,16 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
         self.plugin.start_rpc_listeners()
 
     def _check_response(self, port, vif_type, has_port_filter, bound, status):
-        self.assertEqual(port[portbindings.VIF_TYPE], vif_type)
+        self.assertEqual(vif_type, port[portbindings.VIF_TYPE])
         vif_details = port[portbindings.VIF_DETAILS]
         port_status = port['status']
         if bound:
             # TODO(rkukura): Replace with new VIF security details
-            self.assertEqual(vif_details[portbindings.CAP_PORT_FILTER],
-                             has_port_filter)
-            self.assertEqual(port_status, status or 'DOWN')
+            self.assertEqual(has_port_filter,
+                             vif_details[portbindings.CAP_PORT_FILTER])
+            self.assertEqual(status or 'DOWN', port_status)
         else:
-            self.assertEqual(port_status, 'DOWN')
+            self.assertEqual('DOWN', port_status)
 
     def _test_port_binding(self, host, vif_type, has_port_filter, bound,
                            status=None, network_type='local'):
@@ -72,7 +73,7 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
             details = self.plugin.endpoints[0].get_device_details(
                 neutron_context, agent_id="theAgentId", device=port_id)
             if bound:
-                self.assertEqual(details['network_type'], network_type)
+                self.assertEqual(network_type, details['network_type'])
                 self.assertEqual(mac_address, details['mac_address'])
             else:
                 self.assertNotIn('network_type', details)
@@ -152,10 +153,10 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
                                             neutron_context=neutron_context)
                 port_data = updated_port['port']
                 if new_host is not None:
-                    self.assertEqual(port_data[portbindings.HOST_ID],
-                                     new_host)
+                    self.assertEqual(new_host,
+                                     port_data[portbindings.HOST_ID])
                 else:
-                    self.assertEqual(port_data[portbindings.HOST_ID], host)
+                    self.assertEqual(host, port_data[portbindings.HOST_ID])
                 if new_host is not None and new_host != host:
                     notify_mock.assert_called_once_with(mock.ANY)
                 else:
@@ -177,6 +178,39 @@ class PortBindingTestCase(test_plugin.NeutronDbPluginV2TestCase):
 
     def test_update_from_host_to_empty_binding_notifies_agent(self):
         self._test_update_port_binding('host-ovs-no_filter', '')
+
+    def test_process_binding_port_host_id_changed(self):
+        ctx = context.get_admin_context()
+        plugin = manager.NeutronManager.get_plugin()
+        host_id = {portbindings.HOST_ID: 'host1'}
+        with self.port(**host_id) as port:
+            # Since the port is DOWN at first
+            # It's necessary to make its status ACTIVE for this test
+            plugin.update_port_status(ctx, port['port']['id'],
+                const.PORT_STATUS_ACTIVE)
+
+            attrs = port['port']
+            attrs['status'] = const.PORT_STATUS_ACTIVE
+            original_port = attrs.copy()
+            attrs['binding:host_id'] = 'host2'
+            updated_port = attrs.copy()
+            network = {'id': attrs['network_id']}
+            binding = ml2_models.PortBinding(
+                port_id=original_port['id'],
+                host=original_port['binding:host_id'],
+                vnic_type=original_port['binding:vnic_type'],
+                profile=original_port['binding:profile'],
+                vif_type=original_port['binding:vif_type'],
+                vif_details=original_port['binding:vif_details'])
+            levels = 1
+            mech_context = driver_context.PortContext(
+                plugin, ctx, updated_port, network, binding, levels,
+                original_port=original_port)
+
+            plugin._process_port_binding(mech_context, port['port'])
+            self.assertEqual(const.PORT_STATUS_DOWN, updated_port['status'])
+            port_dict = plugin.get_port(ctx, port['port']['id'])
+            self.assertEqual(const.PORT_STATUS_DOWN, port_dict['status'])
 
     def test_dvr_binding(self):
         ctx = context.get_admin_context()

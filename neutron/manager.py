@@ -161,6 +161,10 @@ class NeutronManager(object):
                 LOG.info(_LI("Service %s is supported by the core plugin"),
                          service_type)
 
+    def _get_default_service_plugins(self):
+        """Get default service plugins to be loaded."""
+        return constants.DEFAULT_SERVICE_PLUGINS.keys()
+
     def _load_service_plugins(self):
         """Loads service plugins.
 
@@ -171,6 +175,7 @@ class NeutronManager(object):
         self._load_services_from_core_plugin()
 
         plugin_providers = cfg.CONF.service_plugins
+        plugin_providers.extend(self._get_default_service_plugins())
         LOG.debug("Loading service plugins: %s", plugin_providers)
         for provider in plugin_providers:
             if provider == '':
@@ -253,7 +258,12 @@ class NeutronManager(object):
 
     @classmethod
     def get_controller_for_resource(cls, resource):
-        return cls.get_instance().resource_controller_mappings.get(resource)
+        res_ctrl_mappings = cls.get_instance().resource_controller_mappings
+        # If no controller is found for resource, try replacing dashes with
+        # underscores
+        return res_ctrl_mappings.get(
+            resource,
+            res_ctrl_mappings.get(resource.replace('-', '_')))
 
     @classmethod
     def get_service_plugin_by_path_prefix(cls, path_prefix):

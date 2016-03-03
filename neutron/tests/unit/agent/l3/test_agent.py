@@ -14,10 +14,10 @@
 #    under the License.
 
 import copy
-
-import eventlet
 from itertools import chain as iter_chain
 from itertools import combinations as iter_combinations
+
+import eventlet
 import mock
 import netaddr
 from oslo_log import log
@@ -80,7 +80,7 @@ class BasicRouterOperationsFramework(base.BaseTestCase):
         self.conf.set_override('interface_driver',
                                'neutron.agent.linux.interface.NullDriver')
         self.conf.set_override('send_arp_for_ha', 1)
-        self.conf.set_override('state_path', '')
+        self.conf.set_override('state_path', '/tmp')
         self.conf.set_override('ra_confs', '/tmp')
         self.conf.set_override('pd_dhcp_driver', '')
 
@@ -390,7 +390,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 sn_port['fixed_ips'],
                 sn_port['mac_address'],
                 ri._get_snat_int_device_name(sn_port['id']),
-                dvr_snat_ns.SNAT_INT_DEV_PREFIX)
+                dvr_snat_ns.SNAT_INT_DEV_PREFIX,
+                mtu=None)
         elif action == 'remove':
             self.device_exists.return_value = False
             ri.get_snat_port_for_internal_port = mock.Mock(
@@ -744,7 +745,13 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 self.assertIn(r.rule, expected_rules)
         expected_rules = [
             '-i %s -j MARK --set-xmark 0x2/%s' %
-            (interface_name, l3_constants.ROUTER_MARK_MASK)]
+            (interface_name, l3_constants.ROUTER_MARK_MASK),
+            '-o %s -m connmark --mark 0x0/%s -j CONNMARK '
+            '--save-mark --nfmask %s --ctmask %s' %
+            (interface_name,
+             l3router.ADDRESS_SCOPE_MARK_MASK,
+             l3router.ADDRESS_SCOPE_MARK_MASK,
+             l3router.ADDRESS_SCOPE_MARK_MASK)]
         for r in mangle_rules:
             if negate:
                 self.assertNotIn(r.rule, expected_rules)
@@ -809,6 +816,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             fake_fip_id: 'ACTIVE'}
         ri.external_gateway_added = mock.Mock()
         ri.external_gateway_updated = mock.Mock()
+        ri.process_address_scope = mock.Mock()
         fake_floatingips1 = {'floatingips': [
             {'id': fake_fip_id,
              'floating_ip_address': '8.8.8.8',
@@ -890,6 +898,73 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             floating_ips[0], mock.sentinel.interface_name, device)
 
     @mock.patch.object(lla.LinkLocalAllocator, '_write')
+    def test_create_dvr_fip_interfaces_if_fipnamespace_exist(self, lla_write):
+        fake_network_id = _uuid()
+        subnet_id = _uuid()
+        fake_floatingips = {'floatingips': [
+            {'id': _uuid(),
+             'floating_ip_address': '20.0.0.3',
+             'fixed_ip_address': '192.168.0.1',
+             'floating_network_id': _uuid(),
+             'port_id': _uuid(),
+             'host': HOSTNAME}]}
+        agent_gateway_port = (
+            [{'fixed_ips': [
+                {'ip_address': '20.0.0.30',
+                 'prefixlen': 24,
+                 'subnet_id': subnet_id}],
+             'subnets': [
+                 {'id': subnet_id,
+                  'cidr': '20.0.0.0/24',
+                  'gateway_ip': '20.0.0.1'}],
+             'id': _uuid(),
+             'network_id': fake_network_id,
+             'mac_address': 'ca:fe:de:ad:be:ef'}]
+        )
+
+        router = l3_test_common.prepare_router_data(enable_snat=True)
+        router[l3_constants.FLOATINGIP_KEY] = fake_floatingips['floatingips']
+        router[l3_constants.FLOATINGIP_AGENT_INTF_KEY] = agent_gateway_port
+        router['distributed'] = True
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        ri = dvr_router.DvrEdgeRouter(
+            agent, HOSTNAME, router['id'], router, **self.ri_kwargs)
+        ext_gw_port = ri.router.get('gw_port')
+        ri.fip_ns = agent.get_fip_ns(ext_gw_port['network_id'])
+        ri.dist_fip_count = 0
+        agent.process_router_add = mock.Mock()
+        ri.fip_ns.create_rtr_2_fip_link = mock.Mock()
+        with mock.patch.object(ri, 'get_floating_ips') as fips, \
+                mock.patch.object(ri.fip_ns,
+                                  'create') as create_fip, \
+                mock.patch.object(ri, 'get_floating_agent_gw_interface'
+                                  ) as fip_gw_port:
+            fips.return_value = fake_floatingips
+            fip_gw_port.return_value = agent_gateway_port[0]
+            ri.create_dvr_fip_interfaces(ext_gw_port)
+            self.assertTrue(fip_gw_port.called)
+            self.assertTrue(fips.called)
+            self.assertTrue(create_fip.called)
+            self.assertEqual(agent_gateway_port[0],
+                             ri.fip_ns.agent_gateway_port)
+            # Now let us associate the fip to the router
+            ri.floating_ip_added_dist(fips, "192.168.0.1/32")
+            self.assertEqual(1, ri.dist_fip_count)
+            # Now let us disassociate the fip from the router
+            ri.floating_ip_removed_dist("192.168.0.1/32")
+            self.assertEqual(0, ri.dist_fip_count)
+            # Calling create_dvr_fip_interfaces again to make sure
+            # that the fip namespace create is not called again.
+            # If the create is not called again, that would contain
+            # the duplicate rules configuration in the fip namespace.
+            ri.create_dvr_fip_interfaces(ext_gw_port)
+            self.assertTrue(fip_gw_port.called)
+            self.assertTrue(fips.called)
+            create_fip.assert_called_once_with()
+            self.assertEqual(2, agent.process_router_add.call_count)
+            self.assertEqual(2, ri.fip_ns.create_rtr_2_fip_link.call_count)
+
+    @mock.patch.object(lla.LinkLocalAllocator, '_write')
     def test_create_dvr_fip_interfaces_for_late_binding(self, lla_write):
         fake_network_id = _uuid()
         fake_subnet_id = _uuid()
@@ -907,6 +982,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                  'subnet_id': fake_subnet_id}],
              'subnets': [
                  {'id': fake_subnet_id,
+                  'cidr': '20.0.0.0/24',
                   'gateway_ip': '20.0.0.1'}],
              'id': _uuid(),
              'network_id': fake_network_id,
@@ -951,6 +1027,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                  'subnet_id': subnet_id}],
              'subnets': [
                  {'id': subnet_id,
+                  'cidr': '20.0.0.0/24',
                   'gateway_ip': '20.0.0.1'}],
              'id': _uuid(),
              'network_id': fake_network_id,
@@ -1002,6 +1079,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                  'subnet_id': 'subnet_id'}],
              'subnets': [
                  {'id': 'subnet_id',
+                  'cidr': '20.0.0.0/24',
                   'gateway_ip': '20.0.0.1'}],
              'id': _uuid(),
              'network_id': 'fake_network_id',
@@ -1020,7 +1098,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri.fip_ns.subscribe = mock.Mock(return_value=True)
         ri.fip_ns.agent_router_gateway = mock.Mock()
         ri.rtr_fip_subnet = None
-        ri.dist_fip_count = 1
+        ri.dist_fip_count = 0
 
         with mock.patch.object(ri, 'get_floating_ips') as fips,\
                 mock.patch.object(ri, 'get_floating_agent_gw_interface'
@@ -1074,7 +1152,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         mangle_rules_delta = [
             r for r in orig_mangle_rules
             if r not in ri.iptables_manager.ipv4['mangle'].rules]
-        self.assertEqual(1, len(mangle_rules_delta))
+        self.assertEqual(2, len(mangle_rules_delta))
         self._verify_snat_mangle_rules(nat_rules_delta, mangle_rules_delta,
                                        router)
         self.assertEqual(1, self.send_adv_notif.call_count)
@@ -1101,7 +1179,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         mangle_rules_delta = [
             r for r in ri.iptables_manager.ipv4['mangle'].rules
             if r not in orig_mangle_rules]
-        self.assertEqual(1, len(mangle_rules_delta))
+        self.assertEqual(2, len(mangle_rules_delta))
         self._verify_snat_mangle_rules(nat_rules_delta, mangle_rules_delta,
                                        router)
         self.assertEqual(1, self.send_adv_notif.call_count)
@@ -1233,8 +1311,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             expected_calls.append(mock.call().disable())
         return expected_calls
 
-    def _process_router_ipv6_subnet_added(
-            self, router, ipv6_subnet_modes=None, dns_nameservers=None):
+    def _process_router_ipv6_subnet_added(self, router,
+            ipv6_subnet_modes=None, dns_nameservers=None, network_mtu=0):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         agent.external_gateway_added = mock.Mock()
@@ -1246,7 +1324,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             count=len(ipv6_subnet_modes),
             ip_version=6,
             ipv6_subnet_modes=ipv6_subnet_modes,
-            dns_nameservers=dns_nameservers)
+            dns_nameservers=dns_nameservers,
+            network_mtu=network_mtu)
         # Reassign the router object to RouterInfo
         self._process_router_instance_for_agent(agent, ri, router)
         return ri
@@ -1266,8 +1345,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = self._process_router_ipv6_interface_added(router)
         self._assert_ri_process_enabled(ri)
         # Expect radvd configured without prefix
-        self.assertNotIn('prefix',
-                         self.utils_replace_file.call_args[0][1].split())
+        self.assertNotIn('prefix', self.utils_replace_file.call_args[0][1])
 
     def test_process_router_ipv6_slaac_interface_added(self):
         router = l3_test_common.prepare_router_data()
@@ -1275,8 +1353,19 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             router, ra_mode=l3_constants.IPV6_SLAAC)
         self._assert_ri_process_enabled(ri)
         # Expect radvd configured with prefix
-        self.assertIn('prefix',
-                      self.utils_replace_file.call_args[0][1].split())
+        radvd_config_str = self.utils_replace_file.call_args[0][1]
+        self.assertIn('prefix', radvd_config_str)
+        self.assertIn('AdvAutonomous on', radvd_config_str)
+
+    def test_process_router_ipv6_dhcpv6_stateful_interface_added(self):
+        router = l3_test_common.prepare_router_data()
+        ri = self._process_router_ipv6_interface_added(
+            router, ra_mode=l3_constants.DHCPV6_STATEFUL)
+        self._assert_ri_process_enabled(ri)
+        # Expect radvd configured with prefix
+        radvd_config_str = self.utils_replace_file.call_args[0][1]
+        self.assertIn('prefix', radvd_config_str)
+        self.assertIn('AdvAutonomous off', radvd_config_str)
 
     def test_process_router_ipv6_subnets_added(self):
         router = l3_test_common.prepare_router_data()
@@ -1288,11 +1377,13 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             {'ra_mode': l3_constants.DHCPV6_STATEFUL,
              'address_mode': l3_constants.DHCPV6_STATEFUL}])
         self._assert_ri_process_enabled(ri)
-        radvd_config = self.utils_replace_file.call_args[0][1].split()
+        radvd_config_str = self.utils_replace_file.call_args[0][1]
         # Assert we have a prefix from IPV6_SLAAC and a prefix from
         # DHCPV6_STATELESS on one interface
-        self.assertEqual(2, radvd_config.count("prefix"))
-        self.assertEqual(1, radvd_config.count("interface"))
+        self.assertEqual(3, radvd_config_str.count("prefix"))
+        self.assertEqual(1, radvd_config_str.count("interface"))
+        self.assertEqual(2, radvd_config_str.count("AdvAutonomous on"))
+        self.assertEqual(1, radvd_config_str.count("AdvAutonomous off"))
 
     def test_process_router_ipv6_subnets_added_to_existing_port(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -2214,6 +2305,25 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         self.assertIn(_join('-p', pidfile), cmd)
         self.assertIn(_join('-m', 'syslog'), cmd)
 
+    def test_generate_radvd_mtu_conf(self):
+        router = l3_test_common.prepare_router_data()
+        ipv6_subnet_modes = [{'ra_mode': l3_constants.IPV6_SLAAC,
+                             'address_mode': l3_constants.IPV6_SLAAC}]
+        network_mtu = '1446'
+        ri = self._process_router_ipv6_subnet_added(router,
+                                                    ipv6_subnet_modes,
+                                                    None,
+                                                    network_mtu)
+        expected = "AdvLinkMTU 1446"
+        ri.agent_conf.set_override('advertise_mtu', False)
+        ri.radvd._generate_radvd_conf(router[l3_constants.INTERFACE_KEY])
+        self.assertNotIn(expected, self.utils_replace_file.call_args[0][1])
+
+        # Verify that MTU is advertised when advertise_mtu is True
+        ri.agent_conf.set_override('advertise_mtu', True)
+        ri.radvd._generate_radvd_conf(router[l3_constants.INTERFACE_KEY])
+        self.assertIn(expected, self.utils_replace_file.call_args[0][1])
+
     def test_generate_radvd_conf_other_and_managed_flag(self):
         # expected = {ra_mode: (AdvOtherConfigFlag, AdvManagedFlag), ...}
         expected = {l3_constants.IPV6_SLAAC: (False, False),
@@ -2245,6 +2355,20 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 self.utils_replace_file.call_args[0][1])
             assertFlag(managed_flag)('AdvManagedFlag on;',
                 self.utils_replace_file.call_args[0][1])
+
+    def test_generate_radvd_intervals(self):
+        self.conf.set_override('min_rtr_adv_interval', 22)
+        self.conf.set_override('max_rtr_adv_interval', 66)
+        router = l3_test_common.prepare_router_data()
+        ipv6_subnet_modes = [{'ra_mode': l3_constants.IPV6_SLAAC,
+                             'address_mode': l3_constants.IPV6_SLAAC}]
+        ri = self._process_router_ipv6_subnet_added(router,
+                                                    ipv6_subnet_modes)
+        ri.radvd._generate_radvd_conf(router[l3_constants.INTERFACE_KEY])
+        self.assertIn("MinRtrAdvInterval 22",
+                      self.utils_replace_file.call_args[0][1])
+        self.assertIn("MaxRtrAdvInterval 66",
+                      self.utils_replace_file.call_args[0][1])
 
     def test_generate_radvd_rdnss_conf(self):
         router = l3_test_common.prepare_router_data()

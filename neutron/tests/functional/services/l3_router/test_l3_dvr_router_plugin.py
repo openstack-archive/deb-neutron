@@ -14,6 +14,7 @@
 
 import mock
 
+from neutron.api.rpc.handlers import l3_rpc
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import topics
@@ -33,9 +34,9 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
         self.l3_agent = helpers.register_l3_agent(
             agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
 
-    def _create_router(self, distributed=True):
+    def _create_router(self, distributed=True, ha=False):
         return (super(L3DvrTestCase, self).
-                _create_router(distributed=distributed))
+                _create_router(distributed=distributed, ha=ha))
 
     def test_update_router_db_centralized_to_distributed(self):
         router = self._create_router(distributed=False)
@@ -242,7 +243,8 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
             floating_ip = {'floating_network_id': ext_net_id,
                            'router_id': router['id'],
                            'port_id': int_port['port']['id'],
-                           'tenant_id': int_port['port']['tenant_id']}
+                           'tenant_id': int_port['port']['tenant_id'],
+                           'dns_name': '', 'dns_domain': ''}
             with mock.patch.object(
                     self.l3_plugin, '_l3_rpc_notifier') as l3_notif:
                 self.l3_plugin.create_floatingip(
@@ -307,7 +309,8 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
             floating_ip = {'floating_network_id': ext_net_id,
                            'router_id': router1['id'],
                            'port_id': int_port1['port']['id'],
-                           'tenant_id': int_port1['port']['tenant_id']}
+                           'tenant_id': int_port1['port']['tenant_id'],
+                           'dns_name': '', 'dns_domain': ''}
             floating_ip = self.l3_plugin.create_floatingip(
                 self.context, {'floatingip': floating_ip})
 
@@ -365,7 +368,8 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
             floating_ip = {'floating_network_id': ext_net_id,
                            'router_id': router['id'],
                            'port_id': int_port['port']['id'],
-                           'tenant_id': int_port['port']['tenant_id']}
+                           'tenant_id': int_port['port']['tenant_id'],
+                           'dns_name': '', 'dns_domain': ''}
             floating_ip = self.l3_plugin.create_floatingip(
                 self.context, {'floatingip': floating_ip})
             with mock.patch.object(
@@ -452,10 +456,10 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
     def test_update_vm_port_host_router_update(self):
         # register l3 agents in dvr mode in addition to existing dvr_snat agent
         HOST1 = 'host1'
-        dvr_agent1 = helpers.register_l3_agent(
+        helpers.register_l3_agent(
             host=HOST1, agent_mode=constants.L3_AGENT_MODE_DVR)
         HOST2 = 'host2'
-        dvr_agent2 = helpers.register_l3_agent(
+        helpers.register_l3_agent(
             host=HOST2, agent_mode=constants.L3_AGENT_MODE_DVR)
         router = self._create_router()
         with self.subnet() as subnet:
@@ -463,12 +467,6 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
                 self.context, router['id'],
                 {'subnet_id': subnet['subnet']['id']})
 
-            # since there are no vm ports on HOST, and the router
-            # has no external gateway at this point the router
-            # should neither be scheduled to dvr nor to dvr_snat agents
-            agents = self.l3_plugin.list_l3_agents_hosting_router(
-                self.context, router['id'])['agents']
-            self.assertEqual(0, len(agents))
             with mock.patch.object(self.l3_plugin,
                                    '_l3_rpc_notifier') as l3_notifier,\
                     self.port(subnet=subnet,
@@ -479,12 +477,6 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
                     self.context, port['port']['id'],
                     {'port': {portbindings.HOST_ID: HOST1}})
 
-                # now router should be scheduled to agent on HOST1
-                agents = self.l3_plugin.list_l3_agents_hosting_router(
-                    self.context, router['id'])['agents']
-                self.assertEqual(1, len(agents))
-                self.assertEqual(dvr_agent1['id'], agents[0]['id'])
-                # and notification should only be sent to the agent on HOST1
                 l3_notifier.routers_updated_on_host.assert_called_once_with(
                     self.context, {router['id']}, HOST1)
                 self.assertFalse(l3_notifier.routers_updated.called)
@@ -494,11 +486,7 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
                 self.core_plugin.update_port(
                     self.context, port['port']['id'],
                     {'port': {portbindings.HOST_ID: HOST2}})
-                # now router should only be scheduled to dvr agent on host2
-                agents = self.l3_plugin.list_l3_agents_hosting_router(
-                    self.context, router['id'])['agents']
-                self.assertEqual(1, len(agents))
-                self.assertEqual(dvr_agent2['id'], agents[0]['id'])
+
                 l3_notifier.routers_updated_on_host.assert_called_once_with(
                     self.context, {router['id']}, HOST2)
                 l3_notifier.router_removed_from_agent.assert_called_once_with(
@@ -509,7 +497,7 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
         # register l3 agent in dvr mode in addition to existing dvr_snat agent
         HOST = 'host1'
         non_admin_tenant = 'tenant1'
-        dvr_agent = helpers.register_l3_agent(
+        helpers.register_l3_agent(
             host=HOST, agent_mode=constants.L3_AGENT_MODE_DVR)
         router = self._create_router()
         with self.network(shared=True) as net,\
@@ -525,23 +513,11 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
                 self.context, router['id'],
                 {'subnet_id': subnet['subnet']['id']})
 
-            # router should be scheduled to agent on HOST
-            agents = self.l3_plugin.list_l3_agents_hosting_router(
-                self.context, router['id'])
-            self.assertEqual(1, len(agents['agents']))
-            self.assertEqual(dvr_agent['id'], agents['agents'][0]['id'])
-
-            notifier = self.l3_plugin.agent_notifiers[
-                constants.AGENT_TYPE_L3]
-            with mock.patch.object(
-                    notifier, 'router_removed_from_agent') as remove_mock:
+            with mock.patch.object(self.l3_plugin.l3_rpc_notifier,
+                                   'router_removed_from_agent') as remove_mock:
                 ctx = context.Context(
                     '', non_admin_tenant) if non_admin_port else self.context
                 self._delete('ports', port['port']['id'], neutron_context=ctx)
-                # now when port is deleted the router should be unscheduled
-                agents = self.l3_plugin.list_l3_agents_hosting_router(
-                    self.context, router['id'])
-                self.assertEqual(0, len(agents['agents']))
                 remove_mock.assert_called_once_with(
                     mock.ANY, router['id'], HOST)
 
@@ -552,7 +528,7 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
         self._test_router_remove_from_agent_on_vm_port_deletion(
             non_admin_port=True)
 
-    def test_dvr_router_notifications(self):
+    def test_router_notifications(self):
         """Check that notifications go to the right hosts in different
         conditions
         """
@@ -645,3 +621,298 @@ class L3DvrTestCase(ml2_test_base.ML2TestFramework):
                                       topic=topics.L3_AGENT,
                                       version='1.1')]
                 mock_prepare.assert_has_calls(expected, any_order=True)
+
+    def test_router_is_not_removed_from_snat_agent_on_interface_removal(self):
+        """Check that dvr router is not removed from l3 agent hosting
+        SNAT for it on router interface removal
+        """
+        router = self._create_router()
+        kwargs = {'arg_list': (external_net.EXTERNAL,),
+                  external_net.EXTERNAL: True}
+        with self.subnet() as subnet,\
+                self.network(**kwargs) as ext_net,\
+                self.subnet(network=ext_net, cidr='20.0.0.0/24'):
+            self.l3_plugin._update_router_gw_info(
+                self.context, router['id'],
+                {'network_id': ext_net['network']['id']})
+            self.l3_plugin.add_router_interface(
+                self.context, router['id'],
+                {'subnet_id': subnet['subnet']['id']})
+
+            agents = self.l3_plugin.list_l3_agents_hosting_router(
+                self.context, router['id'])
+            self.assertEqual(1, len(agents['agents']))
+            with mock.patch.object(self.l3_plugin,
+                                   '_l3_rpc_notifier') as l3_notifier:
+                self.l3_plugin.remove_router_interface(
+                        self.context, router['id'],
+                        {'subnet_id': subnet['subnet']['id']})
+                agents = self.l3_plugin.list_l3_agents_hosting_router(
+                    self.context, router['id'])
+                self.assertEqual(1, len(agents['agents']))
+                self.assertFalse(l3_notifier.router_removed_from_agent.called)
+
+    def test_router_is_not_removed_from_snat_agent_on_dhcp_port_deletion(self):
+        """Check that dvr router is not removed from l3 agent hosting
+        SNAT for it on DHCP port removal
+        """
+        router = self._create_router()
+        kwargs = {'arg_list': (external_net.EXTERNAL,),
+                  external_net.EXTERNAL: True}
+        with self.network(**kwargs) as ext_net,\
+                self.subnet(network=ext_net),\
+                self.subnet(cidr='20.0.0.0/24') as subnet,\
+                self.port(subnet=subnet,
+                          device_owner=constants.DEVICE_OWNER_DHCP) as port:
+            self.core_plugin.update_port(
+                    self.context, port['port']['id'],
+                    {'port': {'binding:host_id': self.l3_agent['host']}})
+            self.l3_plugin._update_router_gw_info(
+                self.context, router['id'],
+                {'network_id': ext_net['network']['id']})
+            self.l3_plugin.add_router_interface(
+                self.context, router['id'],
+                {'subnet_id': subnet['subnet']['id']})
+
+            # router should be scheduled to the dvr_snat l3 agent
+            agents = self.l3_plugin.list_l3_agents_hosting_router(
+                self.context, router['id'])
+            self.assertEqual(1, len(agents['agents']))
+            self.assertEqual(self.l3_agent['id'], agents['agents'][0]['id'])
+
+            notifier = self.l3_plugin.agent_notifiers[
+                constants.AGENT_TYPE_L3]
+            with mock.patch.object(
+                    notifier, 'router_removed_from_agent') as remove_mock:
+                self._delete('ports', port['port']['id'])
+                # now when port is deleted the router still has external
+                # gateway and should still be scheduled to the snat agent
+                agents = self.l3_plugin.list_l3_agents_hosting_router(
+                    self.context, router['id'])
+                self.assertEqual(1, len(agents['agents']))
+                self.assertEqual(self.l3_agent['id'],
+                                 agents['agents'][0]['id'])
+                self.assertFalse(remove_mock.called)
+
+    def test__get_dvr_subnet_ids_on_host_query(self):
+        with self.subnet(cidr='20.0.0.0/24') as subnet1,\
+                self.subnet(cidr='30.0.0.0/24') as subnet2,\
+                self.subnet(cidr='40.0.0.0/24') as subnet3,\
+                self.port(subnet=subnet1,
+                          device_owner=DEVICE_OWNER_COMPUTE) as p1,\
+                self.port(subnet=subnet2,
+                          device_owner=constants.DEVICE_OWNER_DHCP) as p2,\
+                self.port(subnet=subnet3,
+                          device_owner=constants.DEVICE_OWNER_NEUTRON_PREFIX)\
+                as p3,\
+                self.port(subnet=subnet3,
+                          device_owner=constants.DEVICE_OWNER_COMPUTE_PREFIX)\
+                as p4:
+            host = 'host1'
+
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual([], subnet_ids)
+
+            self.core_plugin.update_port(
+                self.context, p1['port']['id'],
+                {'port': {portbindings.HOST_ID: host}})
+            expected = {subnet1['subnet']['id']}
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual(expected, set(subnet_ids))
+
+            self.core_plugin.update_port(
+                self.context, p2['port']['id'],
+                {'port': {portbindings.HOST_ID: host}})
+            expected.add(subnet2['subnet']['id'])
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual(expected, set(subnet_ids))
+
+            self.core_plugin.update_port(
+                self.context, p3['port']['id'],
+                {'port': {portbindings.HOST_ID: host}})
+            # p3 is non dvr serviceable so no subnet3 expected
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual(expected, set(subnet_ids))
+
+            other_host = 'other' + host
+            self.core_plugin.update_port(
+                self.context, p4['port']['id'],
+                {'port': {portbindings.HOST_ID: other_host}})
+            # p4 is on other host so no subnet3 expected
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual(expected, set(subnet_ids))
+
+            self.core_plugin.update_port(
+                self.context, p4['port']['id'],
+                {'port': {portbindings.HOST_ID: host}})
+            # finally p4 is on the right host so subnet3 is expected
+            expected.add(subnet3['subnet']['id'])
+            subnet_ids = [item[0] for item in
+                          self.l3_plugin._get_dvr_subnet_ids_on_host_query(
+                              self.context, host)]
+            self.assertEqual(expected, set(subnet_ids))
+
+    def test__get_dvr_router_ids_for_host(self):
+        router1 = self._create_router()
+        router2 = self._create_router()
+        host = 'host1'
+        arg_list = (portbindings.HOST_ID,)
+        with self.subnet(cidr='20.0.0.0/24') as subnet1,\
+                self.subnet(cidr='30.0.0.0/24') as subnet2,\
+                self.port(subnet=subnet1,
+                          device_owner=DEVICE_OWNER_COMPUTE,
+                          arg_list=arg_list,
+                          **{portbindings.HOST_ID: host}),\
+                self.port(subnet=subnet2,
+                          device_owner=constants.DEVICE_OWNER_DHCP,
+                          arg_list=arg_list,
+                          **{portbindings.HOST_ID: host}):
+
+            router_ids = self.l3_plugin._get_dvr_router_ids_for_host(
+                self.context, host)
+            self.assertEqual([], router_ids)
+
+            self.l3_plugin.add_router_interface(
+                self.context, router1['id'],
+                {'subnet_id': subnet1['subnet']['id']})
+            router_ids = self.l3_plugin._get_dvr_router_ids_for_host(
+                self.context, host)
+            expected = {router1['id']}
+            self.assertEqual(expected, set(router_ids))
+
+            self.l3_plugin.add_router_interface(
+                self.context, router2['id'],
+                {'subnet_id': subnet2['subnet']['id']})
+            router_ids = self.l3_plugin._get_dvr_router_ids_for_host(
+                self.context, host)
+            expected.add(router2['id'])
+            self.assertEqual(expected, set(router_ids))
+
+    def test__get_router_ids_for_agent(self):
+        router1 = self._create_router()
+        router2 = self._create_router()
+        router3 = self._create_router()
+        arg_list = (portbindings.HOST_ID,)
+        host = self.l3_agent['host']
+        with self.subnet() as ext_subnet,\
+                self.subnet(cidr='20.0.0.0/24') as subnet1,\
+                self.subnet(cidr='30.0.0.0/24') as subnet2,\
+                self.port(subnet=subnet1,
+                          device_owner=DEVICE_OWNER_COMPUTE,
+                          arg_list=arg_list,
+                          **{portbindings.HOST_ID: host}),\
+                self.port(subnet=subnet2,
+                          device_owner=constants.DEVICE_OWNER_DHCP,
+                          arg_list=arg_list,
+                          **{portbindings.HOST_ID: host}):
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [])
+            self.assertEqual([], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id'], router2['id']])
+            self.assertEqual([], ids)
+
+            self.l3_plugin.add_router_interface(
+                self.context, router1['id'],
+                {'subnet_id': subnet1['subnet']['id']})
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [])
+            self.assertEqual([router1['id']], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id']])
+            self.assertEqual([router1['id']], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id'], router2['id']])
+            self.assertEqual([router1['id']], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router2['id']])
+            self.assertEqual([], ids)
+
+            self.l3_plugin.add_router_interface(
+                self.context, router2['id'],
+                {'subnet_id': subnet2['subnet']['id']})
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [])
+            self.assertEqual({router1['id'], router2['id']}, set(ids))
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id']])
+            self.assertEqual([router1['id']], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id'], router2['id']])
+            self.assertEqual({router1['id'], router2['id']}, set(ids))
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router2['id']])
+            self.assertEqual([router2['id']], ids)
+
+            # make net external
+            ext_net_id = ext_subnet['subnet']['network_id']
+            self._update('networks', ext_net_id,
+                     {'network': {external_net.EXTERNAL: True}})
+            # add external gateway to router
+            self.l3_plugin.update_router(
+                self.context, router3['id'],
+                {'router': {
+                    'external_gateway_info': {'network_id': ext_net_id}}})
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [])
+            self.assertEqual({router1['id'], router2['id'], router3['id']},
+                             set(ids))
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router3['id']])
+            self.assertEqual([router3['id']], ids)
+            ids = self.l3_plugin._get_router_ids_for_agent(
+                self.context, self.l3_agent, [router1['id'], router3['id']])
+            self.assertEqual({router1['id'], router3['id']}, set(ids))
+
+    def test_remove_router_interface(self):
+        HOST1 = 'host1'
+        helpers.register_l3_agent(
+            host=HOST1, agent_mode=constants.L3_AGENT_MODE_DVR)
+        router = self._create_router()
+        arg_list = (portbindings.HOST_ID,)
+        with self.subnet() as subnet,\
+                self.port(subnet=subnet,
+                          device_owner=DEVICE_OWNER_COMPUTE,
+                          arg_list=arg_list,
+                          **{portbindings.HOST_ID: HOST1}):
+            l3_notifier = mock.Mock()
+            self.l3_plugin.l3_rpc_notifier = l3_notifier
+            self.l3_plugin.agent_notifiers[
+                    constants.AGENT_TYPE_L3] = l3_notifier
+
+            self.l3_plugin.add_router_interface(
+                self.context, router['id'],
+                {'subnet_id': subnet['subnet']['id']})
+            self.l3_plugin.schedule_router(self.context, router['id'])
+
+            self.l3_plugin.remove_router_interface(
+                self.context, router['id'],
+                {'subnet_id': subnet['subnet']['id']})
+
+            l3_notifier.router_removed_from_agent.assert_called_once_with(
+                self.context, router['id'], HOST1)
+
+    def test_router_auto_scheduling(self):
+        router = self._create_router()
+        agents = self.l3_plugin.list_l3_agents_hosting_router(
+                self.context, router['id'])
+        # router is not scheduled yet
+        self.assertEqual([], agents['agents'])
+
+        l3_rpc_handler = l3_rpc.L3RpcCallback()
+        # router should be auto scheduled once l3 agent requests router ids
+        l3_rpc_handler.get_router_ids(self.context, self.l3_agent['host'])
+        agents = self.l3_plugin.list_l3_agents_hosting_router(
+            self.context, router['id'])
+        self.assertEqual(1, len(agents['agents']))
+        self.assertEqual(self.l3_agent['id'], agents['agents'][0]['id'])

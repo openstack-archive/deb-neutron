@@ -15,6 +15,7 @@
 
 import pecan
 
+from neutron.api.v2 import attributes as api_attributes
 from neutron import manager
 
 # Utility functions for Pecan controllers.
@@ -37,7 +38,15 @@ def when(index, *args, **kwargs):
 class NeutronPecanController(object):
 
     def __init__(self, collection, resource):
-        self.collection = collection
-        self.resource = resource
-        self.plugin = manager.NeutronManager.get_plugin_for_resource(
-            self.resource)
+        # Ensure dashes are always replaced with underscores
+        self.collection = collection and collection.replace('-', '_')
+        self.resource = resource and resource.replace('-', '_')
+        self._resource_info = api_attributes.get_collection_info(collection)
+        self._plugin = None
+
+    @property
+    def plugin(self):
+        if not self._plugin:
+            self._plugin = manager.NeutronManager.get_plugin_for_resource(
+                self.resource)
+        return self._plugin

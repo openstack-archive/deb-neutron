@@ -33,6 +33,10 @@ class RbacPolicyInUse(n_exc.Conflict):
                 "because other objects depend on it.\nDetails: %(details)s")
 
 
+class DuplicateRbacPolicy(n_exc.Conflict):
+    message = _("An RBAC policy already exists with those values.")
+
+
 def convert_valid_object_type(otype):
     normalized = otype.strip().lower()
     if normalized in rbac_db_models.get_type_model_map():
@@ -66,7 +70,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                    # action depends on type so validation has to occur in
                    # the extension
                    'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
-                   'is_visible': True},
+                   # we set enforce_policy so operators can define policies
+                   # that restrict actions
+                   'is_visible': True, 'enforce_policy': True,
+                   'default': None},
     }
 }
 

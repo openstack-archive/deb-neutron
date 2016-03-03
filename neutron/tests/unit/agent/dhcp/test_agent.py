@@ -619,11 +619,14 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
             mock.call.get_network_info(network.id)])
         self.call_driver.assert_called_once_with('enable', network)
         self.cache.assert_has_calls([mock.call.put(network)])
-        if is_isolated_network:
+        if is_isolated_network and enable_isolated_metadata:
             self.external_process.assert_has_calls([
                 self._process_manager_constructor_call(),
-                mock.call().enable()
-            ])
+                mock.call().enable()])
+        elif not enable_isolated_metadata:
+            self.external_process.assert_has_calls([
+                self._process_manager_constructor_call(ns=None),
+                mock.call().disable()])
         else:
             self.assertFalse(self.external_process.call_count)
 
@@ -727,6 +730,7 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
     def test_enable_dhcp_helper_driver_failure(self):
         self.plugin.get_network_info.return_value = fake_network
         self.call_driver.return_value = False
+        cfg.CONF.set_override('enable_isolated_metadata', True)
         self.dhcp.enable_dhcp_helper(fake_network.id)
         self.plugin.assert_has_calls(
             [mock.call.get_network_info(fake_network.id)])
@@ -1192,6 +1196,10 @@ class FakeV4Subnet(object):
     enable_dhcp = True
 
 
+class FakeV4SubnetOutsideGateway(FakeV4Subnet):
+    gateway_ip = '192.168.1.1'
+
+
 class FakeV4SubnetNoGateway(object):
     id = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
     ip_version = 4
@@ -1205,6 +1213,10 @@ class FakeV4Network(object):
     subnets = [FakeV4Subnet()]
     ports = [FakePort1()]
     namespace = 'qdhcp-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
+
+class FakeV4NetworkOutsideGateway(FakeV4Network):
+    subnets = [FakeV4SubnetOutsideGateway()]
 
 
 class FakeV4NetworkNoSubnet(object):
@@ -1297,7 +1309,8 @@ class TestDeviceManager(base.BaseTestCase):
                                            port.id,
                                            'tap12345678-12',
                                            'aa:bb:cc:dd:ee:ff',
-                                           namespace=net.namespace))
+                                           namespace=net.namespace,
+                                           mtu=None))
         self.mock_driver.assert_has_calls(expected)
 
         dh._set_default_route.assert_called_once_with(net, 'tap12345678-12')
@@ -1316,21 +1329,40 @@ class TestDeviceManager(base.BaseTestCase):
         self.mangle_inst.assert_has_calls(expected)
 
     def test_setup_create_dhcp_port(self):
-        plugin = mock.Mock()
-        net = copy.deepcopy(fake_network)
-        plugin.create_dhcp_port.return_value = fake_dhcp_port
-        dh = dhcp.DeviceManager(cfg.CONF, plugin)
-        dh.setup(net)
+        with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
+            plugin = mock.Mock()
+            device = mock.Mock()
+            mock_IPDevice.return_value = device
+            device.route.get_gateway.return_value = None
+            net = copy.deepcopy(fake_network)
+            plugin.create_dhcp_port.return_value = fake_dhcp_port
+            dh = dhcp.DeviceManager(cfg.CONF, plugin)
+            dh.setup(net)
 
-        plugin.assert_has_calls([
-            mock.call.create_dhcp_port(
-                {'port': {'name': '', 'admin_state_up': True,
-                          'network_id': net.id,
-                          'tenant_id': net.tenant_id,
-                          'fixed_ips': [{'subnet_id':
-                          fake_dhcp_port.fixed_ips[0].subnet_id}],
-                          'device_id': mock.ANY}})])
-        self.assertIn(fake_dhcp_port, net.ports)
+            plugin.assert_has_calls([
+                mock.call.create_dhcp_port(
+                    {'port': {'name': '', 'admin_state_up': True,
+                              'network_id': net.id,
+                              'tenant_id': net.tenant_id,
+                              'fixed_ips': [{'subnet_id':
+                              fake_dhcp_port.fixed_ips[0].subnet_id}],
+                              'device_id': mock.ANY}})])
+            self.assertIn(fake_dhcp_port, net.ports)
+
+    def test_setup_plug_exception(self):
+        plugin = mock.Mock()
+        plugin.create_dhcp_port.return_value = fake_dhcp_port
+        self.ensure_device_is_ready.return_value = False
+        self.mock_driver.get_device_name.return_value = 'tap12345678-12'
+        dh = dhcp.DeviceManager(cfg.CONF, plugin)
+        dh._set_default_route = mock.Mock()
+        dh._cleanup_stale_devices = mock.Mock()
+        dh.driver = mock.Mock()
+        dh.driver.plug.side_effect = OSError()
+        net = copy.deepcopy(fake_network)
+        self.assertRaises(OSError, dh.setup, net)
+        plugin.release_dhcp_port.assert_called_once_with(
+            net.id, mock.ANY)
 
     def test_setup_ipv6(self):
         self._test_setup_helper(True, net=fake_network_ipv6,
@@ -1481,13 +1513,15 @@ class TestDeviceManager(base.BaseTestCase):
                  tenant_id='aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa'))
         expected = ('dhcp1ae5f96c-c527-5079-82ea-371a01645457-12345678-1234-'
                     '5678-1234567890ab')
+        # the DHCP port name only contains the hostname and not the domain name
+        local_hostname = cfg.CONF.host.split('.')[0]
 
         with mock.patch('uuid.uuid5') as uuid5:
             uuid5.return_value = '1ae5f96c-c527-5079-82ea-371a01645457'
 
             dh = dhcp.DeviceManager(cfg.CONF, None)
-            uuid5.called_once_with(uuid.NAMESPACE_DNS, cfg.CONF.host)
             self.assertEqual(dh.get_device_id(fake_net), expected)
+            uuid5.assert_called_once_with(uuid.NAMESPACE_DNS, local_hostname)
 
     def test_update(self):
         # Try with namespaces and no metadata network
@@ -1523,6 +1557,22 @@ class TestDeviceManager(base.BaseTestCase):
         self.assertEqual(device.route.get_gateway.call_count, 1)
         self.assertFalse(device.route.delete_gateway.called)
         device.route.add_gateway.assert_called_once_with('192.168.0.1')
+
+    def test_set_default_route_outside_subnet(self):
+        dh = dhcp.DeviceManager(cfg.CONF, None)
+        with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
+            device = mock.Mock()
+            mock_IPDevice.return_value = device
+            device.route.get_gateway.return_value = None
+            # Basic one subnet with gateway outside the subnet.
+            network = FakeV4NetworkOutsideGateway()
+            dh._set_default_route(network, 'tap-name')
+
+        self.assertEqual(device.route.get_gateway.call_count, 1)
+        self.assertFalse(device.route.delete_gateway.called)
+        device.route.add_route.assert_called_once_with('192.168.1.1',
+                                                       scope='link')
+        device.route.add_gateway.assert_called_once_with('192.168.1.1')
 
     def test_set_default_route_no_subnet(self):
         dh = dhcp.DeviceManager(cfg.CONF, None)
@@ -1591,6 +1641,26 @@ class TestDeviceManager(base.BaseTestCase):
         self.assertEqual(device.route.get_gateway.call_count, 1)
         self.assertFalse(device.route.delete_gateway.called)
         device.route.add_gateway.assert_called_once_with('192.168.0.1')
+
+    def test_set_default_route_change_gateway_outside_subnet(self):
+        dh = dhcp.DeviceManager(cfg.CONF, None)
+        with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
+            device = mock.Mock()
+            mock_IPDevice.return_value = device
+            device.route.list_onlink_routes.return_value = (
+                [{'cidr': '192.168.2.1'}])
+            device.route.get_gateway.return_value = dict(gateway='192.168.2.1')
+            network = FakeV4NetworkOutsideGateway()
+            dh._set_default_route(network, 'tap-name')
+
+        self.assertEqual(device.route.get_gateway.call_count, 1)
+        self.assertEqual(device.route.list_onlink_routes.call_count, 2)
+        self.assertFalse(device.route.delete_gateway.called)
+        device.route.delete_route.assert_called_once_with('192.168.2.1',
+                                                       scope='link')
+        device.route.add_route.assert_called_once_with('192.168.1.1',
+                                                       scope='link')
+        device.route.add_gateway.assert_called_once_with('192.168.1.1')
 
     def test_set_default_route_two_subnets(self):
         # Try two subnets. Should set gateway from the first.

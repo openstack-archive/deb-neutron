@@ -90,11 +90,18 @@ Database upgrade is split into two parts:
 
 Each part represents a separate alembic branch.
 
-:ref:`More info on alembic scripts <alembic_migrations>`.
-
 The former step can be executed while old neutron-server code is running. The
 latter step requires *all* neutron-server instances to be shut down. Once it's
 complete, neutron-servers can be started again.
+
+.. note::
+    Full shutdown of neutron-server instances can be skipped depending on
+    whether there are pending contract scripts not applied to the database::
+
+     $ neutron-db-manage has_offline_migrations
+     Command will return a message if there are pending contract scripts.
+
+:ref:`More info on alembic scripts <alembic_migrations>`.
 
 Agents upgrade
 ~~~~~~~~~~~~~~
@@ -132,6 +139,23 @@ agents, only the former should handle both old and new RPC versions.
 
 The implication of that is that no code that handles UnsupportedVersion
 oslo.messaging exceptions belongs to agent code.
+
+Notifications
+'''''''''''''
+
+For notifications that are issued by neutron-server to listening agents,
+special consideration is needed to support rolling upgrades. In this case, a
+newer controller sends newer payload to older agents.
+
+Until we have proper RPC version pinning feature to enforce older payload
+format during upgrade (as it's implemented in other projects like nova), we
+leave our agents resistant against unknown arguments sent as part of server
+notifications. This is achieved by consistently capturing those unknown
+arguments with keyword arguments and ignoring them on agent side; and by not
+enforcing newer RPC entry point versions on server side.
+
+This approach is not ideal, because it makes RPC API less strict. That's why
+other approaches should be considered for notifications in the future.
 
 :ref:`More information about RPC versioning <rpc_versioning>`.
 
@@ -240,6 +264,8 @@ Now to specifics:
      that server should be able to handle old requests, without the new
      argument specified. Also, if the argument is not passed, the old behaviour
      before the addition of the argument should be retained.
+   * minimal client version must not be bumped for server initiated
+     notification changes for at least one cycle.
 
 #. Database migrations:
 

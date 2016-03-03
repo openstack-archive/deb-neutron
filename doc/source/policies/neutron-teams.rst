@@ -108,17 +108,11 @@ updating the core review team for the sub-project's repositories.
 |                        +---------------------------+----------------------+
 |                        | Gal Sagie                 | gsagie               |
 +------------------------+---------------------------+----------------------+
-| kuryr                  | Antoni Segura Puimedon    | apuimedo             |
-|                        +---------------------------+----------------------+
-|                        | Gal Sagie                 | gsagie               |
-+------------------------+---------------------------+----------------------+
 | networking-bgpvpn      | Mathieu Rohon             | matrohon             |
 |                        +---------------------------+----------------------+
 |                        | Thomas Morin              | tmorin               |
 +------------------------+---------------------------+----------------------+
 | networking-calico      | Neil Jerram               | neiljerram           |
-+------------------------+---------------------------+----------------------+
-| networking-infoblox    | John Belamaric            | johnbelamaric        |
 +------------------------+---------------------------+----------------------+
 | networking-l2gw        | Sukhdev Kapur             | sukhdev              |
 +------------------------+---------------------------+----------------------+
@@ -140,15 +134,9 @@ updating the core review team for the sub-project's repositories.
 +------------------------+---------------------------+----------------------+
 | networking-ovn         | Russell Bryant            | russellb             |
 +------------------------+---------------------------+----------------------+
-| networking-plumgrid    | Fawad Khaliq              | fawadkhaliq          |
-+------------------------+---------------------------+----------------------+
 | networking-sfc         | Cathy Zhang               | cathy                |
 +------------------------+---------------------------+----------------------+
-| networking-vshpere     | Vivekanandan Narasimhan   | viveknarasimhan      |
-+------------------------+---------------------------+----------------------+
 | octavia                | German Eichberger         | xgerman              |
-+------------------------+---------------------------+----------------------+
-| vmware-nsx             | Gary Kotton               | garyk                |
 +------------------------+---------------------------+----------------------+
 
 Existing Core Reviewers

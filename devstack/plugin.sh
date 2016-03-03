@@ -1,5 +1,6 @@
 LIBDIR=$DEST/neutron/devstack/lib
 
+source $LIBDIR/bgp
 source $LIBDIR/flavors
 source $LIBDIR/l2_agent
 source $LIBDIR/l2_agent_sriovnicswitch
@@ -15,10 +16,16 @@ if [[ "$1" == "stack" ]]; then
             if is_service_enabled q-qos; then
                 configure_qos
             fi
+            if is_service_enabled q-bgp; then
+                configure_bgp
+            fi
             ;;
         post-config)
             if is_service_enabled q-agt; then
                 configure_l2_agent
+            fi
+            if is_service_enabled q-bgp && is_service_enabled q-bgp-agt; then
+                configure_bgp_dragent
             fi
             #Note: sriov agent should run with OVS or linux bridge agent
             #because they are the mechanisms that bind the DHCP and router ports.
@@ -35,10 +42,16 @@ if [[ "$1" == "stack" ]]; then
             if is_service_enabled q-sriov-agt; then
                 start_l2_agent_sriov
             fi
+            if is_service_enabled q-bgp && is_service_enabled q-bgp-agt; then
+                start_bgp_dragent
+            fi
             ;;
     esac
 elif [[ "$1" == "unstack" ]]; then
     if is_service_enabled q-sriov-agt; then
         stop_l2_agent_sriov
+    fi
+    if is_service_enabled q-bgp && is_service_enabled q-bgp-agt; then
+        stop_bgp_dragent
     fi
 fi

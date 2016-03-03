@@ -107,6 +107,7 @@ class TestOvsNeutronAgent(object):
                              group='SECURITYGROUP')
         cfg.CONF.set_default('quitting_rpc_timeout', 10, 'AGENT')
         cfg.CONF.set_default('prevent_arp_spoofing', False, 'AGENT')
+        cfg.CONF.set_default('local_ip', '127.0.0.1', 'OVS')
         mock.patch(
             'neutron.agent.common.ovs_lib.OVSBridge.get_ports_attributes',
             return_value=[]).start()
@@ -389,13 +390,18 @@ class TestOvsNeutronAgent(object):
 
     def _test_process_ports_events(self, events, registered_ports,
                                    ancillary_ports, expected_ports,
-                                   expected_ancillary, updated_ports=None):
+                                   expected_ancillary, updated_ports=None,
+                                   ):
         with mock.patch.object(self.agent, 'check_changed_vlans',
                                return_value=set()):
             devices_not_ready_yet = set()
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_ancillary_devices = {
+                'added': set(), 'removed': set()}
             actual = self.agent.process_ports_events(
                 events, registered_ports, ancillary_ports,
-                devices_not_ready_yet, updated_ports)
+                devices_not_ready_yet, failed_devices,
+                failed_ancillary_devices, updated_ports)
             self.assertEqual(
                 (expected_ports, expected_ancillary, devices_not_ready_yet),
                 actual)
@@ -436,8 +442,13 @@ class TestOvsNeutronAgent(object):
                                side_effect=[2]), \
             mock.patch.object(self.agent, 'check_changed_vlans',
                               return_value=set()):
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_ancillary_devices = {
+                'added': set(), 'removed': set()}
+            ports_not_ready_yet = set()
             actual = self.agent.process_ports_events(
-                events, registered_ports, set(), devices_not_ready_yet)
+                events, registered_ports, set(), ports_not_ready_yet,
+                failed_devices, failed_ancillary_devices)
             self.assertEqual(
                 (expected_ports, expected_ancillary, devices_not_ready_yet),
                 actual)
@@ -461,12 +472,15 @@ class TestOvsNeutronAgent(object):
                                              'external_ids': {
                                                  'attached-mac': 'mac4'}}]):
             expected_devices_not_ready = {'port5'}
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_ancillary_devices = {
+                'added': set(), 'removed': set()}
             actual = self.agent.process_ports_events(
-                events, registered_ports, set(), old_devices_not_ready)
+                events, registered_ports, set(), old_devices_not_ready,
+                failed_devices, failed_ancillary_devices)
             self.assertEqual(
                 (expected_ports, expected_ancillary,
-                 expected_devices_not_ready),
-                actual)
+                 expected_devices_not_ready), actual)
 
     def _test_process_port_events_with_updated_ports(self, updated_ports):
         events = {'added': [{'name': 'port3', 'ofport': 3,
@@ -493,9 +507,13 @@ class TestOvsNeutronAgent(object):
                               return_value=set()):
 
             devices_not_ready_yet = set()
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_ancillary_devices = {
+                'added': set(), 'removed': set()}
             actual = self.agent.process_ports_events(
                 events, registered_ports, ancillary_ports,
-                devices_not_ready_yet, updated_ports)
+                devices_not_ready_yet, failed_devices,
+                failed_ancillary_devices, updated_ports)
             self.assertEqual(
                 (expected_ports, expected_ancillary, devices_not_ready_yet),
                 actual)
@@ -533,6 +551,66 @@ class TestOvsNeutronAgent(object):
             actual = self.mock_scan_ports(
                 vif_port_set, registered_ports, port_tags_dict=port_tags_dict)
         self.assertEqual(expected, actual)
+
+    def test_update_retries_map_and_remove_devs_not_to_retry(self):
+        failed_devices_retries_map = {
+            'device_not_to_retry': constants.MAX_DEVICE_RETRIES,
+            'device_to_retry': 2,
+            'ancillary_not_to_retry': constants.MAX_DEVICE_RETRIES,
+            'ancillary_to_retry': 1}
+        failed_devices = {
+            'added': set(['device_not_to_retry']),
+            'removed': set(['device_to_retry', 'new_device'])}
+        failed_ancillary_devices = {'added': set(['ancillary_to_retry']),
+                                    'removed': set(['ancillary_not_to_retry'])}
+        expected_failed_devices_retries_map = {
+            'device_to_retry': 3, 'new_device': 1, 'ancillary_to_retry': 2}
+        (new_failed_devices_retries_map, devices_not_to_retry,
+         ancillary_devices_not_t_retry) = self.agent._get_devices_not_to_retry(
+            failed_devices, failed_ancillary_devices,
+            failed_devices_retries_map)
+        self.agent._remove_devices_not_to_retry(
+            failed_devices, failed_ancillary_devices, devices_not_to_retry,
+            ancillary_devices_not_t_retry)
+        self.assertIn('device_to_retry', failed_devices['removed'])
+        self.assertNotIn('device_not_to_retry', failed_devices['added'])
+        self.assertEqual(
+            expected_failed_devices_retries_map,
+            new_failed_devices_retries_map)
+
+    def test_add_port_tag_info(self):
+        self.agent.local_vlan_map["net1"] = mock.Mock()
+        self.agent.local_vlan_map["net1"].vlan = "1"
+        ovs_db_list = [{'name': 'tap1',
+                        'tag': [],
+                        'other_config': {'segmentation_id': '1'}},
+                       {'name': 'tap2',
+                        'tag': [],
+                        'other_config': {}},
+                       {'name': 'tap3',
+                        'tag': [],
+                        'other_config': None}]
+        vif_port1 = mock.Mock()
+        vif_port1.port_name = 'tap1'
+        vif_port2 = mock.Mock()
+        vif_port2.port_name = 'tap2'
+        vif_port3 = mock.Mock()
+        vif_port3.port_name = 'tap3'
+        port_details = [
+            {'network_id': 'net1', 'vif_port': vif_port1},
+            {'network_id': 'net1', 'vif_port': vif_port2},
+            {'network_id': 'net1', 'vif_port': vif_port3}]
+        with mock.patch.object(self.agent, 'int_br') as int_br:
+            int_br.get_ports_attributes.return_value = ovs_db_list
+            self.agent._add_port_tag_info(port_details)
+            set_db_attribute_calls = \
+                [mock.call.set_db_attribute("Port", "tap1",
+                    "other_config", {"segmentation_id": "1", "tag": "1"}),
+                 mock.call.set_db_attribute("Port", "tap2",
+                    "other_config", {"tag": "1"}),
+                 mock.call.set_db_attribute("Port", "tap3",
+                    "other_config", {"tag": "1"})]
+            int_br.assert_has_calls(set_db_attribute_calls, any_order=True)
 
     def test_bind_devices(self):
         devices_up = ['tap1']
@@ -610,7 +688,7 @@ class TestOvsNeutronAgent(object):
         with mock.patch.object(self.agent.plugin_rpc,
                                'get_devices_details_list_and_failed_devices',
                                return_value={'devices': [details],
-                                             'failed_devices': None}),\
+                                             'failed_devices': []}),\
                 mock.patch.object(self.agent.int_br,
                                   'get_vifs_by_ids',
                                   return_value={details['device']: port}),\
@@ -623,8 +701,8 @@ class TestOvsNeutronAgent(object):
                     'get_port_tag_dict',
                     return_value={}),\
                 mock.patch.object(self.agent, func_name) as func:
-            skip_devs, need_bound_devices, insecure_ports = (
-                self.agent.treat_devices_added_or_updated([{}], False))
+            skip_devs, need_bound_devices, insecure_ports, _ = (
+                self.agent.treat_devices_added_or_updated([], False))
             # The function should not raise
             self.assertFalse(skip_devs)
             return func.called
@@ -668,7 +746,7 @@ class TestOvsNeutronAgent(object):
         with mock.patch.object(self.agent.plugin_rpc,
                                'get_devices_details_list_and_failed_devices',
                                return_value={'devices': [details],
-                                             'failed_devices': None}),\
+                                             'failed_devices': []}),\
             mock.patch.object(self.agent.ext_manager,
                               'handle_port', new=fake_handle_port),\
             mock.patch.object(self.agent.int_br,
@@ -677,7 +755,7 @@ class TestOvsNeutronAgent(object):
             mock.patch.object(self.agent, 'treat_vif_port',
                               return_value=False):
 
-            self.agent.treat_devices_added_or_updated([{}], False)
+            self.agent.treat_devices_added_or_updated([], False)
 
     def test_treat_devices_added_updated_skips_if_port_not_found(self):
         dev_mock = mock.MagicMock()
@@ -685,7 +763,7 @@ class TestOvsNeutronAgent(object):
         with mock.patch.object(self.agent.plugin_rpc,
                                'get_devices_details_list_and_failed_devices',
                                return_value={'devices': [dev_mock],
-                                             'failed_devices': None}),\
+                                             'failed_devices': []}),\
                 mock.patch.object(self.agent.int_br,
                     'get_port_tag_dict',
                     return_value={}),\
@@ -694,10 +772,29 @@ class TestOvsNeutronAgent(object):
                                   return_value={}),\
                 mock.patch.object(self.agent,
                                   'treat_vif_port') as treat_vif_port:
-            skip_devs = self.agent.treat_devices_added_or_updated([{}], False)
+            skip_devs = self.agent.treat_devices_added_or_updated([], False)
             # The function should return False for resync and no device
             # processed
-            self.assertEqual((['the_skipped_one'], [], []), skip_devs)
+            self.assertEqual((['the_skipped_one'], [], [], set()), skip_devs)
+            self.assertFalse(treat_vif_port.called)
+
+    def test_treat_devices_added_failed_devices(self):
+        dev_mock = 'the_failed_one'
+        with mock.patch.object(self.agent.plugin_rpc,
+                               'get_devices_details_list_and_failed_devices',
+                               return_value={'devices': [],
+                                             'failed_devices': [dev_mock]}),\
+                mock.patch.object(self.agent.int_br,
+                                  'get_vifs_by_ids',
+                                  return_value={}),\
+                mock.patch.object(self.agent,
+                                  'treat_vif_port') as treat_vif_port:
+            failed_devices = {'added': set(), 'removed': set()}
+            (_, _, _, failed_devices['added']) = (
+                self.agent.treat_devices_added_or_updated([], False))
+            # The function should return False for resync and no device
+            # processed
+            self.assertEqual(set([dev_mock]), failed_devices.get('added'))
             self.assertFalse(treat_vif_port.called)
 
     def test_treat_devices_added_updated_put_port_down(self):
@@ -717,7 +814,7 @@ class TestOvsNeutronAgent(object):
         with mock.patch.object(self.agent.plugin_rpc,
                                'get_devices_details_list_and_failed_devices',
                                return_value={'devices': [fake_details_dict],
-                                             'failed_devices': None}),\
+                                             'failed_devices': []}),\
                 mock.patch.object(self.agent.int_br,
                                   'get_vifs_by_ids',
                                   return_value={'xxx': mock.MagicMock()}),\
@@ -725,8 +822,8 @@ class TestOvsNeutronAgent(object):
                                   return_value={}),\
                 mock.patch.object(self.agent,
                                   'treat_vif_port') as treat_vif_port:
-            skip_devs, need_bound_devices, insecure_ports = (
-                self.agent.treat_devices_added_or_updated([{}], False))
+            skip_devs, need_bound_devices, insecure_ports, _ = (
+                self.agent.treat_devices_added_or_updated([], False))
             # The function should return False for resync
             self.assertFalse(skip_devs)
             self.assertTrue(treat_vif_port.called)
@@ -749,6 +846,19 @@ class TestOvsNeutronAgent(object):
     def test_treat_devices_removed_ignores_missing_port(self):
         self._mock_treat_devices_removed(False)
 
+    def test_treat_devices_removed_failed_devices(self):
+        dev_mock = 'the_failed_one'
+        with mock.patch.object(self.agent.plugin_rpc,
+                               'update_device_list',
+                               return_value={'devices_up': [],
+                                             'devices_down': [],
+                                             'failed_devices_up': [],
+                                             'failed_devices_down': [
+                                                 dev_mock]}):
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_devices['removed'] = self.agent.treat_devices_removed([{}])
+            self.assertEqual(set([dev_mock]), failed_devices.get('removed'))
+
     def test_bind_port_with_missing_network(self):
         vif_port = mock.Mock()
         vif_port.name.return_value = 'port'
@@ -756,19 +866,24 @@ class TestOvsNeutronAgent(object):
                                    'vif_port': vif_port}])
 
     def _test_process_network_ports(self, port_info):
+        failed_devices = {'added': set(), 'removed': set()}
         with mock.patch.object(self.agent.sg_agent,
                                "setup_port_filters") as setup_port_filters,\
                 mock.patch.object(
-                    self.agent,
-                    "treat_devices_added_or_updated",
-                    return_value=([], [], [])) as device_added_updated,\
+                    self.agent, "treat_devices_added_or_updated",
+                    return_value=(
+                        [], [], [],
+                        failed_devices['added'])) as device_added_updated,\
                 mock.patch.object(self.agent.int_br, "get_ports_attributes",
                                   return_value=[]),\
                 mock.patch.object(self.agent,
                                   "treat_devices_removed",
-                                  return_value=False) as device_removed:
-            self.assertFalse(self.agent.process_network_ports(port_info,
-                                                              False))
+                                  return_value=(
+                                      failed_devices[
+                                          'removed'])) as device_removed:
+            self.assertEqual(
+                failed_devices,
+                self.agent.process_network_ports(port_info, False))
             setup_port_filters.assert_called_once_with(
                 port_info.get('added', set()),
                 port_info.get('updated', set()))
@@ -801,14 +916,18 @@ class TestOvsNeutronAgent(object):
                      'updated': set(['tap1']),
                      'removed': set([]),
                      'added': set(['eth1'])}
+        failed_dev = {'added': set(), 'removed': set()}
         with mock.patch.object(self.agent.sg_agent,
                                "setup_port_filters") as setup_port_filters,\
                 mock.patch.object(
                     self.agent,
                     "treat_devices_added_or_updated",
-                    return_value=([], [], ['eth1'])) as device_added_updated:
-            self.assertFalse(self.agent.process_network_ports(port_info,
-                                                              False))
+                    return_value=(
+                        [], [], ['eth1'],
+                        failed_dev['added'])) as device_added_updated:
+            self.assertEqual(
+                failed_dev,
+                self.agent.process_network_ports(port_info, False))
             device_added_updated.assert_called_once_with(
                 set(['eth1', 'tap1']), False)
             setup_port_filters.assert_called_once_with(
@@ -979,10 +1098,10 @@ class TestOvsNeutronAgent(object):
                                                    'int-br-eth'),
             ]
             parent.assert_has_calls(expected_calls)
-            self.assertEqual(self.agent.int_ofports["physnet1"],
-                             "int_ofport")
-            self.assertEqual(self.agent.phys_ofports["physnet1"],
-                             "phy_ofport")
+            self.assertEqual("int_ofport",
+                             self.agent.int_ofports["physnet1"])
+            self.assertEqual("phy_ofport",
+                             self.agent.phys_ofports["physnet1"])
 
     def test_setup_physical_bridges_using_veth_interconnection(self):
         self.agent.use_veth_interconnection = True
@@ -1016,10 +1135,10 @@ class TestOvsNeutronAgent(object):
                               mock.call.add_veth('int-br-eth',
                                                  'phy-br-eth')]
             parent.assert_has_calls(expected_calls, any_order=False)
-            self.assertEqual(self.agent.int_ofports["physnet1"],
-                             "int_veth_ofport")
-            self.assertEqual(self.agent.phys_ofports["physnet1"],
-                             "phys_veth_ofport")
+            self.assertEqual("int_veth_ofport",
+                             self.agent.int_ofports["physnet1"])
+            self.assertEqual("phys_veth_ofport",
+                             self.agent.phys_ofports["physnet1"])
 
     def test_setup_physical_bridges_change_from_veth_to_patch_conf(self):
         with mock.patch.object(sys, "exit"),\
@@ -1057,10 +1176,10 @@ class TestOvsNeutronAgent(object):
                                                    'int-br-eth'),
             ]
             parent.assert_has_calls(expected_calls)
-            self.assertEqual(self.agent.int_ofports["physnet1"],
-                             "int_ofport")
-            self.assertEqual(self.agent.phys_ofports["physnet1"],
-                             "phy_ofport")
+            self.assertEqual("int_ofport",
+                             self.agent.int_ofports["physnet1"])
+            self.assertEqual("phy_ofport",
+                             self.agent.phys_ofports["physnet1"])
 
     def test_setup_tunnel_br(self):
         self.tun_br = mock.Mock()
@@ -1135,11 +1254,11 @@ class TestOvsNeutronAgent(object):
 
             lvm.vif_ports = {}
             self.agent.port_unbound("vif1", "netuid12345")
-            self.assertEqual(reclvl_fn.call_count, 2)
+            self.assertEqual(2, reclvl_fn.call_count)
 
             lvm.vif_ports = {"vif1": mock.Mock()}
             self.agent.port_unbound("vif3", "netuid12345")
-            self.assertEqual(reclvl_fn.call_count, 2)
+            self.assertEqual(2, reclvl_fn.call_count)
 
     def _prepare_l2_pop_ofports(self):
         lvm1 = mock.Mock()
@@ -1346,7 +1465,7 @@ class TestOvsNeutronAgent(object):
             log_error_fn.assert_called_once_with(
                 _("Failed to set-up %(type)s tunnel port to %(ip)s"),
                 {'type': p_const.TYPE_GRE, 'ip': 'remote_ip'})
-            self.assertEqual(ofport, 0)
+            self.assertEqual(0, ofport)
 
     def test_setup_tunnel_port_error_negative_df_disabled(self):
         with mock.patch.object(
@@ -1365,7 +1484,7 @@ class TestOvsNeutronAgent(object):
             log_error_fn.assert_called_once_with(
                 _("Failed to set-up %(type)s tunnel port to %(ip)s"),
                 {'type': p_const.TYPE_GRE, 'ip': 'remote_ip'})
-            self.assertEqual(ofport, 0)
+            self.assertEqual(0, ofport)
 
     def test_setup_tunnel_port_error_negative_tunnel_csum(self):
         with mock.patch.object(
@@ -1384,7 +1503,7 @@ class TestOvsNeutronAgent(object):
             log_error_fn.assert_called_once_with(
                 _("Failed to set-up %(type)s tunnel port to %(ip)s"),
                 {'type': p_const.TYPE_GRE, 'ip': 'remote_ip'})
-            self.assertEqual(ofport, 0)
+            self.assertEqual(0, ofport)
 
     def test_tunnel_sync_with_ml2_plugin(self):
         fake_tunnel_details = {'tunnels': [{'ip_address': '100.101.31.15'}]}
@@ -1446,6 +1565,12 @@ class TestOvsNeutronAgent(object):
             self.agent.tunnel_delete(context=None, **kwargs)
             self.assertTrue(clean_tun_fn.called)
 
+    def test_reset_tunnel_ofports(self):
+        tunnel_handles = self.agent.tun_br_ofports
+        self.agent.tun_br_ofports = {'gre': {'10.10.10.10': '1'}}
+        self.agent._reset_tunnel_ofports()
+        self.assertEqual(self.agent.tun_br_ofports, tunnel_handles)
+
     def _test_ovs_status(self, *args):
         reply2 = {'current': set(['tap0']),
                   'added': set(['tap2']),
@@ -1458,6 +1583,8 @@ class TestOvsNeutronAgent(object):
         reply_ancillary = {'current': set([]),
                            'added': set([]),
                            'removed': set([])}
+
+        self.agent.enable_tunneling = True
 
         with mock.patch.object(async_process.AsyncProcess, "_spawn"),\
                 mock.patch.object(async_process.AsyncProcess, "start"),\
@@ -1480,7 +1607,15 @@ class TestOvsNeutronAgent(object):
                     self.mod_agent.OVSNeutronAgent,
                     'update_stale_ofport_rules') as update_stale, \
                 mock.patch.object(self.mod_agent.OVSNeutronAgent,
-                                  'cleanup_stale_flows') as cleanup:
+                                  'cleanup_stale_flows') as cleanup, \
+                mock.patch.object(self.mod_agent.OVSNeutronAgent,
+                                  'setup_tunnel_br') as setup_tunnel_br,\
+                mock.patch.object(
+                    self.mod_agent.OVSNeutronAgent,
+                    'setup_tunnel_br_flows') as setup_tunnel_br_flows,\
+                mock.patch.object(
+                    self.mod_agent.OVSNeutronAgent,
+                    '_reset_tunnel_ofports') as reset_tunnel_ofports:
             log_exception.side_effect = Exception(
                 'Fake exception to get out of the loop')
             devices_not_ready = set()
@@ -1488,8 +1623,11 @@ class TestOvsNeutronAgent(object):
                                              devices_not_ready),
                                             (reply3, reply_ancillary,
                                              devices_not_ready)]
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_ancillary_devices = {'added': set(), 'removed': set()}
             process_network_ports.side_effect = [
-                False, Exception('Fake exception to get out of the loop')]
+                failed_devices,
+                Exception('Fake exception to get out of the loop')]
             check_ovs_status.side_effect = args
             try:
                 self.agent.daemon_loop()
@@ -1498,9 +1636,11 @@ class TestOvsNeutronAgent(object):
 
             process_p_events.assert_has_calls([
                 mock.call({'removed': [], 'added': []}, set(), set(), set(),
+                          failed_devices, failed_ancillary_devices,
                           set()),
                 mock.call({'removed': [], 'added': []}, set(['tap0']), set(),
-                          set(), set())
+                          set(), failed_devices, failed_ancillary_devices,
+                          set())
             ])
 
             process_network_ports.assert_has_calls([
@@ -1513,6 +1653,11 @@ class TestOvsNeutronAgent(object):
             # re-setup the bridges
             setup_int_br.assert_has_calls([mock.call()])
             setup_phys_br.assert_has_calls([mock.call({})])
+            # Ensure that tunnel handles are reset and bridge
+            # and flows reconfigured.
+            self.assertTrue(reset_tunnel_ofports.called)
+            self.assertTrue(setup_tunnel_br_flows.called)
+            self.assertTrue(setup_tunnel_br.called)
 
     def test_ovs_status(self):
         self._test_ovs_status(constants.OVS_NORMAL,
@@ -1540,7 +1685,7 @@ class TestOvsNeutronAgent(object):
                 mock.patch.object(
                     self.mod_agent.OVSNeutronAgent,
                     '_check_and_handle_signal') as check_and_handle_signal:
-            process_network_ports.return_value = True
+            process_network_ports.side_effect = Exception("Trigger resync")
             check_ovs_status.return_value = constants.OVS_NORMAL
             check_and_handle_signal.side_effect = [True, False]
             self.agent.daemon_loop()
@@ -1660,7 +1805,7 @@ class TestOvsNeutronAgent(object):
             [mock.call(port=1)],
             self.agent.int_br.delete_arp_spoofing_protection.mock_calls)
         # make sure the state was updated with the new map
-        self.assertEqual(self.agent.vifname_to_ofport_map, newmap)
+        self.assertEqual(newmap, self.agent.vifname_to_ofport_map)
 
     def test_update_stale_ofport_rules_treats_moved(self):
         self.agent.prevent_arp_spoofing = True
@@ -1705,12 +1850,11 @@ class TestOvsNeutronAgent(object):
 class TestOvsNeutronAgentOFCtl(TestOvsNeutronAgent,
                                ovs_test_base.OVSOFCtlTestBase):
     def test_cleanup_stale_flows(self):
-        with mock.patch.object(self.agent.int_br, 'agent_uuid_stamp',
-                               new=1234),\
-            mock.patch.object(self.agent.int_br,
+        with mock.patch.object(self.agent.int_br,
                               'dump_flows_all_tables') as dump_flows,\
                 mock.patch.object(self.agent.int_br,
                                   'delete_flows') as del_flow:
+            self.agent.int_br.set_agent_uuid_stamp(1234)
             dump_flows.return_value = [
                 'cookie=0x4d2, duration=50.156s, table=0,actions=drop',
                 'cookie=0x4321, duration=54.143s, table=2, priority=0',
@@ -1730,12 +1874,11 @@ class TestOvsNeutronAgentRyu(TestOvsNeutronAgent,
                              ovs_test_base.OVSRyuTestBase):
     def test_cleanup_stale_flows(self):
         uint64_max = (1 << 64) - 1
-        with mock.patch.object(self.agent.int_br, 'agent_uuid_stamp',
-                               new=1234),\
-            mock.patch.object(self.agent.int_br,
+        with mock.patch.object(self.agent.int_br,
                               'dump_flows') as dump_flows,\
                 mock.patch.object(self.agent.int_br,
                                   'delete_flows') as del_flow:
+            self.agent.int_br.set_agent_uuid_stamp(1234)
             dump_flows.return_value = [
                 # mock ryu.ofproto.ofproto_v1_3_parser.OFPFlowStats
                 mock.Mock(cookie=1234, table_id=0),
@@ -2239,6 +2382,26 @@ class TestOvsDvrNeutronAgent(object):
             ]
             self.assertEqual(expected_on_tun_br, tun_br.mock_calls)
 
+    def test_port_bound_for_dvr_with_csnat_ports_without_subnet(self):
+        self._setup_for_dvr_test()
+        int_br = mock.create_autospec(self.agent.int_br)
+        tun_br = mock.create_autospec(self.agent.tun_br)
+
+        # get_subnet_for_dvr RPC returns {} on error
+        with mock.patch.object(self.agent.dvr_agent.plugin_rpc,
+                               'get_subnet_for_dvr',
+                               return_value={}),\
+                mock.patch.object(self.agent, 'int_br', new=int_br),\
+                mock.patch.object(self.agent, 'tun_br', new=tun_br),\
+                mock.patch.object(self.agent.dvr_agent, 'int_br', new=int_br),\
+                mock.patch.object(self.agent.dvr_agent, 'tun_br', new=tun_br):
+            self.agent.port_bound(
+                self._port, self._net_uuid, 'vxlan',
+                None, None, self._fixed_ips,
+                n_const.DEVICE_OWNER_ROUTER_SNAT,
+                False)
+            self.assertFalse(int_br.install_dvr_to_src_mac.called)
+
     def test_treat_devices_removed_for_dvr_interface(self):
         self._test_treat_devices_removed_for_dvr_interface()
         self._test_treat_devices_removed_for_dvr_interface(ip_version=6)
@@ -2321,7 +2484,9 @@ class TestOvsDvrNeutronAgent(object):
                 mock.patch.object(self.agent.dvr_agent, 'tun_br', new=tun_br),\
                 mock.patch.dict(self.agent.dvr_agent.phys_brs,
                                 {self._physical_network: phys_br}):
-            self.agent.treat_devices_removed([self._port.vif_id])
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_devices['removed'] = self.agent.treat_devices_removed(
+                [self._port.vif_id])
             lvid = self.agent.local_vlan_map[self._net_uuid].vlan
             if ip_version == 4:
                 expected = [
@@ -2435,7 +2600,9 @@ class TestOvsDvrNeutronAgent(object):
                 mock.patch.object(self.agent, 'tun_br', new=tun_br),\
                 mock.patch.object(self.agent.dvr_agent, 'int_br', new=int_br),\
                 mock.patch.object(self.agent.dvr_agent, 'tun_br', new=tun_br):
-            self.agent.treat_devices_removed([self._compute_port.vif_id])
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_devices['removed'] = self.agent.treat_devices_removed(
+                [self._compute_port.vif_id])
             int_br.assert_has_calls([
                 mock.call.delete_dvr_to_src_mac(
                     network_type='vxlan',
@@ -2531,7 +2698,9 @@ class TestOvsDvrNeutronAgent(object):
                 mock.patch.object(self.agent, 'tun_br', new=tun_br),\
                 mock.patch.object(self.agent.dvr_agent, 'int_br', new=int_br),\
                 mock.patch.object(self.agent.dvr_agent, 'tun_br', new=tun_br):
-            self.agent.treat_devices_removed([self._port.vif_id])
+            failed_devices = {'added': set(), 'removed': set()}
+            failed_devices['removed'] = self.agent.treat_devices_removed(
+                [self._port.vif_id])
             expected_on_int_br = [
                 mock.call.delete_dvr_to_src_mac(
                     network_type='vxlan',
@@ -2599,10 +2768,10 @@ class TestOvsDvrNeutronAgent(object):
                                side_effect=oslo_messaging.RemoteError),\
                 mock.patch.object(self.agent, 'int_br', new=int_br),\
                 mock.patch.object(self.agent.dvr_agent, 'int_br', new=int_br):
-            self.agent.dvr_agent.get_dvr_mac_address()
-            self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
-            self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
-            self.assertEqual([mock.call.install_normal()], int_br.mock_calls)
+            with testtools.ExpectedException(SystemExit):
+                self.agent.dvr_agent.get_dvr_mac_address()
+                self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
+                self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
 
     def test_get_dvr_mac_address_retried(self):
         valid_entry = {'host': 'cn1', 'mac_address': 'aa:22:33:44:55:66'}
@@ -2633,11 +2802,12 @@ class TestOvsDvrNeutronAgent(object):
                 mock.patch.object(utils, "execute"),\
                 mock.patch.object(self.agent, 'int_br', new=int_br),\
                 mock.patch.object(self.agent.dvr_agent, 'int_br', new=int_br):
-            self.agent.dvr_agent.get_dvr_mac_address()
-            self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
-            self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
-            self.assertEqual(self.agent.dvr_agent.plugin_rpc.
-                             get_dvr_mac_address_by_host.call_count, 5)
+            with testtools.ExpectedException(SystemExit):
+                self.agent.dvr_agent.get_dvr_mac_address()
+                self.assertIsNone(self.agent.dvr_agent.dvr_mac_address)
+                self.assertFalse(self.agent.dvr_agent.in_distributed_mode())
+                self.assertEqual(self.agent.dvr_agent.plugin_rpc.
+                                 get_dvr_mac_address_by_host.call_count, 5)
 
     def test_dvr_mac_address_update(self):
         self._setup_for_dvr_test()
@@ -2793,3 +2963,21 @@ class TestValidateTunnelLocalIP(base.BaseTestCase):
         with testtools.ExpectedException(SystemExit):
             ovs_agent.validate_local_ip(FAKE_IP1)
         mock_get_device_by_ip.assert_called_once_with(FAKE_IP1)
+
+
+class TestOvsAgentTunnelName(base.BaseTestCase):
+    def test_get_ip_in_hex_invalid_address(self):
+        self.assertIsNone(
+            ovs_agent.OVSNeutronAgent.get_ip_in_hex('a.b.c.d'))
+
+    def test_get_tunnel_name_vxlan(self):
+        self.assertEqual(
+            'vxlan-7f000002',
+            ovs_agent.OVSNeutronAgent.get_tunnel_name(
+                'vxlan', '127.0.0.1', '127.0.0.2'))
+
+    def test_get_tunnel_name_gre(self):
+        self.assertEqual(
+            'gre-7f000002',
+            ovs_agent.OVSNeutronAgent.get_tunnel_name(
+                'gre', '127.0.0.1', '127.0.0.2'))

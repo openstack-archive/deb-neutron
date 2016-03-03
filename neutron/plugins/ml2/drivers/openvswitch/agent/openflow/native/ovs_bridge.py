@@ -19,6 +19,10 @@ from oslo_utils import excutils
 
 from neutron._i18n import _LI
 from neutron.agent.common import ovs_lib
+from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants \
+        as ovs_consts
+from neutron.plugins.ml2.drivers.openvswitch.agent.openflow \
+    import br_cookie
 from neutron.plugins.ml2.drivers.openvswitch.agent.openflow.native \
     import ofswitch
 
@@ -26,7 +30,8 @@ from neutron.plugins.ml2.drivers.openvswitch.agent.openflow.native \
 LOG = logging.getLogger(__name__)
 
 
-class OVSAgentBridge(ofswitch.OpenFlowSwitchMixin, ovs_lib.OVSBridge):
+class OVSAgentBridge(ofswitch.OpenFlowSwitchMixin,
+                     br_cookie.OVSBridgeCookieMixin, ovs_lib.OVSBridge):
     """Common code for bridges used by OVS agent"""
 
     _cached_dpid = None
@@ -72,7 +77,7 @@ class OVSAgentBridge(ofswitch.OpenFlowSwitchMixin, ovs_lib.OVSBridge):
                 "port": conf.OVS.of_listen_port,
             }
         ]
-        self.set_protocols("OpenFlow13")
+        self.set_protocols(ovs_consts.OPENFLOW13)
         self.set_controller(controllers)
 
     def drop_port(self, in_port):

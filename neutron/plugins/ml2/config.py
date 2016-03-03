@@ -39,20 +39,24 @@ ml2_opts = [
                        "entrypoints to be loaded from the "
                        "neutron.ml2.extension_drivers namespace. "
                        "For example: extension_drivers = port_security,qos")),
-    cfg.IntOpt('path_mtu', default=0,
+    cfg.IntOpt('path_mtu', default=1500,
+               help=_('Maximum size of an IP packet (MTU) that can traverse '
+                      'the underlying physical network infrastructure without '
+                      'fragmentation. For instances using a '
+                      'self-service/private network, neutron subtracts the '
+                      'overlay protocol overhead from this value and '
+                      'provides it to instances via DHCP option 26. For '
+                      'example, using a value of 9000, DHCP provides 8950 '
+                      'to instances using a VXLAN network that contains '
+                      '50 bytes of overhead. Using a value of 0 disables '
+                      'this feature and instances typically default to a '
+                      '1500 MTU. Only impacts instances, not neutron network '
+                      'components such as bridges and routers.')),
+    cfg.IntOpt('segment_mtu', default=1500,
                help=_('The maximum permissible size of an unfragmented '
-                      'packet travelling from and to addresses where '
-                      'encapsulated Neutron traffic is sent. '
-                      'Drivers calculate maximum viable MTU for validating '
-                      'tenant requests based on this value (typically, '
-                      'path_mtu - maxmum encapsulation header size). If <= 0, '
-                      'the path MTU is indeterminate and no calculation '
-                      'takes place.')),
-    cfg.IntOpt('segment_mtu', default=0,
-               help=_('The maximum permissible size of an unfragmented '
-                      'packet travelling a L2 network segment.  If <= 0, the '
-                      'segment MTU is indeterminate and no calculation takes '
-                      'place.')),
+                      'packet travelling a L2 network segment. The default '
+                      'value of 1500 is used as the segment MTU, to reflect '
+                      'standard Ethernet.')),
     cfg.ListOpt('physical_network_mtus',
                 default=[],
                 help=_("A list of mappings of physical networks to MTU "

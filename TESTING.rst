@@ -127,7 +127,10 @@ Functional tests (neutron/tests/functional/) are intended to
 validate actual system interaction. Mocks should be used sparingly,
 if at all. Care should be taken to ensure that existing system
 resources are not modified and that resources created in tests are
-properly cleaned up both on test success and failure.
+properly cleaned up both on test success and failure. Note that when run
+at the gate, the functional tests compile OVS from source. Check out
+neutron/tests/contrib/gate_hook.sh. Other jobs presently use OVS from
+packages.
 
 Let's examine the benefits of the functional testing framework.
 Neutron offers a library called 'ip_lib' that wraps around the 'ip' binary.
@@ -222,9 +225,12 @@ neutron/tests/fullstack/test_connectivity.py.
 
 Full stack testing can simulate multi node testing by starting an agent
 multiple times. Specifically, each node would have its own copy of the
-OVS/DHCP/L3 agents, all configured with the same "host" value. Each OVS agent
-is connected to its own pair of br-int/br-ex, and those bridges are then
-interconnected.
+OVS/LinuxBridge/DHCP/L3 agents, all configured with the same "host" value.
+Each OVS agent is connected to its own pair of br-int/br-ex, and those bridges
+are then interconnected.
+For LinuxBridge agent each agent is started in its own namespace, called
+"host-<some_random_value>". Such namespaces are connected with OVS "central"
+bridge to eachother.
 
 .. image:: images/fullstack_multinode_simulation.png
 

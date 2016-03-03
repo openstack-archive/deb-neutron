@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Openstack Foundation
+# Copyright (c) 2015 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -14,7 +14,6 @@
 
 import mock
 import netaddr
-
 from oslo_log import log
 from oslo_utils import uuidutils
 
@@ -159,6 +158,19 @@ class TestDvrRouterOperations(base.BaseTestCase):
                                     mock.Mock(),
                                     **kwargs)
 
+    def test_create_dvr_fip_interfaces_update(self):
+        ri = self._create_router()
+        fip_agent_port = {'subnets': []}
+        ri.get_floating_agent_gw_interface = mock.Mock(
+            return_value=fip_agent_port)
+        ri.get_floating_ips = mock.Mock(return_value=True)
+        ri.fip_ns = mock.Mock()
+        ri.fip_ns.subscribe.return_value = False
+        ex_gw_port = {'network_id': 'fake_net_id'}
+        ri.create_dvr_fip_interfaces(ex_gw_port)
+        ri.fip_ns.update_gateway_port.assert_called_once_with(
+            fip_agent_port)
+
     def test_get_floating_ips_dvr(self):
         router = mock.MagicMock()
         router.get.return_value = [{'host': HOSTNAME},
@@ -252,7 +264,6 @@ class TestDvrRouterOperations(base.BaseTestCase):
         mIPRule().rule.delete.assert_called_with(
             ip=str(netaddr.IPNetwork(fip_cidr).ip), table=16, priority=FIP_PRI)
         mIPDevice().route.delete_route.assert_called_with(fip_cidr, str(s.ip))
-        self.assertFalse(ri.fip_ns.unsubscribe.called)
         ri.fip_ns.local_subnets.allocate.assert_not_called()
 
         ri.dist_fip_count = 1
@@ -267,7 +278,7 @@ class TestDvrRouterOperations(base.BaseTestCase):
             fip_ns.get_int_device_name(router['id']))
         mIPDevice().route.delete_gateway.assert_called_once_with(
             str(fip_to_rtr.ip), table=16)
-        fip_ns.unsubscribe.assert_called_once_with(ri.router_id)
+        self.assertFalse(ri.fip_ns.unsubscribe.called)
         ri.fip_ns.local_subnets.allocate.assert_called_once_with(ri.router_id)
 
     def _test_add_floating_ip(self, ri, fip, is_failure):

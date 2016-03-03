@@ -20,7 +20,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import six
 
-from neutron._i18n import _, _LE, _LI
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent.common import ovs_lib
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
@@ -42,7 +42,11 @@ OPTS = [
                        '(e.g. RHEL 6.5) so long as ovs_use_veth is set to '
                        'True.')),
     cfg.IntOpt('network_device_mtu',
-               help=_('MTU setting for device.')),
+               deprecated_for_removal=True,
+               help=_('MTU setting for device. This option will be removed in '
+                      'Newton. Please use the system-wide segment_mtu setting '
+                      'which the agents will take into account when wiring '
+                      'VIFs.')),
 ]
 
 
@@ -183,7 +187,8 @@ class LinuxInterfaceDriver(object):
         for route in new_onlink_cidrs - existing_onlink_cidrs:
             LOG.debug("adding onlink route(%s)", route)
             device.route.add_onlink_route(route)
-        for route in existing_onlink_cidrs - new_onlink_cidrs:
+        for route in (existing_onlink_cidrs - new_onlink_cidrs -
+                      set(preserve_ips or [])):
             LOG.debug("deleting onlink route(%s)", route)
             device.route.delete_onlink_route(route)
 
@@ -232,15 +237,15 @@ class LinuxInterfaceDriver(object):
 
     @abc.abstractmethod
     def plug_new(self, network_id, port_id, device_name, mac_address,
-                 bridge=None, namespace=None, prefix=None):
+                 bridge=None, namespace=None, prefix=None, mtu=None):
         """Plug in the interface only for new devices that don't exist yet."""
 
     def plug(self, network_id, port_id, device_name, mac_address,
-             bridge=None, namespace=None, prefix=None):
+             bridge=None, namespace=None, prefix=None, mtu=None):
         if not ip_lib.device_exists(device_name,
                                     namespace=namespace):
             self.plug_new(network_id, port_id, device_name, mac_address,
-                          bridge, namespace, prefix)
+                          bridge, namespace, prefix, mtu)
         else:
             LOG.info(_LI("Device %s already exists"), device_name)
 
@@ -268,7 +273,7 @@ class LinuxInterfaceDriver(object):
 
 class NullDriver(LinuxInterfaceDriver):
     def plug_new(self, network_id, port_id, device_name, mac_address,
-                 bridge=None, namespace=None, prefix=None):
+                 bridge=None, namespace=None, prefix=None, mtu=None):
         pass
 
     def unplug(self, device_name, bridge=None, namespace=None, prefix=None):
@@ -303,7 +308,7 @@ class OVSInterfaceDriver(LinuxInterfaceDriver):
         ovs.replace_port(device_name, *attrs)
 
     def plug_new(self, network_id, port_id, device_name, mac_address,
-                 bridge=None, namespace=None, prefix=None):
+                 bridge=None, namespace=None, prefix=None, mtu=None):
         """Plug in the interface."""
         if not bridge:
             bridge = self.conf.ovs_integration_bridge
@@ -318,6 +323,7 @@ class OVSInterfaceDriver(LinuxInterfaceDriver):
             root_dev, ns_dev = ip.add_veth(tap_name,
                                            device_name,
                                            namespace2=namespace)
+            root_dev.disable_ipv6()
         else:
             ns_dev = ip.device(device_name)
 
@@ -327,11 +333,13 @@ class OVSInterfaceDriver(LinuxInterfaceDriver):
 
         ns_dev.link.set_address(mac_address)
 
-        if self.conf.network_device_mtu:
-            ns_dev.link.set_mtu(self.conf.network_device_mtu)
+        mtu = self.conf.network_device_mtu or mtu
+        if mtu:
+            ns_dev.link.set_mtu(mtu)
             if self.conf.ovs_use_veth:
-                root_dev.link.set_mtu(self.conf.network_device_mtu)
-
+                root_dev.link.set_mtu(mtu)
+        else:
+            LOG.warning(_LW("No MTU configured for port %s"), port_id)
         # Add an interface created by ovs to the namespace.
         if not self.conf.ovs_use_veth and namespace:
             namespace_obj = ip.ensure_namespace(namespace)
@@ -380,21 +388,25 @@ class IVSInterfaceDriver(LinuxInterfaceDriver):
         utils.execute(cmd, run_as_root=True)
 
     def plug_new(self, network_id, port_id, device_name, mac_address,
-                 bridge=None, namespace=None, prefix=None):
+                 bridge=None, namespace=None, prefix=None, mtu=None):
         """Plug in the interface."""
         ip = ip_lib.IPWrapper()
         tap_name = self._get_tap_name(device_name, prefix)
 
         root_dev, ns_dev = ip.add_veth(tap_name, device_name)
+        root_dev.disable_ipv6()
 
         self._ivs_add_port(tap_name, port_id, mac_address)
 
         ns_dev = ip.device(device_name)
         ns_dev.link.set_address(mac_address)
 
-        if self.conf.network_device_mtu:
-            ns_dev.link.set_mtu(self.conf.network_device_mtu)
-            root_dev.link.set_mtu(self.conf.network_device_mtu)
+        mtu = self.conf.network_device_mtu or mtu
+        if mtu:
+            ns_dev.link.set_mtu(mtu)
+            root_dev.link.set_mtu(mtu)
+        else:
+            LOG.warning(_LW("No MTU configured for port %s"), port_id)
 
         if namespace:
             namespace_obj = ip.ensure_namespace(namespace)
@@ -423,7 +435,7 @@ class BridgeInterfaceDriver(LinuxInterfaceDriver):
     DEV_NAME_PREFIX = 'ns-'
 
     def plug_new(self, network_id, port_id, device_name, mac_address,
-                 bridge=None, namespace=None, prefix=None):
+                 bridge=None, namespace=None, prefix=None, mtu=None):
         """Plugin the interface."""
         ip = ip_lib.IPWrapper()
 
@@ -433,11 +445,15 @@ class BridgeInterfaceDriver(LinuxInterfaceDriver):
         # Create ns_veth in a namespace if one is configured.
         root_veth, ns_veth = ip.add_veth(tap_name, device_name,
                                          namespace2=namespace)
+        root_veth.disable_ipv6()
         ns_veth.link.set_address(mac_address)
 
-        if self.conf.network_device_mtu:
-            root_veth.link.set_mtu(self.conf.network_device_mtu)
-            ns_veth.link.set_mtu(self.conf.network_device_mtu)
+        mtu = self.conf.network_device_mtu or mtu
+        if mtu:
+            root_veth.link.set_mtu(mtu)
+            ns_veth.link.set_mtu(mtu)
+        else:
+            LOG.warning(_LW("No MTU configured for port %s"), port_id)
 
         root_veth.link.set_up()
         ns_veth.link.set_up()

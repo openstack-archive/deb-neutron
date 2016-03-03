@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Openstack Foundation
+# Copyright (c) 2015 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -144,7 +144,8 @@ class HaRouter(router.RouterInfo):
                          interface_name,
                          self.ha_port['mac_address'],
                          namespace=self.ha_namespace,
-                         prefix=HA_DEV_PREFIX)
+                         prefix=HA_DEV_PREFIX,
+                         mtu=self.ha_port.get('mtu'))
         ip_cidrs = common_utils.fixed_ip_cidrs(self.ha_port['fixed_ips'])
         self.driver.init_l3(interface_name, ip_cidrs,
                             namespace=self.ha_namespace,
@@ -250,12 +251,13 @@ class HaRouter(router.RouterInfo):
         fip_ip = fip['floating_ip_address']
         ip_cidr = common_utils.ip_to_cidr(fip_ip)
         self._add_vip(ip_cidr, interface_name)
-        # TODO(Carl) Should this return status?
-        # return l3_constants.FLOATINGIP_STATUS_ACTIVE
+        return n_consts.FLOATINGIP_STATUS_ACTIVE
 
     def remove_floating_ip(self, device, ip_cidr):
         self._remove_vip(ip_cidr)
-        if self.ha_state == 'master' and device.addr.list():
+        if self.ha_state == 'master' and device.addr.list(to=ip_cidr):
+            # Delete the floatingip address from external port only after
+            # the ip address has been configured to the device
             super(HaRouter, self).remove_floating_ip(device, ip_cidr)
 
     def internal_network_updated(self, interface_name, ip_cidrs):
@@ -267,13 +269,13 @@ class HaRouter(router.RouterInfo):
     def _plug_ha_router_port(self, port, name_getter, prefix):
         port_id = port['id']
         interface_name = name_getter(port_id)
-
         self.driver.plug(port['network_id'],
                          port_id,
                          interface_name,
                          port['mac_address'],
                          namespace=self.ha_namespace,
-                         prefix=prefix)
+                         prefix=prefix,
+                         mtu=port.get('mtu'))
 
         self._disable_ipv6_addressing_on_interface(interface_name)
         self._add_vips(port, interface_name)

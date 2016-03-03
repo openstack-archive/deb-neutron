@@ -16,13 +16,14 @@
 import collections
 import itertools
 import operator
+import time
+import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 import retrying
 import six
-import uuid
 
 from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent.common import utils
@@ -32,6 +33,8 @@ from neutron.common import exceptions
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common \
     import constants
+
+UINT64_BITMASK = (1 << 64) - 1
 
 # Default timeout for ovs-vsctl command
 DEFAULT_OVS_VSCTL_TIMEOUT = 10
@@ -177,10 +180,14 @@ class OVSBridge(BaseOVS):
         super(OVSBridge, self).__init__()
         self.br_name = br_name
         self.datapath_type = datapath_type
-        self.agent_uuid_stamp = 0
+        self._default_cookie = generate_random_cookie()
+
+    @property
+    def default_cookie(self):
+        return self._default_cookie
 
     def set_agent_uuid_stamp(self, val):
-        self.agent_uuid_stamp = val
+        self._default_cookie = val
 
     def set_controller(self, controllers):
         self.ovsdb.set_controller(self.br_name,
@@ -249,13 +256,24 @@ class OVSBridge(BaseOVS):
 
     def run_ofctl(self, cmd, args, process_input=None):
         full_args = ["ovs-ofctl", cmd, self.br_name] + args
-        try:
-            return utils.execute(full_args, run_as_root=True,
-                                 process_input=process_input)
-        except Exception as e:
-            LOG.error(_LE("Unable to execute %(cmd)s. Exception: "
-                          "%(exception)s"),
-                      {'cmd': full_args, 'exception': e})
+        # TODO(kevinbenton): This error handling is really brittle and only
+        # detects one specific type of failure. The callers of this need to
+        # be refactored to expect errors so we can re-raise and they can
+        # take appropriate action based on the type of error.
+        for i in range(1, 11):
+            try:
+                return utils.execute(full_args, run_as_root=True,
+                                     process_input=process_input)
+            except Exception as e:
+                if "failed to connect to socket" in str(e):
+                    LOG.debug("Failed to connect to OVS. Retrying "
+                              "in 1 second. Attempt: %s/10", i)
+                    time.sleep(1)
+                    continue
+                LOG.error(_LE("Unable to execute %(cmd)s. Exception: "
+                              "%(exception)s"),
+                          {'cmd': full_args, 'exception': e})
+                break
 
     def count_flows(self):
         flow_list = self.run_ofctl("dump-flows", []).split("\n")[1:]
@@ -286,7 +304,7 @@ class OVSBridge(BaseOVS):
         if action != 'del':
             for kw in kwargs_list:
                 if 'cookie' not in kw:
-                    kw['cookie'] = self.agent_uuid_stamp
+                    kw['cookie'] = self._default_cookie
         flow_strs = [_build_flow_expr_str(kw, action) for kw in kwargs_list]
         self.run_ofctl('%s-flows' % action, ['-'], '\n'.join(flow_strs))
 
@@ -300,8 +318,15 @@ class OVSBridge(BaseOVS):
         self.do_action_flows('del', [kwargs])
 
     def dump_flows_for_table(self, table):
+        return self.dump_flows_for(table=table)
+
+    def dump_flows_for(self, **kwargs):
         retval = None
-        flow_str = "table=%s" % table
+        if "cookie" in kwargs:
+            kwargs["cookie"] = check_cookie_mask(str(kwargs["cookie"]))
+        flow_str = ",".join("=".join([key, str(val)])
+            for key, val in kwargs.items())
+
         flows = self.run_ofctl("dump-flows", [flow_str])
         if flows:
             retval = '\n'.join(item for item in flows.splitlines()
@@ -680,3 +705,14 @@ def _build_flow_expr_str(flow_dict, cmd):
         flow_expr_arr.append(actions)
 
     return ','.join(flow_expr_arr)
+
+
+def generate_random_cookie():
+    return uuid.uuid4().int & UINT64_BITMASK
+
+
+def check_cookie_mask(cookie):
+    if '/' not in cookie:
+        return cookie + '/-1'
+    else:
+        return cookie

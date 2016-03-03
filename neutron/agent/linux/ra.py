@@ -14,6 +14,7 @@
 #    under the License.
 
 from itertools import chain as iter_chain
+
 import jinja2
 import netaddr
 from oslo_config import cfg
@@ -38,13 +39,23 @@ OPTS = [
     cfg.StrOpt('ra_confs',
                default='$state_path/ra',
                help=_('Location to store IPv6 RA config files')),
+    cfg.IntOpt('min_rtr_adv_interval',
+               default=30,
+               help=_('MinRtrAdvInterval setting for radvd.conf')),
+    cfg.IntOpt('max_rtr_adv_interval',
+               default=100,
+               help=_('MaxRtrAdvInterval setting for radvd.conf')),
 ]
 
 CONFIG_TEMPLATE = jinja2.Template("""interface {{ interface_name }}
 {
    AdvSendAdvert on;
-   MinRtrAdvInterval 3;
-   MaxRtrAdvInterval 10;
+   MinRtrAdvInterval {{ min_rtr_adv_interval }};
+   MaxRtrAdvInterval {{ max_rtr_adv_interval }};
+
+   {% if network_mtu >= constants.IPV6_MIN_MTU %}
+   AdvLinkMTU {{network_mtu}};
+   {% endif %}
 
    {% if constants.DHCPV6_STATELESS in ra_modes %}
    AdvOtherConfigFlag on;
@@ -58,11 +69,19 @@ CONFIG_TEMPLATE = jinja2.Template("""interface {{ interface_name }}
    RDNSS {% for dns in dns_servers %} {{ dns }} {% endfor %} {};
    {% endif %}
 
-   {% for prefix in prefixes %}
+   {% for prefix in auto_config_prefixes %}
    prefix {{ prefix }}
    {
         AdvOnLink on;
         AdvAutonomous on;
+   };
+   {% endfor %}
+
+   {% for prefix in stateful_config_prefixes %}
+   prefix {{ prefix }}
+   {
+        AdvOnLink on;
+        AdvAutonomous off;
    };
    {% endfor %}
 };
@@ -86,6 +105,7 @@ class DaemonMonitor(object):
                                               'radvd.conf',
                                               True)
         buf = six.StringIO()
+        network_mtu = 0
         for p in router_ports:
             subnets = p.get('subnets', [])
             v6_subnets = [subnet for subnet in subnets if
@@ -96,17 +116,26 @@ class DaemonMonitor(object):
             auto_config_prefixes = [subnet['cidr'] for subnet in v6_subnets if
                     subnet['ipv6_ra_mode'] == constants.IPV6_SLAAC or
                     subnet['ipv6_ra_mode'] == constants.DHCPV6_STATELESS]
+            stateful_config_prefixes = [subnet['cidr'] for subnet in v6_subnets
+                    if subnet['ipv6_ra_mode'] == constants.DHCPV6_STATEFUL]
             interface_name = self._dev_name_helper(p['id'])
             slaac_subnets = [subnet for subnet in v6_subnets if
                 subnet['ipv6_ra_mode'] == constants.IPV6_SLAAC]
             dns_servers = list(iter_chain(*[subnet['dns_nameservers'] for
                 subnet in slaac_subnets if subnet.get('dns_nameservers')]))
+            if self._agent_conf.advertise_mtu:
+                network_mtu = p.get('mtu', 0)
+
             buf.write('%s' % CONFIG_TEMPLATE.render(
                 ra_modes=list(ra_modes),
                 interface_name=interface_name,
-                prefixes=auto_config_prefixes,
+                auto_config_prefixes=auto_config_prefixes,
+                stateful_config_prefixes=stateful_config_prefixes,
                 dns_servers=dns_servers[0:MAX_RDNSS_ENTRIES],
-                constants=constants))
+                constants=constants,
+                min_rtr_adv_interval=self._agent_conf.min_rtr_adv_interval,
+                max_rtr_adv_interval=self._agent_conf.max_rtr_adv_interval,
+                network_mtu=int(network_mtu)))
 
         common_utils.replace_file(radvd_conf, buf.getvalue())
         return radvd_conf

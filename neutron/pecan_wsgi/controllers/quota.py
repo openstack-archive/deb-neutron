@@ -16,9 +16,11 @@
 from oslo_config import cfg
 from oslo_log import log
 from oslo_utils import importutils
+import pecan
 from pecan import request
 from pecan import response
 
+from neutron._i18n import _
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
@@ -27,6 +29,12 @@ from neutron.quota import resource_registry
 
 LOG = log.getLogger(__name__)
 RESOURCE_NAME = "quota"
+TENANT_ID_ATTR = {'tenant_id':
+                  {'allow_post': False,
+                   'allow_put': False,
+                   'required_by_policy': True,
+                   'validate': {'type:string': attributes.TENANT_ID_MAX_LEN},
+                   'is_visible': True}}
 
 
 class QuotasController(utils.NeutronPecanController):
@@ -47,7 +55,7 @@ class QuotasController(utils.NeutronPecanController):
     def _lookup(self, tenant_id, *remainder):
         return QuotaController(self._driver, tenant_id), remainder
 
-    @utils.expose()
+    @utils.expose(generic=True)
     def index(self):
         neutron_context = request.context.get('neutron_context')
         # FIXME(salv-orlando): There shouldn't be any need to to this eplicit
@@ -59,6 +67,12 @@ class QuotasController(utils.NeutronPecanController):
                 self._driver.get_all_quotas(
                     neutron_context,
                     resource_registry.get_all_resources())}
+
+    @utils.when(index, method='POST')
+    @utils.when(index, method='PUT')
+    @utils.when(index, method='DELETE')
+    def not_supported(self):
+        pecan.abort(405)
 
 
 class QuotaController(utils.NeutronPecanController):
@@ -80,6 +94,10 @@ class QuotaController(utils.NeutronPecanController):
                 'validate': {
                     'type:range': [-1, constants.DB_INTEGER_MAX_VALUE]},
                 'is_visible': True}
+        # The quota resource must always declare a tenant_id attribute,
+        # otherwise the attribute will be stripped off when generating the
+        # response
+        attr_dict.update(TENANT_ID_ATTR)
 
     @utils.expose(generic=True)
     def index(self):
@@ -101,6 +119,10 @@ class QuotaController(utils.NeutronPecanController):
         self._driver.delete_tenant_quota(neutron_context,
                                          self._tenant_id)
         response.status = 204
+
+    @utils.when(index, method='POST')
+    def not_supported(self):
+        pecan.abort(405)
 
 
 def get_tenant_quotas(tenant_id, driver=None):

@@ -13,10 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from tempest.lib import exceptions as lib_exc
+from tempest import test
+
 from neutron.tests.api import base
 from neutron.tests.api import base_security_groups as base_security
-from neutron.tests.tempest import test
-from tempest_lib import exceptions as lib_exc
 
 
 class PortSecurityAdminTests(base_security.BaseSecGroupTest,
@@ -24,6 +25,7 @@ class PortSecurityAdminTests(base_security.BaseSecGroupTest,
 
     @test.attr(type=['negative', 'smoke'])
     @test.idempotent_id('d39a96e2-2dea-4feb-8093-e7ac991ce6f8')
+    @test.requires_ext(extension='port-security', service='network')
     def test_create_port_security_false_on_shared_network(self):
         network = self.create_shared_network()
         self.assertTrue(network['shared'])

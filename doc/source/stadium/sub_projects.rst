@@ -21,11 +21,42 @@
       (Avoid deeper levels because they do not render well.)
 
 
-Official Sub-Projects
-=====================
+Neutron Stadium
+===============
 
-Neutron has a set of official sub-projects.  These projects are recognized as a
-part of the overall Neutron project.
+Introduction
+------------
+
+Neutron has grown to be a complex project made of many moving parts. The
+codebase is the aggregation of smaller projects that, once assembled in a
+specific configuration, implement one of the many deployment architectures
+to deliver networking services.
+
+This document explains the inclusion process, and the criteria chosen to
+select a project for inclusion. It also outlines the lists of projects
+that are either managed by the `Neutron teams <http://docs.openstack.org/developer/neutron/policies/neutron-teams.html#neutron-teams>`_,
+or that are affiliated to Neutron via an integration point made available
+by the core pluggable framework.
+
+Demystifying the mission
+------------------------
+
+The Neutron `mission <http://governance.openstack.org/reference/projects/neutron.html#mission>`_
+states that Neutron is all about delivering network services and libraries.
+Although this has been true for the existence of the project, the project
+itself has evolved over the years to meet the demands of a growing community
+of users and developers who have an interest in adopting, building new and
+leveraging existing network functionality. To continue to stay true to
+its mission, and yet reduce the management burden, the project transformed
+itself into a pluggable framework, and a community where interested parties
+come together to discuss and define APIs and respective implementations that
+ultimately are delivered on top of the aforementioned pluggable framework.
+Some of these APIs and implementations are considered to be a part of the
+Neutron project. For the ones that are not, there is no connotation of
+_poor_ quality associated with them. Their association, or lack thereof, is
+simply a reflection of the fact that a good portion of Neutron team feels
+favorable towards developing, and supporting the project in the wider
+OpenStack ecosystem.
 
 Inclusion Process
 -----------------
@@ -74,18 +105,129 @@ Inclusion Criteria
 ------------------
 
 As mentioned before, the Neutron PTL must approve the inclusion of each
-additional repository under the Neutron project.  That evaluation will be
-primarily based on the new project requirements used for all new OpenStack
-projects for the criteria that is applicable:
+additional repository under the Neutron project. When in doubt, the PTL
+should consider erring on the side of caution, and keep the project out of
+the list until more consensus amongst the team can be built or a more
+favorable assessment can be determined.
+That evaluation will be initially based on the new project requirements used
+for all new OpenStack projects for the criteria that is applicable.  If
+there is any question about this, the review should be deferred to the TC
+as a new OpenStack project team.
 
     http://governance.openstack.org/reference/new-projects-requirements.html
+
+Including *everything* related to Neutron under the Neutron project team has not
+scaled well, so some Neutron related projects are encouraged to form a new
+OpenStack project team.  The following list of guidelines are not hard rules.
+There may be exceptions.  Instead, they serve as criteria that may influence the
+decision one way or the other. Sub-projects will be reviewed regularly to see
+how they meet these criteria.
+
+These criteria are designed around how easy it would be for members of the
+loosely defined "Neutron team" to jump in and help fix or even take over a given
+repository if needed.
+
+* Neutron stays quite busy developing and maintaining open source
+  implementations for features.  Any sub-project that serves as an interface to
+  proprietary technology should most likely be a separate project team.  This
+  imposes a barrier on access to the technology for dev/test and CI integration.
+* If the project only interacts with Neutron on REST API boundaries (client of
+  Neutron's API, or Neutron is a client of its API), it should probably be a
+  separate project.  python-neutronclient is an obvious exception here.
+* The area of functionality of a sub-project should be taken into consideration.
+  The closer the functionality is to the base functionality implemented in
+  openstack/neutron, the more likely it makes sense under the Neutron project
+  team.  Conversely, something "higher" in the stack considered an optional
+  advanced service is more likely to make sense as an independent project.
+  This is subject to change as the Neutron project evolves and continues to
+  explore the boundaries that work best for the project.
+* OpenStack project teams are based around both technology and groups of people.
+  If a sub-project is directly driven by a subset of members of the Neutron team,
+  with the wider approval of the Neutron team, then it makes sense to retain it
+  under the Neutron project team.  Conversely, a project that was developed
+  without oversight or engagement of any of the Neutron members cannot qualify.
+  For the sake of this criterion, a member of the team is a known (core or not)
+  contributor with a substantial track record of Neutron development.
+
 
 Official Sub-Project List
 -------------------------
 
-The official source of all repositories that exist under the Neutron project is:
+The official source of all repositories that are a part of Neutron or another
+official OpenStack project team is here:
 
     http://governance.openstack.org/reference/projects/neutron.html
+
+We list the Neutron repositories, as well as other Neutron affiliated projects
+here to provide references and note the functionality they provide.
+
+Functionality legend
+~~~~~~~~~~~~~~~~~~~~
+
+- base: the base Neutron platform
+- client: API client implementation
+- core: a monolithic plugin that can implement API at multiple layers L3-L7;
+- dashboard: Horizon dashboard integration
+- docker: a Docker network plugin that uses Neutron to provide networking services to Docker containers;
+- fw: a Firewall service plugin;
+- intent: a service plugin that provides a declarative API to realize networking;
+- ipam: an IP address management driver;
+- l2: a Layer 2 service;
+- l3: a Layer 3 service plugin;
+- lb: a Load Balancer service plugin;
+- ml2: an ML2 mechanism driver;
+- pd: prefix delegation
+- sfc; traffic steering based on traffic classification
+- vpn: a VPN service plugin;
+
+Neutron projects
+~~~~~~~~~~~~~~~~
+
+This table shows the list of official Neutron repositories and their
+functionality.
+
++-------------------------------+-----------------------+
+| Name                          |    Functionality      |
++===============================+=======================+
+| dragonflow_                   | core                  |
++-------------------------------+-----------------------+
+| networking-bagpipe_           | ml2                   |
++-------------------------------+-----------------------+
+| networking-bgpvpn_            | vpn                   |
++-------------------------------+-----------------------+
+| networking-calico_            | ml2                   |
++-------------------------------+-----------------------+
+| networking-l2gw_              | l2                    |
++-------------------------------+-----------------------+
+| networking-midonet_           | core,ml2,l3,lb,fw     |
++-------------------------------+-----------------------+
+| networking-odl_               | ml2,l3,lb,fw          |
++-------------------------------+-----------------------+
+| networking-ofagent_           | ml2                   |
++-------------------------------+-----------------------+
+| networking-onos_              | ml2,l3                |
++-------------------------------+-----------------------+
+| networking-ovn_               | core                  |
++-------------------------------+-----------------------+
+| networking-sfc_               | sfc                   |
++-------------------------------+-----------------------+
+| neutron_                      | base,l2,ml2,core,l3   |
++-------------------------------+-----------------------+
+| neutron-lbaas_                | lb,dashboard          |
+| neutron-lbaas-dashboard_      |                       |
+| octavia_                      |                       |
++-------------------------------+-----------------------+
+| neutron-fwaas_                | fw                    |
++-------------------------------+-----------------------+
+| neutron-lib_                  | base                  |
++-------------------------------+-----------------------+
+| neutron-vpnaas_               | vpn                   |
++-------------------------------+-----------------------+
+| python-neutronclient_         | client                |
++-------------------------------+-----------------------+
+| python-neutron-pd-driver_     | pd                    |
++-------------------------------+-----------------------+
+
 
 Affiliated projects
 ~~~~~~~~~~~~~~~~~~~
@@ -93,86 +235,95 @@ Affiliated projects
 This table shows the affiliated projects that integrate with Neutron,
 in one form or another.  These projects typically leverage the pluggable
 capabilities of Neutron, the Neutron API, or a combination of both.
-This list may contain projects that are already listed in the governance
-repo but are summarized here to describe the functionality they provide.
 
 +-------------------------------+-----------------------+
 | Name                          |    Functionality      |
 +===============================+=======================+
-| dragonflow_                   |           l3          |
+| kuryr_                        | docker                |
 +-------------------------------+-----------------------+
-| kuryr_                        |         docker        |
+| networking-ale-omniswitch_    | ml2                   |
 +-------------------------------+-----------------------+
-| networking-ale-omniswitch_    |          ml2          |
+| networking-arista_            | ml2,l3                |
 +-------------------------------+-----------------------+
-| networking-arista_            |         ml2,l3        |
+| networking-bigswitch_         | ml2,core,l3           |
 +-------------------------------+-----------------------+
-| networking-bagpipe-l2_        |          ml2          |
+| networking-brocade_           | ml2,l3                |
 +-------------------------------+-----------------------+
-| networking-bgpvpn_            |          vpn          |
+| networking-cisco_             | core,ml2,l3,fw,vpn    |
 +-------------------------------+-----------------------+
-| networking-bigswitch_         |      ml2,core,l3      |
+| networking-edge-vpn_          | vpn                   |
 +-------------------------------+-----------------------+
-| networking-brocade_           |        ml2,l3         |
+| networking-fujitsu_           | ml2                   |
 +-------------------------------+-----------------------+
-| networking-calico_            |          ml2          |
+| networking-hyperv_            | ml2                   |
 +-------------------------------+-----------------------+
-| networking-cisco_             |  core,ml2,l3,fw,vpn   |
+| networking-infoblox_          | ipam                  |
 +-------------------------------+-----------------------+
-| networking-edge-vpn_          |          vpn          |
+| networking-mlnx_              | ml2                   |
 +-------------------------------+-----------------------+
-| networking-fujitsu_           |          ml2          |
+| networking-nec_               | core                  |
 +-------------------------------+-----------------------+
-| networking-hyperv_            |          ml2          |
+| networking-plumgrid_          | core                  |
 +-------------------------------+-----------------------+
-| networking-infoblox_          |         ipam          |
+| networking-powervm_           | ml2                   |
 +-------------------------------+-----------------------+
-| networking-l2gw_              |         l2            |
+| nuage-openstack-neutron_      | core                  |
 +-------------------------------+-----------------------+
-| networking-midonet_           |  core,ml2,l3,lb,fw    |
+| networking-ovs-dpdk_          | ml2                   |
 +-------------------------------+-----------------------+
-| networking-mlnx_              |          ml2          |
+| networking-vsphere_           | ml2                   |
 +-------------------------------+-----------------------+
-| networking-nec_               |         core          |
-+-------------------------------+-----------------------+
-| nuage-openstack-neutron_      |         core          |
-+-------------------------------+-----------------------+
-| networking-odl_               |      ml2,l3,lb,fw     |
-+-------------------------------+-----------------------+
-| networking-ofagent_           |          ml2          |
-+-------------------------------+-----------------------+
-| networking-onos_              |        ml2,l3         |
-+-------------------------------+-----------------------+
-| networking-ovn_               |          ml2          |
-+-------------------------------+-----------------------+
-| networking-ovs-dpdk_          |          ml2          |
-+-------------------------------+-----------------------+
-| networking-plumgrid_          |          core         |
-+-------------------------------+-----------------------+
-| networking-powervm_           |          ml2          |
-+-------------------------------+-----------------------+
-| networking-sfc_               |  service composition  |
-+-------------------------------+-----------------------+
-| networking-vsphere_           |          ml2          |
-+-------------------------------+-----------------------+
-| vmware-nsx_                   |          core         |
-+-------------------------------+-----------------------+
-| octavia_                      |          lb           |
+| vmware-nsx_                   | core                  |
 +-------------------------------+-----------------------+
 
-Functionality legend
-++++++++++++++++++++
+Project Teams FAQ
+~~~~~~~~~~~~~~~~~
 
-- l2: a Layer 2 service;
-- ml2: an ML2 mechanism driver;
-- core: a monolithic plugin that can implement API at multiple layers L3-L7;
-- l3: a Layer 3 service plugin;
-- fw: a Firewall service plugin;
-- vpn: a VPN service plugin;
-- lb: a Load Balancer service plugin;
-- intent: a service plugin that provides a declarative API to realize networking;
-- docker: a Docker network plugin that uses Neutron to provide networking services to Docker containers;
-- ipam: an IP address management driver;
+**Q: When talking about contributor overlap, what is a contributor?**
+
+A Neutron contributor is someone who spends some portion of their time helping
+with all of the things needed to run the Neutron project: bug triage, writing
+and reviewing blueprints, writing and reviewing code, writing and reviewing
+documentation, helping debug issues found by users or CI, and more.
+
+**Q: Why choose contributor overlap over technical overlap?**
+
+Technical overlap, or software qualities, are more difficult to pinpoint and
+require a more extensive assessment from the PTL and the Neutron team, which
+in turn has the danger of translating itself into a nearly full-time
+policing/enforcement job. Wrongdoing will always be spotted, regardless of
+whichever criteria is applied, and trusting known members of the team to do
+the right thing should be an adequate safety net to preserve the sanity of
+Neutron as a whole.
+
+**Q: What does a sub-project gain as a part of the Neutron project team?**
+
+A project under Neutron is no more an official part of OpenStack than another
+OpenStack project team.  Projects under Neutron share some resources.  In
+particular, they get managed backports, managed releases, managed CVEs, RFEs,
+bugs, docs and everything that pertain the SDLC of the Neutron end-to-end
+project.
+
+**Q: Why is kuryr a separate project?**
+
+Kuryr was started and incubated within the Neutron team.  However, it interfaces
+with Neutron as a client of the Neutron API, so it makes sense to stand as an
+independent project.
+
+**Q: Why are several "advanced service" projects still included under Neutron?**
+
+neutron-lbaas, neutron-fwaas, and neutron-vpnaas are all included under the
+Neutron project team largely for historical reasons.  They were originally a
+part of neutron itself and are still a part of the neutron deliverable in terms
+of OpenStack governance.  Because of the deliverable inclusion, they should really
+only be considered for a move on a release boundary.
+
+**Q: Why is Octavia included under Neutron?**
+
+neutron-lbaas, neutron-lbaas-dashboard, and Octavia are all considered a unit.
+If we split one, we need to split them together.  We can't split these yet, as
+they are a part of the official "neutron" deliverable.  This needs to be done on
+a release boundary when the lbaas team is ready to do so.
 
 .. _networking-ale-omniswitch:
 
@@ -192,14 +343,12 @@ Arista
 * Launchpad: https://launchpad.net/networking-arista
 * Pypi: https://pypi.python.org/pypi/networking-arista
 
-.. _networking-bagpipe-l2:
+.. _networking-bagpipe:
 
 BaGPipe
 +++++++
 
-* Git: https://git.openstack.org/cgit/openstack/networking-bagpipe-l2
-* Launchpad: https://launchpad.net/bagpipe-l2
-* Pypi: https://pypi.python.org/pypi/bagpipe-l2
+* Git: https://git.openstack.org/cgit/openstack/networking-bagpipe
 
 .. _networking-bgpvpn:
 
@@ -329,6 +478,69 @@ NEC
 * Git: https://git.openstack.org/cgit/openstack/networking-nec
 * Launchpad: https://launchpad.net/networking-nec
 * PyPI: https://pypi.python.org/pypi/networking-nec
+
+.. _neutron:
+
+Neutron
++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron
+* Launchpad: https://launchpad.net/neutron
+
+.. _python-neutronclient:
+
+Neutron Client
+++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/python-neutronclient
+* Launchpad: https://launchpad.net/python-neutronclient
+
+.. _python-neutron-pd-driver:
+
+Neutron Prefix Delegation
++++++++++++++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/python-neutron-pd-driver
+
+.. _neutron-fwaas:
+
+Neutron FWaaS
++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron-fwaas
+* Launchpad: https://launchpad.net/neutron
+
+.. _neutron-lbaas:
+
+Neutron LBaaS
++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron-lbaas
+* Launchpad: https://launchpad.net/neutron
+
+.. _neutron-lbaas-dashboard:
+
+Neutron LBaaS Dashboard
++++++++++++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron-lbaas-dashboard
+* Launchpad: https://launchpad.net/neutron
+
+.. _neutron-lib:
+
+Neutron Library
++++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron-lib
+* Launchpad: https://launchpad.net/neutron
+
+.. _neutron-vpnaas:
+
+Neutron VPNaaS
+++++++++++++++
+
+* Git: https://git.openstack.org/cgit/openstack/neutron-vpnaas
+* Launchpad: https://launchpad.net/neutron
 
 .. _nuage-openstack-neutron:
 

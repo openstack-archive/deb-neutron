@@ -15,13 +15,13 @@
 import abc
 import collections
 import os.path
-import six
 
 import eventlet
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import fileutils
+import six
 
 from neutron._i18n import _, _LW, _LE
 from neutron.agent.common import config as agent_cfg
@@ -230,7 +230,7 @@ class ProcessMonitor(object):
                 LOG.error(_LE("%(service)s for %(resource_type)s "
                               "with uuid %(uuid)s not found. "
                               "The process should not have died"),
-                          {'service': pm.service,
+                          {'service': service_id.service,
                            'resource_type': self._resource_type,
                            'uuid': service_id.uuid})
                 self._execute_action(service_id)

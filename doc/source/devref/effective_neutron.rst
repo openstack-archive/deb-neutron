@@ -74,6 +74,11 @@ Document common pitfalls as well as good practices done during plugin developmen
 * When adding behavior to the L2 and L3 db base classes, do not assume that
   there is an agent on the other side of the message broker that interacts
   with the server. Plugins may not rely on `agents <https://review.openstack.org/#/c/174020/>`_ at all.
+* Be mindful of required capabilities when you develop plugin extensions. The
+  `Extension description <https://github.com/openstack/neutron/blob/master/neutron/api/extensions.py#L122>`_ provides the ability to specify the list of required capabilities
+  for the extension you are developing. By declaring this list, the server will
+  not start up if the requirements are not met, thus avoiding leading the system
+  to experience undetermined behavior at runtime.
 
 Database interaction
 ~~~~~~~~~~~~~~~~~~~~
@@ -131,6 +136,66 @@ Document common pitfalls as well as good practices done during database developm
   to 1000 DB queries. For example, see
   `patch 257086 <https://review.openstack.org/#/c/257086/>`_ which changed the
   availability zone code from the incorrect style to a database friendly one.
+
+* Sometimes in code we use the following structures:
+
+  .. code:: python
+
+     def create():
+        with context.session.begin(subtransactions=True):
+            create_something()
+            try:
+                _do_other_thing_with_created_object()
+            except Exception:
+                with excutils.save_and_reraise_exception():
+                    delete_something()
+
+     def _do_other_thing_with_created_object():
+        with context.session.begin(subtransactions=True):
+            ....
+
+  The problem is that when exception is raised in ``_do_other_thing_with_created_object``
+  it is caught in except block, but the object cannot be deleted in except
+  section because internal transaction from ``_do_other_thing_with_created_object``
+  has been rolled back. To avoid this nested transactions should be used.
+  For such cases help function ``safe_creation`` has been created in
+  ``neutron/db/common_db_mixin.py``.
+  So, the example above should be replaced with:
+
+  .. code:: python
+
+     _safe_creation(context, create_something, delete_someting,
+                    _do_other_thing_with_created_object)
+
+  Where nested transaction is used in _do_other_thing_with_created_object
+  function.
+
+* Beware of ResultProxy.inserted_primary_key which returns a list of last
+  inserted primary keys not the last inserted primary key:
+
+  .. code:: python
+
+     result = session.execute(mymodel.insert().values(**values))
+     # result.inserted_primary_key is a list even if we inserted a unique row!
+
+* Beware of pymysql which can silently unwrap a list with an element (and hide
+  a wrong use of ResultProxy.inserted_primary_key for example):
+
+  .. code:: python
+
+     e.execute("create table if not exists foo (bar integer)")
+     e.execute(foo.insert().values(bar=1))
+     e.execute(foo.insert().values(bar=[2]))
+
+  The 2nd insert should crash (list provided, integer expected). It crashes at
+  least with mysql and postgresql backends, but succeeds with pymysql because
+  it transforms them into:
+
+  .. code:: sql
+
+     INSERT INTO foo (bar) VALUES (1)
+     INSERT INTO foo (bar) VALUES ((2))
+
 
 System development
 ~~~~~~~~~~~~~~~~~~

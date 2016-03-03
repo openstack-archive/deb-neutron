@@ -14,18 +14,18 @@
 #    under the License.
 
 import netaddr
-from tempest_lib.common.utils import data_utils
-from tempest_lib import exceptions as lib_exc
+from tempest.lib.common.utils import data_utils
+from tempest.lib import exceptions as lib_exc
+from tempest import test
 
 from neutron.tests.api import clients
 from neutron.tests.tempest import config
 from neutron.tests.tempest import exceptions
-import neutron.tests.tempest.test
 
 CONF = config.CONF
 
 
-class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
+class BaseNetworkTest(test.BaseTestCase):
 
     """
     Base class for the Neutron tests that use the Tempest Neutron REST client
@@ -48,31 +48,49 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
     """
 
     force_tenant_isolation = False
+    credentials = ['primary']
 
     # Default to ipv4.
     _ip_version = 4
 
     @classmethod
-    def resource_setup(cls):
-        # Create no network resources for these test.
-        cls.set_network_resources()
-        super(BaseNetworkTest, cls).resource_setup()
+    def get_client_manager(cls, credential_type=None, roles=None,
+                           force_new=None):
+        manager = test.BaseTestCase.get_client_manager(
+                credential_type=credential_type,
+                roles=roles,
+                force_new=force_new)
+        # Neutron uses a different clients manager than the one in the Tempest
+        return clients.Manager(manager.credentials)
+
+    @classmethod
+    def skip_checks(cls):
+        super(BaseNetworkTest, cls).skip_checks()
         if not CONF.service_available.neutron:
             raise cls.skipException("Neutron support is required")
         if cls._ip_version == 6 and not CONF.network_feature_enabled.ipv6:
             raise cls.skipException("IPv6 Tests are disabled.")
 
-        os = cls.get_client_manager()
+    @classmethod
+    def setup_credentials(cls):
+        # Create no network resources for these test.
+        cls.set_network_resources()
+        super(BaseNetworkTest, cls).setup_credentials()
 
-        cls.network_cfg = CONF.network
-        cls.client = os.network_client
+    @classmethod
+    def setup_clients(cls):
+        super(BaseNetworkTest, cls).setup_clients()
+        cls.client = cls.os.network_client
+
+    @classmethod
+    def resource_setup(cls):
+        super(BaseNetworkTest, cls).resource_setup()
+
         cls.networks = []
         cls.shared_networks = []
         cls.subnets = []
         cls.ports = []
         cls.routers = []
-        cls.vpnservices = []
-        cls.ikepolicies = []
         cls.floating_ips = []
         cls.metering_labels = []
         cls.service_profiles = []
@@ -80,7 +98,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         cls.metering_label_rules = []
         cls.fw_rules = []
         cls.fw_policies = []
-        cls.ipsecpolicies = []
         cls.qos_rules = []
         cls.qos_policies = []
         cls.ethertype = "IPv" + str(cls._ip_version)
@@ -92,10 +109,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
     @classmethod
     def resource_cleanup(cls):
         if CONF.service_available.neutron:
-            # Clean up ipsec policies
-            for ipsecpolicy in cls.ipsecpolicies:
-                cls._try_delete_resource(cls.client.delete_ipsecpolicy,
-                                         ipsecpolicy['id'])
             # Clean up firewall policies
             for fw_policy in cls.fw_policies:
                 cls._try_delete_resource(cls.client.delete_firewall_policy,
@@ -104,14 +117,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
             for fw_rule in cls.fw_rules:
                 cls._try_delete_resource(cls.client.delete_firewall_rule,
                                          fw_rule['id'])
-            # Clean up ike policies
-            for ikepolicy in cls.ikepolicies:
-                cls._try_delete_resource(cls.client.delete_ikepolicy,
-                                         ikepolicy['id'])
-            # Clean up vpn services
-            for vpnservice in cls.vpnservices:
-                cls._try_delete_resource(cls.client.delete_vpnservice,
-                                         vpnservice['id'])
             # Clean up QoS rules
             for qos_rule in cls.qos_rules:
                 cls._try_delete_resource(cls.admin_client.delete_qos_rule,
@@ -183,7 +188,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
                     cls.admin_client.delete_address_scope,
                     address_scope['id'])
 
-            cls.clear_isolated_creds()
         super(BaseNetworkTest, cls).resource_cleanup()
 
     @classmethod
@@ -264,7 +268,7 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
                     raise
         else:
             message = 'Available CIDR for subnet creation could not be found'
-            raise exceptions.BuildErrorException(message)
+            raise ValueError(message)
         subnet = body['subnet']
         cls.subnets.append(subnet)
         return subnet
@@ -318,24 +322,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         return interface
 
     @classmethod
-    def create_vpnservice(cls, subnet_id, router_id):
-        """Wrapper utility that returns a test vpn service."""
-        body = cls.client.create_vpnservice(
-            subnet_id=subnet_id, router_id=router_id, admin_state_up=True,
-            name=data_utils.rand_name("vpnservice-"))
-        vpnservice = body['vpnservice']
-        cls.vpnservices.append(vpnservice)
-        return vpnservice
-
-    @classmethod
-    def create_ikepolicy(cls, name):
-        """Wrapper utility that returns a test ike policy."""
-        body = cls.client.create_ikepolicy(name=name)
-        ikepolicy = body['ikepolicy']
-        cls.ikepolicies.append(ikepolicy)
-        return ikepolicy
-
-    @classmethod
     def create_firewall_rule(cls, action, protocol):
         """Wrapper utility that returns a test firewall rule."""
         body = cls.client.create_firewall_rule(
@@ -387,14 +373,6 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
         cls.client.delete_router(router['id'])
 
     @classmethod
-    def create_ipsecpolicy(cls, name):
-        """Wrapper utility that returns a test ipsec policy."""
-        body = cls.client.create_ipsecpolicy(name=name)
-        ipsecpolicy = body['ipsecpolicy']
-        cls.ipsecpolicies.append(ipsecpolicy)
-        return ipsecpolicy
-
-    @classmethod
     def create_address_scope(cls, name, is_admin=False, **kwargs):
         if is_admin:
             body = cls.admin_client.create_address_scope(name=name, **kwargs)
@@ -407,28 +385,23 @@ class BaseNetworkTest(neutron.tests.tempest.test.BaseTestCase):
     @classmethod
     def create_subnetpool(cls, name, is_admin=False, **kwargs):
         if is_admin:
-            body = cls.admin_client.create_subnetpool(name=name, **kwargs)
+            body = cls.admin_client.create_subnetpool(name, **kwargs)
             cls.admin_subnetpools.append(body['subnetpool'])
         else:
-            body = cls.client.create_subnetpool(name=name, **kwargs)
+            body = cls.client.create_subnetpool(name, **kwargs)
             cls.subnetpools.append(body['subnetpool'])
         return body['subnetpool']
 
 
 class BaseAdminNetworkTest(BaseNetworkTest):
 
-    @classmethod
-    def resource_setup(cls):
-        super(BaseAdminNetworkTest, cls).resource_setup()
+    credentials = ['primary', 'admin']
 
-        try:
-            creds = cls.isolated_creds.get_admin_creds()
-            cls.os_adm = clients.Manager(credentials=creds)
-        except NotImplementedError:
-            msg = ("Missing Administrative Network API credentials "
-                   "in configuration.")
-            raise cls.skipException(msg)
+    @classmethod
+    def setup_clients(cls):
+        super(BaseAdminNetworkTest, cls).setup_clients()
         cls.admin_client = cls.os_adm.network_client
+        cls.identity_admin_client = cls.os_adm.tenants_client
 
     @classmethod
     def create_metering_label(cls, name, description):

@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import sys
+
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
@@ -165,20 +167,16 @@ class OVSDVRNeutronAgent(object):
         try:
             self.get_dvr_mac_address_with_retry()
         except oslo_messaging.RemoteError as e:
-            LOG.warning(_LW('L2 agent could not get DVR MAC address at '
-                            'startup due to RPC error.  It happens when the '
-                            'server does not support this RPC API.  Detailed '
-                            'message: %s'), e)
+            LOG.error(_LE('L2 agent could not get DVR MAC address at '
+                          'startup due to RPC error.  It happens when the '
+                          'server does not support this RPC API.  Detailed '
+                          'message: %s'), e)
         except oslo_messaging.MessagingTimeout:
             LOG.error(_LE('DVR: Failed to obtain a valid local '
-                          'DVR MAC address - L2 Agent operating '
-                          'in Non-DVR Mode'))
+                          'DVR MAC address'))
 
         if not self.in_distributed_mode():
-            # switch all traffic using L2 learning
-            # REVISIT(yamamoto): why to install the same flow as
-            # setup_integration_br?
-            self.int_br.install_normal()
+            sys.exit(1)
 
     def get_dvr_mac_address_with_retry(self):
         # Get the local DVR MAC Address from the Neutron Server.
@@ -379,8 +377,9 @@ class OVSDVRNeutronAgent(object):
             subnet_info = self.plugin_rpc.get_subnet_for_dvr(
                 self.context, subnet_uuid, fixed_ips=fixed_ips)
             if not subnet_info:
-                LOG.error(_LE("DVR: Unable to retrieve subnet information "
-                              "for subnet_id %s"), subnet_uuid)
+                LOG.warning(_LW("DVR: Unable to retrieve subnet information "
+                                "for subnet_id %s. The subnet or the gateway "
+                                "may have already been deleted"), subnet_uuid)
                 return
             LOG.debug("get_subnet_for_dvr for subnet %(uuid)s "
                       "returned with %(info)s",
@@ -530,6 +529,14 @@ class OVSDVRNeutronAgent(object):
             # for this subnet
             subnet_info = self.plugin_rpc.get_subnet_for_dvr(
                 self.context, subnet_uuid, fixed_ips=fixed_ips)
+            if not subnet_info:
+                LOG.warning(_LW("DVR: Unable to retrieve subnet information "
+                                "for subnet_id %s. The subnet or the gateway "
+                                "may have already been deleted"), subnet_uuid)
+                return
+            LOG.debug("get_subnet_for_dvr for subnet %(uuid)s "
+                      "returned with %(info)s",
+                      {"uuid": subnet_uuid, "info": subnet_info})
             ldm = LocalDVRSubnetMapping(subnet_info, port.ofport)
             self.local_dvr_map[subnet_uuid] = ldm
         else:

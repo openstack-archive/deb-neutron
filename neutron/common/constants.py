@@ -13,52 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO(salv-orlando): Verify if a single set of operational
-# status constants is achievable
-NET_STATUS_ACTIVE = 'ACTIVE'
-NET_STATUS_BUILD = 'BUILD'
-NET_STATUS_DOWN = 'DOWN'
-NET_STATUS_ERROR = 'ERROR'
+import sys
 
-PORT_STATUS_ACTIVE = 'ACTIVE'
-PORT_STATUS_BUILD = 'BUILD'
-PORT_STATUS_DOWN = 'DOWN'
-PORT_STATUS_ERROR = 'ERROR'
-PORT_STATUS_NOTAPPLICABLE = 'N/A'
+from neutron_lib import constants as lib_constants
 
-FLOATINGIP_STATUS_ACTIVE = 'ACTIVE'
-FLOATINGIP_STATUS_DOWN = 'DOWN'
-FLOATINGIP_STATUS_ERROR = 'ERROR'
+from neutron.common import _deprecate
 
-DEVICE_OWNER_COMPUTE_PREFIX = "compute:"
-DEVICE_OWNER_NETWORK_PREFIX = "network:"
-DEVICE_OWNER_NEUTRON_PREFIX = "neutron:"
 
-DEVICE_OWNER_ROUTER_HA_INTF = (DEVICE_OWNER_NETWORK_PREFIX +
-                               "router_ha_interface")
-DEVICE_OWNER_ROUTER_INTF = DEVICE_OWNER_NETWORK_PREFIX + "router_interface"
-DEVICE_OWNER_ROUTER_GW = DEVICE_OWNER_NETWORK_PREFIX + "router_gateway"
-DEVICE_OWNER_FLOATINGIP = DEVICE_OWNER_NETWORK_PREFIX + "floatingip"
-DEVICE_OWNER_DHCP = DEVICE_OWNER_NETWORK_PREFIX + "dhcp"
-DEVICE_OWNER_DVR_INTERFACE = (DEVICE_OWNER_NETWORK_PREFIX +
-                              "router_interface_distributed")
-DEVICE_OWNER_AGENT_GW = (DEVICE_OWNER_NETWORK_PREFIX +
-                         "floatingip_agent_gateway")
-DEVICE_OWNER_ROUTER_SNAT = (DEVICE_OWNER_NETWORK_PREFIX +
-                            "router_centralized_snat")
-DEVICE_OWNER_LOADBALANCER = DEVICE_OWNER_NEUTRON_PREFIX + "LOADBALANCER"
-DEVICE_OWNER_LOADBALANCERV2 = DEVICE_OWNER_NEUTRON_PREFIX + "LOADBALANCERV2"
+ROUTER_PORT_OWNERS = lib_constants.ROUTER_INTERFACE_OWNERS_SNAT + \
+    (lib_constants.DEVICE_OWNER_ROUTER_GW,)
 
-DEVICE_OWNER_PREFIXES = (DEVICE_OWNER_NETWORK_PREFIX,
-                         DEVICE_OWNER_NEUTRON_PREFIX)
-
-# Collection used to identify devices owned by router interfaces.
-# DEVICE_OWNER_ROUTER_HA_INTF is a special case and so is not included.
-ROUTER_INTERFACE_OWNERS = (DEVICE_OWNER_ROUTER_INTF,
-                           DEVICE_OWNER_DVR_INTERFACE)
-ROUTER_INTERFACE_OWNERS_SNAT = (DEVICE_OWNER_ROUTER_INTF,
-                                DEVICE_OWNER_DVR_INTERFACE,
-                                DEVICE_OWNER_ROUTER_SNAT)
 L3_AGENT_MODE_DVR = 'dvr'
 L3_AGENT_MODE_DVR_SNAT = 'dvr_snat'
 L3_AGENT_MODE_LEGACY = 'legacy'
@@ -66,9 +30,6 @@ L3_AGENT_MODE = 'agent_mode'
 
 DEVICE_ID_RESERVED_DHCP_PORT = "reserved_dhcp_port"
 
-FLOATINGIP_KEY = '_floatingips'
-INTERFACE_KEY = '_interfaces'
-HA_INTERFACE_KEY = '_ha_interface'
 HA_ROUTER_STATE_KEY = '_ha_state'
 METERING_LABEL_KEY = '_metering_labels'
 FLOATINGIP_AGENT_INTF_KEY = '_floatingip_agent_interfaces'
@@ -81,68 +42,94 @@ MINIMUM_AGENTS_FOR_HA = 2
 HA_ROUTER_STATE_ACTIVE = 'active'
 HA_ROUTER_STATE_STANDBY = 'standby'
 
-IPv4 = 'IPv4'
-IPv6 = 'IPv6'
-IP_VERSION_4 = 4
-IP_VERSION_6 = 6
-IPv4_BITS = 32
-IPv6_BITS = 128
-
-INVALID_MAC_ADDRESSES = ['00:00:00:00:00:00', 'FF:FF:FF:FF:FF:FF']
-
-IPv4_ANY = '0.0.0.0/0'
-IPv6_ANY = '::/0'
-IP_ANY = {IP_VERSION_4: IPv4_ANY, IP_VERSION_6: IPv6_ANY}
-
-DHCP_RESPONSE_PORT = 68
-
-FLOODING_ENTRY = ('00:00:00:00:00:00', '0.0.0.0')
-
-AGENT_TYPE_DHCP = 'DHCP agent'
-AGENT_TYPE_OVS = 'Open vSwitch agent'
-AGENT_TYPE_LINUXBRIDGE = 'Linux bridge agent'
-AGENT_TYPE_OFA = 'OFA driver agent'
-AGENT_TYPE_L3 = 'L3 agent'
-AGENT_TYPE_LOADBALANCER = 'Loadbalancer agent'
-AGENT_TYPE_METERING = 'Metering agent'
-AGENT_TYPE_METADATA = 'Metadata agent'
-AGENT_TYPE_NIC_SWITCH = 'NIC Switch agent'
-L2_AGENT_TOPIC = 'N/A'
-
+AGENT_TYPE_MACVTAP = 'Macvtap agent'
 PAGINATION_INFINITE = 'infinite'
 
 SORT_DIRECTION_ASC = 'asc'
 SORT_DIRECTION_DESC = 'desc'
 
-PORT_BINDING_EXT_ALIAS = 'binding'
-L3_AGENT_SCHEDULER_EXT_ALIAS = 'l3_agent_scheduler'
-DHCP_AGENT_SCHEDULER_EXT_ALIAS = 'dhcp_agent_scheduler'
-LBAAS_AGENT_SCHEDULER_EXT_ALIAS = 'lbaas_agent_scheduler'
-L3_DISTRIBUTED_EXT_ALIAS = 'dvr'
-L3_HA_MODE_EXT_ALIAS = 'l3-ha'
-SUBNET_ALLOCATION_EXT_ALIAS = 'subnet_allocation'
-
+ETHERTYPE_NAME_ARP = 'arp'
+ETHERTYPE_ARP = 0x0806
+ETHERTYPE_IP = 0x0800
 ETHERTYPE_IPV6 = 0x86DD
 
 # Protocol names and numbers for Security Groups/Firewalls
-PROTO_NAME_TCP = 'tcp'
+PROTO_NAME_AH = 'ah'
+PROTO_NAME_DCCP = 'dccp'
+PROTO_NAME_EGP = 'egp'
+PROTO_NAME_ESP = 'esp'
+PROTO_NAME_GRE = 'gre'
 PROTO_NAME_ICMP = 'icmp'
-PROTO_NAME_ICMP_V6 = 'icmpv6'
+PROTO_NAME_IGMP = 'igmp'
+PROTO_NAME_IPV6_ENCAP = 'ipv6-encap'
+PROTO_NAME_IPV6_FRAG = 'ipv6-frag'
+PROTO_NAME_IPV6_ICMP = 'ipv6-icmp'
+PROTO_NAME_IPV6_NONXT = 'ipv6-nonxt'
+PROTO_NAME_IPV6_OPTS = 'ipv6-opts'
+PROTO_NAME_IPV6_ROUTE = 'ipv6-route'
+PROTO_NAME_OSPF = 'ospf'
+PROTO_NAME_PGM = 'pgm'
+PROTO_NAME_RSVP = 'rsvp'
+PROTO_NAME_SCTP = 'sctp'
+PROTO_NAME_TCP = 'tcp'
 PROTO_NAME_UDP = 'udp'
-PROTO_NUM_TCP = 6
+PROTO_NAME_UDPLITE = 'udplite'
+PROTO_NAME_VRRP = 'vrrp'
+
+PROTO_NUM_AH = 51
+PROTO_NUM_DCCP = 33
+PROTO_NUM_EGP = 8
+PROTO_NUM_ESP = 50
+PROTO_NUM_GRE = 47
 PROTO_NUM_ICMP = 1
-PROTO_NUM_ICMP_V6 = 58
+PROTO_NUM_IGMP = 2
+PROTO_NUM_IPV6_ENCAP = 41
+PROTO_NUM_IPV6_FRAG = 44
+PROTO_NUM_IPV6_ICMP = 58
+PROTO_NUM_IPV6_NONXT = 59
+PROTO_NUM_IPV6_OPTS = 60
+PROTO_NUM_IPV6_ROUTE = 43
+PROTO_NUM_OSPF = 89
+PROTO_NUM_PGM = 113
+PROTO_NUM_RSVP = 46
+PROTO_NUM_SCTP = 132
+PROTO_NUM_TCP = 6
 PROTO_NUM_UDP = 17
+PROTO_NUM_UDPLITE = 136
+PROTO_NUM_VRRP = 112
+
+IP_PROTOCOL_MAP = {PROTO_NAME_AH: PROTO_NUM_AH,
+                   PROTO_NAME_DCCP: PROTO_NUM_DCCP,
+                   PROTO_NAME_EGP: PROTO_NUM_EGP,
+                   PROTO_NAME_ESP: PROTO_NUM_ESP,
+                   PROTO_NAME_GRE: PROTO_NUM_GRE,
+                   PROTO_NAME_ICMP: PROTO_NUM_ICMP,
+                   PROTO_NAME_IGMP: PROTO_NUM_IGMP,
+                   PROTO_NAME_IPV6_ENCAP: PROTO_NUM_IPV6_ENCAP,
+                   PROTO_NAME_IPV6_FRAG: PROTO_NUM_IPV6_FRAG,
+                   PROTO_NAME_IPV6_ICMP: PROTO_NUM_IPV6_ICMP,
+                   PROTO_NAME_IPV6_NONXT: PROTO_NUM_IPV6_NONXT,
+                   PROTO_NAME_IPV6_OPTS: PROTO_NUM_IPV6_OPTS,
+                   PROTO_NAME_IPV6_ROUTE: PROTO_NUM_IPV6_ROUTE,
+                   PROTO_NAME_OSPF: PROTO_NUM_OSPF,
+                   PROTO_NAME_PGM: PROTO_NUM_PGM,
+                   PROTO_NAME_RSVP: PROTO_NUM_RSVP,
+                   PROTO_NAME_SCTP: PROTO_NUM_SCTP,
+                   PROTO_NAME_TCP: PROTO_NUM_TCP,
+                   PROTO_NAME_UDP: PROTO_NUM_UDP,
+                   PROTO_NAME_UDPLITE: PROTO_NUM_UDPLITE,
+                   PROTO_NAME_VRRP: PROTO_NUM_VRRP}
 
 # List of ICMPv6 types that should be allowed by default:
 # Multicast Listener Query (130),
 # Multicast Listener Report (131),
 # Multicast Listener Done (132),
 # Neighbor Solicitation (135),
+ICMPV6_TYPE_NC = 135
 # Neighbor Advertisement (136)
+ICMPV6_TYPE_NA = 136
 ICMPV6_ALLOWED_TYPES = [130, 131, 132, 135, 136]
 ICMPV6_TYPE_RA = 134
-ICMPV6_TYPE_NA = 136
 
 DHCPV6_STATEFUL = 'dhcpv6-stateful'
 DHCPV6_STATELESS = 'dhcpv6-stateless'
@@ -166,8 +153,8 @@ DEVICE_NAME_MAX_LEN = 15
 
 # vhost-user device names start with "vhu"
 VHOST_USER_DEVICE_PREFIX = 'vhu'
-# Device names start with "tap"
-TAP_DEVICE_PREFIX = 'tap'
+# Device names start with "macvtap"
+MACVTAP_DEVICE_PREFIX = 'macvtap'
 # The vswitch side of a veth pair for a nova iptables filter setup
 VETH_DEVICE_PREFIX = 'qvo'
 # prefix for SNAT interface in DVR
@@ -176,7 +163,7 @@ SNAT_INT_DEV_PREFIX = 'sg-'
 # Possible prefixes to partial port IDs in interface names used by the OVS,
 # Linux Bridge, and IVS VIF drivers in Nova and the neutron agents. See the
 # 'get_ovs_interfaceid' method in Nova (nova/virt/libvirt/vif.py) for details.
-INTERFACE_PREFIXES = (TAP_DEVICE_PREFIX, VETH_DEVICE_PREFIX,
+INTERFACE_PREFIXES = (lib_constants.TAP_DEVICE_PREFIX, VETH_DEVICE_PREFIX,
                       SNAT_INT_DEV_PREFIX)
 
 ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
@@ -209,9 +196,6 @@ IPV6_MIN_MTU = 1280
 
 ROUTER_MARK_MASK = "0xffff"
 
-# Time format
-ISO8601_TIME_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
-
 # Agent states as detected by server, used to reply on agent's state report
 # agent has just been registered
 AGENT_NEW = 'new'
@@ -219,3 +203,17 @@ AGENT_NEW = 'new'
 AGENT_ALIVE = 'alive'
 # agent has just returned to alive after being dead
 AGENT_REVIVED = 'revived'
+
+
+# Neutron-lib migration shim. This will wrap any constants that are moved
+# to that library in a deprecation warning, until they can be updated to
+# import directly from their new location.
+# If you're wondering why we bother saving _OLD_REF, it is because if we
+# do not, then the original module we are overwriting gets garbage collected,
+# and then you will find some super strange behavior with inherited classes
+# and the like. Saving a ref keeps it around.
+
+# WARNING: THESE MUST BE THE LAST TWO LINES IN THIS MODULE
+_OLD_REF = sys.modules[__name__]
+sys.modules[__name__] = _deprecate._DeprecateSubset(globals(), lib_constants)
+# WARNING: THESE MUST BE THE LAST TWO LINES IN THIS MODULE

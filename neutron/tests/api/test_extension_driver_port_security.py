@@ -14,14 +14,12 @@
 #    under the License.
 
 import ddt
+from tempest.lib import exceptions as lib_exc
+from tempest import test
 
 from neutron.tests.api import base
 from neutron.tests.api import base_security_groups as base_security
-from neutron.tests.tempest import config
-from neutron.tests.tempest import test
-from tempest_lib import exceptions as lib_exc
 
-CONF = config.CONF
 FAKE_IP = '10.0.0.1'
 FAKE_MAC = '00:25:64:e8:19:dd'
 
@@ -141,6 +139,8 @@ class PortSecTest(base_security.BaseSecGroupTest,
 
     @test.attr(type=['negative', 'smoke'])
     @test.idempotent_id('ed93e453-3f8d-495e-8e7e-b0e268c2ebd9')
+    @test.requires_ext(extension='port-security', service='network')
+    @test.requires_ext(extension='allowed-address-pairs', service='network')
     def test_allow_address_pairs(self):
         network = self.create_network()
         self.create_subnet(network)

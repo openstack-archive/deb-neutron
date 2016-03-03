@@ -13,17 +13,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import netaddr
 import uuid
 
-from tempest_lib.common.utils import data_utils
-from tempest_lib import exceptions as lib_exc
+import netaddr
+from tempest.lib.common.utils import data_utils
+from tempest.lib import exceptions as lib_exc
+from tempest import test
 
 from neutron.tests.api import test_subnetpools
-from neutron.tests.tempest import config
-from neutron.tests.tempest import test
 
-CONF = config.CONF
+
 SUBNETPOOL_NAME = 'smoke-subnetpool'
 
 
@@ -180,9 +179,9 @@ class SubnetPoolsNegativeTestJSON(test_subnetpools.SubnetPoolsTestBase):
             name=data_utils.rand_name('smoke-address-scope'), is_admin=True,
             ip_version=4)
         address_scope_id = address_scope['id']
-        created_subbnetpool = self._create_subnetpool(self.client)
+        created_subnetpool = self._create_subnetpool(self.client)
         self.assertRaises(lib_exc.NotFound, self.client.update_subnetpool,
-                          created_subbnetpool['id'],
+                          created_subnetpool['id'],
                           address_scope_id=address_scope_id)
 
     def _test_update_subnetpool_prefix_intersect_helper(

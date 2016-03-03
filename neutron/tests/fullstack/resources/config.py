@@ -88,7 +88,7 @@ class NeutronConfigFixture(ConfigFixture):
             'oslo_messaging_rabbit': {
                 'rabbit_userid': rabbitmq_environment.user,
                 'rabbit_password': rabbitmq_environment.password,
-                'rabbit_hosts': '127.0.0.1',
+                'rabbit_hosts': rabbitmq_environment.host,
                 'rabbit_virtual_host': rabbitmq_environment.vhost,
             }
         })
@@ -114,7 +114,7 @@ class ML2ConfigFixture(ConfigFixture):
         super(ML2ConfigFixture, self).__init__(
             env_desc, host_desc, temp_dir, base_filename='ml2_conf.ini')
 
-        mechanism_drivers = 'openvswitch'
+        mechanism_drivers = 'openvswitch,linuxbridge'
         if self.env_desc.l2_pop:
             mechanism_drivers += ',l2population'
 
@@ -205,12 +205,65 @@ class OVSConfigFixture(ConfigFixture):
         return self.config.ovs.tunnel_bridge
 
 
+class LinuxBridgeConfigFixture(ConfigFixture):
+
+    def __init__(self, env_desc, host_desc, temp_dir, local_ip,
+                 physical_device_name):
+        super(LinuxBridgeConfigFixture, self).__init__(
+            env_desc, host_desc, temp_dir,
+            base_filename="linuxbridge_agent.ini"
+        )
+        self.config.update({
+            'VXLAN': {
+                'enable_vxlan': str(self.env_desc.tunneling_enabled),
+                'local_ip': local_ip,
+                'l2_population': str(self.env_desc.l2_pop),
+            }
+        })
+        if env_desc.qos:
+            self.config.update({
+                'AGENT': {
+                    'extensions': 'qos'
+                }
+            })
+        if self.env_desc.tunneling_enabled:
+            self.config.update({
+                'LINUX_BRIDGE': {
+                    'bridge_mappings': self._generate_bridge_mappings(
+                        physical_device_name
+                    )
+                }
+            })
+        else:
+            self.config.update({
+                'LINUX_BRIDGE': {
+                    'physical_interface_mappings':
+                        self._generate_bridge_mappings(
+                            physical_device_name
+                        )
+                }
+            })
+
+    def _generate_bridge_mappings(self, device_name):
+        return 'physnet1:%s' % device_name
+
+
 class L3ConfigFixture(ConfigFixture):
 
-    def __init__(self, env_desc, host_desc, temp_dir, integration_bridge):
+    def __init__(self, env_desc, host_desc, temp_dir, integration_bridge=None):
         super(L3ConfigFixture, self).__init__(
             env_desc, host_desc, temp_dir, base_filename='l3_agent.ini')
+        if host_desc.l2_agent_type == constants.AGENT_TYPE_OVS:
+            self._prepare_config_with_ovs_agent(integration_bridge)
+        elif host_desc.l2_agent_type == constants.AGENT_TYPE_LINUXBRIDGE:
+            self._prepare_config_with_linuxbridge_agent()
+        self.config['DEFAULT'].update({
+            'debug': 'True',
+            'verbose': 'True',
+            'test_namespace_suffix': self._generate_namespace_suffix(),
+        })
 
+    def _prepare_config_with_ovs_agent(self, integration_bridge):
         self.config.update({
             'DEFAULT': {
                 'l3_agent_manager': ('neutron.agent.l3_agent.'
@@ -219,9 +272,14 @@ class L3ConfigFixture(ConfigFixture):
                                      'OVSInterfaceDriver'),
                 'ovs_integration_bridge': integration_bridge,
                 'external_network_bridge': self._generate_external_bridge(),
-                'debug': 'True',
-                'verbose': 'True',
-                'test_namespace_suffix': self._generate_namespace_suffix(),
+            }
+        })
+
+    def _prepare_config_with_linuxbridge_agent(self):
+        self.config.update({
+            'DEFAULT': {
+                'interface_driver': ('neutron.agent.linux.interface.'
+                                     'BridgeInterfaceDriver'),
             }
         })
 

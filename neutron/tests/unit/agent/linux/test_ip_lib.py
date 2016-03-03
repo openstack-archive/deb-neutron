@@ -331,6 +331,15 @@ class TestIpWrapper(base.BaseTestCase):
                                              run_as_root=True, namespace=None,
                                              log_fail_as_error=True)
 
+    def test_add_macvtap(self):
+        ip_lib.IPWrapper().add_macvtap('macvtap0', 'eth0', 'bridge')
+        self.execute.assert_called_once_with([], 'link',
+                                             ('add', 'link', 'eth0', 'name',
+                                              'macvtap0', 'type', 'macvtap',
+                                              'mode', 'bridge'),
+                                             run_as_root=True, namespace=None,
+                                             log_fail_as_error=True)
+
     def test_del_veth(self):
         ip_lib.IPWrapper().del_veth('fpr-1234')
         self.execute.assert_called_once_with([], 'link',
@@ -449,6 +458,17 @@ class TestIpWrapper(base.BaseTestCase):
                 self.assertEqual(ip_ns_cmd_cls.mock_calls, expected)
                 self.assertNotIn(mock.call().delete('ns'),
                                  ip_ns_cmd_cls.mock_calls)
+
+    def test_add_vlan(self):
+        retval = ip_lib.IPWrapper().add_vlan('eth0.1', 'eth0', '1')
+        self.assertIsInstance(retval, ip_lib.IPDevice)
+        self.assertEqual(retval.name, 'eth0.1')
+        self.execute.assert_called_once_with([], 'link',
+                                             ['add', 'link', 'eth0',
+                                              'name', 'eth0.1',
+                                              'type', 'vlan', 'id', '1'],
+                                             run_as_root=True, namespace=None,
+                                             log_fail_as_error=True)
 
     def test_add_vxlan_valid_port_length(self):
         retval = ip_lib.IPWrapper().add_vxlan('vxlan0', 'vni0',
@@ -696,6 +716,10 @@ class TestIpLinkCommand(TestIPCmdBase):
     def test_set_address(self):
         self.link_cmd.set_address('aa:bb:cc:dd:ee:ff')
         self._assert_sudo([], ('set', 'eth0', 'address', 'aa:bb:cc:dd:ee:ff'))
+
+    def test_set_allmulticast_on(self):
+        self.link_cmd.set_allmulticast_on()
+        self._assert_sudo([], ('set', 'eth0', 'allmulticast', 'on'))
 
     def test_set_mtu(self):
         self.link_cmd.set_mtu(1500)

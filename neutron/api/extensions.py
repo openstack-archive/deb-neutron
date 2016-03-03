@@ -30,6 +30,7 @@ from neutron._i18n import _, _LE, _LI, _LW
 from neutron.common import exceptions
 import neutron.extensions
 from neutron import manager
+from neutron.plugins.common import constants as const
 from neutron.services import provider_configuration
 from neutron import wsgi
 
@@ -66,34 +67,34 @@ class PluginInterface(object):
 class ExtensionDescriptor(object):
     """Base class that defines the contract for extensions."""
 
+    @abc.abstractmethod
     def get_name(self):
         """The name of the extension.
 
         e.g. 'Fox In Socks'
         """
-        raise NotImplementedError()
 
+    @abc.abstractmethod
     def get_alias(self):
         """The alias for the extension.
 
         e.g. 'FOXNSOX'
         """
-        raise NotImplementedError()
 
+    @abc.abstractmethod
     def get_description(self):
         """Friendly description for the extension.
 
         e.g. 'The Fox In Socks Extension'
         """
-        raise NotImplementedError()
 
+    @abc.abstractmethod
     def get_updated(self):
         """The timestamp when the extension was last updated.
 
         e.g. '2011-01-22T13:25:27-06:00'
         """
         # NOTE(justinsb): Not sure of the purpose of this is, vs the XML NS
-        raise NotImplementedError()
 
     def get_resources(self):
         """List of extensions.ResourceExtension extension objects.
@@ -274,6 +275,16 @@ class ExtensionMiddleware(base.ConfigurableMiddleware):
                     submap.connect(path)
                     submap.connect("%s.:(format)" % path)
 
+            for action, method in resource.collection_methods.items():
+                conditions = dict(method=[method])
+                path = "/%s" % resource.collection
+                with mapper.submapper(controller=resource.controller,
+                                      action=action,
+                                      path_prefix=path_prefix,
+                                      conditions=conditions) as submap:
+                    submap.connect(path)
+                    submap.connect("%s.:(format)" % path)
+
             mapper.resource(resource.collection, resource.collection,
                             controller=resource.controller,
                             member=resource.member_actions,
@@ -440,10 +451,18 @@ class ExtensionManager(object):
                 # Exit loop as no progress was made
                 break
         if exts_to_process:
-            # NOTE(salv-orlando): Consider whether this error should be fatal
-            LOG.error(_LE("It was impossible to process the following "
-                          "extensions: %s because of missing requirements."),
-                      ','.join(exts_to_process.keys()))
+            unloadable_extensions = set(exts_to_process.keys())
+            LOG.error(_LE("Unable to process extensions (%s) because "
+                          "the configured plugins do not satisfy "
+                          "their requirements. Some features will not "
+                          "work as expected."),
+                      ', '.join(unloadable_extensions))
+            # Fail gracefully for default extensions, just in case some out
+            # of tree plugins are not entirely up to speed
+            default_extensions = set(const.DEFAULT_SERVICE_PLUGINS.values())
+            if not unloadable_extensions <= default_extensions:
+                raise exceptions.ExtensionsNotFound(
+                    extensions=list(unloadable_extensions))
 
         # Extending extensions' attributes map.
         for ext in processed_exts.values():
@@ -561,20 +580,26 @@ class PluginAwareExtensionManager(ExtensionManager):
                                 service_plugins)
         return cls._instance
 
+    def get_plugin_supported_extension_aliases(self, plugin):
+        """Return extension aliases supported by a given plugin"""
+        aliases = set()
+        # we also check all classes that the plugins inherit to see if they
+        # directly provide support for an extension
+        for item in [plugin] + plugin.__class__.mro():
+            try:
+                aliases |= set(
+                    getattr(item, "supported_extension_aliases", []))
+            except TypeError:
+                # we land here if a class has a @property decorator for
+                # supported extension aliases. They only work on objects.
+                pass
+        return aliases
+
     def get_supported_extension_aliases(self):
         """Gets extension aliases supported by all plugins."""
         aliases = set()
         for plugin in self.plugins.values():
-            # we also check all classes that the plugins inherit to see if they
-            # directly provide support for an extension
-            for item in [plugin] + plugin.__class__.mro():
-                try:
-                    aliases |= set(
-                        getattr(item, "supported_extension_aliases", []))
-                except TypeError:
-                    # we land here if a class has an @property decorator for
-                    # supported extension aliases. They only work on objects.
-                    pass
+            aliases |= self.get_plugin_supported_extension_aliases(plugin)
         return aliases
 
     @classmethod
@@ -617,14 +642,17 @@ class ResourceExtension(object):
     """Add top level resources to the OpenStack API in Neutron."""
 
     def __init__(self, collection, controller, parent=None, path_prefix="",
-                 collection_actions=None, member_actions=None, attr_map=None):
+                 collection_actions=None, member_actions=None, attr_map=None,
+                 collection_methods=None):
         collection_actions = collection_actions or {}
+        collection_methods = collection_methods or {}
         member_actions = member_actions or {}
         attr_map = attr_map or {}
         self.collection = collection
         self.controller = controller
         self.parent = parent
         self.collection_actions = collection_actions
+        self.collection_methods = collection_methods
         self.member_actions = member_actions
         self.path_prefix = path_prefix
         self.attr_map = attr_map

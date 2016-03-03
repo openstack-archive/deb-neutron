@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo_db import exception as db_exc
 from sqlalchemy.orm import exc
 
 from neutron.callbacks import events
@@ -42,12 +43,15 @@ class RbacPluginMixin(common_db_mixin.CommonDbMixin):
         except c_exc.CallbackFailure as e:
             raise n_exc.InvalidInput(error_message=e)
         dbmodel = models.get_type_model_map()[e['object_type']]
-        with context.session.begin(subtransactions=True):
-            db_entry = dbmodel(object_id=e['object_id'],
-                               target_tenant=e['target_tenant'],
-                               action=e['action'],
-                               tenant_id=e['tenant_id'])
-            context.session.add(db_entry)
+        try:
+            with context.session.begin(subtransactions=True):
+                db_entry = dbmodel(object_id=e['object_id'],
+                                   target_tenant=e['target_tenant'],
+                                   action=e['action'],
+                                   tenant_id=e['tenant_id'])
+                context.session.add(db_entry)
+        except db_exc.DBDuplicateEntry:
+            raise ext_rbac.DuplicateRbacPolicy()
         return self._make_rbac_policy_dict(db_entry)
 
     def _make_rbac_policy_dict(self, db_entry, fields=None):
@@ -100,11 +104,21 @@ class RbacPluginMixin(common_db_mixin.CommonDbMixin):
 
     def get_rbac_policies(self, context, filters=None, fields=None,
                           sorts=None, limit=None, page_reverse=False):
-        model = common_db_mixin.UnionModel(
-            models.get_type_model_map(), 'object_type')
-        return self._get_collection(
-            context, model, self._make_rbac_policy_dict, filters=filters,
-            fields=fields, sorts=sorts, limit=limit, page_reverse=page_reverse)
+        filters = filters or {}
+        object_type_filters = filters.pop('object_type', None)
+        models_to_query = [
+            m for t, m in models.get_type_model_map().items()
+            if object_type_filters is None or t in object_type_filters
+        ]
+        collections = [self._get_collection(
+            context, model, self._make_rbac_policy_dict,
+            filters=filters, fields=fields, sorts=sorts,
+            limit=limit, page_reverse=page_reverse)
+            for model in models_to_query]
+        # NOTE(kevinbenton): we don't have to worry about pagination,
+        # limits, or page_reverse currently because allow_pagination is
+        # set to False in 'neutron.extensions.rbac'
+        return [item for c in collections for item in c]
 
     def _get_object_type(self, context, entry_id):
         """Scans all RBAC tables for an ID to figure out the type.

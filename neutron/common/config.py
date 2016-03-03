@@ -127,6 +127,8 @@ core_opts = [
     cfg.StrOpt('dns_domain',
                default='openstacklocal',
                help=_('Domain to use for building the hostnames')),
+    cfg.StrOpt('external_dns_driver',
+               help=_('Driver for external DNS integration.')),
     cfg.BoolOpt('dhcp_agent_notification', default=True,
                 help=_("Allow sending resource operation"
                        " notification to DHCP agent")),
@@ -142,9 +144,12 @@ core_opts = [
                       "services running on this machine must use the same "
                       "host value.")),
     cfg.BoolOpt('force_gateway_on_subnet', default=True,
+                deprecated_for_removal=True,
                 help=_("Ensure that configured gateway is on subnet. "
                        "For IPv6, validate only if gateway is not a link "
-                       "local address.")),
+                       "local address. Deprecated, to be removed during the "
+                       "Newton release, at which point the gateway will not "
+                       "be forced on to subnet.")),
     cfg.BoolOpt('notify_nova_on_port_status_changes', default=True,
                 help=_("Send notification to nova when port status changes")),
     cfg.BoolOpt('notify_nova_on_port_data_changes', default=True,
@@ -153,10 +158,10 @@ core_opts = [
     cfg.IntOpt('send_events_interval', default=2,
                help=_('Number of seconds between sending events to nova if '
                       'there are any events to send.')),
-    cfg.BoolOpt('advertise_mtu', default=False,
-                help=_('If True, effort is made to advertise MTU settings '
-                       'to VMs via network methods (DHCP and RA MTU options) '
-                       'when the network\'s preferred MTU is known.')),
+    cfg.BoolOpt('advertise_mtu', default=True,
+                help=_('If True, advertise network MTU values if core plugin '
+                       'calculates them. MTU is advertised to running '
+                       'instances via DHCP and RA MTU options.')),
     cfg.StrOpt('ipam_driver',
                help=_("Neutron IPAM (IP address management) driver to use. "
                       "If ipam_driver is not set (default behavior), no IPAM "

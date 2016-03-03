@@ -24,6 +24,7 @@ import netaddr
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_utils import excutils
 from oslo_utils import uuidutils
 import six
 
@@ -37,6 +38,7 @@ from neutron.common import exceptions
 from neutron.common import ipv6_utils
 from neutron.common import utils as common_utils
 from neutron.extensions import extra_dhcp_opt as edo_ext
+from neutron.ipam import utils as ipam_utils
 
 LOG = logging.getLogger(__name__)
 
@@ -304,9 +306,15 @@ class Dnsmasq(DhcpLocalProcess):
             return []
 
     def _build_cmdline_callback(self, pid_file):
+        # We ignore local resolv.conf if dns servers are specified
+        # or if local resolution is explicitly disabled.
+        _no_resolv = (
+            '--no-resolv' if self.conf.dnsmasq_dns_servers or
+            not self.conf.dnsmasq_local_resolv else '')
         cmd = [
             'dnsmasq',
             '--no-hosts',
+            _no_resolv,
             '--strict-order',
             '--except-interface=lo',
             '--pid-file=%s' % pid_file,
@@ -383,11 +391,6 @@ class Dnsmasq(DhcpLocalProcess):
             cmd.extend(
                 '--server=%s' % server
                 for server in self.conf.dnsmasq_dns_servers)
-        else:
-            # We only look at 'dnsmasq_local_resolv' if 'dnsmasq_dns_servers'
-            # is not set, which explicitly overrides 'dnsmasq_local_resolv'.
-            if not self.conf.dnsmasq_local_resolv:
-                cmd.append('--no-resolv')
 
         if self.conf.dhcp_domain:
             cmd.append('--domain=%s' % self.conf.dhcp_domain)
@@ -396,18 +399,20 @@ class Dnsmasq(DhcpLocalProcess):
             cmd.append('--dhcp-broadcast')
 
         if self.conf.dnsmasq_base_log_dir:
+            log_dir = os.path.join(
+                self.conf.dnsmasq_base_log_dir,
+                self.network.id)
             try:
-                if not os.path.exists(self.conf.dnsmasq_base_log_dir):
-                    os.makedirs(self.conf.dnsmasq_base_log_dir)
-                log_filename = os.path.join(
-                    self.conf.dnsmasq_base_log_dir,
-                    self.network.id, 'dhcp_dns_log')
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir)
+            except OSError:
+                LOG.error(_LE('Error while create dnsmasq log dir: %s'),
+                    log_dir)
+            else:
+                log_filename = os.path.join(log_dir, 'dhcp_dns_log')
                 cmd.append('--log-queries')
                 cmd.append('--log-dhcp')
                 cmd.append('--log-facility=%s' % log_filename)
-            except OSError:
-                LOG.error(_LE('Error while create dnsmasq base log dir: %s'),
-                    self.conf.dnsmasq_base_log_dir)
 
         return cmd
 
@@ -482,13 +487,13 @@ class Dnsmasq(DhcpLocalProcess):
         (entry for stateless IPv6 for v6 options)
 
         dnsmasq internal details for processing host file entries
-        1) dnsmaq reads the host file from EOF.
+        1) dnsmasq reads the host file from EOF.
         2) So it first picks up stateless IPv6 entry,
            fa:16:3e:8f:9d:65,set:aabc7d33-4874-429e-9637-436e4232d2cd
         3) But dnsmasq doesn't have sufficient checks to skip this entry and
            pick next entry, to process dhcp IPv4 request.
-        4) So dnsmaq uses this this entry to process dhcp IPv4 request.
-        5) As there is no ip in this entry, dnsmaq logs "no address available"
+        4) So dnsmasq uses this this entry to process dhcp IPv4 request.
+        5) As there is no ip in this entry, dnsmasq logs "no address available"
            and fails to send DHCPOFFER message.
 
         As we rely on internal details of dnsmasq to understand and fix the
@@ -730,7 +735,7 @@ class Dnsmasq(DhcpLocalProcess):
 
         The generated file is sent to the --addn-hosts option of dnsmasq,
         and lists the hosts on the network which should be resolved even if
-        the dnsmaq instance did not give a lease to the host (see the
+        the dnsmasq instance did not give a lease to the host (see the
         `_output_hosts_file` method).
         Each line in this file is in the same form as a standard /etc/hosts
         file.
@@ -872,7 +877,7 @@ class Dnsmasq(DhcpLocalProcess):
             for ip_version in (4, 6):
                 vx_ips = [ip for ip in ips
                           if netaddr.IPAddress(ip).version == ip_version]
-                if vx_ips:
+                if len(vx_ips) > 1:
                     options.append(
                         self._format_option(
                             ip_version, i, 'dns-server',
@@ -1024,6 +1029,27 @@ class DeviceManager(object):
                           '%(ip)s',
                           {'n': network.id, 'ip': subnet.gateway_ip})
 
+                # Check for and remove the on-link route for the old
+                # gateway being replaced, if it is outside the subnet
+                is_old_gateway_not_in_subnet = (gateway and
+                                                not ipam_utils.check_subnet_ip(
+                                                        subnet.cidr, gateway))
+                if is_old_gateway_not_in_subnet:
+                    v4_onlink = device.route.list_onlink_routes(
+                        constants.IP_VERSION_4)
+                    v6_onlink = device.route.list_onlink_routes(
+                        constants.IP_VERSION_6)
+                    existing_onlink_routes = set(
+                        r['cidr'] for r in v4_onlink + v6_onlink)
+                    if gateway in existing_onlink_routes:
+                        device.route.delete_route(gateway, scope='link')
+
+                is_new_gateway_not_in_subnet = (subnet.gateway_ip and
+                                                not ipam_utils.check_subnet_ip(
+                                                        subnet.cidr,
+                                                        subnet.gateway_ip))
+                if is_new_gateway_not_in_subnet:
+                    device.route.add_route(subnet.gateway_ip, scope='link')
                 device.route.add_gateway(subnet.gateway_ip)
 
             return
@@ -1199,11 +1225,20 @@ class DeviceManager(object):
                                          namespace=network.namespace):
             LOG.debug('Reusing existing device: %s.', interface_name)
         else:
-            self.driver.plug(network.id,
-                             port.id,
-                             interface_name,
-                             port.mac_address,
-                             namespace=network.namespace)
+            try:
+                self.driver.plug(network.id,
+                                 port.id,
+                                 interface_name,
+                                 port.mac_address,
+                                 namespace=network.namespace,
+                                 mtu=network.get('mtu'))
+            except Exception:
+                with excutils.save_and_reraise_exception():
+                    LOG.exception(_LE('Unable to plug DHCP port for '
+                                      'network %s. Releasing port.'),
+                                  network.id)
+                    self.plugin.release_dhcp_port(network.id, port.device_id)
+
             self.fill_dhcp_udp_checksums(namespace=network.namespace)
         ip_cidrs = []
         for fixed_ip in port.fixed_ips:

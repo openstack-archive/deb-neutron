@@ -12,6 +12,7 @@
 
 import mock
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
 from neutron.common import exceptions as n_exc
 from neutron import context
@@ -49,15 +50,16 @@ class TestQosPlugin(base.BaseQosTestCase):
         self.qos_plugin.notification_driver_manager = mock.Mock()
 
         self.ctxt = context.Context('fake_user', 'fake_tenant')
+        policy_id = uuidutils.generate_uuid()
         self.policy_data = {
-            'policy': {'id': 7777777,
-                       'tenant_id': 888888,
+            'policy': {'id': policy_id,
+                       'tenant_id': uuidutils.generate_uuid(),
                        'name': 'test-policy',
                        'description': 'Test policy description',
                        'shared': True}}
 
         self.rule_data = {
-            'bandwidth_limit_rule': {'id': 7777777,
+            'bandwidth_limit_rule': {'id': policy_id,
                                      'max_kbps': 100,
                                      'max_burst_kbps': 150}}
 
@@ -74,11 +76,17 @@ class TestQosPlugin(base.BaseQosTestCase):
         self.assertIsInstance(
             method.call_args[0][1], policy_object.QosPolicy)
 
-    def test_add_policy(self):
+    @mock.patch(
+        'neutron.objects.rbac_db.RbacNeutronDbObjectMixin'
+        '.create_rbac_policy')
+    def test_add_policy(self, *mocks):
         self.qos_plugin.create_policy(self.ctxt, self.policy_data)
         self._validate_notif_driver_params('create_policy')
 
-    def test_update_policy(self):
+    @mock.patch(
+        'neutron.objects.rbac_db.RbacNeutronDbObjectMixin'
+        '.create_rbac_policy')
+    def test_update_policy(self, *mocks):
         fields = base_object.get_updatable_fields(
             policy_object.QosPolicy, self.policy_data['policy'])
         self.qos_plugin.update_policy(

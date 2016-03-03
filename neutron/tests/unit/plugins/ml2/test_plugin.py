@@ -14,12 +14,12 @@
 #    under the License.
 
 import functools
+import uuid
 
 import fixtures
 import mock
 import six
 import testtools
-import uuid
 import webob
 
 from oslo_db import exception as db_exc
@@ -27,7 +27,9 @@ from oslo_utils import uuidutils
 from sqlalchemy.orm import exc as sqla_exc
 
 from neutron._i18n import _
+from neutron.callbacks import events
 from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import exceptions as exc
 from neutron.common import utils
@@ -391,7 +393,7 @@ class TestMl2NetworksWithVlanTransparencyAndMTU(TestMl2NetworksV2):
         res = network_req.get_response(self.api)
         self.assertEqual(201, res.status_int)
         network = self.deserialize(self.fmt, res)['network']
-        self.assertEqual(network['mtu'], 1000)
+        self.assertEqual(1000, network['mtu'])
         self.assertIn('vlan_transparent', network)
 
 
@@ -464,18 +466,22 @@ class TestMl2DbOperationBounds(test_plugin.DbOperationBoundMixin,
     stay the same.
     """
 
+    def setUp(self):
+        super(TestMl2DbOperationBounds, self).setUp()
+        self.kwargs = self.get_api_kwargs()
+
     def make_network(self):
-        return self._make_network(self.fmt, 'name', True)
+        return self._make_network(self.fmt, 'name', True, **self.kwargs)
 
     def make_subnet(self):
         net = self.make_network()
         setattr(self, '_subnet_count', getattr(self, '_subnet_count', 0) + 1)
         cidr = '1.%s.0.0/24' % self._subnet_count
-        return self._make_subnet(self.fmt, net, None, cidr)
+        return self._make_subnet(self.fmt, net, None, cidr, **self.kwargs)
 
     def make_port(self):
         net = self.make_network()
-        return self._make_port(self.fmt, net['network']['id'])
+        return self._make_port(self.fmt, net['network']['id'], **self.kwargs)
 
     def test_network_list_queries_constant(self):
         self._assert_object_list_queries_constant(self.make_network,
@@ -486,6 +492,10 @@ class TestMl2DbOperationBounds(test_plugin.DbOperationBoundMixin,
 
     def test_port_list_queries_constant(self):
         self._assert_object_list_queries_constant(self.make_port, 'ports')
+
+
+class TestMl2DbOperationBoundsTenant(TestMl2DbOperationBounds):
+    admin = False
 
 
 class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
@@ -558,7 +568,8 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
                 l3plugin.create_floatingip(
                     context.get_admin_context(),
                     {'floatingip': {'floating_network_id': n['network']['id'],
-                                    'tenant_id': n['network']['tenant_id']}}
+                                    'tenant_id': n['network']['tenant_id'],
+                                    'dns_name': '', 'dns_domain': ''}}
                 )
         self._delete('networks', n['network']['id'])
         flips = l3plugin.get_floatingips(context.get_admin_context())
@@ -725,18 +736,32 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
             self.assertIsNone(l3plugin.disassociate_floatingips(ctx, port_id))
 
     def test_create_port_tolerates_db_deadlock(self):
-        ctx = context.get_admin_context()
         with self.network() as net:
             with self.subnet(network=net) as subnet:
-                segments = ml2_db.get_networks_segments(ctx.session,
-                                                        [net['network']['id']])
+                _orig = ml2_db.get_locked_port_and_binding
+                self._failed = False
+
+                def fail_once(*args, **kwargs):
+                    if not self._failed:
+                        self._failed = True
+                        raise db_exc.DBDeadlock()
+                    return _orig(*args, **kwargs)
                 with mock.patch('neutron.plugins.ml2.plugin.'
-                                'db.get_networks_segments') as get_seg_mock:
-                    get_seg_mock.side_effect = [db_exc.DBDeadlock, segments,
-                                                segments, segments]
-                    with self.port(subnet=subnet) as port:
+                                'db.get_locked_port_and_binding',
+                                side_effect=fail_once) as get_port_mock:
+                    port_kwargs = {portbindings.HOST_ID: 'host1',
+                                   'subnet': subnet,
+                                   'device_id': 'deadlocktest'}
+                    with self.port(arg_list=(portbindings.HOST_ID,),
+                                   **port_kwargs) as port:
                         self.assertTrue(port['port']['id'])
-                        self.assertEqual(4, get_seg_mock.call_count)
+                        self.assertTrue(get_port_mock.called)
+                        # make sure that we didn't create more than one port on
+                        # the retry
+                        query_params = "network_id=%s" % net['network']['id']
+                        query_params += "&device_id=%s" % 'deadlocktest'
+                        ports = self._list('ports', query_params=query_params)
+                        self.assertEqual(1, len(ports['ports']))
 
     def test_delete_port_tolerates_db_deadlock(self):
         ctx = context.get_admin_context()
@@ -891,47 +916,37 @@ class TestMl2DvrPortsV2(TestMl2PortsV2):
             mock.PropertyMock(return_value=extensions))
         self.service_plugins = {'L3_ROUTER_NAT': self.l3plugin}
 
-    def _test_delete_dvr_serviced_port(self, device_owner, floating_ip=False):
+    def test_delete_port_notifies_l3_plugin(self, floating_ip=False):
         ns_to_delete = {'host': 'myhost', 'agent_id': 'vm_l3_agent',
                         'router_id': 'my_router'}
-        fip_set = set()
+        router_ids = set()
         if floating_ip:
-            fip_set.add(ns_to_delete['router_id'])
+            router_ids.add(ns_to_delete['router_id'])
 
         with mock.patch.object(manager.NeutronManager,
                                'get_service_plugins',
                                return_value=self.service_plugins),\
-                self.port(device_owner=device_owner) as port,\
+                self.port() as port,\
                 mock.patch.object(registry, 'notify') as notify,\
                 mock.patch.object(self.l3plugin,
                                   'disassociate_floatingips',
-                                  return_value=fip_set),\
-                mock.patch.object(
-                    self.l3plugin,
-                    'dvr_deletens_if_no_port',
-                    return_value=[ns_to_delete]) as dvr_delns_ifno_port:
-
+                                  return_value=router_ids):
             port_id = port['port']['id']
             self.plugin.delete_port(self.context, port_id)
+            self.assertEqual(2, notify.call_count)
+            # needed for a full match in the assertion below
+            port['port']['extra_dhcp_opts'] = []
+            expected = [mock.call(resources.PORT, events.BEFORE_DELETE,
+                                  mock.ANY, context=self.context,
+                                  port_id=port['port']['id'], port_check=True),
+                        mock.call(resources.PORT, events.AFTER_DELETE,
+                                  mock.ANY, context=self.context,
+                                  port=port['port'],
+                                  router_ids=router_ids)]
+            notify.assert_has_calls(expected)
 
-            self.assertTrue(notify.call_count)
-            dvr_delns_ifno_port.assert_called_once_with(self.context,
-                                                        port['port']['id'])
-
-    def test_delete_last_vm_port(self):
-        self._test_delete_dvr_serviced_port(device_owner=DEVICE_OWNER_COMPUTE)
-
-    def test_delete_last_vm_port_with_floatingip(self):
-        self._test_delete_dvr_serviced_port(device_owner=DEVICE_OWNER_COMPUTE,
-                                            floating_ip=True)
-
-    def test_delete_lbaas_vip_port(self):
-        self._test_delete_dvr_serviced_port(
-            device_owner=constants.DEVICE_OWNER_LOADBALANCER)
-
-    def test_delete_lbaasv2_vip_port(self):
-        self._test_delete_dvr_serviced_port(
-            device_owner=constants.DEVICE_OWNER_LOADBALANCERV2)
+    def test_delete_port_with_floatingip_notifies_l3_plugin(self):
+        self.test_delete_port_notifies_l3_plugin(floating_ip=True)
 
     def test_concurrent_csnat_port_delete(self):
         plugin = manager.NeutronManager.get_service_plugins()[
@@ -1041,6 +1056,92 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
             self.assertTrue(glpab_mock.mock_calls)
             # should have returned before calling _make_port_dict
             self.assertFalse(mpd_mock.mock_calls)
+
+    def _create_port_and_bound_context(self, port_vif_type, bound_vif_type):
+        with self.port() as port:
+            plugin = manager.NeutronManager.get_plugin()
+            binding = ml2_db.get_locked_port_and_binding(self.context.session,
+                                                         port['port']['id'])[1]
+            binding['host'] = 'fake_host'
+            binding['vif_type'] = port_vif_type
+            # Generates port context to be used before the bind.
+            port_context = driver_context.PortContext(
+                plugin, self.context, port['port'],
+                plugin.get_network(self.context, port['port']['network_id']),
+                binding, None)
+            bound_context = mock.MagicMock()
+            # Bound context is how port_context is expected to look
+            # after _bind_port.
+            bound_context.vif_type = bound_vif_type
+            return plugin, port_context, bound_context
+
+    def test__attempt_binding(self):
+        # Simulate a successful binding for vif_type unbound
+        # and keep the same binding state for other vif types.
+        vif_types = [(portbindings.VIF_TYPE_BINDING_FAILED,
+                      portbindings.VIF_TYPE_BINDING_FAILED),
+                     (portbindings.VIF_TYPE_UNBOUND,
+                      portbindings.VIF_TYPE_OVS),
+                     (portbindings.VIF_TYPE_OVS,
+                      portbindings.VIF_TYPE_OVS)]
+
+        for port_vif_type, bound_vif_type in vif_types:
+            plugin, port_context, bound_context = (
+                self._create_port_and_bound_context(port_vif_type,
+                                                    bound_vif_type))
+            with mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin._bind_port',
+                            return_value=bound_context) as bd_mock:
+                context, need_notify, try_again = (plugin._attempt_binding(
+                    port_context, False))
+                expected_need_notify = port_vif_type not in (
+                    portbindings.VIF_TYPE_BINDING_FAILED,
+                    portbindings.VIF_TYPE_OVS)
+
+                if bound_vif_type == portbindings.VIF_TYPE_BINDING_FAILED:
+                    expected_vif_type = port_vif_type
+                    expected_try_again = True
+                    expected_bd_mock_called = True
+                else:
+                    expected_vif_type = portbindings.VIF_TYPE_OVS
+                    expected_try_again = False
+                    expected_bd_mock_called = (port_vif_type ==
+                                               portbindings.VIF_TYPE_UNBOUND)
+
+                self.assertEqual(expected_need_notify, need_notify)
+                self.assertEqual(expected_vif_type, context.vif_type)
+                self.assertEqual(expected_try_again, try_again)
+                self.assertEqual(expected_bd_mock_called, bd_mock.called)
+
+    def test__attempt_binding_retries(self):
+        # Simulate cases of both successful and failed binding states for
+        # vif_type unbound
+        vif_types = [(portbindings.VIF_TYPE_UNBOUND,
+                      portbindings.VIF_TYPE_BINDING_FAILED),
+                     (portbindings.VIF_TYPE_UNBOUND,
+                      portbindings.VIF_TYPE_OVS)]
+
+        for port_vif_type, bound_vif_type in vif_types:
+            plugin, port_context, bound_context = (
+                self._create_port_and_bound_context(port_vif_type,
+                                                    bound_vif_type))
+            with mock.patch(
+                    'neutron.plugins.ml2.plugin.Ml2Plugin._bind_port',
+                    return_value=bound_context),\
+                    mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin._commit_'
+                               'port_binding',
+                               return_value=(bound_context, True, False)),\
+                    mock.patch('neutron.plugins.ml2.plugin.Ml2Plugin.'
+                               '_attempt_binding',
+                               side_effect=plugin._attempt_binding) as at_mock:
+                    plugin._bind_port_if_needed(port_context)
+                    if bound_vif_type == portbindings.VIF_TYPE_BINDING_FAILED:
+                        # An unsuccessful binding attempt should be retried
+                        # MAX_BIND_TRIES amount of times.
+                        self.assertEqual(ml2_plugin.MAX_BIND_TRIES,
+                                         at_mock.call_count)
+                    else:
+                        # Successful binding should only be attempted once.
+                        self.assertEqual(1, at_mock.call_count)
 
     def test_port_binding_profile_not_changed(self):
         profile = {'e': 5}
@@ -1800,7 +1901,9 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
     def test_create_port_rpc_outside_transaction(self):
         with mock.patch.object(ml2_plugin.Ml2Plugin, '__init__') as init,\
                 mock.patch.object(base_plugin.NeutronDbPluginV2,
-                                  'create_port') as db_create_port:
+                                  'create_port') as db_create_port, \
+                mock.patch.object(base_plugin.NeutronDbPluginV2,
+                                  'update_port'):
             init.return_value = None
 
             new_port = mock.MagicMock()

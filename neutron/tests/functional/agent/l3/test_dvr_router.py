@@ -19,7 +19,6 @@ import mock
 import netaddr
 
 from neutron.agent.l3 import agent as neutron_l3_agent
-from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_snat_ns
 from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
@@ -46,6 +45,14 @@ class TestDvrRouter(framework.L3AgentTestFramework):
             router['gw_port']['network_id'])
 
         return super(TestDvrRouter, self).manage_router(agent, router)
+
+    def test_dvr_update_floatingip_statuses(self):
+        self.agent.conf.agent_mode = 'dvr'
+        self._test_update_floatingip_statuses(self.generate_dvr_router_info())
+
+    def test_dvr_router_lifecycle_ha_with_snat_with_fips_nmtu(self):
+        self._dvr_router_lifecycle(enable_ha=True, enable_snat=True,
+                                   use_port_mtu=True)
 
     def test_dvr_router_lifecycle_without_ha_without_snat_with_fips(self):
         self._dvr_router_lifecycle(enable_ha=False, enable_snat=False)
@@ -97,7 +104,7 @@ class TestDvrRouter(framework.L3AgentTestFramework):
         self._validate_fips_for_external_network(router2, fip2_ns)
 
     def _dvr_router_lifecycle(self, enable_ha=False, enable_snat=False,
-                              custom_mtu=2000,
+                              custom_mtu=2000, use_port_mtu=False,
                               ip_version=4,
                               dual_stack=False):
         '''Test dvr router lifecycle
@@ -111,11 +118,19 @@ class TestDvrRouter(framework.L3AgentTestFramework):
         # Since by definition this is a dvr (distributed = true)
         # only dvr and dvr_snat are applicable
         self.agent.conf.agent_mode = 'dvr_snat' if enable_snat else 'dvr'
-        self.agent.conf.network_device_mtu = custom_mtu
 
         # We get the router info particular to a dvr router
         router_info = self.generate_dvr_router_info(
             enable_ha, enable_snat, extra_routes=True)
+        if use_port_mtu:
+            for key in ('_interfaces', '_snat_router_interfaces',
+                        '_floatingip_agent_interfaces'):
+                for port in router_info[key]:
+                    port['mtu'] = custom_mtu
+            router_info['gw_port']['mtu'] = custom_mtu
+            router_info['_ha_interface']['mtu'] = custom_mtu
+        else:
+            self.agent.conf.network_device_mtu = custom_mtu
 
         # We need to mock the get_agent_gateway_port return value
         # because the whole L3PluginApi is mocked and we need the port
@@ -152,6 +167,9 @@ class TestDvrRouter(framework.L3AgentTestFramework):
                 router.get_internal_device_name,
                 router.ns_name)
             utils.wait_until_true(device_exists)
+            name = router.get_internal_device_name(device['id'])
+            self.assertEqual(custom_mtu,
+                             ip_lib.IPDevice(name, router.ns_name).link.mtu)
 
         ext_gateway_port = router_info['gw_port']
         self.assertTrue(self._namespace_exists(router.ns_name))
@@ -673,8 +691,12 @@ class TestDvrRouter(framework.L3AgentTestFramework):
 
     def _assert_fip_namespace_deleted(self, ext_gateway_port):
         ext_net_id = ext_gateway_port['network_id']
+        fip_ns = self.agent.get_fip_ns(ext_net_id)
+        fip_ns.unsubscribe = mock.Mock()
         self.agent.fipnamespace_delete_on_ext_net(
             self.agent.context, ext_net_id)
         self._assert_interfaces_deleted_from_ovs()
-        fip_ns_name = dvr_fip_ns.FipNamespace._get_ns_name(ext_net_id)
+        fip_ns_name = fip_ns.get_name()
         self.assertFalse(self._namespace_exists(fip_ns_name))
+        self.assertTrue(fip_ns.destroyed)
+        self.assertTrue(fip_ns.unsubscribe.called)

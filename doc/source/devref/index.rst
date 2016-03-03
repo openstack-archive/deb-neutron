@@ -66,14 +66,18 @@ Neutron Internals
    l2_agents
    ovs_vhostuser
    quality_of_service
-   advanced_services
+   service_extensions
    oslo-incubator
    callbacks
    dns_order
+   external_dns_integration
    upgrade
    i18n
    instrumentation
    address_scopes
+   openvswitch_firewall
+   network_ip_availability
+   tag
 
 Testing
 -------

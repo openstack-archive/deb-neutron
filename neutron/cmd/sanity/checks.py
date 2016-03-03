@@ -138,7 +138,7 @@ def icmpv6_header_match_supported():
                                table=ovs_const.ARP_SPOOF_TABLE,
                                priority=1,
                                dl_type=n_consts.ETHERTYPE_IPV6,
-                               nw_proto=n_consts.PROTO_NUM_ICMP_V6,
+                               nw_proto=n_consts.PROTO_NUM_IPV6_ICMP,
                                icmp_type=n_consts.ICMPV6_TYPE_NA,
                                nd_target='fdf8:f53b:82e4::10',
                                actions="NORMAL")
@@ -330,6 +330,20 @@ def ovsdb_native_supported():
         LOG.exception(_LE("Unexpected exception occurred."))
 
     return False
+
+
+def ovs_conntrack_supported():
+    random_str = utils.get_random_string(6)
+    br_name = "ovs-test-" + random_str
+
+    with ovs_lib.OVSBridge(br_name) as br:
+        try:
+            br.set_protocols(
+                "OpenFlow10,OpenFlow11,OpenFlow12,OpenFlow13,OpenFlow14")
+        except RuntimeError as e:
+            LOG.debug("Exception while checking ovs conntrack support: %s", e)
+            return False
+    return ofctl_arg_supported(cmd='add-flow', ct_state='+trk', actions='drop')
 
 
 def ebtables_supported():

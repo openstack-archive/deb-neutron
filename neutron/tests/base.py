@@ -29,9 +29,11 @@ import mock
 from oslo_concurrency.fixture import lockutils
 from oslo_config import cfg
 from oslo_messaging import conffixture as messaging_conffixture
+from oslo_utils import excutils
 from oslo_utils import strutils
 from oslotest import base
 import six
+import testtools
 
 from neutron._i18n import _
 from neutron.agent.linux import external_process
@@ -151,6 +153,19 @@ class DietTestCase(base.BaseTestCase):
 
         self.addOnException(self.check_for_systemexit)
         self.orig_pid = os.getpid()
+
+    def addOnException(self, handler):
+
+        def safe_handler(*args, **kwargs):
+            try:
+                return handler(*args, **kwargs)
+            except Exception:
+                with excutils.save_and_reraise_exception(reraise=False) as ctx:
+                    self.addDetail('failure in exception handler %s' % handler,
+                                   testtools.content.TracebackContent(
+                                       (ctx.type_, ctx.value, ctx.tb), self))
+
+        return super(DietTestCase, self).addOnException(safe_handler)
 
     def check_for_systemexit(self, exc_info):
         if isinstance(exc_info[1], SystemExit):
@@ -350,6 +365,7 @@ class BaseTestCase(DietTestCase):
         cp = PluginFixture(core_plugin)
         self.useFixture(cp)
         self.patched_dhcp_periodic = cp.patched_dhcp_periodic
+        self.patched_default_svc_plugins = cp.patched_default_svc_plugins
 
     def setup_notification_driver(self, notification_driver=None):
         self.addCleanup(fake_notifier.reset)
@@ -365,6 +381,11 @@ class PluginFixture(fixtures.Fixture):
         self.core_plugin = core_plugin
 
     def _setUp(self):
+        # Do not load default service plugins in the testing framework
+        # as all the mocking involved can cause havoc.
+        self.default_svc_plugins_p = mock.patch(
+            'neutron.manager.NeutronManager._get_default_service_plugins')
+        self.patched_default_svc_plugins = self.default_svc_plugins_p.start()
         self.dhcp_periodic_p = mock.patch(
             'neutron.db.agentschedulers_db.DhcpAgentSchedulerDbMixin.'
             'start_periodic_dhcp_agent_status_check')

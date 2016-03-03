@@ -17,11 +17,11 @@ configuration and Neutron configuration requires that
 neutron.tests.tempest imports be isolated in this module for now.
 """
 
-from tempest_lib import exceptions as tlib_exceptions
+from tempest.lib import exceptions as tlib_exceptions
 
 from neutron.tests import base
 from neutron.tests.retargetable import client_fixtures
-from neutron.tests.tempest import test as t_test
+from tempest import test as t_test
 
 
 class RestClientFixture(client_fixtures.AbstractClientFixture):

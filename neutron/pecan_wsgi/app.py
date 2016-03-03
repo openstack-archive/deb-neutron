@@ -45,12 +45,11 @@ def setup_app(*args, **kwargs):
     app_hooks = [
         hooks.ExceptionTranslationHook(),  # priority 100
         hooks.ContextHook(),  # priority 95
-        hooks.MemberActionHook(),  # piority 95
         hooks.BodyValidationHook(),  # priority 120
         hooks.OwnershipValidationHook(),  # priority 125
         hooks.QuotaEnforcementHook(),  # priority 130
-        hooks.PolicyHook(),  # priority 135
-        hooks.NotifierHook(),  # priority 140
+        hooks.NotifierHook(),  # priority 135
+        hooks.PolicyHook(),  # priority 140
     ]
 
     app = pecan.make_app(

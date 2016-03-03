@@ -38,11 +38,6 @@ from neutron.extensions import securitygroup as ext_sg
 
 LOG = logging.getLogger(__name__)
 
-IP_PROTOCOL_MAP = {constants.PROTO_NAME_TCP: constants.PROTO_NUM_TCP,
-                   constants.PROTO_NAME_UDP: constants.PROTO_NUM_UDP,
-                   constants.PROTO_NAME_ICMP: constants.PROTO_NUM_ICMP,
-                   constants.PROTO_NAME_ICMP_V6: constants.PROTO_NUM_ICMP_V6}
-
 
 class SecurityGroup(model_base.HasStandardAttributes, model_base.BASEV2,
                     model_base.HasId, model_base.HasTenant):
@@ -127,6 +122,18 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         return self._create_bulk('security_group', context,
                                  security_group_rule)
 
+    def _registry_notify(self, res, event, id=None, exc_cls=None, **kwargs):
+        # NOTE(armax): a callback exception here will prevent the request
+        # from being processed. This is a hook point for backend's validation;
+        # we raise to propagate the reason for the failure.
+        try:
+            registry.notify(res, event, self, **kwargs)
+        except exceptions.CallbackFailure as e:
+            if exc_cls:
+                reason = (_('cannot perform %(event)s due to %(reason)s') %
+                          {'event': event, 'reason': e})
+                raise exc_cls(reason=reason, id=id)
+
     def create_security_group(self, context, security_group, default_sg=False):
         """Create security group.
 
@@ -139,15 +146,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             'security_group': s,
             'is_default': default_sg,
         }
-        # NOTE(armax): a callback exception here will prevent the request
-        # from being processed. This is a hook point for backend's validation;
-        # we raise to propagate the reason for the failure.
-        try:
-            registry.notify(
-                resources.SECURITY_GROUP, events.BEFORE_CREATE, self,
-                **kwargs)
-        except exceptions.CallbackFailure as e:
-            raise ext_sg.SecurityGroupConflict(reason=e)
+
+        self._registry_notify(resources.SECURITY_GROUP, events.BEFORE_CREATE,
+                              exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
 
         tenant_id = s['tenant_id']
 
@@ -182,6 +183,10 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                     direction='egress',
                     ethertype=ethertype)
                 context.session.add(egress_rule)
+                self._registry_notify(resources.SECURITY_GROUP,
+                                      events.PRECOMMIT_CREATE,
+                                      exc_cls=ext_sg.SecurityGroupConflict,
+                                      **kwargs)
 
         secgroup_dict = self._make_security_group_dict(security_group_db)
 
@@ -263,18 +268,15 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             'security_group_id': id,
             'security_group': sg,
         }
-        # NOTE(armax): a callback exception here will prevent the request
-        # from being processed. This is a hook point for backend's validation;
-        # we raise to propagate the reason for the failure.
-        try:
-            registry.notify(
-                resources.SECURITY_GROUP, events.BEFORE_DELETE, self,
-                **kwargs)
-        except exceptions.CallbackFailure as e:
-            reason = _('cannot be deleted due to %s') % e
-            raise ext_sg.SecurityGroupInUse(id=id, reason=reason)
+        self._registry_notify(resources.SECURITY_GROUP, events.BEFORE_DELETE,
+                              exc_cls=ext_sg.SecurityGroupInUse, id=id,
+                              **kwargs)
 
         with context.session.begin(subtransactions=True):
+            self._registry_notify(resources.SECURITY_GROUP,
+                                  events.PRECOMMIT_DELETE,
+                                  exc_cls=ext_sg.SecurityGroupInUse, id=id,
+                                  **kwargs)
             context.session.delete(sg)
 
         kwargs.pop('security_group')
@@ -289,20 +291,17 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             'security_group_id': id,
             'security_group': s,
         }
-        # NOTE(armax): a callback exception here will prevent the request
-        # from being processed. This is a hook point for backend's validation;
-        # we raise to propagate the reason for the failure.
-        try:
-            registry.notify(
-                resources.SECURITY_GROUP, events.BEFORE_UPDATE, self,
-                **kwargs)
-        except exceptions.CallbackFailure as e:
-            raise ext_sg.SecurityGroupConflict(reason=e)
+        self._registry_notify(resources.SECURITY_GROUP, events.BEFORE_UPDATE,
+                              exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
 
         with context.session.begin(subtransactions=True):
             sg = self._get_security_group(context, id)
             if sg['name'] == 'default' and 'name' in s:
                 raise ext_sg.SecurityGroupCannotUpdateDefault()
+            self._registry_notify(
+                    resources.SECURITY_GROUP,
+                    events.PRECOMMIT_UPDATE,
+                    exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
             sg.update(s)
         sg_dict = self._make_security_group_dict(sg)
 
@@ -383,15 +382,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             'context': context,
             'security_group_rule': rule_dict
         }
-        # NOTE(armax): a callback exception here will prevent the request
-        # from being processed. This is a hook point for backend's validation;
-        # we raise to propagate the reason for the failure.
-        try:
-            registry.notify(
-                resources.SECURITY_GROUP_RULE, events.BEFORE_CREATE, self,
-                **kwargs)
-        except exceptions.CallbackFailure as e:
-            raise ext_sg.SecurityGroupConflict(reason=e)
+        self._registry_notify(resources.SECURITY_GROUP_RULE,
+                              events.BEFORE_CREATE,
+                              exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
 
         with context.session.begin(subtransactions=True):
             db = SecurityGroupRule(
@@ -406,6 +399,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 port_range_max=rule_dict['port_range_max'],
                 remote_ip_prefix=rule_dict.get('remote_ip_prefix'))
             context.session.add(db)
+            self._registry_notify(resources.SECURITY_GROUP_RULE,
+                              events.PRECOMMIT_CREATE,
+                              exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
         res_rule_dict = self._make_security_group_rule_dict(db)
         kwargs['security_group_rule'] = res_rule_dict
         registry.notify(
@@ -420,7 +416,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         # problems with comparing int and string in PostgreSQL. Here this
         # string is converted to int to give an opportunity to use it as
         # before.
-        return int(IP_PROTOCOL_MAP.get(protocol, protocol))
+        return int(constants.IP_PROTOCOL_MAP.get(protocol, protocol))
 
     def _validate_port_range(self, rule):
         """Check that port_range is valid."""
@@ -452,7 +448,12 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
     def _validate_ethertype_and_protocol(self, rule):
         """Check if given ethertype and  protocol are valid or not"""
-        if rule['protocol'] == constants.PROTO_NAME_ICMP_V6:
+        if rule['protocol'] in [constants.PROTO_NAME_IPV6_ENCAP,
+                                constants.PROTO_NAME_IPV6_FRAG,
+                                constants.PROTO_NAME_IPV6_ICMP,
+                                constants.PROTO_NAME_IPV6_NONXT,
+                                constants.PROTO_NAME_IPV6_OPTS,
+                                constants.PROTO_NAME_IPV6_ROUTE]:
             if rule['ethertype'] == constants.IPv4:
                 raise ext_sg.SecurityGroupEthertypeConflictWithProtocol(
                         ethertype=rule['ethertype'], protocol=rule['protocol'])
@@ -614,20 +615,19 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             'context': context,
             'security_group_rule_id': id
         }
-        # NOTE(armax): a callback exception here will prevent the request
-        # from being processed. This is a hook point for backend's validation;
-        # we raise to propagate the reason for the failure.
-        try:
-            registry.notify(
-                resources.SECURITY_GROUP_RULE, events.BEFORE_DELETE, self,
-                **kwargs)
-        except exceptions.CallbackFailure as e:
-            reason = _('cannot be deleted due to %s') % e
-            raise ext_sg.SecurityGroupRuleInUse(id=id, reason=reason)
+        self._registry_notify(resources.SECURITY_GROUP_RULE,
+                              events.BEFORE_DELETE, id=id,
+                              exc_cls=ext_sg.SecurityGroupRuleInUse, **kwargs)
 
         with context.session.begin(subtransactions=True):
             query = self._model_query(context, SecurityGroupRule).filter(
                 SecurityGroupRule.id == id)
+
+            self._registry_notify(resources.SECURITY_GROUP_RULE,
+                                  events.PRECOMMIT_DELETE,
+                                  exc_cls=ext_sg.SecurityGroupRuleInUse, id=id,
+                                  **kwargs)
+
             try:
                 # As there is a filter on a primary key it is not possible for
                 # MultipleResultsFound to be raised
@@ -668,35 +668,32 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
         :returns: the default security group id for given tenant.
         """
-        # Make no more than two attempts
-        for attempts in (1, 2):
-            try:
-                query = self._model_query(context, DefaultSecurityGroup)
-                default_group = query.filter_by(tenant_id=tenant_id).one()
-                return default_group['security_group_id']
-            except exc.NoResultFound as ex:
-                if attempts > 1:
-                    # the second iteration means that attempt to add default
-                    # group failed with duplicate error. Since we're still
-                    # not seeing this group we're most probably inside a
-                    # transaction with REPEATABLE READ isolation level ->
-                    # need to restart the whole transaction
-                    raise db_exc.RetryRequest(ex)
+        try:
+            query = self._model_query(context, DefaultSecurityGroup)
+            default_group = query.filter_by(tenant_id=tenant_id).one()
+            return default_group['security_group_id']
+        except exc.NoResultFound:
+            return self._create_default_security_group(context, tenant_id)
 
-                security_group = {
-                    'security_group':
-                        {'name': 'default',
-                         'tenant_id': tenant_id,
-                         'description': _('Default security group')}
-                }
-                try:
-                    security_group = self.create_security_group(
-                        context, security_group, default_sg=True)
-                    return security_group['id']
-                except db_exc.DBDuplicateEntry as ex:
-                    # default security group was created concurrently
-                    LOG.debug("Duplicate default security group %s was "
-                              "not created", ex.value)
+    def _create_default_security_group(self, context, tenant_id):
+        security_group = {
+            'security_group':
+                {'name': 'default',
+                 'tenant_id': tenant_id,
+                 'description': _('Default security group')}
+        }
+        try:
+            security_group = self.create_security_group(
+                context, security_group, default_sg=True)
+            return security_group['id']
+        except db_exc.DBDuplicateEntry as ex:
+            # default security group was created concurrently
+            LOG.debug("Duplicate default security group %s was "
+                      "not created", ex.value)
+            # raise a retry request to restart the whole process since
+            # we could be in a REPEATABLE READ isolation level and won't
+            # be able to see the SG group in this transaction.
+            raise db_exc.RetryRequest(ex)
 
     def _get_security_groups_on_port(self, context, port):
         """Check that all security groups on port belong to tenant.

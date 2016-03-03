@@ -150,10 +150,17 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         ipam_driver.remove_subnet(subnet_id)
 
     def allocate_ips_for_port_and_store(self, context, port, port_id):
-        network_id = port['port']['network_id']
+        # Make a copy of port dict to prevent changing
+        # incoming dict by adding 'id' to it.
+        # Deepcopy doesn't work correctly in this case, because copy of
+        # ATTR_NOT_SPECIFIED object happens. Address of copied object doesn't
+        # match original object, so 'is' check fails
+        port_copy = {'port': port['port'].copy()}
+        port_copy['port']['id'] = port_id
+        network_id = port_copy['port']['network_id']
         ips = []
         try:
-            ips = self._allocate_ips_for_port(context, port)
+            ips = self._allocate_ips_for_port(context, port_copy)
             for ip in ips:
                 ip_address = ip['ip_address']
                 subnet_id = ip['subnet_id']
@@ -168,7 +175,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                               "Reverting IP allocation")
                     ipam_driver = driver.Pool.get_instance(None, context)
                     self._ipam_deallocate_ips(context, ipam_driver,
-                                              port['port'], ips,
+                                              port_copy['port'], ips,
                                               revert_on_fail=False)
 
     def _allocate_ips_for_port(self, context, port):
@@ -378,6 +385,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                 and_(models_v2.Port.network_id == network_id,
                      ~models_v2.Port.device_owner.in_(
                          constants.ROUTER_INTERFACE_OWNERS_SNAT)))
+            updated_ports = []
             for port in ports:
                 ip_request = ipam_req.AutomaticAddressRequest(
                     prefix=subnet['cidr'],
@@ -394,6 +402,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                     # the corresponding port has been deleted.
                     with context.session.begin_nested():
                         context.session.add(allocated)
+                    updated_ports.append(port['id'])
                 except db_exc.DBReferenceError:
                     LOG.debug("Port %s was deleted while updating it with an "
                               "IPv6 auto-address. Ignoring.", port['id'])
@@ -404,6 +413,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                     except Exception:
                         LOG.debug("Reverting IP allocation failed for %s",
                                   ip_address)
+            return updated_ports
 
     def allocate_subnet(self, context, network, subnet, subnetpool_id):
         subnetpool = None

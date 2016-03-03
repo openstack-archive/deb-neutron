@@ -13,14 +13,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import os
+import re
+
 import debtcollector
 import eventlet
 import netaddr
-import os
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
-import re
 import six
 
 from neutron._i18n import _, _LE
@@ -175,6 +176,12 @@ class IPWrapper(SubProcessBase):
         return (IPDevice(name1, namespace=self.namespace),
                 IPDevice(name2, namespace=namespace2))
 
+    def add_macvtap(self, name, src_dev, mode='bridge'):
+        args = ['add', 'link', src_dev, 'name', name, 'type', 'macvtap',
+                'mode', mode]
+        self._as_root([], 'link', tuple(args))
+        return IPDevice(name, namespace=self.namespace)
+
     def del_veth(self, name):
         """Delete a virtual interface between two namespaces."""
         self._as_root([], 'link', ('del', name))
@@ -208,24 +215,30 @@ class IPWrapper(SubProcessBase):
         if self.namespace:
             device.link.set_netns(self.namespace)
 
+    def add_vlan(self, name, physical_interface, vlan_id):
+        cmd = ['add', 'link', physical_interface, 'name', name,
+               'type', 'vlan', 'id', vlan_id]
+        self._as_root([], 'link', cmd)
+        return IPDevice(name, namespace=self.namespace)
+
     def add_vxlan(self, name, vni, group=None, dev=None, ttl=None, tos=None,
                   local=None, port=None, proxy=False):
         cmd = ['add', name, 'type', 'vxlan', 'id', vni]
         if group:
-                cmd.extend(['group', group])
+            cmd.extend(['group', group])
         if dev:
-                cmd.extend(['dev', dev])
+            cmd.extend(['dev', dev])
         if ttl:
-                cmd.extend(['ttl', ttl])
+            cmd.extend(['ttl', ttl])
         if tos:
-                cmd.extend(['tos', tos])
+            cmd.extend(['tos', tos])
         if local:
-                cmd.extend(['local', local])
+            cmd.extend(['local', local])
         if proxy:
-                cmd.append('proxy')
+            cmd.append('proxy')
         # tuple: min,max
         if port and len(port) == 2:
-                cmd.extend(['port', port[0], port[1]])
+            cmd.extend(['port', port[0], port[1]])
         elif port:
             raise exceptions.NetworkVxlanPortRangeError(vxlan_range=port)
         self._as_root([], 'link', cmd)
@@ -303,6 +316,37 @@ class IPDevice(SubProcessBase):
         except RuntimeError:
             LOG.exception(_LE("Failed deleting egress connection state of"
                               " floatingip %s"), ip_str)
+
+    def _sysctl(self, cmd):
+        """execute() doesn't return the exit status of the command it runs,
+        it returns stdout and stderr. Setting check_exit_code=True will cause
+        it to raise a RuntimeError if the exit status of the command is
+        non-zero, which in sysctl's case is an error. So we're normalizing
+        that into zero (success) and one (failure) here to mimic what
+        "echo $?" in a shell would be.
+
+        This is all because sysctl is too verbose and prints the value you
+        just set on success, unlike most other utilities that print nothing.
+
+        execute() will have dumped a message to the logs with the actual
+        output on failure, so it's not lost, and we don't need to print it
+        here.
+        """
+        cmd = ['sysctl', '-w'] + cmd
+        ip_wrapper = IPWrapper(self.namespace)
+        try:
+            ip_wrapper.netns.execute(cmd, run_as_root=True,
+                                     check_exit_code=True)
+        except RuntimeError:
+            LOG.exception(_LE("Failed running %s"), cmd)
+            return 1
+
+        return 0
+
+    def disable_ipv6(self):
+        sysctl_name = re.sub(r'\.', '/', self.name)
+        cmd = 'net.ipv6.conf.%s.disable_ipv6=1' % sysctl_name
+        return self._sysctl([cmd])
 
 
 class IpCommandBase(object):
@@ -453,6 +497,9 @@ class IpLinkCommand(IpDeviceCommandBase):
 
     def set_address(self, mac_address):
         self._as_root([], ('set', self.name, 'address', mac_address))
+
+    def set_allmulticast_on(self):
+        self._as_root([], ('set', self.name, 'allmulticast', 'on'))
 
     def set_mtu(self, mtu_size):
         self._as_root([], ('set', self.name, 'mtu', mtu_size))
@@ -893,6 +940,14 @@ class IpNetnsCommand(IpCommandBase):
             if name == line:
                 return True
         return False
+
+
+def vlan_in_use(segmentation_id, namespace=None):
+    """Return True if VLAN ID is in use by an interface, else False."""
+    ip_wrapper = IPWrapper(namespace=namespace)
+    interfaces = ip_wrapper.netns.execute(["ip", "-d", "link", "list"],
+                                          check_exit_code=True)
+    return '802.1Q id %s ' % segmentation_id in interfaces
 
 
 def vxlan_in_use(segmentation_id, namespace=None):

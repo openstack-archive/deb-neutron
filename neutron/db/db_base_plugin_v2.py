@@ -23,6 +23,7 @@ from oslo_utils import excutils
 from oslo_utils import uuidutils
 from sqlalchemy import and_
 from sqlalchemy import event
+from sqlalchemy import not_
 
 from neutron._i18n import _, _LE, _LI
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
@@ -123,8 +124,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         On update and delete, make sure the tenant losing access does not have
         resources that depend on that access.
         """
-        if object_type != 'network':
-            # we only care about network policies
+        if object_type != 'network' or policy['action'] != 'access_as_shared':
+            # we only care about shared network policies
             return
         # The object a policy targets cannot be changed so we can look
         # at the original network for the update event as well.
@@ -208,13 +209,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         if updated['shared'] == original.shared or updated['shared']:
             return
         ports = self._model_query(
-            context, models_v2.Port).filter(
-                and_(
-                    models_v2.Port.network_id == id,
-                    models_v2.Port.device_owner !=
-                    constants.DEVICE_OWNER_ROUTER_GW,
-                    models_v2.Port.device_owner !=
-                    constants.DEVICE_OWNER_FLOATINGIP))
+            context, models_v2.Port).filter(models_v2.Port.network_id == id)
+        ports = ports.filter(not_(models_v2.Port.device_owner.startswith(
+            constants.DEVICE_OWNER_NETWORK_PREFIX)))
         subnets = self._model_query(
             context, models_v2.Subnet).filter(
                 models_v2.Subnet.network_id == id)
@@ -458,9 +455,17 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
         if attributes.is_attr_set(s.get('gateway_ip')):
             self._validate_ip_version(ip_ver, s['gateway_ip'], 'gateway_ip')
-            if (cfg.CONF.force_gateway_on_subnet and
-                not ipam.utils.check_gateway_in_subnet(
-                    s['cidr'], s['gateway_ip'])):
+            if cfg.CONF.force_gateway_on_subnet:
+                # TODO(sreesiv) check_gateway_in_subnet() will be
+                # obsolete and should be removed when the option
+                # 'force_gateway_on_subnet' is removed.
+                is_gateway_not_valid = not ipam.utils.check_gateway_in_subnet(
+                                            s['cidr'], s['gateway_ip'])
+            else:
+                is_gateway_not_valid = (
+                    ipam.utils.check_gateway_invalid_in_subnet(
+                        s['cidr'], s['gateway_ip']))
+            if is_gateway_not_valid:
                 error_message = _("Gateway is not valid on subnet")
                 raise n_exc.InvalidInput(error_message=error_message)
             # Ensure the gateway IP is not assigned to any port
@@ -469,10 +474,12 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             # a subnet-update and a router-interface-add operation are
             # executed concurrently
             if cur_subnet and not ipv6_utils.is_ipv6_pd_enabled(s):
-                alloc_qry = context.session.query(models_v2.IPAllocation)
-                allocated = alloc_qry.filter_by(
-                    ip_address=cur_subnet['gateway_ip'],
-                    subnet_id=cur_subnet['id']).first()
+                ipal = models_v2.IPAllocation
+                alloc_qry = context.session.query(ipal)
+                alloc_qry = alloc_qry.join("port", "routerport")
+                allocated = alloc_qry.filter(
+                    ipal.ip_address == cur_subnet['gateway_ip'],
+                    ipal.subnet_id == cur_subnet['id']).first()
                 if allocated and allocated['port_id']:
                     raise n_exc.GatewayIpInUse(
                         ip_address=cur_subnet['gateway_ip'],
@@ -521,8 +528,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             raise n_exc.BadRequest(resource='subnets', msg=reason)
 
         mode_list = [constants.IPV6_SLAAC,
-                     constants.DHCPV6_STATELESS,
-                     attributes.ATTR_NOT_SPECIFIED]
+                     constants.DHCPV6_STATELESS]
 
         ra_mode = subnet.get('ipv6_ra_mode')
         if ra_mode not in mode_list:
@@ -582,28 +588,36 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         # If this subnet supports auto-addressing, then update any
         # internal ports on the network with addresses for this subnet.
         if ipv6_utils.is_auto_address_subnet(subnet):
-            self.ipam.add_auto_addrs_on_network_ports(context, subnet,
-                                                      ipam_subnet)
+            updated_ports = self.ipam.add_auto_addrs_on_network_ports(context,
+                                subnet, ipam_subnet)
+            for port_id in updated_ports:
+                port_info = {'port': {'id': port_id}}
+                self.update_port(context, port_id, port_info)
+
         return self._make_subnet_dict(subnet, context=context)
 
     def _get_subnetpool_id(self, context, subnet):
-        """Returns the subnetpool id for this request
-
-        If the pool id was explicitly set in the request then that will be
-        returned, even if it is None.
-
-        Otherwise, the default pool for the IP version requested will be
-        returned.  This will either be a pool id or None (the default for each
-        configuration parameter).  This implies that the ip version must be
-        either set implicitly with a specific cidr or explicitly using
-        ip_version attribute.
+        """Return the subnetpool id for this request
 
         :param subnet: The subnet dict from the request
         """
-        subnetpool_id = subnet.get('subnetpool_id',
-                                   attributes.ATTR_NOT_SPECIFIED)
-        if subnetpool_id != attributes.ATTR_NOT_SPECIFIED:
+        use_default_subnetpool = subnet.get('use_default_subnetpool')
+        if use_default_subnetpool == attributes.ATTR_NOT_SPECIFIED:
+            use_default_subnetpool = False
+        subnetpool_id = subnet.get('subnetpool_id')
+        if subnetpool_id == attributes.ATTR_NOT_SPECIFIED:
+            subnetpool_id = None
+
+        if use_default_subnetpool and subnetpool_id:
+            msg = _('subnetpool_id and use_default_subnetpool cannot both be '
+                    'specified')
+            raise n_exc.BadRequest(resource='subnets', msg=msg)
+
+        if subnetpool_id:
             return subnetpool_id
+
+        if not use_default_subnetpool:
+            return
 
         cidr = subnet.get('cidr')
         if attributes.is_attr_set(cidr):
@@ -625,9 +639,13 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         # Until the default_subnet_pool config options are removed in the N
         # release, check for them after get_default_subnetpool returns None.
         # TODO(john-davidge): Remove after Mitaka release.
-        if ip_version == 4:
+        if ip_version == 4 and cfg.CONF.default_ipv4_subnet_pool:
             return cfg.CONF.default_ipv4_subnet_pool
-        return cfg.CONF.default_ipv6_subnet_pool
+        if ip_version == 6 and cfg.CONF.default_ipv6_subnet_pool:
+            return cfg.CONF.default_ipv6_subnet_pool
+
+        msg = _('No default subnetpool found for IPv%s') % ip_version
+        raise n_exc.BadRequest(resource='subnets', msg=msg)
 
     def create_subnet(self, context, subnet):
 
@@ -647,6 +665,11 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             subnet['subnet']['cidr'] = '%s/%s' % (net.network, net.prefixlen)
 
         subnetpool_id = self._get_subnetpool_id(context, s)
+        if not subnetpool_id and not has_cidr:
+            # TODO(carl_baldwin): allow requests asking for 'default' pools
+            msg = _('a subnetpool must be specified in the absence of a cidr')
+            raise n_exc.BadRequest(resource='subnets', msg=msg)
+
         if subnetpool_id:
             self.ipam.validate_pools_with_subnetpool(s)
             if subnetpool_id == constants.IPV6_PD_POOL_ID:
@@ -1003,9 +1026,11 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
         for key in ['id', 'name', 'ip_version', 'min_prefixlen',
                     'max_prefixlen', 'default_prefixlen', 'is_default',
-                    'shared', 'default_quota', 'address_scope_id']:
+                    'shared', 'default_quota', 'address_scope_id',
+                    'standard_attr']:
             self._write_key(key, updated, model, new_pool)
-
+        self._apply_dict_extend_functions(attributes.SUBNETPOOLS,
+                                          updated, model)
         return updated
 
     def _write_key(self, key, update, orig, new_dict):
@@ -1034,12 +1059,24 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             self._validate_address_scope_id(context, reader.address_scope_id,
                                             id, reader.prefixes,
                                             reader.ip_version)
+            address_scope_changed = (orig_sp.address_scope_id !=
+                                     reader.address_scope_id)
+
             orig_sp.update(self._filter_non_model_columns(
                                                       reader.subnetpool,
                                                       models_v2.SubnetPool))
             self._update_subnetpool_prefixes(context,
                                              reader.prefixes,
                                              id)
+
+        if address_scope_changed:
+            # Notify about the update of subnetpool's address scope
+            kwargs = {'context': context, 'subnetpool_id': id}
+            registry.notify(resources.SUBNETPOOL_ADDRESS_SCOPE,
+                            events.AFTER_UPDATE,
+                            self.update_subnetpool,
+                            **kwargs)
+
         for key in ['min_prefixlen', 'max_prefixlen', 'default_prefixlen']:
             updated['key'] = str(updated[key])
 
@@ -1176,7 +1213,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                          status=p.get('status', constants.PORT_STATUS_ACTIVE),
                          device_id=p['device_id'],
                          device_owner=p['device_owner'])
-        if 'dns_name' in p:
+        if ('dns-integration' in self.supported_extension_aliases and
+            'dns_name' in p):
             request_dns_name = self._get_request_dns_name(p)
             port_data['dns_name'] = request_dns_name
 
@@ -1194,13 +1232,15 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
             ips = self.ipam.allocate_ips_for_port_and_store(context, port,
                                                             port_id)
-            if 'dns_name' in p:
+            if ('dns-integration' in self.supported_extension_aliases and
+                'dns_name' in p):
                 dns_assignment = []
                 if ips:
                     dns_assignment = self._get_dns_names_for_port(
                         context, ips, request_dns_name)
 
-        if 'dns_name' in p:
+        if ('dns-integration' in self.supported_extension_aliases and
+            'dns_name' in p):
             db_port['dns_assignment'] = dns_assignment
         return self._make_port_dict(db_port, process_extensions=False)
 

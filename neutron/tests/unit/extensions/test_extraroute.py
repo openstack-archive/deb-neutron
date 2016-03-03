@@ -77,9 +77,19 @@ class ExtraRouteDBTestCaseBase(object):
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes)
-                    self.assertEqual(body['router']['routes'], routes)
+                    self.assertEqual(routes, body['router']['routes'])
                     self._routes_update_cleanup(p['port']['id'],
                                                 None, r['router']['id'], [])
+
+    def test_route_update_with_external_route(self):
+        routes = [{'destination': '135.207.0.0/16', 'nexthop': '10.0.1.3'}]
+        with self.subnet(cidr='10.0.1.0/24') as ext_subnet:
+            self._set_net_external(ext_subnet['subnet']['network_id'])
+            ext_info = {'network_id': ext_subnet['subnet']['network_id']}
+            with self.router(external_gateway_info=ext_info) as r:
+                body = self._routes_update_prepare(
+                    r['router']['id'], None, None, routes, skip_add=True)
+                self.assertEqual(routes, body['router']['routes'])
 
     def test_route_clear_routes_with_None(self):
         routes = [{'destination': '135.207.0.0/16',
@@ -108,7 +118,7 @@ class ExtraRouteDBTestCaseBase(object):
                     body = self._routes_update_prepare(r['router']['id'],
                                                        None, p['port']['id'],
                                                        routes)
-                    self.assertEqual(body['router']['routes'], routes)
+                    self.assertEqual(routes, body['router']['routes'])
                     self._router_interface_action(
                         'remove',
                         r['router']['id'],
@@ -151,12 +161,12 @@ class ExtraRouteDBTestCaseBase(object):
                 body = self._routes_update_prepare(r1['router']['id'],
                                                    None, p1['port']['id'],
                                                    routes1)
-                self.assertEqual(body['router']['routes'], routes1)
+                self.assertEqual(routes1, body['router']['routes'])
 
                 body = self._routes_update_prepare(r2['router']['id'],
                                                    None, p2['port']['id'],
                                                    routes2)
-                self.assertEqual(body['router']['routes'], routes2)
+                self.assertEqual(routes2, body['router']['routes'])
 
                 self._routes_update_cleanup(p1['port']['id'],
                                             None, r1['router']['id'], [])
@@ -405,7 +415,7 @@ class ExtraRouteDBTestCaseBase(object):
                     tenant_id=r['router']['tenant_id'],
                     device_owner=constants.DEVICE_OWNER_ROUTER_GW)
                 port_list = self.deserialize('json', port_res)
-                self.assertEqual(len(port_list['ports']), 1)
+                self.assertEqual(1, len(port_list['ports']))
 
                 routes = [{'destination': '135.207.0.0/16',
                            'nexthop': '10.0.1.3'}]
@@ -415,8 +425,7 @@ class ExtraRouteDBTestCaseBase(object):
                                                 routes}})
 
                 body = self._show('routers', r['router']['id'])
-                self.assertEqual(body['router']['routes'],
-                                 routes)
+                self.assertEqual(routes, body['router']['routes'])
 
                 self._remove_external_gateway_from_router(
                     r['router']['id'],

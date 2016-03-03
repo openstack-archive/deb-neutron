@@ -46,6 +46,7 @@ class TestL3RpcCallback(testlib_api.SqlTestCase):
                              'tenant_id': 'tenant_id',
                              'cidr': None,
                              'ip_version': 6,
+                             'use_default_subnetpool': True,
                              'name': 'ipv6_pd',
                              'enable_dhcp': True,
                              'host_routes': None,

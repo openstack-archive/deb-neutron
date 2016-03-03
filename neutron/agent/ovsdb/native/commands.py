@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Openstack Foundation
+# Copyright (c) 2015 OpenStack Foundation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -414,7 +414,7 @@ class DbListCommand(BaseCommand):
 
     def run_idl(self, txn):
         table_schema = self.api._tables[self.table]
-        columns = self.columns or table_schema.columns.keys() + ['_uuid']
+        columns = self.columns or list(table_schema.columns.keys()) + ['_uuid']
         if self.records:
             row_uuids = []
             for record in self.records:
@@ -452,7 +452,7 @@ class DbFindCommand(BaseCommand):
         self.table = self.api._tables[table]
         self.conditions = conditions
         self.columns = (kwargs.get('columns') or
-                        self.table.columns.keys() + ['_uuid'])
+                        list(self.table.columns.keys()) + ['_uuid'])
 
     def run_idl(self, txn):
         self.result = [

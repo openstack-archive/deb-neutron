@@ -17,7 +17,6 @@ import collections
 import os
 
 import eventlet
-
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
@@ -153,6 +152,7 @@ class DhcpAgent(manager.Manager):
 
         try:
             active_networks = self.plugin_rpc.get_active_networks_info()
+            LOG.info(_LI('All active networks have been fetched through RPC.'))
             active_network_ids = set(network.id for network in active_networks)
             for deleted_id in known_network_ids - active_network_ids:
                 try:
@@ -218,7 +218,10 @@ class DhcpAgent(manager.Manager):
     @utils.exception_logger()
     def safe_configure_dhcp_for_network(self, network):
         try:
+            network_id = network.get('id')
+            LOG.info(_LI('Starting network %s dhcp configuration'), network_id)
             self.configure_dhcp_for_network(network)
+            LOG.info(_LI('Finished network %s dhcp configuration'), network_id)
         except (exceptions.NetworkNotFound, RuntimeError):
             LOG.warn(_LW('Network %s may have been deleted and its resources '
                          'may have already been disposed.'), network.id)
@@ -243,6 +246,12 @@ class DhcpAgent(manager.Manager):
                 if subnet.ip_version == 4 and subnet.enable_dhcp:
                     self.enable_isolated_metadata_proxy(network)
                     break
+        elif (not self.conf.force_metadata and
+              not self.conf.enable_isolated_metadata):
+            # In the case that the dhcp agent ran with metadata enabled,
+            # and dhcp agent now starts with metadata disabled, check and
+            # delete any metadata_proxy.
+            self.disable_isolated_metadata_proxy(network)
 
     def disable_dhcp_helper(self, network_id):
         """Disable DHCP for a network known to the agent."""

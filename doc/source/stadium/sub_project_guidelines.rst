@@ -148,13 +148,19 @@ Sub-Project Release Process
 
 Only members of the `neutron-release
 <https://review.openstack.org/#/admin/groups/150,members>`_ gerrit group can do
-releases. The same group can create stable branches. Make sure you talk to
-a member of neutron-release to perform your release.
+the following release related tasks:
+
+* Make releases
+* Create stable branches
+* Make stable branches end of life
+
+Make sure you talk to a member of neutron-release to perform these tasks.
+
+Follow the process found `here <http://docs.openstack.org/developer/neutron/policies/bugs.html#plugin-and-driver-repositories>`_
+for creating a bug for your request.
 
 To release a sub-project, follow the following steps:
 
-* First, follow the process found `here <http://docs.openstack.org/developer/neutron/policies/bugs.html#plugin-and-driver-repositories>`_
-  for creating a bug for your release and/or stable branch creation.
 * For projects which have not moved to post-versioning, we need to push an
   alpha tag to avoid pbr complaining. A member of the neutron-release group
   will handle this.
@@ -170,11 +176,29 @@ To release a sub-project, follow the following steps:
   `this <https://pypi.python.org/pypi/networking-odl>`_.
 * A sub-project owner should next go to Launchpad and release this version
   using the "Release Now" button for the release itself.
-* A sub-project owner should update any bugs that were fixed with this
-  release to "Fix Released" in Launchpad.
-* A sub-project owner should add the tarball to the Launchpad page for the
-  release using the "Add download file" link.
+* If a sub-project uses the "delay-release" option, a sub-project owner should
+  update any bugs that were fixed with this release to "Fix Released" in
+  Launchpad.  This step is not necessary if the sub-project uses the
+  "direct-release" option, which is the default.  [#jeepyb_release_options]_
+* The new release will be available on `OpenStack Releases
+  <http://docs.openstack.org/releases/>`_.
 * A sub-project owner should add the next milestone to the Launchpad series, or
   if a new series is required, create the new series and a new milestone.
 * Finally a sub-project owner should send an email to the openstack-announce
   mailing list announcing the new release.
+
+To make a branch end of life, follow the following steps:
+
+* A member of neutron-release will abandon all open change reviews on
+  the branch.
+* A member of neutron-release will push an EOL tag on the branch.
+  (eg. "icehouse-eol")
+* A sub-project owner should request the infrastructure team to delete
+  the branch by sending an email to the infrastructure mailing list, not by
+  bothering the infrastructure team on IRC.
+* A sub-project owner should tweak jenkins jobs in project-config if any.
+
+References
+~~~~~~~~~~
+
+.. [#jeepyb_release_options] http://lists.openstack.org/pipermail/openstack-dev/2015-December/081724.html
