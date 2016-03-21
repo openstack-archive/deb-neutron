@@ -3,6 +3,7 @@ neutron (2:8.0.0~rc1-1) experimental; urgency=medium
   * New upstream release.
   * Fixed ryu version to 3.30, since I could upload it to Experimental after
     current maintainer agreed with team maintenance.
+  * Added missing runtime depends: q-text-as-data.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 14:46:45 +0100
 

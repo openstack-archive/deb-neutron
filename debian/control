@@ -155,6 +155,7 @@ Depends: adduser,
          lsb-base,
          neutron-common (= ${source:Version}),
          python-openstackclient,
+         q-text-as-data,
          ${misc:Depends},
          ${python:Depends},
 Description: OpenStack virtual network service - server
