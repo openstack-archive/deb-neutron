@@ -378,7 +378,7 @@ class TestExternalNetwork(Ml2PluginV2TestCase):
 class TestMl2NetworksWithVlanTransparencyAndMTU(TestMl2NetworksV2):
     def setUp(self, plugin=None):
         config.cfg.CONF.set_override('path_mtu', 1000, group='ml2')
-        config.cfg.CONF.set_override('segment_mtu', 1000, group='ml2')
+        config.cfg.CONF.set_override('global_physnet_mtu', 1000)
         config.cfg.CONF.set_override('advertise_mtu', True)
         config.cfg.CONF.set_override('vlan_transparent', True)
         super(TestMl2NetworksWithVlanTransparencyAndMTU, self).setUp(plugin)
@@ -798,6 +798,7 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
 
             self._test_operation_resillient_to_ipallocation_failure(do_request)
 
+    @testtools.skip('bug/1556178')
     def _test_operation_resillient_to_ipallocation_failure(self, func):
         from sqlalchemy import event
 
@@ -1215,6 +1216,18 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
                 self.assertEqual(new_router_id,
                                  mech_context._binding.router_id)
                 self.assertEqual(host_id, mech_context._binding.host)
+
+    def test_update_dvr_port_binding_on_concurrent_port_delete(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with self.port() as port:
+            port = {
+                'id': port['port']['id'],
+                portbindings.HOST_ID: 'foo_host',
+            }
+            with mock.patch.object(plugin, 'get_port', new=plugin.delete_port):
+                res = plugin.update_dvr_port_binding(
+                    self.context, 'foo_port_id', {'port': port})
+        self.assertIsNone(res)
 
     def test_update_dvr_port_binding_on_non_existent_port(self):
         plugin = manager.NeutronManager.get_plugin()
@@ -1901,13 +1914,15 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
     def test_create_port_rpc_outside_transaction(self):
         with mock.patch.object(ml2_plugin.Ml2Plugin, '__init__') as init,\
                 mock.patch.object(base_plugin.NeutronDbPluginV2,
-                                  'create_port') as db_create_port, \
+                                  '_make_port_dict') as make_port, \
                 mock.patch.object(base_plugin.NeutronDbPluginV2,
-                                  'update_port'):
+                                  'update_port'),\
+                mock.patch.object(base_plugin.NeutronDbPluginV2,
+                                  'create_port_db'):
             init.return_value = None
 
             new_port = mock.MagicMock()
-            db_create_port.return_value = new_port
+            make_port.return_value = new_port
             plugin = self._create_plugin_for_create_update_port()
 
             plugin.create_port(self.context, mock.MagicMock())
@@ -1980,3 +1995,19 @@ class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
             # run the transaction balancing function defined in this test
             plugin.delete_port(self.context, 'fake_id')
             self.assertTrue(self.notify.call_count)
+
+
+class TestTransactionGuard(Ml2PluginV2TestCase):
+    def test_delete_network_guard(self):
+        plugin = ml2_plugin.Ml2Plugin()
+        ctx = context.get_admin_context()
+        with ctx.session.begin(subtransactions=True):
+            with testtools.ExpectedException(RuntimeError):
+                plugin.delete_network(ctx, 'id')
+
+    def test_delete_subnet_guard(self):
+        plugin = ml2_plugin.Ml2Plugin()
+        ctx = context.get_admin_context()
+        with ctx.session.begin(subtransactions=True):
+            with testtools.ExpectedException(RuntimeError):
+                plugin.delete_subnet(ctx, 'id')

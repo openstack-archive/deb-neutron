@@ -45,6 +45,7 @@ from neutron.db import models_v2
 from neutron.db import rbac_db_mixin as rbac_mixin
 from neutron.db import rbac_db_models as rbac_db
 from neutron.db import sqlalchemyutils
+from neutron.db import standardattrdescription_db as stattr_db
 from neutron.extensions import l3
 from neutron import ipam
 from neutron.ipam import subnet_alloc
@@ -80,7 +81,8 @@ def _check_subnet_not_used(context, subnet_id):
 
 class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                         neutron_plugin_base_v2.NeutronPluginBaseV2,
-                        rbac_mixin.RbacPluginMixin):
+                        rbac_mixin.RbacPluginMixin,
+                        stattr_db.StandardAttrDescriptionMixin):
     """V2 Neutron plugin interface implementation using SQLAlchemy models.
 
     Whenever a non-read call happens the plugin will call an event handler
@@ -308,6 +310,11 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
     def create_network(self, context, network):
         """Handle creation of a single network."""
+        net_db = self.create_network_db(context, network)
+        return self._make_network_dict(net_db, process_extensions=False,
+                                       context=context)
+
+    def create_network_db(self, context, network):
         # single request processing
         n = network['network']
         # NOTE(jkoelker) Get the tenant_id outside of the session to avoid
@@ -319,7 +326,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                     'name': n['name'],
                     'admin_state_up': n['admin_state_up'],
                     'mtu': n.get('mtu', constants.DEFAULT_NETWORK_MTU),
-                    'status': n.get('status', constants.NET_STATUS_ACTIVE)}
+                    'status': n.get('status', constants.NET_STATUS_ACTIVE),
+                    'description': n.get('description')}
             network = models_v2.Network(**args)
             if n['shared']:
                 entry = rbac_db.NetworkRBAC(
@@ -327,8 +335,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                     target_tenant='*', tenant_id=network['tenant_id'])
                 context.session.add(entry)
             context.session.add(network)
-        return self._make_network_dict(network, process_extensions=False,
-                                       context=context)
+        return network
 
     def update_network(self, context, id, network):
         n = network['network']
@@ -353,7 +360,11 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 elif not update_shared and entry:
                     context.session.delete(entry)
                     context.session.expire(network, ['rbac_entries'])
-            network.update(n)
+            # The filter call removes attributes from the body received from
+            # the API that are logically tied to network resources but are
+            # stored in other database tables handled by extensions
+            network.update(self._filter_non_model_columns(n,
+                                                          models_v2.Network))
         return self._make_network_dict(network, context=context)
 
     def delete_network(self, context, id):
@@ -666,7 +677,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
         subnetpool_id = self._get_subnetpool_id(context, s)
         if not subnetpool_id and not has_cidr:
-            # TODO(carl_baldwin): allow requests asking for 'default' pools
             msg = _('a subnetpool must be specified in the absence of a cidr')
             raise n_exc.BadRequest(resource='subnets', msg=msg)
 
@@ -989,7 +999,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                          'is_default': sp_reader.is_default,
                          'shared': sp_reader.shared,
                          'default_quota': sp_reader.default_quota,
-                         'address_scope_id': sp_reader.address_scope_id}
+                         'address_scope_id': sp_reader.address_scope_id,
+                         'description': sp_reader.description}
             subnetpool = models_v2.SubnetPool(**pool_args)
             context.session.add(subnetpool)
             for prefix in sp_reader.prefixes:
@@ -1027,10 +1038,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         for key in ['id', 'name', 'ip_version', 'min_prefixlen',
                     'max_prefixlen', 'default_prefixlen', 'is_default',
                     'shared', 'default_quota', 'address_scope_id',
-                    'standard_attr']:
+                    'standard_attr', 'description']:
             self._write_key(key, updated, model, new_pool)
-        self._apply_dict_extend_functions(attributes.SUBNETPOOLS,
-                                          updated, model)
         return updated
 
     def _write_key(self, key, update, orig, new_dict):
@@ -1079,7 +1088,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
 
         for key in ['min_prefixlen', 'max_prefixlen', 'default_prefixlen']:
             updated['key'] = str(updated[key])
-
+        self._apply_dict_extend_functions(attributes.SUBNETPOOLS,
+                                          updated, orig_sp)
         return updated
 
     def get_subnetpool(self, context, id, fields=None):
@@ -1195,6 +1205,10 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         raise n_exc.MacAddressGenerationFailure(net_id=network_id)
 
     def create_port(self, context, port):
+        db_port = self.create_port_db(context, port)
+        return self._make_port_dict(db_port, process_extensions=False)
+
+    def create_port_db(self, context, port):
         p = port['port']
         port_id = p.get('id') or uuidutils.generate_uuid()
         network_id = p['network_id']
@@ -1212,7 +1226,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                          admin_state_up=p['admin_state_up'],
                          status=p.get('status', constants.PORT_STATUS_ACTIVE),
                          device_id=p['device_id'],
-                         device_owner=p['device_owner'])
+                         device_owner=p['device_owner'],
+                         description=p.get('description'))
         if ('dns-integration' in self.supported_extension_aliases and
             'dns_name' in p):
             request_dns_name = self._get_request_dns_name(p)
@@ -1238,11 +1253,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 if ips:
                     dns_assignment = self._get_dns_names_for_port(
                         context, ips, request_dns_name)
-
-        if ('dns-integration' in self.supported_extension_aliases and
-            'dns_name' in p):
-            db_port['dns_assignment'] = dns_assignment
-        return self._make_port_dict(db_port, process_extensions=False)
+                db_port['dns_assignment'] = dns_assignment
+        return db_port
 
     def _validate_port_for_update(self, context, db_port, new_port, new_mac):
         changed_owner = 'device_owner' in new_port
@@ -1282,7 +1294,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                 original_ips = self._make_fixed_ip_dict(port['fixed_ips'])
                 original_dns_name = port.get('dns_name', '')
                 request_dns_name = self._get_request_dns_name(new_port)
-                if not request_dns_name:
+                if 'dns_name' in new_port and not request_dns_name:
                     new_port['dns_name'] = ''
             new_mac = new_port.get('mac_address')
             self._validate_port_for_update(context, port, new_port, new_mac)
@@ -1421,3 +1433,10 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                             device_id=device_id)
                 if tenant_id != router['tenant_id']:
                     raise n_exc.DeviceIDNotOwnedByTenant(device_id=device_id)
+
+    db_base_plugin_common.DbBasePluginCommon.register_model_query_hook(
+        models_v2.Port,
+        "port",
+        None,
+        '_port_filter_hook',
+        None)

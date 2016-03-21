@@ -38,6 +38,7 @@ from neutron.common import utils
 from neutron.db import l3_agentschedulers_db as l3_agt
 from neutron.db import model_base
 from neutron.db import models_v2
+from neutron.db import standardattrdescription_db as st_attr
 from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron import manager
@@ -131,7 +132,8 @@ class FloatingIP(model_base.HasStandardAttributes, model_base.BASEV2,
     router = orm.relationship(Router, backref='floating_ips')
 
 
-class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
+class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
+                          st_attr.StandardAttrDescriptionMixin):
     """Mixin class to add L3/NAT router methods to db_base_plugin_v2."""
 
     router_device_owners = (
@@ -182,7 +184,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                                tenant_id=tenant_id,
                                name=router['name'],
                                admin_state_up=router['admin_state_up'],
-                               status="ACTIVE")
+                               status="ACTIVE",
+                               description=router.get('description'))
             context.session.add(router_db)
             return router_db
 
@@ -358,6 +361,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             admin_ctx, {'router_id': [router_id]}):
             raise l3.RouterExternalGatewayInUseByFloatingIp(
                 router_id=router_id, net_id=router.gw_port['network_id'])
+        gw_ips = [x['ip_address'] for x in router.gw_port.fixed_ips]
         with context.session.begin(subtransactions=True):
             gw_port = router.gw_port
             router.gw_port = None
@@ -369,7 +373,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         registry.notify(resources.ROUTER_GATEWAY,
                         events.AFTER_DELETE, self,
                         router_id=router_id,
-                        network_id=old_network_id)
+                        network_id=old_network_id,
+                        gateway_ips=gw_ips)
 
     def _check_router_gw_port_in_use(self, context, router_id):
         try:
@@ -707,11 +712,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         registry.notify(resources.ROUTER_INTERFACE,
                         events.AFTER_CREATE,
                         self,
+                        context=context,
                         network_id=gw_network_id,
                         gateway_ips=gw_ips,
                         cidrs=[x['cidr'] for x in subnets],
                         port_id=port['id'],
                         router_id=router_id,
+                        port=port,
                         interface_info=interface_info)
 
         return self._make_router_interface_info(
@@ -819,15 +826,20 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                     context, router_id, subnet_id, device_owner)
 
         gw_network_id = None
+        gw_ips = []
         router = self._get_router(context, router_id)
         if router.gw_port:
             gw_network_id = router.gw_port.network_id
+            gw_ips = [x['ip_address'] for x in router.gw_port.fixed_ips]
 
         registry.notify(resources.ROUTER_INTERFACE,
                         events.AFTER_DELETE,
                         self,
+                        context=context,
                         cidrs=[x['cidr'] for x in subnets],
-                        network_id=gw_network_id)
+                        network_id=gw_network_id,
+                        gateway_ips=gw_ips,
+                        port=port)
         return self._make_router_interface_info(router_id, port['tenant_id'],
                                                 port['id'], port['network_id'],
                                                 subnets[0]['id'],
@@ -1008,10 +1020,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
         previous_router_id = floatingip_db.router_id
         port_id, internal_ip_address, router_id = (
             self._check_and_get_fip_assoc(context, fip, floatingip_db))
-        floatingip_db.update({'fixed_ip_address': internal_ip_address,
-                              'fixed_port_id': port_id,
-                              'router_id': router_id,
-                              'last_known_router_id': previous_router_id})
+        update = {'fixed_ip_address': internal_ip_address,
+                  'fixed_port_id': port_id,
+                  'router_id': router_id,
+                  'last_known_router_id': previous_router_id}
+        if 'description' in fip:
+            update['description'] = fip['description']
+        floatingip_db.update(update)
         next_hop = None
         if router_id:
             # NOTE(tidwellr) use admin context here
@@ -1094,7 +1109,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
                 status=initial_status,
                 floating_network_id=fip['floating_network_id'],
                 floating_ip_address=floating_ip_address,
-                floating_port_id=external_port['id'])
+                floating_port_id=external_port['id'],
+                description=fip.get('description'))
             # Update association with internal port
             # and define external IP address
             self._update_fip_assoc(context, fip,
@@ -1110,6 +1126,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase):
             self._process_dns_floatingip_create_postcommit(context,
                                                            floatingip_dict,
                                                            dns_data)
+        self._apply_dict_extend_functions(l3.FLOATINGIPS, floatingip_dict,
+                                          floatingip_db)
         return floatingip_dict
 
     def create_floatingip(self, context, floatingip,

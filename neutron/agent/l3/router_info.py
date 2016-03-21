@@ -147,14 +147,12 @@ class RouterInfo(object):
                 ('float-snat', '-s %s -j SNAT --to %s' %
                  (fixed_ip, floating_ip))]
 
-    def floating_mangle_rules(self, floating_ip, fixed_ip,
-                              external_devicename, internal_mark):
+    def floating_mangle_rules(self, floating_ip, fixed_ip, internal_mark):
         mark_traffic_to_floating_ip = (
             'floatingip', '-d %s -j MARK --set-mark %s' % (
                 floating_ip, internal_mark))
         mark_traffic_from_fixed_ip = (
-            'FORWARD', '-s %s -o %s -j $float-snat' % (
-                fixed_ip, external_devicename))
+            'FORWARD', '-s %s -j $float-snat' % fixed_ip)
         return [mark_traffic_to_floating_ip, mark_traffic_from_fixed_ip]
 
     def get_address_scope_mark_mask(self, address_scope=None):
@@ -212,16 +210,27 @@ class RouterInfo(object):
 
         # Clear out all iptables rules for floating ips
         self.iptables_manager.ipv4['mangle'].clear_rules_by_tag('floating_ip')
-
-        floating_ips = self.get_floating_ips()
+        all_floating_ips = self.get_floating_ips()
+        ext_scope = self._get_external_address_scope()
+        # Filter out the floating ips that have fixed ip in the same address
+        # scope. Because the packets for them will always be in one address
+        # scope, no need to manipulate MARK/CONNMARK for them.
+        floating_ips = [fip for fip in all_floating_ips
+                        if fip.get('fixed_ip_address_scope') != ext_scope]
         if floating_ips:
-            ext_scope = self._get_external_address_scope()
+            ext_scope_mark = self.get_address_scope_mark_mask(ext_scope)
+            ports_scopemark = self._get_address_scope_mark()
+            devices_in_ext_scope = {
+                device for device, mark
+                in ports_scopemark[l3_constants.IP_VERSION_4].items()
+                if mark == ext_scope_mark}
             # Add address scope for floatingip egress
-            self.iptables_manager.ipv4['mangle'].add_rule(
-                'float-snat',
-                '-j MARK --set-xmark %s'
-                % self.get_address_scope_mark_mask(ext_scope),
-                tag='floating_ip')
+            for device in devices_in_ext_scope:
+                self.iptables_manager.ipv4['mangle'].add_rule(
+                    'float-snat',
+                    '-o %s -j MARK --set-xmark %s'
+                    % (device, ext_scope_mark),
+                    tag='floating_ip')
 
         # Loop once to ensure that floating ips are configured.
         for fip in floating_ips:
@@ -231,12 +240,8 @@ class RouterInfo(object):
             fixed_ip = fip['fixed_ip_address']
             fixed_scope = fip.get('fixed_ip_address_scope')
             internal_mark = self.get_address_scope_mark_mask(fixed_scope)
-            external_port = self.get_ex_gw_port()
-            external_devicename = self.get_external_device_interface_name(
-                external_port)
-            mangle_rules = self.floating_mangle_rules(fip_ip, fixed_ip,
-                                                      external_devicename,
-                                                      internal_mark)
+            mangle_rules = self.floating_mangle_rules(
+                fip_ip, fixed_ip, internal_mark)
             for chain, rule in mangle_rules:
                 self.iptables_manager.ipv4['mangle'].add_rule(
                     chain, rule, tag='floating_ip')
@@ -260,8 +265,8 @@ class RouterInfo(object):
         except RuntimeError:
             # any exception occurred here should cause the floating IP
             # to be set in error state
-            LOG.warn(_LW("Unable to configure IP address for "
-                         "floating IP: %s"), fip['id'])
+            LOG.warning(_LW("Unable to configure IP address for "
+                            "floating IP: %s"), fip['id'])
 
     def add_floating_ip(self, fip, interface_name, device):
         raise NotImplementedError()
@@ -447,14 +452,6 @@ class RouterInfo(object):
             namespace=self.ns_name)
 
     def address_scope_mangle_rule(self, device_name, mark_mask):
-        external_port = self.get_ex_gw_port()
-        if external_port:
-            external_device_name = self.get_external_device_name(
-                external_port['id'])
-            if external_device_name == device_name:
-                return ('-i %s -m connmark --mark 0x0/0xffff0000 '
-                        '-j CONNMARK --set-mark %s'
-                        % (device_name, mark_mask))
         return '-i %s -j MARK --set-mark %s' % (device_name, mark_mask)
 
     def address_scope_filter_rule(self, device_name, mark_mask):
@@ -697,19 +694,12 @@ class RouterInfo(object):
         gw_port = self._router.get('gw_port')
         self._handle_router_snat_rules(gw_port, interface_name)
 
-    def external_gateway_nat_postroute_rules(self, interface_name):
+    def external_gateway_nat_fip_rules(self, ex_gw_ip, interface_name):
         dont_snat_traffic_to_internal_ports_if_not_to_floating_ip = (
             'POSTROUTING', '! -i %(interface_name)s '
                            '! -o %(interface_name)s -m conntrack ! '
                            '--ctstate DNAT -j ACCEPT' %
                            {'interface_name': interface_name})
-        return [dont_snat_traffic_to_internal_ports_if_not_to_floating_ip]
-
-    def external_gateway_nat_snat_rules(self, ex_gw_ip, interface_name):
-        snat_normal_external_traffic = (
-            'snat', '-o %s -j SNAT --to-source %s' %
-                    (interface_name, ex_gw_ip))
-
         # Makes replies come back through the router to reverse DNAT
         ext_in_mark = self.agent_conf.external_ingress_mark
         snat_internal_traffic_to_floating_ip = (
@@ -717,8 +707,14 @@ class RouterInfo(object):
                     '-m conntrack --ctstate DNAT '
                     '-j SNAT --to-source %s'
                     % (ext_in_mark, l3_constants.ROUTER_MARK_MASK, ex_gw_ip))
-        return [snat_normal_external_traffic,
+        return [dont_snat_traffic_to_internal_ports_if_not_to_floating_ip,
                 snat_internal_traffic_to_floating_ip]
+
+    def external_gateway_nat_snat_rules(self, ex_gw_ip, interface_name):
+        snat_normal_external_traffic = (
+            'snat', '-o %s -j SNAT --to-source %s' %
+                    (interface_name, ex_gw_ip))
+        return [snat_normal_external_traffic]
 
     def external_gateway_mangle_rules(self, interface_name):
         mark = self.agent_conf.external_ingress_mark
@@ -743,19 +739,20 @@ class RouterInfo(object):
             for ip_addr in ex_gw_port['fixed_ips']:
                 ex_gw_ip = ip_addr['ip_address']
                 if netaddr.IPAddress(ex_gw_ip).version == 4:
-                    rules = self.external_gateway_nat_postroute_rules(
-                        interface_name)
-                    for rule in rules:
-                        iptables_manager.ipv4['nat'].add_rule(*rule)
                     if self._snat_enabled:
                         rules = self.external_gateway_nat_snat_rules(
                             ex_gw_ip, interface_name)
                         for rule in rules:
                             iptables_manager.ipv4['nat'].add_rule(*rule)
-                        rules = self.external_gateway_mangle_rules(
-                            interface_name)
-                        for rule in rules:
-                            iptables_manager.ipv4['mangle'].add_rule(*rule)
+
+                    rules = self.external_gateway_nat_fip_rules(
+                        ex_gw_ip, interface_name)
+                    for rule in rules:
+                        iptables_manager.ipv4['nat'].add_rule(*rule)
+                    rules = self.external_gateway_mangle_rules(interface_name)
+                    for rule in rules:
+                        iptables_manager.ipv4['mangle'].add_rule(*rule)
+
                     break
 
     def _handle_router_snat_rules(self, ex_gw_port, interface_name):
@@ -909,7 +906,9 @@ class RouterInfo(object):
         external_devicename = self.get_external_device_name(
             external_port['id'])
 
-        # Records snat egress address scope
+        # Saves the originating address scope by saving the packet MARK to
+        # the CONNMARK for new connections so that returning traffic can be
+        # match to it.
         rule = ('-o %s -m connmark --mark 0x0/0xffff0000 '
                 '-j CONNMARK --save-mark '
                 '--nfmask 0xffff0000 --ctmask 0xffff0000' %

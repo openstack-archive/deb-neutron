@@ -51,7 +51,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
     def get_floating_ips(self):
         """Filter Floating IPs to be hosted on this agent."""
         floating_ips = super(DvrLocalRouter, self).get_floating_ips()
-        return [i for i in floating_ips if i['host'] == self.host]
+        return [i for i in floating_ips if (
+                   (i['host'] == self.host) or
+                   (i.get('dest_host') == self.host))]
 
     def _handle_fip_nat_rules(self, interface_name):
         """Configures NAT rules for Floating IPs for DVR."""
@@ -209,10 +211,11 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 return True
             else:
                 if operation == 'add':
-                    LOG.warn(_LW("Device %s does not exist so ARP entry "
-                                 "cannot be updated, will cache information "
-                                 "to be applied later when the device exists"),
-                             device)
+                    LOG.warning(_LW("Device %s does not exist so ARP entry "
+                                    "cannot be updated, will cache "
+                                    "information to be applied later "
+                                    "when the device exists"),
+                                device)
                     self._cache_arp_entry(ip, mac, subnet_id, operation)
                 return False
         except Exception:
@@ -415,7 +418,19 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         internal_ports = self.router.get(l3_constants.INTERFACE_KEY, [])
         ports_scopemark = self._get_port_devicename_scopemark(
             internal_ports, self.get_internal_device_name)
-        # DVR local router don't need to consider external port
+        # DVR local router will use rfp port as external port
+        ext_port = self.get_ex_gw_port()
+        if not ext_port:
+            return ports_scopemark
+
+        ext_device_name = self.get_external_device_interface_name(ext_port)
+        if not ext_device_name:
+            return ports_scopemark
+
+        ext_scope = self._get_external_address_scope()
+        ext_scope_mark = self.get_address_scope_mark_mask(ext_scope)
+        ports_scopemark[l3_constants.IP_VERSION_4][ext_device_name] = (
+            ext_scope_mark)
         return ports_scopemark
 
     def process_external(self, agent):

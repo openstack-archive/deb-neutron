@@ -149,6 +149,17 @@ class ExtensionDescriptor(object):
         """Returns a list of extensions to be processed before this one."""
         return []
 
+    def get_optional_extensions(self):
+        """Returns a list of extensions to be processed before this one.
+
+        Unlike get_required_extensions. This will not fail the loading of
+        the extension if one of these extensions is not present. This is
+        useful for an extension that extends multiple resources across
+        other extensions that should still work for the remaining extensions
+        when one is missing.
+        """
+        return []
+
     def update_attributes_map(self, extended_attributes,
                               extension_attrs_map=None):
         """Update attributes map for this extension.
@@ -424,7 +435,7 @@ class ExtensionManager(object):
     def extend_resources(self, version, attr_map):
         """Extend resources with additional resources or attributes.
 
-        :param: attr_map, the existing mapping from resource name to
+        :param attr_map: the existing mapping from resource name to
         attrs definition.
 
         After this function, we will extend the attr_map if an extension
@@ -432,6 +443,7 @@ class ExtensionManager(object):
         """
         processed_exts = {}
         exts_to_process = self.extensions.copy()
+        check_optionals = True
         # Iterate until there are unprocessed extensions or if no progress
         # is made in a whole iteration
         while exts_to_process:
@@ -442,12 +454,21 @@ class ExtensionManager(object):
                 required_exts_set = set(ext.get_required_extensions())
                 if required_exts_set - set(processed_exts):
                     continue
+                optional_exts_set = set(ext.get_optional_extensions())
+                if check_optionals and optional_exts_set - set(processed_exts):
+                    continue
                 extended_attrs = ext.get_extended_resources(version)
                 for res, resource_attrs in six.iteritems(extended_attrs):
                     attr_map.setdefault(res, {}).update(resource_attrs)
                 processed_exts[ext_name] = ext
                 del exts_to_process[ext_name]
             if len(processed_exts) == processed_ext_count:
+                # if we hit here, it means there are unsatisfied
+                # dependencies. try again without optionals since optionals
+                # are only necessary to set order if they are present.
+                if check_optionals:
+                    check_optionals = False
+                    continue
                 # Exit loop as no progress was made
                 break
         if exts_to_process:
@@ -511,17 +532,17 @@ class ExtensionManager(object):
                     ext_name = mod_name[0].upper() + mod_name[1:]
                     new_ext_class = getattr(mod, ext_name, None)
                     if not new_ext_class:
-                        LOG.warn(_LW('Did not find expected name '
-                                     '"%(ext_name)s" in %(file)s'),
-                                 {'ext_name': ext_name,
-                                  'file': ext_path})
+                        LOG.warning(_LW('Did not find expected name '
+                                        '"%(ext_name)s" in %(file)s'),
+                                    {'ext_name': ext_name,
+                                     'file': ext_path})
                         continue
                     new_ext = new_ext_class()
                     self.add_extension(new_ext)
             except Exception as exception:
-                LOG.warn(_LW("Extension file %(f)s wasn't loaded due to "
-                             "%(exception)s"),
-                         {'f': f, 'exception': exception})
+                LOG.warning(_LW("Extension file %(f)s wasn't loaded due to "
+                                "%(exception)s"),
+                            {'f': f, 'exception': exception})
 
     def add_extension(self, ext):
         # Do nothing if the extension doesn't check out
@@ -557,9 +578,9 @@ class PluginAwareExtensionManager(ExtensionManager):
         alias = extension.get_alias()
         supports_extension = alias in self.get_supported_extension_aliases()
         if not supports_extension:
-            LOG.warn(_LW("Extension %s not supported by any of loaded "
-                         "plugins"),
-                     alias)
+            LOG.warning(_LW("Extension %s not supported by any of loaded "
+                            "plugins"),
+                        alias)
         return supports_extension
 
     def _plugins_implement_interface(self, extension):
@@ -568,8 +589,9 @@ class PluginAwareExtensionManager(ExtensionManager):
         for plugin in self.plugins.values():
             if isinstance(plugin, extension.get_plugin_interface()):
                 return True
-        LOG.warn(_LW("Loaded plugins do not implement extension %s interface"),
-                 extension.get_alias())
+        LOG.warning(_LW("Loaded plugins do not implement extension "
+                        "%s interface"),
+                    extension.get_alias())
         return False
 
     @classmethod

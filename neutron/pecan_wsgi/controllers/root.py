@@ -41,10 +41,12 @@ class RootController(object):
 
     @utils.expose(generic=True)
     def index(self):
-        builder = versions_view.get_view_builder(pecan.request)
-        versions = [builder.build(version) for version in _get_version_info()]
-        return dict(versions=versions)
+        # NOTE(kevinbenton): The pecan framework does not handle
+        # any requests to the root because they are intercepted
+        # by the 'version' returning wrapper.
+        pass
 
+    @utils.when(index, method='GET')
     @utils.when(index, method='HEAD')
     @utils.when(index, method='POST')
     @utils.when(index, method='PATCH')
@@ -93,8 +95,8 @@ class V2Controller(object):
         controller = manager.NeutronManager.get_controller_for_resource(
             collection)
         if not controller:
-            LOG.warn(_LW("No controller found for: %s - returning response "
-                         "code 404"), collection)
+            LOG.warning(_LW("No controller found for: %s - returning response "
+                            "code 404"), collection)
             pecan.abort(404)
         # Store resource and collection names in pecan request context so that
         # hooks can leverage them if necessary. The following code uses
@@ -102,6 +104,13 @@ class V2Controller(object):
         # properly sanitized (eg: replacing dashes with underscores)
         request.context['resource'] = controller.resource
         request.context['collection'] = controller.collection
+        # NOTE(blogan): initialize a dict to store the ids of the items walked
+        # in the path for example: /networks/1234 would cause uri_identifiers
+        # to contain: {'network_id': '1234'}
+        # This is for backwards compatibility with legacy extensions that
+        # defined their own controllers and expected kwargs to be passed in
+        # with the uri_identifiers
+        request.context['uri_identifiers'] = {}
         return controller, remainder
 
 

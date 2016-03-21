@@ -11,15 +11,17 @@
 #    under the License.
 
 import abc
+import copy
+import itertools
 
+from neutron_lib import exceptions
 from oslo_db import exception as obj_exc
 from oslo_utils import reflection
 from oslo_versionedobjects import base as obj_base
 import six
 
 from neutron._i18n import _
-from neutron.common import exceptions
-from neutron.db import api as db_api
+from neutron.objects.db import api as obj_db_api
 
 
 class NeutronObjectUpdateForbidden(exceptions.NeutronException):
@@ -36,6 +38,18 @@ class NeutronDbObjectDuplicateEntry(exceptions.Conflict):
                                                   fully_qualified=False),
             attributes=db_exception.columns,
             values=db_exception.value)
+
+
+class NeutronPrimaryKeyMissing(exceptions.BadRequest):
+    message = _("For class %(object_type)s missing primary keys: "
+                "%(missing_keys)s")
+
+    def __init__(self, object_class, missing_keys):
+        super(NeutronPrimaryKeyMissing, self).__init__(
+            object_type=reflection.get_class_name(object_class,
+                                                  fully_qualified=False),
+            missing_keys=missing_keys
+        )
 
 
 def get_updatable_fields(cls, fields):
@@ -67,7 +81,7 @@ class NeutronObject(obj_base.VersionedObject,
         return obj
 
     @classmethod
-    def get_by_id(cls, context, id):
+    def get_object(cls, context, **kwargs):
         raise NotImplementedError()
 
     @classmethod
@@ -94,40 +108,110 @@ class NeutronObject(obj_base.VersionedObject,
         raise NotImplementedError()
 
 
+class DeclarativeObject(abc.ABCMeta):
+
+    def __init__(cls, name, bases, dct):
+        super(DeclarativeObject, cls).__init__(name, bases, dct)
+        for base in itertools.chain([cls], bases):
+            if hasattr(base, 'primary_keys'):
+                cls.fields_no_update += base.primary_keys
+        # avoid duplicate entries
+        cls.fields_no_update = list(set(cls.fields_no_update))
+
+
+@six.add_metaclass(DeclarativeObject)
 class NeutronDbObject(NeutronObject):
 
     # should be overridden for all persistent objects
     db_model = None
 
-    primary_key = 'id'
+    primary_keys = ['id']
 
     fields_no_update = []
 
+    # dict with name mapping: {'field_name_in_object': 'field_name_in_db'}
+    fields_need_translation = {}
+
     def from_db_object(self, *objs):
+        db_objs = [self.modify_fields_from_db(db_obj) for db_obj in objs]
         for field in self.fields:
-            for db_obj in objs:
+            for db_obj in db_objs:
                 if field in db_obj:
                     setattr(self, field, db_obj[field])
                 break
         self.obj_reset_changes()
 
     @classmethod
-    def get_by_id(cls, context, id):
-        db_obj = db_api.get_object(context, cls.db_model,
-                                   **{cls.primary_key: id})
+    def modify_fields_to_db(cls, fields):
+        """
+        This method enables to modify the fields and its
+        content before data is inserted into DB.
+
+         It uses the fields_need_translation dict with structure:
+        {
+            'field_name_in_object': 'field_name_in_db'
+        }
+
+        :param fields: dict of fields from NeutronDbObject
+        :return: modified dict of fields
+        """
+        result = copy.deepcopy(dict(fields))
+        for field, field_db in cls.fields_need_translation.items():
+            if field in result:
+                result[field_db] = result.pop(field)
+        return result
+
+    @classmethod
+    def modify_fields_from_db(cls, db_obj):
+        """
+        This method enables to modify the fields and its
+        content after data was fetched from DB.
+
+        It uses the fields_need_translation dict with structure:
+        {
+            'field_name_in_object': 'field_name_in_db'
+        }
+
+        :param db_obj: dict of object fetched from database
+        :return: modified dict of DB values
+        """
+        result = dict(db_obj)
+        for field, field_db in cls.fields_need_translation.items():
+            if field_db in result:
+                result[field] = result.pop(field_db)
+        return result
+
+    @classmethod
+    def get_object(cls, context, **kwargs):
+        """
+        This method fetches object from DB and convert it to versioned
+        object.
+
+        :param context:
+        :param kwargs: multiple primary keys defined key=value pairs
+        :return: single object of NeutronDbObject class
+        """
+        missing_keys = set(cls.primary_keys).difference(kwargs.keys())
+        if missing_keys:
+            raise NeutronPrimaryKeyMissing(object_class=cls.__class__,
+                                           missing_keys=missing_keys)
+
+        db_obj = obj_db_api.get_object(context, cls.db_model, **kwargs)
         if db_obj:
-            obj = cls(context, **db_obj)
+            obj = cls(context, **cls.modify_fields_from_db(db_obj))
             obj.obj_reset_changes()
             return obj
 
     @classmethod
     def get_objects(cls, context, **kwargs):
         cls.validate_filters(**kwargs)
-        db_objs = db_api.get_objects(context, cls.db_model, **kwargs)
-        objs = [cls(context, **db_obj) for db_obj in db_objs]
-        for obj in objs:
+        db_objs = obj_db_api.get_objects(context, cls.db_model, **kwargs)
+        result = []
+        for db_obj in db_objs:
+            obj = cls(context, **cls.modify_fields_from_db(db_obj))
             obj.obj_reset_changes()
-        return objs
+            result.append(obj)
+        return result
 
     @classmethod
     def is_accessible(cls, context, db_obj):
@@ -143,10 +227,6 @@ class NeutronDbObject(NeutronObject):
 
     def _validate_changed_fields(self, fields):
         fields = fields.copy()
-        # We won't allow id update anyway, so let's pop it out not to trigger
-        # update on id field touched by the consumer
-        fields.pop('id', None)
-
         forbidden_updates = set(self.fields_no_update) & set(fields.keys())
         if forbidden_updates:
             raise NeutronObjectUpdateForbidden(fields=forbidden_updates)
@@ -156,24 +236,29 @@ class NeutronDbObject(NeutronObject):
     def create(self):
         fields = self._get_changed_persistent_fields()
         try:
-            db_obj = db_api.create_object(self._context, self.db_model, fields)
+            db_obj = obj_db_api.create_object(self._context, self.db_model,
+                                              self.modify_fields_to_db(fields))
         except obj_exc.DBDuplicateEntry as db_exc:
             raise NeutronDbObjectDuplicateEntry(object_class=self.__class__,
                                                 db_exception=db_exc)
-
         self.from_db_object(db_obj)
+
+    def _get_composite_keys(self):
+        keys = {}
+        for key in self.primary_keys:
+            keys[key] = getattr(self, key)
+        return self.modify_fields_to_db(keys)
 
     def update(self):
         updates = self._get_changed_persistent_fields()
         updates = self._validate_changed_fields(updates)
 
         if updates:
-            db_obj = db_api.update_object(self._context, self.db_model,
-                                          getattr(self, self.primary_key),
-                                          updates, key=self.primary_key)
+            db_obj = obj_db_api.update_object(self._context, self.db_model,
+                                            self.modify_fields_to_db(updates),
+                                            **self._get_composite_keys())
             self.from_db_object(self, db_obj)
 
     def delete(self):
-        db_api.delete_object(self._context, self.db_model,
-                             getattr(self, self.primary_key),
-                             key=self.primary_key)
+        obj_db_api.delete_object(self._context, self.db_model,
+                                 **self._get_composite_keys())

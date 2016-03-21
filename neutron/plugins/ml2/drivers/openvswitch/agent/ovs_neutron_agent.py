@@ -34,7 +34,6 @@ from neutron.agent.common import polling
 from neutron.agent.common import utils
 from neutron.agent.l2.extensions import manager as ext_manager
 from neutron.agent.linux import ip_lib
-from neutron.agent.linux import polling as linux_polling
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.callbacks import resources
@@ -1368,8 +1367,9 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         # error condition of which operators should be aware
         port_needs_binding = True
         if not vif_port.ofport:
-            LOG.warn(_LW("VIF port: %s has no ofport configured, "
-                         "and might not be able to transmit"), vif_port.vif_id)
+            LOG.warning(_LW("VIF port: %s has no ofport configured, "
+                            "and might not be able to transmit"),
+                        vif_port.vif_id)
         if vif_port:
             if admin_state_up:
                 port_needs_binding = self.port_bound(
@@ -1491,7 +1491,9 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                                           details['network_id'])
                 self.ext_manager.handle_port(self.context, details)
             else:
-                LOG.warn(_LW("Device %s not defined on plugin"), device)
+                LOG.warning(
+                    _LW("Device %s not defined on plugin or binding failed"),
+                    device)
                 if (port and port.ofport != -1):
                     self.port_dead(port)
         return (skipped_devices, need_binding_devices,
@@ -1646,10 +1648,12 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         try:
             return '%08x' % netaddr.IPAddress(ip_address, version=4)
         except Exception:
-            LOG.warn(_LW("Invalid remote IP: %s"), ip_address)
+            LOG.warning(_LW("Invalid remote IP: %s"), ip_address)
             return
 
     def tunnel_sync(self):
+        LOG.info(_LI("Configuring tunnel endpoints to other OVS agents"))
+
         try:
             for tunnel_type in self.tunnel_types:
                 details = self.plugin_rpc.tunnel_sync(self.context,
@@ -1697,11 +1701,11 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
         # Check for the canary flow
         status = self.int_br.check_canary_table()
         if status == constants.OVS_RESTARTED:
-            LOG.warn(_LW("OVS is restarted. OVSNeutronAgent will reset "
-                         "bridges and recover ports."))
+            LOG.warning(_LW("OVS is restarted. OVSNeutronAgent will reset "
+                            "bridges and recover ports."))
         elif status == constants.OVS_DEAD:
-            LOG.warn(_LW("OVS is dead. OVSNeutronAgent will keep running "
-                         "and checking OVS status periodically."))
+            LOG.warning(_LW("OVS is dead. OVSNeutronAgent will keep running "
+                            "and checking OVS status periodically."))
         return status
 
     def loop_count_and_wait(self, start_time, port_stats):
@@ -1756,7 +1760,7 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 consecutive_resyncs = consecutive_resyncs + 1
                 if (consecutive_resyncs >=
                         constants.MAX_DEVICE_RETRIES):
-                    LOG.warn(_LW(
+                    LOG.warning(_LW(
                         "Clearing cache of registered ports,"
                         " retries to resync were > %s"),
                              constants.MAX_DEVICE_RETRIES)
@@ -1908,7 +1912,7 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 # BasePollingManager that will be implemented by AlwaysPoll as
                 # no action and by InterfacePollingMinimizer as start/stop
                 if isinstance(
-                    polling_manager, linux_polling.InterfacePollingMinimizer):
+                    polling_manager, polling.InterfacePollingMinimizer):
                     polling_manager.stop()
                     polling_manager.start()
             elif ovs_status == constants.OVS_DEAD:
@@ -1920,11 +1924,11 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
                 continue
             # Notify the plugin of tunnel IP
             if self.enable_tunneling and tunnel_sync:
-                LOG.info(_LI("Agent tunnel out of sync with plugin!"))
                 try:
                     tunnel_sync = self.tunnel_sync()
                 except Exception:
-                    LOG.exception(_LE("Error while synchronizing tunnels"))
+                    LOG.exception(
+                            _LE("Error while configuring tunnel endpoints"))
                     tunnel_sync = True
             ovs_restarted |= (ovs_status == constants.OVS_RESTARTED)
             devices_need_retry = (any(failed_devices.values()) or

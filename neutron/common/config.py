@@ -24,10 +24,12 @@ from oslo_config import cfg
 from oslo_db import options as db_options
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_middleware import cors
 from oslo_service import wsgi
 
 from neutron._i18n import _, _LI
 from neutron.api.v2 import attributes
+from neutron.common import constants
 from neutron.common import utils
 from neutron import policy
 from neutron import version
@@ -175,7 +177,16 @@ core_opts = [
                choices=('legacy', 'pecan'),
                help=_("This will choose the web framework in which to run "
                       "the Neutron API server. 'pecan' is a new experiemental "
-                      "rewrite of the API server."))
+                      "rewrite of the API server.")),
+    cfg.IntOpt('global_physnet_mtu', default=constants.DEFAULT_NETWORK_MTU,
+               deprecated_name='segment_mtu', deprecated_group='ml2',
+               help=_('MTU of the underlying physical network. Neutron uses '
+                      'this value to calculate MTU for all virtual network '
+                      'components. For flat and VLAN networks, neutron uses '
+                      'this value without modification. For overlay networks '
+                      'such as VXLAN, neutron automatically subtracts the '
+                      'overlay protocol overhead from this value. Defaults '
+                      'to 1500, the standard value for Ethernet.'))
 ]
 
 core_cli_opts = [
@@ -260,6 +271,7 @@ def reset_service():
     # Note that this is called only in case a service is running in
     # daemon mode.
     setup_logging()
+    set_config_defaults()
     policy.refresh()
 
 
@@ -271,3 +283,33 @@ def load_paste_app(app_name):
     loader = wsgi.Loader(cfg.CONF)
     app = loader.load_app(app_name)
     return app
+
+
+def set_config_defaults():
+    """This method updates all configuration default values."""
+    set_cors_middleware_defaults()
+
+
+def set_cors_middleware_defaults():
+    """Update default configuration options for oslo.middleware."""
+    # CORS Defaults
+    # TODO(krotscheck): Update with https://review.openstack.org/#/c/285368/
+    cfg.set_defaults(cors.CORS_OPTS,
+                     allow_headers=['X-Auth-Token',
+                                    'X-Identity-Status',
+                                    'X-Roles',
+                                    'X-Service-Catalog',
+                                    'X-User-Id',
+                                    'X-Tenant-Id',
+                                    'X-OpenStack-Request-ID'],
+                     expose_headers=['X-Auth-Token',
+                                     'X-Subject-Token',
+                                     'X-Service-Token',
+                                     'X-OpenStack-Request-ID',
+                                     'OpenStack-Volume-microversion'],
+                     allow_methods=['GET',
+                                    'PUT',
+                                    'POST',
+                                    'DELETE',
+                                    'PATCH']
+                     )

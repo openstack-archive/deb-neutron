@@ -29,7 +29,6 @@ class HackingTestCase(base.BaseTestCase):
         expected_marks = {
             'error': '_LE',
             'info': '_LI',
-            'warn': '_LW',
             'warning': '_LW',
             'critical': '_LC',
             'exception': '_LE',
@@ -140,14 +139,6 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assert_called_once_with(pass_code2,
                                             "neutron/tests/test_assert.py"))))
-
-    def test_check_oslo_namespace_imports(self):
-        f = checks.check_oslo_namespace_imports
-        self.assertLinePasses(f, 'from oslo_utils import importutils')
-        self.assertLinePasses(f, 'import oslo_messaging')
-        self.assertLineFails(f, 'from oslo.utils import importutils')
-        self.assertLineFails(f, 'from oslo import messaging')
-        self.assertLineFails(f, 'import oslo.messaging')
 
     def test_check_python3_xrange(self):
         f = checks.check_python3_xrange

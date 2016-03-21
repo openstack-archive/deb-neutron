@@ -16,6 +16,7 @@
 from oslo_config import cfg
 
 from neutron._i18n import _
+from neutron.common import constants
 
 ml2_opts = [
     cfg.ListOpt('type_drivers',
@@ -39,7 +40,7 @@ ml2_opts = [
                        "entrypoints to be loaded from the "
                        "neutron.ml2.extension_drivers namespace. "
                        "For example: extension_drivers = port_security,qos")),
-    cfg.IntOpt('path_mtu', default=1500,
+    cfg.IntOpt('path_mtu', default=constants.DEFAULT_NETWORK_MTU,
                help=_('Maximum size of an IP packet (MTU) that can traverse '
                       'the underlying physical network infrastructure without '
                       'fragmentation. For instances using a '
@@ -52,11 +53,6 @@ ml2_opts = [
                       'this feature and instances typically default to a '
                       '1500 MTU. Only impacts instances, not neutron network '
                       'components such as bridges and routers.')),
-    cfg.IntOpt('segment_mtu', default=1500,
-               help=_('The maximum permissible size of an unfragmented '
-                      'packet travelling a L2 network segment. The default '
-                      'value of 1500 is used as the segment MTU, to reflect '
-                      'standard Ethernet.')),
     cfg.ListOpt('physical_network_mtus',
                 default=[],
                 help=_("A list of mappings of physical networks to MTU "

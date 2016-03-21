@@ -24,10 +24,11 @@ class BaseSecGroupTest(base.BaseNetworkTest):
     def resource_setup(cls):
         super(BaseSecGroupTest, cls).resource_setup()
 
-    def _create_security_group(self):
+    def _create_security_group(self, **kwargs):
         # Create a security group
         name = data_utils.rand_name('secgroup-')
-        group_create_body = self.client.create_security_group(name=name)
+        group_create_body = self.client.create_security_group(name=name,
+                                                              **kwargs)
         self.addCleanup(self._delete_security_group,
                         group_create_body['security_group']['id'])
         self.assertEqual(group_create_body['security_group']['name'], name)
@@ -42,13 +43,3 @@ class BaseSecGroupTest(base.BaseNetworkTest):
         for secgroup in list_body['security_groups']:
             secgroup_list.append(secgroup['id'])
         self.assertNotIn(secgroup_id, secgroup_list)
-
-    def _delete_security_group_rule(self, rule_id):
-        self.client.delete_security_group_rule(rule_id)
-        # Asserting that the security group is not found in the list
-        # after deletion
-        list_body = self.client.list_security_group_rules()
-        rules_list = list()
-        for rule in list_body['security_group_rules']:
-            rules_list.append(rule['id'])
-        self.assertNotIn(rule_id, rules_list)

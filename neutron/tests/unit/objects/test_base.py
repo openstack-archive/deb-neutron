@@ -21,9 +21,9 @@ from oslo_versionedobjects import fields as obj_fields
 from neutron.common import exceptions as n_exc
 from neutron.common import utils as common_utils
 from neutron import context
-from neutron.db import api as db_api
 from neutron.db import models_v2
 from neutron.objects import base
+from neutron.objects.db import api as obj_db_api
 from neutron.tests import base as test_base
 from neutron.tests import tools
 
@@ -51,7 +51,9 @@ class FakeNeutronObject(base.NeutronDbObject):
         'field2': obj_fields.StringField()
     }
 
-    fields_no_update = ['id']
+    primary_keys = ['id']
+
+    fields_no_update = ['field1']
 
     synthetic_fields = ['field2']
 
@@ -63,10 +65,72 @@ class FakeNeutronObjectNonStandardPrimaryKey(base.NeutronDbObject):
 
     db_model = FakeModel
 
-    primary_key = 'weird_key'
+    primary_keys = ['weird_key']
 
     fields = {
         'weird_key': obj_fields.UUIDField(),
+        'field1': obj_fields.StringField(),
+        'field2': obj_fields.StringField()
+    }
+
+    synthetic_fields = ['field2']
+
+
+@obj_base.VersionedObjectRegistry.register_if(False)
+class FakeNeutronObjectCompositePrimaryKey(base.NeutronDbObject):
+    # Version 1.0: Initial version
+    VERSION = '1.0'
+
+    db_model = FakeModel
+
+    primary_keys = ['weird_key', 'field1']
+
+    fields = {
+        'weird_key': obj_fields.UUIDField(),
+        'field1': obj_fields.StringField(),
+        'field2': obj_fields.StringField()
+    }
+
+    synthetic_fields = ['field2']
+
+
+@obj_base.VersionedObjectRegistry.register_if(False)
+class FakeNeutronObjectRenamedField(base.NeutronDbObject):
+    """
+    Testing renaming the parameter from DB to NeutronDbObject
+    For tests:
+        - db fields: id, field_db, field2
+        - object: id, field_ovo, field2
+    """
+    # Version 1.0: Initial version
+    VERSION = '1.0'
+
+    db_model = FakeModel
+
+    primary_keys = ['id']
+
+    fields = {
+        'id': obj_fields.UUIDField(),
+        'field_ovo': obj_fields.StringField(),
+        'field2': obj_fields.StringField()
+    }
+
+    synthetic_fields = ['field2']
+
+    fields_need_translation = {'field_ovo': 'field_db'}
+
+
+@obj_base.VersionedObjectRegistry.register_if(False)
+class FakeNeutronObjectCompositePrimaryKeyWithId(base.NeutronDbObject):
+    # Version 1.0: Initial version
+    VERSION = '1.0'
+
+    db_model = FakeModel
+
+    primary_keys = ['id', 'field1']
+
+    fields = {
+        'id': obj_fields.UUIDField(),
         'field1': obj_fields.StringField(),
         'field2': obj_fields.StringField()
     }
@@ -98,9 +162,15 @@ class _BaseObjectTestCase(object):
         self.db_objs = list(self.get_random_fields() for _ in range(3))
         self.db_obj = self.db_objs[0]
 
+        self.obj_fields = []
+        for db_obj in self.db_objs:
+            self.obj_fields.append(
+                self._test_class.modify_fields_from_db(db_obj))
+
         valid_field = [f for f in self._test_class.fields
                        if f not in self._test_class.synthetic_fields][0]
-        self.valid_field_filter = {valid_field: self.db_obj[valid_field]}
+        self.valid_field_filter = {valid_field:
+                                   self.obj_fields[0][valid_field]}
 
     @classmethod
     def get_random_fields(cls, obj_cls=None):
@@ -110,7 +180,16 @@ class _BaseObjectTestCase(object):
             if field not in obj_cls.synthetic_fields:
                 generator = FIELD_TYPE_VALUE_GENERATOR_MAP[type(field_obj)]
                 fields[field] = generator()
-        return fields
+        return obj_cls.modify_fields_to_db(fields)
+
+    @classmethod
+    def generate_object_keys(cls, obj_cls):
+        keys = {}
+        for field, field_obj in obj_cls.fields.items():
+            if field in obj_cls.primary_keys:
+                generator = FIELD_TYPE_VALUE_GENERATOR_MAP[type(field_obj)]
+                keys[field] = generator()
+        return keys
 
     def get_updatable_fields(self, fields):
         return base.get_updatable_fields(self._test_class, fields)
@@ -122,23 +201,32 @@ class _BaseObjectTestCase(object):
 
 class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
 
-    def test_get_by_id(self):
-        with mock.patch.object(db_api, 'get_object',
+    def test_get_object(self):
+        with mock.patch.object(obj_db_api, 'get_object',
                                return_value=self.db_obj) as get_object_mock:
-            obj = self._test_class.get_by_id(self.context, id='fake_id')
+            obj_keys = self.generate_object_keys(self._test_class)
+            obj = self._test_class.get_object(self.context, **obj_keys)
             self.assertTrue(self._is_test_class(obj))
-            self.assertEqual(self.db_obj, get_obj_db_fields(obj))
+            self.assertEqual(self.obj_fields[0],
+                             get_obj_db_fields(obj))
             get_object_mock.assert_called_once_with(
-                self.context, self._test_class.db_model,
-                **{self._test_class.primary_key: 'fake_id'})
+                self.context, self._test_class.db_model, **obj_keys)
 
-    def test_get_by_id_missing_object(self):
-        with mock.patch.object(db_api, 'get_object', return_value=None):
-            obj = self._test_class.get_by_id(self.context, id='fake_id')
+    def test_get_object_missing_object(self):
+        with mock.patch.object(obj_db_api, 'get_object', return_value=None):
+            obj_keys = self.generate_object_keys(self._test_class)
+            obj = self._test_class.get_object(self.context, **obj_keys)
             self.assertIsNone(obj)
 
+    def test_get_object_missing_primary_key(self):
+        obj_keys = self.generate_object_keys(self._test_class)
+        obj_keys.popitem()
+        self.assertRaises(base.NeutronPrimaryKeyMissing,
+                          self._test_class.get_object,
+                          self.context, **obj_keys)
+
     def test_get_objects(self):
-        with mock.patch.object(db_api, 'get_objects',
+        with mock.patch.object(obj_db_api, 'get_objects',
                                return_value=self.db_objs) as get_objects_mock:
             objs = self._test_class.get_objects(self.context)
             self._validate_objects(self.db_objs, objs)
@@ -147,7 +235,7 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
 
     def test_get_objects_valid_fields(self):
         with mock.patch.object(
-            db_api, 'get_objects',
+            obj_db_api, 'get_objects',
             return_value=[self.db_obj]) as get_objects_mock:
 
             objs = self._test_class.get_objects(self.context,
@@ -167,7 +255,7 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
         filters = copy.copy(self.valid_field_filter)
         filters[synthetic_fields[0]] = 'xxx'
 
-        with mock.patch.object(db_api, 'get_objects',
+        with mock.patch.object(obj_db_api, 'get_objects',
                                return_value=self.db_objs):
             self.assertRaises(base.exceptions.InvalidInput,
                               self._test_class.get_objects, self.context,
@@ -179,14 +267,14 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
             self.skipTest('No synthetic fields found in test class %r' %
                           self._test_class)
 
-        with mock.patch.object(db_api, 'get_objects',
+        with mock.patch.object(obj_db_api, 'get_objects',
                                return_value=self.db_objs):
             self.assertRaises(base.exceptions.InvalidInput,
                               self._test_class.get_objects, self.context,
                               **{synthetic_fields[0]: 'xxx'})
 
     def test_get_objects_invalid_fields(self):
-        with mock.patch.object(db_api, 'get_objects',
+        with mock.patch.object(obj_db_api, 'get_objects',
                                return_value=self.db_objs):
             self.assertRaises(base.exceptions.InvalidInput,
                               self._test_class.get_objects, self.context,
@@ -195,7 +283,8 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
     def _validate_objects(self, expected, observed):
         self.assertTrue(all(self._is_test_class(obj) for obj in observed))
         self.assertEqual(
-            sorted(expected,
+            sorted([self._test_class.modify_fields_from_db(db_obj)
+                    for db_obj in expected],
                    key=common_utils.safe_sort_key),
             sorted([get_obj_db_fields(obj) for obj in observed],
                    key=common_utils.safe_sort_key))
@@ -206,51 +295,55 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
             sorted(get_obj_db_fields(obj)))
 
     def test_create(self):
-        with mock.patch.object(db_api, 'create_object',
+        with mock.patch.object(obj_db_api, 'create_object',
                                return_value=self.db_obj) as create_mock:
-            obj = self._test_class(self.context, **self.db_obj)
-            self._check_equal(obj, self.db_obj)
+            obj = self._test_class(self.context, **self.obj_fields[0])
+            self._check_equal(obj, self.obj_fields[0])
             obj.create()
-            self._check_equal(obj, self.db_obj)
+            self._check_equal(obj, self.obj_fields[0])
             create_mock.assert_called_once_with(
                 self.context, self._test_class.db_model, self.db_obj)
 
     def test_create_updates_from_db_object(self):
-        with mock.patch.object(db_api, 'create_object',
+        with mock.patch.object(obj_db_api, 'create_object',
                                return_value=self.db_obj):
-            obj = self._test_class(self.context, **self.db_objs[1])
-            self._check_equal(obj, self.db_objs[1])
+            obj = self._test_class(self.context, **self.obj_fields[1])
+            self._check_equal(obj, self.obj_fields[1])
             obj.create()
-            self._check_equal(obj, self.db_obj)
+            self._check_equal(obj, self.obj_fields[0])
 
     def test_create_duplicates(self):
-        with mock.patch.object(db_api, 'create_object',
+        with mock.patch.object(obj_db_api, 'create_object',
                                side_effect=obj_exc.DBDuplicateEntry):
-            obj = self._test_class(self.context, **self.db_obj)
+            obj = self._test_class(self.context, **self.obj_fields[0])
             self.assertRaises(base.NeutronDbObjectDuplicateEntry, obj.create)
 
-    @mock.patch.object(db_api, 'update_object')
+    @mock.patch.object(obj_db_api, 'update_object')
     def test_update_no_changes(self, update_mock):
         with mock.patch.object(base.NeutronDbObject,
                                '_get_changed_persistent_fields',
                                return_value={}):
-            obj = self._test_class(self.context, id=7777)
+            obj_keys = self.generate_object_keys(self._test_class)
+            obj = self._test_class(self.context, **obj_keys)
             obj.update()
             self.assertFalse(update_mock.called)
 
-    @mock.patch.object(db_api, 'update_object')
+    @mock.patch.object(obj_db_api, 'update_object')
     def test_update_changes(self, update_mock):
         fields_to_update = self.get_updatable_fields(self.db_obj)
+        if not fields_to_update:
+            self.skipTest('No updatable fields found in test class %r' %
+                          self._test_class)
+
         with mock.patch.object(base.NeutronDbObject,
                                '_get_changed_persistent_fields',
                                return_value=fields_to_update):
-            obj = self._test_class(self.context, **self.db_obj)
+            obj = self._test_class(self.context, **self.obj_fields[0])
             obj.update()
             update_mock.assert_called_once_with(
                 self.context, self._test_class.db_model,
-                self.db_obj[self._test_class.primary_key],
                 fields_to_update,
-                key=self._test_class.primary_key)
+                **obj._get_composite_keys())
 
     @mock.patch.object(base.NeutronDbObject,
                        '_get_changed_persistent_fields',
@@ -265,26 +358,28 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
             self.assertRaises(base.NeutronObjectUpdateForbidden, obj.update)
 
     def test_update_updates_from_db_object(self):
-        with mock.patch.object(db_api, 'update_object',
+        with mock.patch.object(obj_db_api, 'update_object',
                                return_value=self.db_obj):
-            obj = self._test_class(self.context, **self.db_objs[1])
-            fields_to_update = self.get_updatable_fields(self.db_objs[1])
+            obj = self._test_class(self.context, **self.obj_fields[1])
+            fields_to_update = self.get_updatable_fields(self.obj_fields[1])
+            if not fields_to_update:
+                self.skipTest('No updatable fields found in test class %r' %
+                              self._test_class)
             with mock.patch.object(base.NeutronDbObject,
                                    '_get_changed_persistent_fields',
                                    return_value=fields_to_update):
                 obj.update()
-            self._check_equal(obj, self.db_obj)
+            self._check_equal(obj, self.obj_fields[0])
 
-    @mock.patch.object(db_api, 'delete_object')
+    @mock.patch.object(obj_db_api, 'delete_object')
     def test_delete(self, delete_mock):
-        obj = self._test_class(self.context, **self.db_obj)
-        self._check_equal(obj, self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
+        self._check_equal(obj, self.obj_fields[0])
         obj.delete()
-        self._check_equal(obj, self.db_obj)
+        self._check_equal(obj, self.obj_fields[0])
         delete_mock.assert_called_once_with(
             self.context, self._test_class.db_model,
-            self.db_obj[self._test_class.primary_key],
-            key=self._test_class.primary_key)
+            **obj._get_composite_keys())
 
     @mock.patch(OBJECTS_BASE_OBJ_FROM_PRIMITIVE)
     def test_clean_obj_from_primitive(self, get_prim_m):
@@ -293,10 +388,40 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
         self.assertIs(expected_obj, observed_obj)
         self.assertTrue(observed_obj.obj_reset_changes.called)
 
+    def test_update_primary_key_forbidden_fail(self):
+        obj = self._test_class(self.context, **self.db_obj)
+        obj.obj_reset_changes()
+
+        if not self._test_class.primary_keys:
+            self.skipTest(
+                'All non-updatable fields found in test class %r '
+                'are primary keys' % self._test_class)
+
+        for key, val in self.db_obj.items():
+            if key in self._test_class.primary_keys:
+                setattr(obj, key, val)
+
+        self.assertRaises(base.NeutronObjectUpdateForbidden, obj.update)
+
 
 class BaseDbObjectNonStandardPrimaryKeyTestCase(BaseObjectIfaceTestCase):
 
     _test_class = FakeNeutronObjectNonStandardPrimaryKey
+
+
+class BaseDbObjectCompositePrimaryKeyTestCase(BaseObjectIfaceTestCase):
+
+    _test_class = FakeNeutronObjectCompositePrimaryKey
+
+
+class BaseDbObjectCompositePrimaryKeyWithIdTestCase(BaseObjectIfaceTestCase):
+
+    _test_class = FakeNeutronObjectCompositePrimaryKeyWithId
+
+
+class BaseDbObjectRenamedFieldTestCase(BaseObjectIfaceTestCase):
+
+    _test_class = FakeNeutronObjectRenamedField
 
 
 class BaseDbObjectTestCase(_BaseObjectTestCase):
@@ -304,71 +429,80 @@ class BaseDbObjectTestCase(_BaseObjectTestCase):
     def _create_test_network(self):
         # TODO(ihrachys): replace with network.create() once we get an object
         # implementation for networks
-        self._network = db_api.create_object(self.context, models_v2.Network,
-                                             {'name': 'test-network1'})
+        self._network = obj_db_api.create_object(self.context,
+                                                 models_v2.Network,
+                                                 {'name': 'test-network1'})
 
     def _create_test_port(self, network):
         # TODO(ihrachys): replace with port.create() once we get an object
         # implementation for ports
-        self._port = db_api.create_object(self.context, models_v2.Port,
-                                          {'tenant_id': 'fake_tenant_id',
-                                           'name': 'test-port1',
-                                           'network_id': network['id'],
-                                           'mac_address': 'fake_mac',
-                                           'admin_state_up': True,
-                                           'status': 'ACTIVE',
-                                           'device_id': 'fake_device',
-                                           'device_owner': 'fake_owner'})
+        self._port = obj_db_api.create_object(self.context, models_v2.Port,
+                                              {'tenant_id': 'fake_tenant_id',
+                                               'name': 'test-port1',
+                                               'network_id': network['id'],
+                                               'mac_address': 'fake_mac',
+                                               'admin_state_up': True,
+                                               'status': 'ACTIVE',
+                                               'device_id': 'fake_device',
+                                               'device_owner': 'fake_owner'})
 
-    def test_get_by_id_create_update_delete(self):
-        obj = self._test_class(self.context, **self.db_obj)
+    def test_get_object_create_update_delete(self):
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.create()
 
-        new = self._test_class.get_by_id(self.context,
-                                         id=getattr(obj, obj.primary_key))
+        new = self._test_class.get_object(self.context,
+            **obj._get_composite_keys())
         self.assertEqual(obj, new)
 
         obj = new
 
-        for key, val in self.get_updatable_fields(self.db_objs[1]).items():
+        for key, val in self.get_updatable_fields(self.obj_fields[1]).items():
             setattr(obj, key, val)
         obj.update()
 
-        new = self._test_class.get_by_id(self.context,
-                                         getattr(obj, obj.primary_key))
+        new = self._test_class.get_object(self.context,
+            **obj._get_composite_keys())
         self.assertEqual(obj, new)
 
         obj = new
         new.delete()
 
-        new = self._test_class.get_by_id(self.context,
-                                         getattr(obj, obj.primary_key))
+        new = self._test_class.get_object(self.context,
+                                          **obj._get_composite_keys())
         self.assertIsNone(new)
 
     def test_update_non_existent_object_raises_not_found(self):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.obj_reset_changes()
 
-        for key, val in self.get_updatable_fields(self.db_obj).items():
+        fields_to_update = self.get_updatable_fields(self.obj_fields[0])
+        if not fields_to_update:
+            self.skipTest('No updatable fields found in test class %r' %
+                          self._test_class)
+        for key, val in fields_to_update.items():
             setattr(obj, key, val)
 
         self.assertRaises(n_exc.ObjectNotFound, obj.update)
 
     def test_delete_non_existent_object_raises_not_found(self):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
         self.assertRaises(n_exc.ObjectNotFound, obj.delete)
 
     @mock.patch(SQLALCHEMY_COMMIT)
     def test_create_single_transaction(self, mock_commit):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.create()
         self.assertEqual(1, mock_commit.call_count)
 
     def test_update_single_transaction(self):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.create()
 
-        for key, val in self.get_updatable_fields(self.db_obj).items():
+        fields_to_update = self.get_updatable_fields(self.obj_fields[1])
+        if not fields_to_update:
+            self.skipTest('No updatable fields found in test class %r' %
+                          self._test_class)
+        for key, val in fields_to_update.items():
             setattr(obj, key, val)
 
         with mock.patch(SQLALCHEMY_COMMIT) as mock_commit:
@@ -376,7 +510,7 @@ class BaseDbObjectTestCase(_BaseObjectTestCase):
         self.assertEqual(1, mock_commit.call_count)
 
     def test_delete_single_transaction(self):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.create()
 
         with mock.patch(SQLALCHEMY_COMMIT) as mock_commit:
@@ -389,10 +523,10 @@ class BaseDbObjectTestCase(_BaseObjectTestCase):
         self.assertEqual(1, mock_commit.call_count)
 
     @mock.patch(SQLALCHEMY_COMMIT)
-    def test_get_by_id_single_transaction(self, mock_commit):
-        obj = self._test_class(self.context, **self.db_obj)
+    def test_get_object_single_transaction(self, mock_commit):
+        obj = self._test_class(self.context, **self.obj_fields[0])
         obj.create()
 
-        obj = self._test_class.get_by_id(self.context,
-                                         getattr(obj, obj.primary_key))
+        obj = self._test_class.get_object(self.context,
+                                          **obj._get_composite_keys())
         self.assertEqual(2, mock_commit.call_count)

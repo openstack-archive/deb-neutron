@@ -20,6 +20,7 @@ from pecan import hooks
 
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.common import constants
+from neutron.common import rpc as n_rpc
 from neutron import manager
 from neutron.pecan_wsgi import constants as pecan_constants
 
@@ -29,9 +30,20 @@ LOG = log.getLogger(__name__)
 class NotifierHook(hooks.PecanHook):
     priority = 135
 
-    # TODO(kevinbenton): implement
-    # ceilo notifier
-    # nova notifier
+    @property
+    def _notifier(self):
+        if not hasattr(self, '_notifier_inst'):
+            self._notifier_inst = n_rpc.get_notifier('network')
+        return self._notifier_inst
+
+    def _nova_notify(self, action, resource, *args):
+        action_resource = '%s_%s' % (action, resource)
+        if not hasattr(self, '_nova_notifier'):
+            # this is scoped to avoid a dependency on nova client when nova
+            # notifications aren't enabled
+            from neutron.notifiers import nova
+            self._nova_notifier = nova.Notifier()
+        self._nova_notifier.send_network_change(action_resource, *args)
 
     def _notify_dhcp_agent(self, context, resource_name, action, resources):
         plugin = manager.NeutronManager.get_plugin_for_resource(resource_name)
@@ -47,6 +59,26 @@ class NotifierHook(hooks.PecanHook):
             item = {resource_name: resource}
             LOG.debug("Sending DHCP agent notification for: %s", item)
             dhcp_agent_notifier.notify(context, item, notifier_method)
+
+    def before(self, state):
+        if state.request.method not in ('POST', 'PUT', 'DELETE'):
+            return
+        resource = state.request.context.get('resource')
+        if not resource:
+            return
+        action = pecan_constants.ACTION_MAP.get(state.request.method)
+        event = '%s.%s.start' % (resource, action)
+        if action in ('create', 'update'):
+            # notifier just gets plain old body without any treatment other
+            # than the population of the object ID being operated on
+            payload = state.request.json.copy()
+            if action == 'update':
+                payload['id'] = state.request.context.get('resource_id')
+        elif action == 'delete':
+            resource_id = state.request.context.get('resource_id')
+            payload = {resource + '_id': resource_id}
+        self._notifier.info(state.request.context.get('neutron_context'),
+                            event, payload)
 
     def after(self, state):
         # if the after hook is executed the request completed successfully and
@@ -67,23 +99,59 @@ class NotifierHook(hooks.PecanHook):
             # The object has been deleted, so we must notify the agent with the
             # data of the original object
             data = {collection_name:
-                    state.request.context.get('request_resources', [])}
+                    state.request.context.get('original_resources', [])}
         else:
             try:
                 data = jsonutils.loads(state.response.body)
             except ValueError:
                 if not state.response.body:
                     data = {}
-        # Send a notification only if a resource can be identified in the
-        # response. This means that for operations such as add_router_interface
-        # no notification will be sent
-        if cfg.CONF.dhcp_agent_notification and data:
-            resources = []
+        resources = []
+        if data:
             if resource_name in data:
                 resources = [data[resource_name]]
             elif collection_name in data:
                 # This was a bulk request
                 resources = data[collection_name]
+        # Send a notification only if a resource can be identified in the
+        # response. This means that for operations such as add_router_interface
+        # no notification will be sent
+        if cfg.CONF.dhcp_agent_notification and data:
             self._notify_dhcp_agent(
                 neutron_context, resource_name,
                 action, resources)
+
+        if cfg.CONF.notify_nova_on_port_data_changes:
+            orig = {}
+            if action == 'update':
+                orig = state.request.context.get('original_resources')[0]
+            elif action == 'delete':
+                # NOTE(kevinbenton): the nova notifier is a bit strange because
+                # it expects the original to be in the last argument on a
+                # delete rather than in the 'original_obj' position
+                resources = (
+                    state.request.context.get('original_resources') or [])
+            for resource in resources:
+                self._nova_notify(action, resource_name, orig,
+                                  {resource_name: resource})
+
+        event = '%s.%s.end' % (resource_name, action)
+        if action == 'delete':
+            if state.response.status_int > 300:
+                # don't notify when unsuccessful
+                # NOTE(kevinbenton): we may want to be more strict with the
+                # response codes
+                return
+            resource_id = state.request.context.get('resource_id')
+            payload = {resource_name + '_id': resource_id}
+        elif action in ('create', 'update'):
+            if not resources:
+                # create/update did not complete so no notification
+                return
+            if len(resources) > 1:
+                payload = {collection_name: resources}
+            else:
+                payload = {resource_name: resources[0]}
+        else:
+            return
+        self._notifier.info(neutron_context, event, payload)

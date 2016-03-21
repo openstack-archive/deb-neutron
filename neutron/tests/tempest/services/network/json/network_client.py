@@ -14,13 +14,13 @@ import time
 
 from oslo_serialization import jsonutils as json
 from six.moves.urllib import parse as urlparse
-from tempest.common import service_client
+from tempest.lib.common import rest_client as service_client
 from tempest.lib import exceptions as lib_exc
 
 from neutron.tests.tempest import exceptions
 
 
-class NetworkClientJSON(service_client.ServiceClient):
+class NetworkClientJSON(service_client.RestClient):
 
     """
     Tempest REST client for Neutron. Uses v2 of the Neutron API, since the
@@ -43,8 +43,7 @@ class NetworkClientJSON(service_client.ServiceClient):
 
         # The following list represents resource names that do not require
         # changing underscore to a hyphen
-        hyphen_exceptions = [
-            "firewall_rules", "firewall_policies", "service_profiles"]
+        hyphen_exceptions = ["service_profiles"]
         # the following map is used to construct proper URI
         # for the given neutron resource
         service_resource_prefix_map = {
@@ -56,9 +55,6 @@ class NetworkClientJSON(service_client.ServiceClient):
             'ports': '',
             'metering_labels': 'metering',
             'metering_label_rules': 'metering',
-            'firewall_rules': 'fw',
-            'firewall_policies': 'fw',
-            'firewalls': 'fw',
             'policies': 'qos',
             'bandwidth_limit_rules': 'qos',
             'rule_types': 'qos',
@@ -84,7 +80,6 @@ class NetworkClientJSON(service_client.ServiceClient):
             'security_groups': 'security_groups',
             'security_group_rules': 'security_group_rules',
             'quotas': 'quotas',
-            'firewall_policy': 'firewall_policies',
             'qos_policy': 'policies',
             'rbac_policy': 'rbac_policies',
         }
@@ -320,6 +315,22 @@ class NetworkClientJSON(service_client.ServiceClient):
         body = json.loads(body)
         return service_client.ResponseBody(resp, body)
 
+    def get_bgp_advertised_routes(self, bgp_speaker_id):
+        base_uri = '%s/bgp-speakers/%s/get_advertised_routes'
+        uri = base_uri % (self.uri_prefix, bgp_speaker_id)
+        resp, body = self.get(uri)
+        body = {'advertised_routes': self.deserialize_list(body)}
+        self.expected_success(200, resp.status)
+        return service_client.ResponseBody(resp, body)
+
+    def get_bgp_router_routes(self, router_id):
+        base_uri = '%s/router-routes/%s'
+        uri = base_uri % (self.uri_prefix, router_id)
+        resp, body = self.get(uri)
+        body = self.deserialize_list(body)
+        self.expected_success(200, resp.status)
+        return service_client.ResponseBody(resp, body)
+
     # Common methods that are hard to automate
     def create_bulk_network(self, names, shared=False):
         network_list = [{'name': name, 'shared': shared} for name in names]
@@ -423,6 +434,8 @@ class NetworkClientJSON(service_client.ServiceClient):
         update_body['name'] = kwargs.get('name', body['router']['name'])
         update_body['admin_state_up'] = kwargs.get(
             'admin_state_up', body['router']['admin_state_up'])
+        if 'description' in kwargs:
+            update_body['description'] = kwargs['description']
         cur_gw_info = body['router']['external_gateway_info']
         if cur_gw_info:
             # TODO(kevinbenton): setting the external gateway info is not
@@ -605,33 +618,6 @@ class NetworkClientJSON(service_client.ServiceClient):
         uri = '%s/agents/%s/dhcp-networks' % (self.uri_prefix, agent_id)
         resp, body = self.post(uri, body)
         self.expected_success(201, resp.status)
-        body = json.loads(body)
-        return service_client.ResponseBody(resp, body)
-
-    def insert_firewall_rule_in_policy(self, firewall_policy_id,
-                                       firewall_rule_id, insert_after="",
-                                       insert_before=""):
-        uri = '%s/fw/firewall_policies/%s/insert_rule' % (self.uri_prefix,
-                                                          firewall_policy_id)
-        body = {
-            "firewall_rule_id": firewall_rule_id,
-            "insert_after": insert_after,
-            "insert_before": insert_before
-        }
-        body = json.dumps(body)
-        resp, body = self.put(uri, body)
-        self.expected_success(200, resp.status)
-        body = json.loads(body)
-        return service_client.ResponseBody(resp, body)
-
-    def remove_firewall_rule_from_policy(self, firewall_policy_id,
-                                         firewall_rule_id):
-        uri = '%s/fw/firewall_policies/%s/remove_rule' % (self.uri_prefix,
-                                                          firewall_policy_id)
-        update_body = {"firewall_rule_id": firewall_rule_id}
-        update_body = json.dumps(update_body)
-        resp, body = self.put(uri, update_body)
-        self.expected_success(200, resp.status)
         body = json.loads(body)
         return service_client.ResponseBody(resp, body)
 

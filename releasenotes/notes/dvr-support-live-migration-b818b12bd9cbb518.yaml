@@ -1,0 +1,14 @@
+---
+prelude: >
+    Improve DVR's resiliency during Nova VM live
+    migration events.
+fixes:
+  - Create DVR router namespaces pro-actively on the
+    destination node during live migration events. This
+    helps minimize packet loss to floating IP traffic.
+issues:
+  - More synchronization between Nova and Neutron is needed
+    to properly handle live migration failures on either
+    side. For instance, if live migration is reverted or
+    canceled, some dangling Neutron resources may be left
+    on the destination host.

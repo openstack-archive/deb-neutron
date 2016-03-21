@@ -298,7 +298,8 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                 'cidr': str(detail.subnet_cidr),
                 'subnetpool_id': subnetpool_id,
                 'enable_dhcp': subnet['enable_dhcp'],
-                'gateway_ip': gateway_ip}
+                'gateway_ip': gateway_ip,
+                'description': subnet.get('description')}
         if subnet['ip_version'] == 6 and subnet['enable_dhcp']:
             if attributes.is_attr_set(subnet['ipv6_ra_mode']):
                 args['ipv6_ra_mode'] = subnet['ipv6_ra_mode']
@@ -311,3 +312,11 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
         return [{'subnet_id': ip["subnet_id"],
                  'ip_address': ip["ip_address"]}
                 for ip in ips]
+
+    def _port_filter_hook(self, context, original_model, conditions):
+        # Apply the port filter only in non-admin and non-advsvc context
+        if self.model_query_scope(context, original_model):
+            conditions |= (
+                (context.tenant_id == models_v2.Network.tenant_id) &
+                (models_v2.Network.id == models_v2.Port.network_id))
+        return conditions

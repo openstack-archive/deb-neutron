@@ -104,9 +104,9 @@ class DhcpRpcCallback(object):
                     else:
                         ctxt.reraise = True
                 net_id = port['port']['network_id']
-                LOG.warn(_LW("Action %(action)s for network %(net_id)s "
-                             "could not complete successfully: %(reason)s"),
-                         {"action": action, "net_id": net_id, 'reason': e})
+                LOG.warning(_LW("Action %(action)s for network %(net_id)s "
+                                "could not complete successfully: %(reason)s"),
+                            {"action": action, "net_id": net_id, 'reason': e})
 
     def get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active network ids."""
@@ -156,8 +156,8 @@ class DhcpRpcCallback(object):
         try:
             network = plugin.get_network(context, network_id)
         except n_exc.NetworkNotFound:
-            LOG.warn(_LW("Network %s could not be found, it might have "
-                         "been deleted concurrently."), network_id)
+            LOG.debug("Network %s could not be found, it might have "
+                      "been deleted concurrently.", network_id)
             return
         filters = dict(network_id=[network_id])
         network['subnets'] = plugin.get_subnets(context, filters=filters)

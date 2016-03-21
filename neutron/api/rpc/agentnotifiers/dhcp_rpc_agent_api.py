@@ -18,6 +18,9 @@ from oslo_log import log as logging
 import oslo_messaging
 
 from neutron._i18n import _LE, _LW
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
@@ -51,6 +54,11 @@ class DhcpAgentNotifyAPI(object):
         self._plugin = plugin
         target = oslo_messaging.Target(topic=topic, version='1.0')
         self.client = n_rpc.get_client(target)
+        # register callbacks for router interface changes
+        registry.subscribe(self._after_router_interface_created,
+                           resources.ROUTER_INTERFACE, events.AFTER_CREATE)
+        registry.subscribe(self._after_router_interface_deleted,
+                           resources.ROUTER_INTERFACE, events.AFTER_DELETE)
 
     @property
     def plugin(self):
@@ -70,9 +78,10 @@ class DhcpAgentNotifyAPI(object):
                     context, 'network_create_end',
                     {'network': {'id': network['id']}}, agent['host'])
         elif not existing_agents:
-            LOG.warn(_LW('Unable to schedule network %s: no agents available; '
-                         'will retry on subsequent port and subnet creation '
-                         'events.'), network['id'])
+            LOG.warning(_LW('Unable to schedule network %s: no agents '
+                            'available; will retry on subsequent port '
+                            'and subnet creation events.'),
+                        network['id'])
         return new_agents + existing_agents
 
     def _get_enabled_agents(self, context, network, agents, method, payload):
@@ -87,12 +96,13 @@ class DhcpAgentNotifyAPI(object):
         len_enabled_agents = len(enabled_agents)
         len_active_agents = len(active_agents)
         if len_active_agents < len_enabled_agents:
-            LOG.warn(_LW("Only %(active)d of %(total)d DHCP agents associated "
-                         "with network '%(net_id)s' are marked as active, so "
-                         "notifications may be sent to inactive agents."),
-                     {'active': len_active_agents,
-                      'total': len_enabled_agents,
-                      'net_id': network_id})
+            LOG.warning(_LW("Only %(active)d of %(total)d DHCP agents "
+                            "associated with network '%(net_id)s' "
+                            "are marked as active, so notifications "
+                            "may be sent to inactive agents."),
+                        {'active': len_active_agents,
+                         'total': len_enabled_agents,
+                         'net_id': network_id})
         if not enabled_agents:
             num_ports = self.plugin.get_ports_count(
                 context, {'network_id': [network_id]})
@@ -168,6 +178,18 @@ class DhcpAgentNotifyAPI(object):
     def agent_updated(self, context, admin_state_up, host):
         self._cast_message(context, 'agent_updated',
                            {'admin_state_up': admin_state_up}, host)
+
+    def _after_router_interface_created(self, resource, event, trigger,
+                                        **kwargs):
+        self._notify_agents(kwargs['context'], 'port_create_end',
+                            {'port': kwargs['port']},
+                            kwargs['port']['network_id'])
+
+    def _after_router_interface_deleted(self, resource, event, trigger,
+                                        **kwargs):
+        self._notify_agents(kwargs['context'], 'port_delete_end',
+                            {'port_id': kwargs['port']['id']},
+                            kwargs['port']['network_id'])
 
     def notify(self, context, data, method_name):
         # data is {'key' : 'value'} with only one key

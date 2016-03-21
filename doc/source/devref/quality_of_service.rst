@@ -144,7 +144,7 @@ effort.
 
 Every NeutronObject supports the following operations:
 
-* get_by_id: returns specific object that is represented by the id passed as an
+* get_object: returns specific object that is represented by the id passed as an
   argument.
 * get_objects: returns all objects of the type, potentially with a filter
   applied.
@@ -256,20 +256,8 @@ The flow of updates is as follows:
 Agent side design
 -----------------
 
-To ease code reusability between agents and to avoid the need to patch an agent
-for each new core resource extension, pluggable L2 agent extensions were
-introduced. They can be especially interesting to third parties that don't want
-to maintain their code in Neutron tree.
-
-Extensions are meant to receive handle_port events, and do whatever they need
-with them.
-
-* neutron.agent.l2.agent_extension:
-  This module defines an abstract extension interface.
-
-* neutron.agent.l2.extensions.manager:
-  This module contains a manager that allows to register multiple extensions,
-  and passes handle_port events down to all enabled extensions.
+Reference agents implement QoS functionality using an `L2 agent extension
+<l2_agent_extensions>`_.
 
 * neutron.agent.l2.extensions.qos
   defines QoS L2 agent extension. It receives handle_port and delete_port
@@ -342,7 +330,7 @@ The ingress bandwidth limit is configured on the tap port by setting a simple
 port. It requires a value of HZ parameter configured in kernel on the host.
 This value is neccessary to calculate the minimal burst value which is set in
 tc. Details about how it is calculated can be found in
-`http://unix.stackexchange.com/a/100797`_. This solution is similar to Open
+`here <http://unix.stackexchange.com/a/100797>`_. This solution is similar to Open
 vSwitch implementation.
 
 Configuration
