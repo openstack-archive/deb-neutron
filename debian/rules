@@ -121,9 +121,9 @@ override_dh_install:
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf oslo_concurrency lock_path /var/lock/neutron
 
 	# Fix v3 auth for the [nova] section
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova auth_type v3password
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova user_domain_id default
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova project_name admin
-	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova auth_type v3password
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova auth_url http://127.0.0.1:5000/v3
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova tenant_name admin
 	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf nova username admin

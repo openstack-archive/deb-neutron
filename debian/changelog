@@ -1,9 +1,10 @@
-neutron (2:8.0.0~b3-2) UNRELEASED; urgency=medium
+neutron (2:8.0.0~rc1-1) experimental; urgency=medium
 
+  * New upstream release.
   * Fixed ryu version to 3.30, since I could upload it to Experimental after
     current maintainer agreed with team maintenance.
 
- -- Thomas Goirand <zigo@debian.org>  Wed, 09 Mar 2016 00:30:05 +0100
+ -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 14:46:45 +0100
 
 neutron (2:8.0.0~b3-1) experimental; urgency=medium
 
