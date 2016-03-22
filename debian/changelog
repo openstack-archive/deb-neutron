@@ -5,6 +5,7 @@ neutron (2:8.0.0~rc1-1) experimental; urgency=medium
     current maintainer agreed with team maintenance.
   * Added missing runtime depends: q-text-as-data.
   * Rebuild with newer oslo.config.
+  * Added Return_oslo_config_Opts_to_config_generator.patch to avoid warnings.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 14:46:45 +0100
 

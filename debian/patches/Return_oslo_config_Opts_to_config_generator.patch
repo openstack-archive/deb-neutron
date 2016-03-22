@@ -1,0 +1,35 @@
+Description: Return oslo_config Opts to config generator
+ We shouldn't be returning keystoneauth Opts to the oslo_config
+ generator. Whilst it mostly works these objects are not interchangable
+ and it can result in problems. You can see this by entries such as:
+ .
+  # Warning: Failed to format sample for tenant_name
+  # isinstance() arg 2 must be a class, type, or tuple of classes
+    and types
+ .
+ in the currently generated config files.
+ .
+ Keystoneauth provides a function that returns oslo_config options so
+ fetch, process and return those instead.
+Author: Jamie Lennox <jamielennox@gmail.com>
+Date: Mon, 14 Mar 2016 23:05:29 +0000 (+1100)
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron.git;a=commitdiff_plain;h=c3db0707eff70f381913643891ba4e148977407d
+Change-Id: Ie3fad2381467b19189cbb332c41cea8b6cf6e264
+Bug-Ubuntu: https://bugs.launchpad.net/neutron/+bug/1548433
+Origin: upstream, https://review.openstack.org/#/c/292640/
+Last-Update: 2016-03-22
+---
+
+diff --git a/neutron/opts.py b/neutron/opts.py
+index 4166811..23e4796 100644
+--- a/neutron/opts.py
++++ b/neutron/opts.py
+@@ -295,7 +295,7 @@ def list_auth_opts():
+     # the config options for a few common ones
+     plugins = ['password', 'v2password', 'v3password']
+     for name in plugins:
+-        for plugin_option in ks_loading.get_plugin_loader(name).get_options():
++        for plugin_option in ks_loading.get_auth_plugin_conf_options(name):
+             if all(option.name != plugin_option.name for option in opt_list):
+                 opt_list.append(plugin_option)
+     opt_list.sort(key=operator.attrgetter('name'))
