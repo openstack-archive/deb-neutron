@@ -75,7 +75,7 @@ Build-Depends-Indep: alembic (>= 0.8.0),
                      python-webtest,
                      subunit,
                      testrepository,
-Standards-Version: 3.9.6
+Standards-Version: 3.9.7
 Homepage: http://neutron.openstack.org/
 Vcs-Browser: https://anonscm.debian.org/cgit/openstack/neutron.git/
 Vcs-Git: https://anonscm.debian.org/git/openstack/neutron.git
