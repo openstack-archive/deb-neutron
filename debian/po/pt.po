@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2013.2-4\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2015-02-02 01:45+0100\n"
+"POT-Creation-Date: 2016-03-22 09:52+0000\n"
 "PO-Revision-Date: 2015-05-07 00:22+0100\n"
 "Last-Translator: Américo Monteiro <a_monteiro@gmx.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
@@ -404,41 +404,45 @@ msgstr "URL do servidor Nova:"
 #. Type: string
 #. Description
 #: ../neutron-common.templates:15001
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the URL of the Nova server."
 msgstr "Por favor indique o URL do servidor Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#| msgid "Auth server tenant name:"
 msgid "Nova server region name:"
 msgstr "Nome de região do servidor Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the region of the Nova server."
 msgstr "Por favor indique a região do servidor Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-msgid "Nova admin tenant ID:"
+#, fuzzy
+#| msgid "Nova admin tenant ID:"
+msgid "Nova admin tenant name:"
 msgstr "ID do \"tenant admin\" do Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
+#, fuzzy
+#| msgid ""
+#| "Neutron needs to be able to communicate with Nova through Keystone. "
+#| "Therefore Neutron needs to know the Nova admin tenant ID, username and "
+#| "password."
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
-"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"Therefore Neutron needs to know the Nova admin tenant name, username and "
 "password."
 msgstr ""
-"O Neutron precisa de ser capaz de comunicar com o Nova através do "
-"Keystone. Por isso o Neutron precisa de saber o ID tenant admin, o nome "
-"de utilizador e palavra passe do Nova."
+"O Neutron precisa de ser capaz de comunicar com o Nova através do Keystone. "
+"Por isso o Neutron precisa de saber o ID tenant admin, o nome de utilizador "
+"e palavra passe do Nova."
 
 #. Type: string
 #. Description
@@ -449,14 +453,12 @@ msgstr "Por favor indique o ID do \"tenant admin\" para o Nova."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#| msgid "Auth server username:"
 msgid "Neutron administrator username:"
 msgstr "Nome de utilizador do administrador do Neutron:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please enter the username of the Nova administrator."
 msgstr "Por favor indique o nome de utilizador do administrador do Nova."
 
@@ -469,7 +471,6 @@ msgstr "Palavra passe do administrador do Nova:"
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please enter the password of the Nova administrator."
 msgstr "Por favor indique a palavra passe do administrador do Nova."
 
@@ -644,9 +645,9 @@ msgid ""
 "through the Neutron metadata agent, which serves as a proxy to the Nova "
 "metadata REST API server."
 msgstr ""
-"As instâncias VM que usam o Neutron para lidar com a rede obtêm os seus "
-"meta-dados através do agente de meta-dados do Neutron, o qual server como "
-"um proxy para o servidor REST API de meta-dados do Nova."
+"As instâncias VM que usam o Neutron para lidar com a rede obtêm os seus meta-"
+"dados através do agente de meta-dados do Neutron, o qual server como um "
+"proxy para o servidor REST API de meta-dados do Nova."
 
 #. Type: password
 #. Description
@@ -657,9 +658,9 @@ msgid ""
 "same shared password should be used when setting up the nova-common package."
 msgstr ""
 "Por favor indique a palavra passe que deverá ser usada para proteger a "
-"comunicação entre o agente proxy de meta-dados do Neutron e o servidor "
-"de meta-dados do Nova. A mesma palavra passe partilhada deve ser usada "
-"quando configurar o pacote nova-common."
+"comunicação entre o agente proxy de meta-dados do Neutron e o servidor de "
+"meta-dados do Nova. A mesma palavra passe partilhada deve ser usada quando "
+"configurar o pacote nova-common."
 
 #~ msgid "ml2/ml2_conf.ini"
 #~ msgstr "ml2/ml2_conf.ini"

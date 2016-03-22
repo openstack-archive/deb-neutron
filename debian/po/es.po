@@ -23,7 +23,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron 2015.06.24\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2015-02-02 01:45+0100\n"
+"POT-Creation-Date: 2016-03-22 09:52+0000\n"
 "PO-Revision-Date: 2015-06-30 17:15+0200\n"
 "Last-Translator: Camaleón <noelamac@gmail.com>\n"
 "Language-Team: Debian Spanish <debian-l10n-spanish@lists.debian.org>\n"
@@ -417,36 +417,40 @@ msgstr "URL del servidor Nova:"
 #. Type: string
 #. Description
 #: ../neutron-common.templates:15001
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the URL of the Nova server."
 msgstr "Introduzca la URL del servidor Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#| msgid "Auth server tenant name:"
 msgid "Nova server region name:"
 msgstr "Nombre de la región del servidor Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:16001
-#| msgid "Please specify the IP address of that server."
 msgid "Please enter the region of the Nova server."
 msgstr "Introduzca la región del servidor Nova."
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-msgid "Nova admin tenant ID:"
+#, fuzzy
+#| msgid "Nova admin tenant ID:"
+msgid "Nova admin tenant name:"
 msgstr "ID del inquilino («tenant») administrador de Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
+#, fuzzy
+#| msgid ""
+#| "Neutron needs to be able to communicate with Nova through Keystone. "
+#| "Therefore Neutron needs to know the Nova admin tenant ID, username and "
+#| "password."
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
-"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"Therefore Neutron needs to know the Nova admin tenant name, username and "
 "password."
 msgstr ""
 "Neutron necesita poder comunicarse con Nova a través de Keystone. Por lo "
@@ -462,14 +466,12 @@ msgstr "Introduzca el ID del inquilino («tenant») administrador de Nova."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#| msgid "Auth server username:"
 msgid "Neutron administrator username:"
 msgstr "Nombre de usuario del administrador de Neutron:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:18001
-#| msgid "Please specify the username to use with the authentication server."
 msgid "Please enter the username of the Nova administrator."
 msgstr "Introduzca el nombre de usuario del administrador de Nova."
 
@@ -482,7 +484,6 @@ msgstr "Contraseña del administrador de Nova:"
 #. Type: password
 #. Description
 #: ../neutron-common.templates:19001
-#| msgid "Please specify the password to use with the authentication server."
 msgid "Please enter the password of the Nova administrator."
 msgstr "Introduzca la contraseña del administrador de Nova."
 

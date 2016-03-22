@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2015-02-02 01:45+0100\n"
+"POT-Creation-Date: 2016-03-22 09:52+0000\n"
 "PO-Revision-Date: 2014-04-21 09:44+0200\n"
 "Last-Translator: Beatrice Torracca <beatricet@libero.it>\n"
 "Language-Team: Italian <debian-l10n-italian@lists.debian.org>\n"
@@ -422,15 +422,17 @@ msgstr "Inserire l'indirizzo IP di tale server."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-msgid "Nova admin tenant ID:"
-msgstr ""
+#, fuzzy
+#| msgid "Auth server username:"
+msgid "Nova admin tenant name:"
+msgstr "Nome utente per il server di autenticazione:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
-"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"Therefore Neutron needs to know the Nova admin tenant name, username and "
 "password."
 msgstr ""
 

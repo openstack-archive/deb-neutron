@@ -1,6 +1,6 @@
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
+# This file is distributed under the same license as the neutron package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
 #, fuzzy
@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2015-02-02 01:45+0100\n"
+"POT-Creation-Date: 2016-03-22 09:52+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -382,7 +382,7 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-msgid "Nova admin tenant ID:"
+msgid "Nova admin tenant name:"
 msgstr ""
 
 #. Type: string
@@ -390,7 +390,7 @@ msgstr ""
 #: ../neutron-common.templates:17001
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
-"Therefore Neutron needs to know the Nova admin tenant ID, username and "
+"Therefore Neutron needs to know the Nova admin tenant name, username and "
 "password."
 msgstr ""
 

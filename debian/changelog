@@ -7,6 +7,7 @@ neutron (2:8.0.0~rc1-1) experimental; urgency=medium
   * Rebuild with newer oslo.config.
   * Added Return_oslo_config_Opts_to_config_generator.patch to avoid warnings.
   * Standards-Version: 3.9.7 (no change).
+  * Ran debconf-updatepo.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 21 Mar 2016 14:46:45 +0100
 
