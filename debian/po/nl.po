@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-22 09:52+0000\n"
+"POT-Creation-Date: 2016-03-29 13:50+0000\n"
 "PO-Revision-Date: 2015-08-29 21:25+0200\n"
 "Last-Translator: Frans Spiesschaert <Frans.Spiesschaert@yucom.be>\n"
 "Language-Team: Debian Dutch l10n Team <debian-l10n-dutch@lists.debian.org>\n"
@@ -500,9 +500,14 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
+#, fuzzy
+#| msgid ""
+#| "Note that you will need to have an up and running Keystone server on "
+#| "which to connect using the Keystone authentication token."
 msgid ""
 "Note that you will need to have an up and running Keystone server on which "
-"to connect using the Keystone authentication token."
+"to connect using a known admin project name, admin username and password. "
+"The admin auth token is not used anymore."
 msgstr ""
 "Merk op dat u een functionerende Keystone-server moet hebben, waarmee u "
 "verbinding kunt maken met behulp van het legitimatiebewijs voor Keystone."
@@ -524,37 +529,58 @@ msgstr ""
 "Keystone kan contacteren om de Neutrondienst en het toegangspunt aan te "
 "maken."
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../neutron-server.templates:4001
-msgid "Keystone authentication token:"
-msgstr "Legitimatiebewijs voor Keystone:"
+#, fuzzy
+#| msgid "Neutron administrator username:"
+msgid "Keystone admin name:"
+msgstr "Gebruikersnaam van de beheerder van Neutron:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../neutron-server.templates:4001
+#: ../neutron-server.templates:4001 ../neutron-server.templates:5001
+#: ../neutron-server.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, neutron-server needs the Keystone "
-"auth token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
-"Om zijn toegangspunt in Keystone te kunnen aanmaken, heeft neutron-server "
-"het legitimatiebewijs voor Keystone nodig."
 
 #. Type: string
 #. Description
 #: ../neutron-server.templates:5001
+#, fuzzy
+#| msgid "Nova admin tenant ID:"
+msgid "Keystone admin project name:"
+msgstr "ID van de clientruimte (tenant) van de beheerder van Nova:"
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:6001
+#, fuzzy
+#| msgid "Nova administrator password:"
+msgid "Keystone admin password:"
+msgstr "Wachtwoord van de Nova-beheerder:"
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:7001
 msgid "Neutron endpoint IP address:"
 msgstr "IP-adres van het toegangspunt van Neutron:"
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:5001
+#: ../neutron-server.templates:7001
 msgid "Please enter the IP address that will be used to contact Neutron."
 msgstr "Geef op welk IP-adres gebruikt zal worden om Neutron te contacteren."
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:5001
+#: ../neutron-server.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -566,13 +592,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:6001
+#: ../neutron-server.templates:8001
 msgid "Name of the region to register:"
 msgstr "Naam van de registratieregio:"
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:6001
+#: ../neutron-server.templates:8001
 msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
@@ -664,6 +690,16 @@ msgstr ""
 "communicatie te beveiligen tussen de proxy-agent voor metagegevens van "
 "Neutron en de server voor metagegevens van Nova. Hetzelfde gedeelde "
 "wachtwoord moet gebruikt worden bij het instellen van het pakket nova-common."
+
+#~ msgid "Keystone authentication token:"
+#~ msgstr "Legitimatiebewijs voor Keystone:"
+
+#~ msgid ""
+#~ "To configure its endpoint in Keystone, neutron-server needs the Keystone "
+#~ "auth token."
+#~ msgstr ""
+#~ "Om zijn toegangspunt in Keystone te kunnen aanmaken, heeft neutron-server "
+#~ "het legitimatiebewijs voor Keystone nodig."
 
 #~ msgid "ml2/ml2_conf.ini"
 #~ msgstr "ml2/ml2_conf.ini"

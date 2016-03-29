@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-22 09:52+0000\n"
+"POT-Creation-Date: 2016-03-29 13:50+0000\n"
 "PO-Revision-Date: 2015-05-31 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
@@ -488,9 +488,14 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
+#, fuzzy
+#| msgid ""
+#| "Note that you will need to have an up and running Keystone server on "
+#| "which to connect using the Keystone authentication token."
 msgid ""
 "Note that you will need to have an up and running Keystone server on which "
-"to connect using the Keystone authentication token."
+"to connect using a known admin project name, admin username and password. "
+"The admin auth token is not used anymore."
 msgstr ""
 "Bemærk at du skal have en fungerende Keystone-server at forbinde til via "
 "Keystones godkendelsessymbol."
@@ -511,37 +516,58 @@ msgstr ""
 "Angiv IP-adressen for din Keystone-server, så at neutron-api kan kontakte "
 "Keystone for at udføre Neutron-tjenesten og slutpunktsoprettelse."
 
-#. Type: password
+#. Type: string
 #. Description
 #: ../neutron-server.templates:4001
-msgid "Keystone authentication token:"
-msgstr "Symbol for Keystone-godkendelse:"
+#, fuzzy
+#| msgid "Neutron administrator username:"
+msgid "Keystone admin name:"
+msgstr "Neutron-administratorbrugernavn:"
 
+#. Type: string
+#. Description
+#. Type: string
+#. Description
 #. Type: password
 #. Description
-#: ../neutron-server.templates:4001
+#: ../neutron-server.templates:4001 ../neutron-server.templates:5001
+#: ../neutron-server.templates:6001
 msgid ""
-"To configure its endpoint in Keystone, neutron-server needs the Keystone "
-"auth token."
+"To register the service endpoint, this package needs to know the Admin "
+"login, name, project name, and password to the Keystone server."
 msgstr ""
-"For at konfigurere slutpunktet i Keystone, skal neutron-server bruge "
-"Keystones godkendelsessymbol."
 
 #. Type: string
 #. Description
 #: ../neutron-server.templates:5001
+#, fuzzy
+#| msgid "Nova admin tenant ID:"
+msgid "Keystone admin project name:"
+msgstr "Tenant-id for Novaadministratoren:"
+
+#. Type: password
+#. Description
+#: ../neutron-server.templates:6001
+#, fuzzy
+#| msgid "Nova administrator password:"
+msgid "Keystone admin password:"
+msgstr "Adgangskode for Novaadministratoren:"
+
+#. Type: string
+#. Description
+#: ../neutron-server.templates:7001
 msgid "Neutron endpoint IP address:"
 msgstr "IP-adresse for Neutron-slutpunkt:"
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:5001
+#: ../neutron-server.templates:7001
 msgid "Please enter the IP address that will be used to contact Neutron."
 msgstr "Angiv IP-adressen som skal bruges til at kontakte Neutron."
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:5001
+#: ../neutron-server.templates:7001
 msgid ""
 "This IP address should be accessible from the clients that will use this "
 "service, so if you are installing a public cloud, this should be a public IP "
@@ -553,13 +579,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:6001
+#: ../neutron-server.templates:8001
 msgid "Name of the region to register:"
 msgstr "Regionsnavn at registrere:"
 
 #. Type: string
 #. Description
-#: ../neutron-server.templates:6001
+#: ../neutron-server.templates:8001
 msgid ""
 "OpenStack supports using availability zones, with each region representing a "
 "location. Please enter the zone that you wish to use when registering the "
@@ -649,3 +675,13 @@ msgstr ""
 "Indtast venligst adgangskoden som skal bruges til at beskytte kommunikation "
 "mellem Neutron metadata proxy-agenten og Nova metadata-serveren. Den samme "
 "delte adgangskode skal bruges når pakken nova-common sættes op."
+
+#~ msgid "Keystone authentication token:"
+#~ msgstr "Symbol for Keystone-godkendelse:"
+
+#~ msgid ""
+#~ "To configure its endpoint in Keystone, neutron-server needs the Keystone "
+#~ "auth token."
+#~ msgstr ""
+#~ "For at konfigurere slutpunktet i Keystone, skal neutron-server bruge "
+#~ "Keystones godkendelsessymbol."
