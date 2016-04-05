@@ -29,11 +29,11 @@ import six
 from six import moves
 
 from neutron._i18n import _, _LE, _LI, _LW
+from neutron.agent.common import ip_lib
 from neutron.agent.common import ovs_lib
 from neutron.agent.common import polling
 from neutron.agent.common import utils
 from neutron.agent.l2.extensions import manager as ext_manager
-from neutron.agent.linux import ip_lib
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.callbacks import resources
@@ -1148,9 +1148,9 @@ class OVSNeutronAgent(sg_rpc.SecurityGroupAgentRpcCallbackMixin,
             else:
                 # associate patch ports to pass traffic
                 self.int_br.set_db_attribute('Interface', int_if_name,
-                                             'options:peer', phys_if_name)
+                                             'options', {'peer': phys_if_name})
                 br.set_db_attribute('Interface', phys_if_name,
-                                    'options:peer', int_if_name)
+                                    'options', {'peer': int_if_name})
 
     def update_stale_ofport_rules(self):
         # right now the ARP spoofing rules are the only thing that utilizes

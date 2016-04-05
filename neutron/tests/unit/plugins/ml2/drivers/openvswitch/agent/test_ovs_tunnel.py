@@ -21,8 +21,8 @@ from oslo_config import cfg
 from oslo_log import log
 import six
 
+from neutron.agent.common import ip_lib
 from neutron.agent.common import ovs_lib
-from neutron.agent.linux import ip_lib
 from neutron.common import constants as n_const
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants
@@ -203,13 +203,13 @@ class TunnelTest(object):
             mock.call.drop_port(in_port=self.MAP_TUN_INT_OFPORT),
             mock.call.set_db_attribute(
                 'Interface', 'int-%s' % self.MAP_TUN_BRIDGE,
-                'options:peer', 'phy-%s' % self.MAP_TUN_BRIDGE),
+                'options', {'peer': 'phy-%s' % self.MAP_TUN_BRIDGE}),
         ]
         self.mock_map_tun_bridge_expected += [
             mock.call.drop_port(in_port=self.MAP_TUN_PHY_OFPORT),
             mock.call.set_db_attribute(
                 'Interface', 'phy-%s' % self.MAP_TUN_BRIDGE,
-                'options:peer', 'int-%s' % self.MAP_TUN_BRIDGE),
+                'options', {'peer': 'int-%s' % self.MAP_TUN_BRIDGE}),
         ]
 
         self.mock_tun_bridge_expected = [
