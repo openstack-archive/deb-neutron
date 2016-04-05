@@ -32,6 +32,9 @@ Copyright: (c) 2011-2016, OpenStack Foundation <openstack-dev@lists.openstack.or
            (c) 2015, Taturiello Consulting, Meh.
            (c) 2001-2010, Twisted Matrix Laboratories.
            (c) 2012, Locaweb.
+           (c) 2010-2013, US Government as represented by the Administrator of NASA
+           (c) 2014, Cloudbase Solutions SRL
+           (c) 2014, NEC Corporation
 License: Apache-2.0
 
 Files: debian/*
