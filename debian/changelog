@@ -1,3 +1,9 @@
+neutron (2:8.0.0-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 07 Apr 2016 18:29:42 +0200
+
 neutron (2:8.0.0~rc3-1) unstable; urgency=medium
 
   * New upstream release.
