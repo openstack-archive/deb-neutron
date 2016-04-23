@@ -2,13 +2,13 @@
 # Copyright (C) 2013 THE neutron'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the neutron package.
 #
-# Américo Monteiro <a_monteiro@gmx.com>, 2013, 2015.
+# Américo Monteiro <a_monteiro@gmx.com>, 2013 - 2016.
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 2013.2-4\n"
+"Project-Id-Version: neutron 2.8.0.0-1\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
 "POT-Creation-Date: 2016-03-29 13:50+0000\n"
-"PO-Revision-Date: 2015-05-07 00:22+0100\n"
+"PO-Revision-Date: 2016-04-15 00:52+0100\n"
 "Last-Translator: Américo Monteiro <a_monteiro@gmx.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
 "Language: pt\n"
@@ -422,15 +422,13 @@ msgstr "Por favor indique a região do servidor Nova."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#, fuzzy
 #| msgid "Nova admin tenant ID:"
 msgid "Nova admin tenant name:"
-msgstr "ID do \"tenant admin\" do Nova:"
+msgstr "Nome \"tenant\" do administrador do Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#, fuzzy
 #| msgid ""
 #| "Neutron needs to be able to communicate with Nova through Keystone. "
 #| "Therefore Neutron needs to know the Nova admin tenant ID, username and "
@@ -441,7 +439,7 @@ msgid ""
 "password."
 msgstr ""
 "O Neutron precisa de ser capaz de comunicar com o Nova através do Keystone. "
-"Por isso o Neutron precisa de saber o ID tenant admin, o nome de utilizador "
+"Por isso o Neutron precisa de saber o nome tenant admin, o nome de utilizador "
 "e palavra passe do Nova."
 
 #. Type: string
@@ -495,7 +493,6 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
-#, fuzzy
 #| msgid ""
 #| "Note that you will need to have an up and running Keystone server on "
 #| "which to connect using the Keystone authentication token."
@@ -505,7 +502,8 @@ msgid ""
 "The admin auth token is not used anymore."
 msgstr ""
 "Note que irá precisar de ter um servidor Keystone a funcionar no qual ligar "
-"usando o sinal de autenticação do Keystone."
+"usando um nome de projecto admin conhecido, nome de utilizador e palavra "
+"passe admin. O token de autenticação admin não é mais utilizado."
 
 #. Type: string
 #. Description
@@ -527,10 +525,9 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-server.templates:4001
-#, fuzzy
 #| msgid "Neutron administrator username:"
 msgid "Keystone admin name:"
-msgstr "Nome de utilizador do administrador do Neutron:"
+msgstr "Nome de administrador do Keystone:"
 
 #. Type: string
 #. Description
@@ -544,22 +541,22 @@ msgid ""
 "To register the service endpoint, this package needs to know the Admin "
 "login, name, project name, and password to the Keystone server."
 msgstr ""
+"Para registar o endpoint do serviço, este pacote precisa de saber o login de "
+"Admin, o nome, nome do projecto e palavra passe para o servidor Keystone."
 
 #. Type: string
 #. Description
 #: ../neutron-server.templates:5001
-#, fuzzy
 #| msgid "Nova admin tenant ID:"
 msgid "Keystone admin project name:"
-msgstr "ID do \"tenant admin\" do Nova:"
+msgstr "Nome do projecto admin do Keystone:"
 
 #. Type: password
 #. Description
 #: ../neutron-server.templates:6001
-#, fuzzy
 #| msgid "Nova administrator password:"
 msgid "Keystone admin password:"
-msgstr "Palavra passe do administrador do Nova:"
+msgstr "Palavra passe admin do Keystone:"
 
 #. Type: string
 #. Description
