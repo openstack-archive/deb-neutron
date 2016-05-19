@@ -7,6 +7,9 @@ neutron (2:8.0.0-2) UNRELEASED; urgency=medium
   * Updated Portuguese translation for debconf messages (Closes: #821050).
   * Updated Dutch translation for debconf messages (Closes: #822965).
 
+  [ Ondřej Nový ]
+  * d/copyright: Changed source URL to https protocol
+
  -- Thomas Goirand <zigo@debian.org>  Thu, 19 May 2016 11:22:30 +0200
 
 neutron (2:8.0.0-1) unstable; urgency=medium
