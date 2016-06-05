@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-29 13:50+0000\n"
+"POT-Creation-Date: 2016-06-06 00:25+0200\n"
 "PO-Revision-Date: 2014-01-09 10:22+0100\n"
 "Last-Translator: Martin Bagge / brother <brother@bsnet.se>\n"
 "Language-Team: Swedish <debian-l10n-swedish@lists.debian.org>\n"
@@ -49,13 +49,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Authentication server username:"
 msgstr "Användarnamn på identifieringsservern:"
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
 "Ange användarnamnet som ska användas för att komma åt identifieringsservern."
@@ -68,7 +68,7 @@ msgstr "Lösenord på identifieringsservern:"
 
 #. Type: password
 #. Description
-#: ../neutron-common.templates:5001
+#: ../neutron-common.templates:5001 ../neutron-metadata-agent.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
 "Ange lösenordet som ska användas för att komma åt identifieringsservern."
@@ -619,12 +619,6 @@ msgstr ""
 msgid "Auth server tenant name:"
 msgstr "Namn för \"tenant\" (administratör) på identifieringsservern:"
 
-#. Type: string
-#. Description
-#: ../neutron-metadata-agent.templates:4001
-msgid "Auth server username:"
-msgstr "Användarnamn på identifieringsservern:"
-
 #. Type: password
 #. Description
 #: ../neutron-metadata-agent.templates:5001
@@ -671,6 +665,9 @@ msgid ""
 "between the Neutron metadata proxy agent and the Nova metadata server. The "
 "same shared password should be used when setting up the nova-common package."
 msgstr ""
+
+#~ msgid "Auth server username:"
+#~ msgstr "Användarnamn på identifieringsservern:"
 
 #~ msgid "Keystone authentication token:"
 #~ msgstr "Autetiseringsvärde för Keystone:"

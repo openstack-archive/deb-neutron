@@ -22,11 +22,13 @@ _Description: Auth server tenant name:
 Template: neutron-metadata/admin-user
 Type: string
 Default: admin
-_Description: Auth server username:
+_Description: Authentication server username:
+ Please specify the username to use with the authentication server.
 
 Template: neutron-metadata/admin-password
 Type: password
 _Description: Auth server password:
+ Please specify the password to use with the authentication server.
 
 Template: neutron-metadata/region-name
 Type: string

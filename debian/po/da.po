@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-29 13:50+0000\n"
+"POT-Creation-Date: 2016-06-06 00:25+0200\n"
 "PO-Revision-Date: 2015-05-31 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
@@ -48,13 +48,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Authentication server username:"
 msgstr "Brugernavn for godkendelsesserveren:"
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr "Angiv venligst brugernavnet der skal bruges med godkendelsesserveren."
 
@@ -66,7 +66,7 @@ msgstr "Adgangskode for godkendelsesserveren:"
 
 #. Type: password
 #. Description
-#: ../neutron-common.templates:5001
+#: ../neutron-common.templates:5001 ../neutron-metadata-agent.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr "Angiv venligst adgangskoden for brug med godkendelsesserveren."
 
@@ -617,12 +617,6 @@ msgstr ""
 msgid "Auth server tenant name:"
 msgstr "»Tenant«-navn for godkendelseserver:"
 
-#. Type: string
-#. Description
-#: ../neutron-metadata-agent.templates:4001
-msgid "Auth server username:"
-msgstr "Brugernavn for godkendelsesserver:"
-
 #. Type: password
 #. Description
 #: ../neutron-metadata-agent.templates:5001
@@ -675,6 +669,9 @@ msgstr ""
 "Indtast venligst adgangskoden som skal bruges til at beskytte kommunikation "
 "mellem Neutron metadata proxy-agenten og Nova metadata-serveren. Den samme "
 "delte adgangskode skal bruges når pakken nova-common sættes op."
+
+#~ msgid "Auth server username:"
+#~ msgstr "Brugernavn for godkendelsesserver:"
 
 #~ msgid "Keystone authentication token:"
 #~ msgstr "Symbol for Keystone-godkendelse:"

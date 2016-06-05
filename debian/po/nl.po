@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron_2_8.0.0-1\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-29 13:50+0000\n"
+"POT-Creation-Date: 2016-06-06 00:25+0200\n"
 "PO-Revision-Date: 2016-04-19 15:57+0200\n"
 "Last-Translator: Frans Spiesschaert <Frans.Spiesschaert@yucom.be>\n"
 "Language-Team: Debian Dutch l10n Team <debian-l10n-dutch@lists.debian.org>\n"
@@ -49,13 +49,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Authentication server username:"
 msgstr "Gebruikersnaam op de authenticatieserver:"
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
 "Geef de gebruikersnaam op die op de authenticatieserver gebruikt moet worden."
@@ -68,7 +68,7 @@ msgstr "Wachtwoord op de authenticatieserver:"
 
 #. Type: password
 #. Description
-#: ../neutron-common.templates:5001
+#: ../neutron-common.templates:5001 ../neutron-metadata-agent.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
 "Geef het wachtwoord op dat op de authenticatieserver gebruikt moet worden."
@@ -425,17 +425,12 @@ msgstr "Geef de regio van de Novaserver op."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#| msgid "Nova admin tenant ID:"
 msgid "Nova admin tenant name:"
 msgstr "Naam van de cliëntruimte (tenant) voor de beheerder van Nova:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#| msgid ""
-#| "Neutron needs to be able to communicate with Nova through Keystone. "
-#| "Therefore Neutron needs to know the Nova admin tenant ID, username and "
-#| "password."
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
 "Therefore Neutron needs to know the Nova admin tenant name, username and "
@@ -496,9 +491,6 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
-#| msgid ""
-#| "Note that you will need to have an up and running Keystone server on "
-#| "which to connect using the Keystone authentication token."
 msgid ""
 "Note that you will need to have an up and running Keystone server on which "
 "to connect using a known admin project name, admin username and password. "
@@ -528,7 +520,6 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-server.templates:4001
-#| msgid "Neutron administrator username:"
 msgid "Keystone admin name:"
 msgstr "Naam van de beheerder voor Keystone:"
 
@@ -551,14 +542,12 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-server.templates:5001
-#| msgid "Nova admin tenant ID:"
 msgid "Keystone admin project name:"
 msgstr "Naam van het project van de beheerder voor Keystone:"
 
 #. Type: password
 #. Description
 #: ../neutron-server.templates:6001
-#| msgid "Nova administrator password:"
 msgid "Keystone admin password:"
 msgstr "Wachtwoord van de beheerder voor Keystone:"
 
@@ -627,12 +616,6 @@ msgstr ""
 msgid "Auth server tenant name:"
 msgstr "Naam van de cliëntruimte (tenant) op de authenticatieserver:"
 
-#. Type: string
-#. Description
-#: ../neutron-metadata-agent.templates:4001
-msgid "Auth server username:"
-msgstr "Gebruikersnaam op de authenticatieserver:"
-
 #. Type: password
 #. Description
 #: ../neutron-metadata-agent.templates:5001
@@ -687,6 +670,9 @@ msgstr ""
 "beveiligen tussen de proxy-agent voor metagegevens van Neutron en de server "
 "voor metagegevens van Nova. Hetzelfde gedeelde wachtwoord moet gebruikt "
 "worden bij het instellen van het pakket nova-common."
+
+#~ msgid "Auth server username:"
+#~ msgstr "Gebruikersnaam op de authenticatieserver:"
 
 #~ msgid "Keystone authentication token:"
 #~ msgstr "Legitimatiebewijs voor Keystone:"

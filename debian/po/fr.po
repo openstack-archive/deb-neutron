@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-03-29 13:50+0000\n"
+"POT-Creation-Date: 2016-06-06 00:25+0200\n"
 "PO-Revision-Date: 2015-05-06 11:59+0100\n"
 "Last-Translator: Julien Patriarca <leatherface@debian.org>\n"
 "Language-Team: FRENCH <debian-l10n-french@lists.debian.org>\n"
@@ -48,13 +48,13 @@ msgstr ""
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Authentication server username:"
 msgstr "Identifiant sur le serveur d'authentification :"
 
 #. Type: string
 #. Description
-#: ../neutron-common.templates:4001
+#: ../neutron-common.templates:4001 ../neutron-metadata-agent.templates:4001
 msgid "Please specify the username to use with the authentication server."
 msgstr ""
 "Veuillez indiquer l'identifiant à utiliser sur le serveur d'authentification."
@@ -67,7 +67,7 @@ msgstr "Mot de passe sur le serveur d'authentification :"
 
 #. Type: password
 #. Description
-#: ../neutron-common.templates:5001
+#: ../neutron-common.templates:5001 ../neutron-metadata-agent.templates:5001
 msgid "Please specify the password to use with the authentication server."
 msgstr ""
 "Veuillez indiquer le mot de passe à utiliser sur le serveur "
@@ -628,12 +628,6 @@ msgstr ""
 msgid "Auth server tenant name:"
 msgstr "Nom d'espace client du serveur d'authentification :"
 
-#. Type: string
-#. Description
-#: ../neutron-metadata-agent.templates:4001
-msgid "Auth server username:"
-msgstr "Identifiant sur le serveur d'authentification :"
-
 #. Type: password
 #. Description
 #: ../neutron-metadata-agent.templates:5001
@@ -688,6 +682,9 @@ msgstr ""
 "communications entre l'agent relais de métadonnées de Neutron et le serveur "
 "de métadonnées de Nova. Le même mot de passe partagé doit être utilisé lors "
 "de l'installation du paquet nova-common."
+
+#~ msgid "Auth server username:"
+#~ msgstr "Identifiant sur le serveur d'authentification :"
 
 #~ msgid "Keystone authentication token:"
 #~ msgstr "Jeton d'authentification Keystone :"
