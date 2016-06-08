@@ -16,6 +16,9 @@
 import os
 
 import mock
+from neutron_lib.api import converters
+from neutron_lib import constants
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_policy import policy as oslo_policy
@@ -33,7 +36,6 @@ from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.api.v2 import base as v2_base
 from neutron.api.v2 import router
-from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron import manager
 from neutron import policy
@@ -920,8 +922,8 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
                                   'device_id': device_id,
                                   'admin_state_up': True}}
         full_input = {'port': {'admin_state_up': True,
-                               'mac_address': attributes.ATTR_NOT_SPECIFIED,
-                               'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
+                               'mac_address': constants.ATTR_NOT_SPECIFIED,
+                               'fixed_ips': constants.ATTR_NOT_SPECIFIED,
                                'device_owner': ''}}
         full_input['port'].update(initial_input['port'])
         return_value = {'id': _uuid(), 'status': 'ACTIVE',
@@ -1592,7 +1594,7 @@ class FiltersTestCase(base.BaseTestCase):
         request = webob.Request.blank(path)
         attr_info = {
             'foo': {
-                'convert_list_to': attributes.convert_kvp_list_to_dict,
+                'convert_list_to': converters.convert_kvp_list_to_dict,
             }
         }
         expect_val = {'foo': {'key': ['2', '4']}, 'bar': ['3'], 'qux': ['1']}
@@ -1602,7 +1604,7 @@ class FiltersTestCase(base.BaseTestCase):
     def test_attr_info_with_convert_to(self):
         path = '/?foo=4&bar=3&baz=2&qux=1'
         request = webob.Request.blank(path)
-        attr_info = {'foo': {'convert_to': attributes.convert_to_int}}
+        attr_info = {'foo': {'convert_to': converters.convert_to_int}}
         expect_val = {'foo': [4], 'bar': ['3'], 'baz': ['2'], 'qux': ['1']}
         actual_val = api_common.get_filters(request, attr_info)
         self.assertEqual(expect_val, actual_val)

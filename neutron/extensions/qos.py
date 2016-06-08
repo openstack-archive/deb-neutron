@@ -15,14 +15,18 @@
 
 import abc
 import itertools
+import re
 
+from neutron_lib.api import converters
 import six
 
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
 from neutron.api.v2 import resource_helper
+from neutron.common import constants as common_constants
 from neutron import manager
+from neutron.objects.qos import rule as rule_object
 from neutron.plugins.common import constants
 from neutron.services.qos import qos_consts
 from neutron.services import service_base
@@ -53,7 +57,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'validate': {'type:string': None}},
         'shared': {'allow_post': True, 'allow_put': True,
                    'is_visible': True, 'default': False,
-                   'convert_to': attr.convert_to_boolean},
+                   'convert_to': converters.convert_to_boolean},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
                       'is_visible': True},
@@ -78,6 +82,17 @@ SUB_RESOURCE_ATTRIBUTE_MAP = {
                                   'allow_post': True, 'allow_put': True,
                                   'is_visible': True, 'default': 0,
                                   'validate': {'type:non_negative': None}}})
+    },
+    'dscp_marking_rules': {
+        'parent': {'collection_name': 'policies',
+                   'member_name': 'policy'},
+        'parameters': dict(QOS_RULE_COMMON_FIELDS,
+                           **{'dscp_mark': {
+                                  'allow_post': True, 'allow_put': True,
+                                  'convert_to': converters.convert_to_int,
+                                  'is_visible': True, 'default': None,
+                                  'validate': {'type:values': common_constants.
+                                              VALID_DSCP_MARKS}}})
     }
 }
 
@@ -175,6 +190,93 @@ class QoSPluginBase(service_base.ServicePluginBase):
 
     path_prefix = QOS_PREFIX
 
+    # The rule object type to use for each incoming rule-related request.
+    rule_objects = {'bandwidth_limit': rule_object.QosBandwidthLimitRule,
+                    'dscp_marking': rule_object.QosDscpMarkingRule}
+
+    # Patterns used to call method proxies for all policy-rule-specific
+    # method calls (see __getattr__ docstring, below).
+    qos_rule_method_patterns = [
+            re.compile(
+                r"^((create|update|delete)_policy_(?P<rule_type>.*)_rule)$"),
+            re.compile(
+                r"^(get_policy_(?P<rule_type>.*)_(rules|rule))$"),
+                               ]
+
+    def __getattr__(self, attrib):
+        """Implement method proxies for all policy-rule-specific requests. For
+        a given request type (such as to update a rule), a single method will
+        handle requests for all rule types.  For example, the
+        update_policy_rule method will handle requests for both
+        update_policy_dscp_marking_rule and update_policy_bandwidth_limit_rule.
+
+        :param attrib: the requested method; in the normal case, this will be,
+                       for example, "update_policy_dscp_marking_rule"
+        :type attrib: str
+        """
+        # Find and call the proxy method that implements the requested one.
+        for pattern in self.qos_rule_method_patterns:
+            res = re.match(pattern, attrib)
+            if res:
+                rule_type = res.group('rule_type')
+                if rule_type in self.rule_objects:
+                    # Remove the rule_type value (plus underscore) from attrib
+                    # in order to get the proxy method name. So, for instance,
+                    # from "delete_policy_dscp_marking_rule" we'll get
+                    # "delete_policy_rule".
+                    proxy_method = attrib.replace(rule_type + '_', '')
+
+                    rule_obj = self.rule_objects[rule_type]
+                    return self._call_proxy_method(proxy_method, rule_obj)
+
+        # If we got here, then either attrib matched no pattern or the
+        # rule_type embedded in attrib wasn't in self.rule_objects.
+        raise AttributeError(attrib)
+
+    def _call_proxy_method(self, method_name, rule_obj):
+        """Call proxy method. We need to add the rule_obj, obtained from the
+        self.rule_objects dictionary, to the incoming args.  The context is
+        passed to proxy method as first argument; the remaining args will
+        follow rule_obj.
+
+        Some of the incoming method calls have the policy rule name as one of
+        the keys in the kwargs.  For instance, the incoming kwargs for the
+        create_policy_bandwidth_limit_rule take this form:
+
+            { 'bandwidth_limit_rule': {
+                  u'bandwidth_limit_rule':
+                  { 'max_burst_kbps': 0,
+                    u'max_kbps': u'100',
+                    'tenant_id': u'a8a31c9434ff431cb789c809777505ec'}
+                  },
+              'policy_id': u'46985da5-9684-402e-b0d7-b7adac909c3a'
+            }
+
+        We need to generalize this structure for all rule types so will
+        (effectively) rename the rule-specific keyword (e.g., in the above, the
+        first occurrence of 'bandwidth_limit_rule') to be 'rule_data'.
+
+        :param method_name: the name of the method to call
+        :type method_name: str
+        :param rule_obj: the rule object, which is sent as an argument to the
+                         proxy method
+        :type rule_obj: a class from the rule_object (qos.objects.rule) module
+        """
+        def _make_call(method_name, rule_obj, *args, **kwargs):
+            context = args[0]
+            args_list = list(args[1:])
+            params = kwargs
+            rule_data_name = rule_obj.rule_type + "_rule"
+            if rule_data_name in params:
+                params['rule_data'] = params.pop(rule_data_name)
+
+            return getattr(self, method_name)(
+                context, rule_obj, *args_list, **params
+            )
+
+        return lambda *args, **kwargs: _make_call(
+            method_name, rule_obj, *args, **kwargs)
+
     def get_plugin_description(self):
         return "QoS Service Plugin for ports and networks"
 
@@ -182,13 +284,8 @@ class QoSPluginBase(service_base.ServicePluginBase):
         return constants.QOS
 
     @abc.abstractmethod
-    def get_policy(self, context, policy_id, fields=None):
-        pass
-
-    @abc.abstractmethod
-    def get_policies(self, context, filters=None, fields=None,
-                     sorts=None, limit=None, marker=None,
-                     page_reverse=False):
+    def get_rule_types(self, context, filters=None, fields=None, sorts=None,
+                       limit=None, marker=None, page_reverse=False):
         pass
 
     @abc.abstractmethod
@@ -204,33 +301,34 @@ class QoSPluginBase(service_base.ServicePluginBase):
         pass
 
     @abc.abstractmethod
-    def get_policy_bandwidth_limit_rule(self, context, rule_id,
-                                        policy_id, fields=None):
+    def get_policy(self, context, policy_id, fields=None):
         pass
 
     @abc.abstractmethod
-    def get_policy_bandwidth_limit_rules(self, context, policy_id,
-                                         filters=None, fields=None,
-                                         sorts=None, limit=None,
-                                         marker=None, page_reverse=False):
+    def get_policies(self, context, filters=None, fields=None, sorts=None,
+                     limit=None, marker=None, page_reverse=False):
         pass
 
     @abc.abstractmethod
-    def create_policy_bandwidth_limit_rule(self, context, policy_id,
-                                           bandwidth_limit_rule):
+    def create_policy_rule(self, context, policy_id, rule_data, rule_obj):
         pass
 
     @abc.abstractmethod
-    def update_policy_bandwidth_limit_rule(self, context, rule_id, policy_id,
-                                           bandwidth_limit_rule):
+    def update_policy_rule(self, context, rule_id, policy_id, rule_data,
+                           rule_obj):
         pass
 
     @abc.abstractmethod
-    def delete_policy_bandwidth_limit_rule(self, context, rule_id, policy_id):
+    def delete_policy_rule(self, context, rule_id, policy_id):
         pass
 
     @abc.abstractmethod
-    def get_rule_types(self, context, filters=None, fields=None,
-                       sorts=None, limit=None,
-                       marker=None, page_reverse=False):
+    def get_policy_rule(self, context, rule_id, policy_id, rule_obj,
+                        fields=None):
+        pass
+
+    @abc.abstractmethod
+    def get_policy_rules(self, context, policy_id, rule_obj,
+                         filters=None, fields=None, sorts=None, limit=None,
+                         marker=None, page_reverse=False):
         pass

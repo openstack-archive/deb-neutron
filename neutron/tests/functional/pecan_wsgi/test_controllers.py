@@ -10,18 +10,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from collections import namedtuple
-
 import mock
+from neutron_lib import constants as n_const
 from oslo_config import cfg
+from oslo_db import exception as db_exc
 from oslo_policy import policy as oslo_policy
 from oslo_serialization import jsonutils
 import pecan
 from pecan import request
 
 from neutron.api import extensions
-from neutron.api.v2 import attributes
-from neutron.common import constants as n_const
 from neutron import context
 from neutron import manager
 from neutron.pecan_wsgi.controllers import root as controllers
@@ -251,7 +249,7 @@ class TestResourceController(TestRootController):
         self.port = self.plugin.create_port(context.get_admin_context(), {
             'port':
             {'tenant_id': 'tenid', 'network_id': network_id,
-             'fixed_ips': attributes.ATTR_NOT_SPECIFIED,
+             'fixed_ips': n_const.ATTR_NOT_SPECIFIED,
              'mac_address': '00:11:22:33:44:55',
              'admin_state_up': True, 'device_id': 'FF',
              'device_owner': 'pecan', 'name': 'pecan'}})
@@ -259,6 +257,36 @@ class TestResourceController(TestRootController):
     def test_get(self):
         response = self.app.get('/v2.0/ports.json')
         self.assertEqual(response.status_int, 200)
+
+    def _check_item(self, expected, item):
+        for attribute in expected:
+            self.assertIn(attribute, item)
+        self.assertEqual(len(expected), len(item))
+
+    def test_get_collection_with_fields_selector(self):
+        list_resp = self.app.get('/v2.0/ports.json?fields=id&fields=name',
+                                 headers={'X-Project-Id': 'tenid'})
+        self.assertEqual(200, list_resp.status_int)
+        for item in jsonutils.loads(list_resp.body).get('ports', []):
+            self.assertIn('id', item)
+            self.assertIn('name', item)
+            self.assertEqual(2, len(item))
+
+    def test_get_item_with_fields_selector(self):
+        item_resp = self.app.get(
+            '/v2.0/ports/%s.json?fields=id&fields=name' % self.port['id'],
+            headers={'X-Project-Id': 'tenid'})
+        self.assertEqual(200, item_resp.status_int)
+        self._check_item(['id', 'name'],
+                         jsonutils.loads(item_resp.body)['port'])
+        # Explicitly require an attribute which is also 'required_by_policy'.
+        # The attribute should not be stripped while generating the response
+        item_resp = self.app.get(
+            '/v2.0/ports/%s.json?fields=id&fields=tenant_id' % self.port['id'],
+            headers={'X-Project-Id': 'tenid'})
+        self.assertEqual(200, item_resp.status_int)
+        self._check_item(['id', 'tenant_id'],
+                         jsonutils.loads(item_resp.body)['port'])
 
     def test_post(self):
         response = self.app.post_json(
@@ -268,6 +296,26 @@ class TestResourceController(TestRootController):
                              'tenant_id': 'tenid'}},
             headers={'X-Project-Id': 'tenid'})
         self.assertEqual(response.status_int, 201)
+
+    def test_post_with_retry(self):
+        self._create_failed = False
+        orig = self.plugin.create_port
+
+        def new_create(*args, **kwargs):
+            if not self._create_failed:
+                self._create_failed = True
+                raise db_exc.RetryRequest(ValueError())
+            return orig(*args, **kwargs)
+
+        with mock.patch.object(self.plugin, 'create_port',
+                               new=new_create):
+            response = self.app.post_json(
+                '/v2.0/ports.json',
+                params={'port': {'network_id': self.port['network_id'],
+                                 'admin_state_up': True,
+                                 'tenant_id': 'tenid'}},
+                headers={'X-Project-Id': 'tenid'})
+            self.assertEqual(201, response.status_int)
 
     def test_put(self):
         response = self.app.put_json('/v2.0/ports/%s.json' % self.port['id'],
@@ -297,7 +345,7 @@ class TestResourceController(TestRootController):
         self._test_method_returns_code('delete', 405)
 
 
-class TestRequestProcessing(TestResourceController):
+class TestRequestProcessing(TestRootController):
 
     def setUp(self):
         super(TestRequestProcessing, self).setUp()
@@ -308,6 +356,7 @@ class TestRequestProcessing(TestResourceController):
 
         def capture_request_details(*args, **kwargs):
             self.captured_context = request.context
+            self.request_params = kwargs
 
         mock.patch('neutron.pecan_wsgi.controllers.resource.'
                    'CollectionsController.get',
@@ -341,55 +390,47 @@ class TestRequestProcessing(TestResourceController):
 
     def test_resource_processing_post(self):
         self.app.post_json(
-            '/v2.0/ports.json',
-            params={'port': {'network_id': self.port['network_id'],
-                             'name': 'the_port',
-                             'admin_state_up': True}},
+            '/v2.0/networks.json',
+            params={'network': {'name': 'the_net',
+                                'admin_state_up': True}},
             headers={'X-Project-Id': 'tenid'})
-        self.assertEqual('port', self.captured_context['resource'])
-        self.assertEqual('ports', self.captured_context['collection'])
+        self.assertEqual('network', self.captured_context['resource'])
+        self.assertEqual('networks', self.captured_context['collection'])
         resources = self.captured_context['resources']
         self.assertEqual(1, len(resources))
-        self.assertEqual(self.port['network_id'],
-                         resources[0]['network_id'])
-        self.assertEqual('the_port', resources[0]['name'])
+        self.assertEqual('the_net', resources[0]['name'])
+        self.assertTrue(resources[0]['admin_state_up'])
 
     def test_resource_processing_post_bulk(self):
         self.app.post_json(
-            '/v2.0/ports.json',
-            params={'ports': [{'network_id': self.port['network_id'],
-                               'name': 'the_port_1',
-                               'admin_state_up': True},
-                              {'network_id': self.port['network_id'],
-                               'name': 'the_port_2',
-                               'admin_state_up': True}]},
+            '/v2.0/networks.json',
+            params={'networks': [{'name': 'the_net_1',
+                                  'admin_state_up': True},
+                                 {'name': 'the_net_2',
+                                  'admin_state_up': False}]},
             headers={'X-Project-Id': 'tenid'})
         resources = self.captured_context['resources']
         self.assertEqual(2, len(resources))
-        self.assertEqual(self.port['network_id'],
-                         resources[0]['network_id'])
-        self.assertEqual('the_port_1', resources[0]['name'])
-        self.assertEqual(self.port['network_id'],
-                         resources[1]['network_id'])
-        self.assertEqual('the_port_2', resources[1]['name'])
+        self.assertTrue(resources[0]['admin_state_up'])
+        self.assertEqual('the_net_1', resources[0]['name'])
+        self.assertFalse(resources[1]['admin_state_up'])
+        self.assertEqual('the_net_2', resources[1]['name'])
 
     def test_resource_processing_post_unknown_attribute_returns_400(self):
         response = self.app.post_json(
-            '/v2.0/ports.json',
-            params={'port': {'network_id': self.port['network_id'],
-                             'name': 'the_port',
-                             'alien': 'E.T.',
-                             'admin_state_up': True}},
+            '/v2.0/networks.json',
+            params={'network': {'name': 'the_net',
+                                'alien': 'E.T.',
+                                'admin_state_up': True}},
             headers={'X-Project-Id': 'tenid'},
             expect_errors=True)
         self.assertEqual(400, response.status_int)
 
-    def test_resource_processing_post_validation_errori_returns_400(self):
+    def test_resource_processing_post_validation_error_returns_400(self):
         response = self.app.post_json(
-            '/v2.0/ports.json',
-            params={'port': {'network_id': self.port['network_id'],
-                             'name': 'the_port',
-                             'admin_state_up': 'invalid_value'}},
+            '/v2.0/networks.json',
+            params={'network': {'name': 'the_net',
+                                'admin_state_up': 'invalid_value'}},
             headers={'X-Project-Id': 'tenid'},
             expect_errors=True)
         self.assertEqual(400, response.status_int)
@@ -405,10 +446,9 @@ class TestRequestProcessing(TestResourceController):
             self.req_stash['plugin'])
 
     def test_service_plugin_uri(self):
-        service_plugin = namedtuple('DummyServicePlugin', 'path_prefix')
-        service_plugin.path_prefix = 'dummy'
         nm = manager.NeutronManager.get_instance()
-        nm.service_plugins['dummy_sp'] = service_plugin
+        nm.path_prefix_resource_mappings['dummy'] = [
+            _SERVICE_PLUGIN_COLLECTION]
         response = self.do_request('/v2.0/dummy/serviceplugins.json')
         self.assertEqual(200, response.status_int)
         self.assertEqual(_SERVICE_PLUGIN_INDEX_BODY, response.json_body)
@@ -552,18 +592,56 @@ class TestL3AgentShimControllers(test_functional.PecanFunctionalTest):
 
     def test_add_remove_l3_agent(self):
         headers = {'X-Project-Id': 'tenid', 'X-Roles': 'admin'}
-        self.app.post_json(
+        response = self.app.post_json(
             '/v2.0/agents/%s/l3-routers.json' % self.agent.id,
             headers=headers, params={'router_id': self.router['id']})
+        self.assertEqual(201, response.status_int)
         response = self.app.get(
             '/v2.0/routers/%s/l3-agents.json' % self.router['id'],
             headers=headers)
         self.assertIn(self.agent.id,
                       [a['id'] for a in response.json['agents']])
-        self.app.delete('/v2.0/agents/%(a)s/l3-routers/%(n)s.json' % {
-            'a': self.agent.id, 'n': self.router['id']}, headers=headers)
+        response = self.app.delete(
+            '/v2.0/agents/%(a)s/l3-routers/%(n)s.json' % {
+                'a': self.agent.id, 'n': self.router['id']}, headers=headers)
+        self.assertEqual(204, response.status_int)
         response = self.app.get(
             '/v2.0/routers/%s/l3-agents.json' % self.router['id'],
             headers=headers)
         self.assertNotIn(self.agent.id,
                          [a['id'] for a in response.json['agents']])
+
+
+class TestShimControllers(test_functional.PecanFunctionalTest):
+
+    def setUp(self):
+        fake_ext = pecan_utils.FakeExtension()
+        fake_plugin = pecan_utils.FakePlugin()
+        plugins = {pecan_utils.FakePlugin.PLUGIN_TYPE: fake_plugin}
+        new_extensions = {fake_ext.get_alias(): fake_ext}
+        super(TestShimControllers, self).setUp(
+            service_plugins=plugins, extensions=new_extensions)
+        policy.init()
+        policy._ENFORCER.set_rules(
+            oslo_policy.Rules.from_dict(
+                {'get_meh_meh': '',
+                 'get_meh_mehs': ''}),
+            overwrite=False)
+        self.addCleanup(policy.reset)
+
+    def test_hyphenated_resource_controller_not_shimmed(self):
+        collection = pecan_utils.FakeExtension.HYPHENATED_COLLECTION.replace(
+            '_', '-')
+        resource = pecan_utils.FakeExtension.HYPHENATED_RESOURCE
+        url = '/v2.0/{}/something.json'.format(collection)
+        resp = self.app.get(url)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({resource: {'fake': 'something'}}, resp.json)
+
+    def test_hyphenated_collection_controller_not_shimmed(self):
+        body_collection = pecan_utils.FakeExtension.HYPHENATED_COLLECTION
+        uri_collection = body_collection.replace('_', '-')
+        url = '/v2.0/{}.json'.format(uri_collection)
+        resp = self.app.get(url)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual({body_collection: [{'fake': 'fake'}]}, resp.json)

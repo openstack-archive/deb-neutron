@@ -14,6 +14,7 @@
 
 import collections
 import netaddr
+from neutron_lib import constants as l3_constants
 from oslo_log import log as logging
 
 from neutron._i18n import _, _LE, _LW
@@ -21,7 +22,7 @@ from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ra
-from neutron.common import constants as l3_constants
+from neutron.common import constants as n_const
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.common import utils as common_utils
@@ -33,7 +34,8 @@ EXTERNAL_DEV_PREFIX = namespaces.EXTERNAL_DEV_PREFIX
 
 FLOATINGIP_STATUS_NOCHANGE = object()
 ADDRESS_SCOPE_MARK_MASK = "0xffff0000"
-ADDRESS_SCOPE_MARK_IDS = set(range(1024, 2048))
+ADDRESS_SCOPE_MARK_ID_MIN = 1024
+ADDRESS_SCOPE_MARK_ID_MAX = 2048
 DEFAULT_ADDRESS_SCOPE = "noscope"
 
 
@@ -57,11 +59,14 @@ class RouterInfo(object):
             router_id, agent_conf, interface_driver, use_ipv6)
         self.router_namespace = ns
         self.ns_name = ns.name
+        self.available_mark_ids = set(range(ADDRESS_SCOPE_MARK_ID_MIN,
+                                            ADDRESS_SCOPE_MARK_ID_MAX))
         self._address_scope_to_mark_id = {
-            DEFAULT_ADDRESS_SCOPE: ADDRESS_SCOPE_MARK_IDS.pop()}
+            DEFAULT_ADDRESS_SCOPE: self.available_mark_ids.pop()}
         self.iptables_manager = iptables_manager.IptablesManager(
             use_ipv6=use_ipv6,
             namespace=self.ns_name)
+        self.initialize_address_scope_iptables()
         self.routes = []
         self.agent_conf = agent_conf
         self.driver = interface_driver
@@ -140,16 +145,16 @@ class RouterInfo(object):
         return self.router.get(l3_constants.FLOATINGIP_KEY, [])
 
     def floating_forward_rules(self, floating_ip, fixed_ip):
-        return [('PREROUTING', '-d %s -j DNAT --to %s' %
+        return [('PREROUTING', '-d %s/32 -j DNAT --to-destination %s' %
                  (floating_ip, fixed_ip)),
-                ('OUTPUT', '-d %s -j DNAT --to %s' %
+                ('OUTPUT', '-d %s/32 -j DNAT --to-destination %s' %
                  (floating_ip, fixed_ip)),
-                ('float-snat', '-s %s -j SNAT --to %s' %
+                ('float-snat', '-s %s/32 -j SNAT --to-source %s' %
                  (fixed_ip, floating_ip))]
 
     def floating_mangle_rules(self, floating_ip, fixed_ip, internal_mark):
         mark_traffic_to_floating_ip = (
-            'floatingip', '-d %s -j MARK --set-mark %s' % (
+            'floatingip', '-d %s -j MARK --set-xmark %s' % (
                 floating_ip, internal_mark))
         mark_traffic_from_fixed_ip = (
             'FORWARD', '-s %s -j $float-snat' % fixed_ip)
@@ -160,10 +165,8 @@ class RouterInfo(object):
             address_scope = DEFAULT_ADDRESS_SCOPE
 
         if address_scope not in self._address_scope_to_mark_id:
-            mark_ids = set(self._address_scope_to_mark_id.values())
-            available_ids = ADDRESS_SCOPE_MARK_IDS - mark_ids
             self._address_scope_to_mark_id[address_scope] = (
-                available_ids.pop())
+                self.available_mark_ids.pop())
 
         mark_id = self._address_scope_to_mark_id[address_scope]
         # NOTE: Address scopes use only the upper 16 bits of the 32 fwmark
@@ -350,7 +353,7 @@ class RouterInfo(object):
     def _internal_network_updated(self, port, subnet_id, prefix, old_prefix,
                                   updated_cidrs):
         interface_name = self.get_internal_device_name(port['id'])
-        if prefix != l3_constants.PROVISIONAL_IPV6_PD_PREFIX:
+        if prefix != n_const.PROVISIONAL_IPV6_PD_PREFIX:
             fixed_ips = port['fixed_ips']
             for fixed_ip in fixed_ips:
                 if fixed_ip['subnet_id'] == subnet_id:
@@ -431,7 +434,7 @@ class RouterInfo(object):
         if 'subnets' in port:
             for subnet in port['subnets']:
                 if (netaddr.IPNetwork(subnet['cidr']).version == 6 and
-                    subnet['cidr'] != l3_constants.PROVISIONAL_IPV6_PD_PREFIX):
+                    subnet['cidr'] != n_const.PROVISIONAL_IPV6_PD_PREFIX):
                     return True
 
     def enable_radvd(self, internal_ports=None):
@@ -452,7 +455,7 @@ class RouterInfo(object):
             namespace=self.ns_name)
 
     def address_scope_mangle_rule(self, device_name, mark_mask):
-        return '-i %s -j MARK --set-mark %s' % (device_name, mark_mask)
+        return '-i %s -j MARK --set-xmark %s' % (device_name, mark_mask)
 
     def address_scope_filter_rule(self, device_name, mark_mask):
         return '-o %s -m mark ! --mark %s -j DROP' % (
@@ -694,19 +697,23 @@ class RouterInfo(object):
         gw_port = self._router.get('gw_port')
         self._handle_router_snat_rules(gw_port, interface_name)
 
-    def external_gateway_nat_fip_rules(self, ex_gw_ip, interface_name):
-        dont_snat_traffic_to_internal_ports_if_not_to_floating_ip = (
+    def _prevent_snat_for_internal_traffic_rule(self, interface_name):
+        return (
             'POSTROUTING', '! -i %(interface_name)s '
                            '! -o %(interface_name)s -m conntrack ! '
                            '--ctstate DNAT -j ACCEPT' %
                            {'interface_name': interface_name})
+
+    def external_gateway_nat_fip_rules(self, ex_gw_ip, interface_name):
+        dont_snat_traffic_to_internal_ports_if_not_to_floating_ip = (
+            self._prevent_snat_for_internal_traffic_rule(interface_name))
         # Makes replies come back through the router to reverse DNAT
         ext_in_mark = self.agent_conf.external_ingress_mark
         snat_internal_traffic_to_floating_ip = (
             'snat', '-m mark ! --mark %s/%s '
                     '-m conntrack --ctstate DNAT '
                     '-j SNAT --to-source %s'
-                    % (ext_in_mark, l3_constants.ROUTER_MARK_MASK, ex_gw_ip))
+                    % (ext_in_mark, n_const.ROUTER_MARK_MASK, ex_gw_ip))
         return [dont_snat_traffic_to_internal_ports_if_not_to_floating_ip,
                 snat_internal_traffic_to_floating_ip]
 
@@ -720,7 +727,7 @@ class RouterInfo(object):
         mark = self.agent_conf.external_ingress_mark
         mark_packets_entering_external_gateway_port = (
             'mark', '-i %s -j MARK --set-xmark %s/%s' %
-                    (interface_name, mark, l3_constants.ROUTER_MARK_MASK))
+                    (interface_name, mark, n_const.ROUTER_MARK_MASK))
         return [mark_packets_entering_external_gateway_port]
 
     def _empty_snat_chains(self, iptables_manager):
@@ -824,6 +831,53 @@ class RouterInfo(object):
         # Update floating IP status on the neutron server
         agent.plugin_rpc.update_floatingip_statuses(
             agent.context, self.router_id, fip_statuses)
+
+    def initialize_address_scope_iptables(self):
+        self._initialize_address_scope_iptables(self.iptables_manager)
+
+    def _initialize_address_scope_iptables(self, iptables_manager):
+        # Add address scope related chains
+        iptables_manager.ipv4['mangle'].add_chain('scope')
+        iptables_manager.ipv6['mangle'].add_chain('scope')
+
+        iptables_manager.ipv4['mangle'].add_chain('floatingip')
+        iptables_manager.ipv4['mangle'].add_chain('float-snat')
+
+        iptables_manager.ipv4['filter'].add_chain('scope')
+        iptables_manager.ipv6['filter'].add_chain('scope')
+        iptables_manager.ipv4['filter'].add_rule('FORWARD', '-j $scope')
+        iptables_manager.ipv6['filter'].add_rule('FORWARD', '-j $scope')
+
+        # Add rules for marking traffic for address scopes
+        mark_new_ingress_address_scope_by_interface = (
+            '-j $scope')
+        copy_address_scope_for_existing = (
+            '-m connmark ! --mark 0x0/0xffff0000 '
+            '-j CONNMARK --restore-mark '
+            '--nfmask 0xffff0000 --ctmask 0xffff0000')
+        mark_new_ingress_address_scope_by_floatingip = (
+            '-j $floatingip')
+        save_mark_to_connmark = (
+            '-m connmark --mark 0x0/0xffff0000 '
+            '-j CONNMARK --save-mark '
+            '--nfmask 0xffff0000 --ctmask 0xffff0000')
+
+        iptables_manager.ipv4['mangle'].add_rule(
+            'PREROUTING', mark_new_ingress_address_scope_by_interface)
+        iptables_manager.ipv4['mangle'].add_rule(
+            'PREROUTING', copy_address_scope_for_existing)
+        # The floating ip scope rules must come after the CONNTRACK rules
+        # because the (CONN)MARK targets are non-terminating (this is true
+        # despite them not being documented as such) and the floating ip
+        # rules need to override the mark from CONNMARK to cross scopes.
+        iptables_manager.ipv4['mangle'].add_rule(
+            'PREROUTING', mark_new_ingress_address_scope_by_floatingip)
+        iptables_manager.ipv4['mangle'].add_rule(
+            'float-snat', save_mark_to_connmark)
+        iptables_manager.ipv6['mangle'].add_rule(
+            'PREROUTING', mark_new_ingress_address_scope_by_interface)
+        iptables_manager.ipv6['mangle'].add_rule(
+            'PREROUTING', copy_address_scope_for_existing)
 
     def _get_port_devicename_scopemark(self, ports, name_generator):
         devicename_scopemark = {l3_constants.IP_VERSION_4: dict(),

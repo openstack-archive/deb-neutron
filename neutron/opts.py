@@ -29,6 +29,8 @@ import neutron.agent.linux.ra
 import neutron.agent.metadata.config
 import neutron.agent.ovsdb.api
 import neutron.agent.securitygroups_rpc
+import neutron.conf.quota
+import neutron.conf.service
 import neutron.db.agents_db
 import neutron.db.agentschedulers_db
 import neutron.db.dvr_mac_db
@@ -54,8 +56,6 @@ import neutron.plugins.ml2.drivers.type_geneve
 import neutron.plugins.ml2.drivers.type_gre
 import neutron.plugins.ml2.drivers.type_vlan
 import neutron.plugins.ml2.drivers.type_vxlan
-import neutron.quota
-import neutron.service
 import neutron.services.metering.agents.metering_agent
 import neutron.services.qos.notification_drivers.manager
 import neutron.wsgi
@@ -101,8 +101,8 @@ def list_extension_opts():
          neutron.extensions.allowedaddresspairs.allowed_address_pair_opts),
         ('quotas',
          itertools.chain(
-             neutron.extensions.l3.l3_quota_opts,
-             neutron.extensions.securitygroup.security_group_quota_opts)
+             neutron.conf.quota.l3_quota_opts,
+             neutron.conf.quota.security_group_quota_opts)
          )
     ]
 
@@ -132,19 +132,19 @@ def list_opts():
              neutron.common.config.core_cli_opts,
              neutron.common.config.core_opts,
              neutron.wsgi.socket_opts,
-             neutron.service.service_opts)
+             neutron.conf.service.service_opts)
          ),
         (neutron.common.config.NOVA_CONF_SECTION,
          itertools.chain(
               neutron.common.config.nova_opts)
          ),
-        ('quotas', neutron.quota.quota_opts)
+        ('quotas', neutron.conf.quota.core_quota_opts)
     ]
 
 
 def list_qos_opts():
     return [
-        ('DEFAULT',
+        ('qos',
          neutron.services.qos.notification_drivers.manager.QOS_PLUGIN_OPTS)
     ]
 
@@ -192,7 +192,7 @@ def list_l3_agent_opts():
         ('DEFAULT',
          itertools.chain(
              neutron.agent.l3.config.OPTS,
-             neutron.service.service_opts,
+             neutron.conf.service.service_opts,
              neutron.agent.l3.ha.OPTS,
              neutron.agent.linux.pd.OPTS,
              neutron.agent.linux.ra.OPTS)
@@ -280,7 +280,7 @@ def list_ovs_opts():
 
 def list_sriov_agent_opts():
     return [
-        ('ml2_sriov',
+        ('sriov_nic',
          neutron.plugins.ml2.drivers.mech_sriov.agent.common.config.
          sriov_nic_opts),
         ('agent',
@@ -295,7 +295,7 @@ def list_auth_opts():
     # the config options for a few common ones
     plugins = ['password', 'v2password', 'v3password']
     for name in plugins:
-        for plugin_option in ks_loading.get_plugin_loader(name).get_options():
+        for plugin_option in ks_loading.get_auth_plugin_conf_options(name):
             if all(option.name != plugin_option.name for option in opt_list):
                 opt_list.append(plugin_option)
     opt_list.sort(key=operator.attrgetter('name'))

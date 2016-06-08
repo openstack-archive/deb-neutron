@@ -13,9 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import functools
-
 from eventlet import greenthread
+from neutron_lib.api import validators
+from neutron_lib import constants as const
+from neutron_lib import exceptions as exc
+from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_db import api as oslo_db_api
 from oslo_db import exception as os_db_exception
@@ -41,8 +43,7 @@ from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants as const
-from neutron.common import exceptions as exc
+from neutron.common import constants as n_const
 from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
@@ -58,6 +59,7 @@ from neutron.db import external_net_db
 from neutron.db import extradhcpopt_db
 from neutron.db import models_v2
 from neutron.db import netmtu_db
+from neutron.db import provisioning_blocks
 from neutron.db.quota import driver  # noqa
 from neutron.db import securitygroups_db
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
@@ -91,28 +93,6 @@ MAX_BIND_TRIES = 10
 SERVICE_PLUGINS_REQUIRED_DRIVERS = {
     'qos': [qos_ext.QOS_EXT_DRIVER_ALIAS]
 }
-
-
-def transaction_guard(f):
-    """Ensures that the context passed in is not in a transaction.
-
-    Many of ML2's methods modifying resources have assumptions that they will
-    not be called inside of a transaction because they perform operations that
-    expect all data to be committed to the database (all postcommit calls).
-    Calling them in a transaction can lead to consistency errors on failures
-    since the ML2 drivers will not be notified of a DB rollback.
-
-    If you receive this error, you must alter your code to handle the fact that
-    ML2 calls have side effects so using transactions to undo on failures is
-    not possible.
-    """
-    @functools.wraps(f)
-    def inner(self, context, *args, **kwargs):
-        if context.session.is_active:
-            raise RuntimeError(_("Method cannot be called within a "
-                                 "transaction."))
-        return f(self, context, *args, **kwargs)
-    return inner
 
 
 class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
@@ -180,6 +160,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.type_manager.initialize()
         self.extension_manager.initialize()
         self.mechanism_manager.initialize()
+        registry.subscribe(self._port_provisioned, resources.PORT,
+                           provisioning_blocks.PROVISIONING_COMPLETE)
         self._setup_dhcp()
         self._start_rpc_notifiers()
         self.add_agent_status_check(self.agent_health_check)
@@ -216,6 +198,23 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                         driver=extension_driver, service_plugin=service_plugin
                     )
 
+    def _port_provisioned(self, rtype, event, trigger, context, object_id,
+                          **kwargs):
+        port_id = object_id
+        port = db.get_port(context.session, port_id)
+        if not port:
+            LOG.debug("Port %s was deleted so its status cannot be updated.",
+                      port_id)
+            return
+        if port.port_binding.vif_type in (portbindings.VIF_TYPE_BINDING_FAILED,
+                                          portbindings.VIF_TYPE_UNBOUND):
+            # NOTE(kevinbenton): we hit here when a port is created without
+            # a host ID and the dhcp agent notifies that its wiring is done
+            LOG.debug("Port %s cannot update to ACTIVE because it "
+                      "is not bound.", port_id)
+            return
+        self.update_port_status(context, port_id, const.PORT_STATUS_ACTIVE)
+
     @property
     def supported_qos_rule_types(self):
         return self.mechanism_manager.supported_qos_rule_types
@@ -246,7 +245,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         return self.conn.consume_in_threads()
 
     def start_rpc_state_reports_listener(self):
-        self.conn_reports = n_rpc.create_connection(new=True)
+        self.conn_reports = n_rpc.create_connection()
         self.conn_reports.create_consumer(topics.REPORTS,
                                           [agents_db.AgentExtRpcCallback()],
                                           fanout=False)
@@ -278,18 +277,18 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         port_id = port['id']
         changes = False
 
-        host = attributes.ATTR_NOT_SPECIFIED
+        host = const.ATTR_NOT_SPECIFIED
         if attrs and portbindings.HOST_ID in attrs:
             host = attrs.get(portbindings.HOST_ID) or ''
 
         original_host = binding.host
-        if (attributes.is_attr_set(host) and
+        if (validators.is_attr_set(host) and
             original_host != host):
             binding.host = host
             changes = True
 
         vnic_type = attrs and attrs.get(portbindings.VNIC_TYPE)
-        if (attributes.is_attr_set(vnic_type) and
+        if (validators.is_attr_set(vnic_type) and
             binding.vnic_type != vnic_type):
             binding.vnic_type = vnic_type
             changes = True
@@ -299,7 +298,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         if attrs and portbindings.PROFILE in attrs:
             profile = attrs.get(portbindings.PROFILE) or {}
 
-        if profile not in (None, attributes.ATTR_NOT_SPECIFIED,
+        if profile not in (None, const.ATTR_NOT_SPECIFIED,
                            self._get_profile(binding)):
             binding.profile = jsonutils.dumps(profile)
             if len(binding.profile) > models.BINDING_PROFILE_LEN:
@@ -760,7 +759,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         # TODO(apech) - handle errors raised by update_network, potentially
         # by re-calling update_network with the previous attributes. For
-        # now the error is propogated to the caller, which is expected to
+        # now the error is propagated to the caller, which is expected to
         # either undo/retry the operation or delete the resource.
         self.mechanism_manager.update_network_postcommit(mech_context)
         if need_network_update_notify:
@@ -813,7 +812,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     LOG.exception(_LE("Exception auto-deleting subnet %s"),
                                   subnet_id)
 
-    @transaction_guard
+    @utils.transaction_guard
     def delete_network(self, context, id):
         # REVISIT(rkukura) The super(Ml2Plugin, self).delete_network()
         # function is not used because it auto-deletes ports and
@@ -943,12 +942,12 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         # TODO(apech) - handle errors raised by update_subnet, potentially
         # by re-calling update_subnet with the previous attributes. For
-        # now the error is propogated to the caller, which is expected to
+        # now the error is propagated to the caller, which is expected to
         # either undo/retry the operation or delete the resource.
         self.mechanism_manager.update_subnet_postcommit(mech_context)
         return updated_subnet
 
-    @transaction_guard
+    @utils.transaction_guard
     def delete_subnet(self, context, id):
         # REVISIT(rkukura) The super(Ml2Plugin, self).delete_subnet()
         # function is not used because it deallocates the subnet's addresses
@@ -1077,6 +1076,24 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         elif self._check_update_has_security_groups(port):
             raise psec.PortSecurityAndIPRequiredForSecurityGroups()
 
+    def _setup_dhcp_agent_provisioning_component(self, context, port):
+        subnet_ids = [f['subnet_id'] for f in port['fixed_ips']]
+        if (db.is_dhcp_active_on_any_subnet(context, subnet_ids) and
+            any(self.get_configuration_dict(a).get('notifies_port_ready')
+                for a in self.get_dhcp_agents_hosting_networks(
+                    context, [port['network_id']]))):
+            # at least one of the agents will tell us when the dhcp config
+            # is ready so we setup a provisioning component to prevent the
+            # port from going ACTIVE until a dhcp_ready_on_port
+            # notification is received.
+            provisioning_blocks.add_provisioning_component(
+                context, port['id'], resources.PORT,
+                provisioning_blocks.DHCP_ENTITY)
+        else:
+            provisioning_blocks.remove_provisioning_component(
+                context, port['id'], resources.PORT,
+                provisioning_blocks.DHCP_ENTITY)
+
     def _create_port_db(self, context, port):
         attrs = port[attributes.PORT]
         if not attrs.get('status'):
@@ -1107,12 +1124,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             self._process_port_create_extra_dhcp_opts(context, result,
                                                       dhcp_opts)
             self.mechanism_manager.create_port_precommit(mech_context)
+            self._setup_dhcp_agent_provisioning_component(context, result)
 
         self._apply_dict_extend_functions('ports', result, port_db)
         return result, mech_context
 
     def create_port(self, context, port):
-        result, mech_context = self._create_port_db(context, port)
+        # TODO(kevinbenton): remove when bug/1543094 is fixed.
+        with lockutils.lock(port['port']['network_id'],
+                            lock_file_prefix='neutron-create-port',
+                            external=True):
+            result, mech_context = self._create_port_db(context, port)
         # notify any plugin that is interested in port create events
         kwargs = {'context': context, 'port': result}
         registry.notify(resources.PORT, events.AFTER_CREATE, self, **kwargs)
@@ -1123,7 +1145,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("mechanism_manager.create_port_postcommit "
                               "failed, deleting port '%s'"), result['id'])
-                self.delete_port(context, result['id'])
+                self.delete_port(context, result['id'], l3_port_check=False)
 
         # REVISIT(rkukura): Is there any point in calling this before
         # a binding has been successfully established?
@@ -1142,7 +1164,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE("_bind_port_if_needed "
                               "failed, deleting port '%s'"), result['id'])
-                self.delete_port(context, result['id'])
+                self.delete_port(context, result['id'], l3_port_check=False)
 
         return bound_context.current
 
@@ -1288,6 +1310,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     bound_mech_contexts.append(dvr_mech_context)
             else:
                 self.mechanism_manager.update_port_precommit(mech_context)
+                self._setup_dhcp_agent_provisioning_component(
+                    context, updated_port)
                 bound_mech_contexts.append(mech_context)
 
         # Notifications must be sent after the above transaction is complete
@@ -1353,7 +1377,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         attrs = port[attributes.PORT]
 
         host = attrs and attrs.get(portbindings.HOST_ID)
-        host_set = attributes.is_attr_set(host)
+        host_set = validators.is_attr_set(host)
 
         if not host_set:
             LOG.error(_LE("No Host supplied to bind DVR Port %s"), id)
@@ -1589,6 +1613,16 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         if updated:
             self.mechanism_manager.update_port_postcommit(mech_context)
+            kwargs = {'context': context, 'port': mech_context.current,
+                      'original_port': original_port}
+            if status == const.PORT_STATUS_ACTIVE:
+                # NOTE(kevinbenton): this kwarg was carried over from
+                # the RPC handler that used to call this. it's not clear
+                # who uses it so maybe it can be removed. added in commit
+                # 3f3874717c07e2b469ea6c6fd52bcb4da7b380c7
+                kwargs['update_device_up'] = True
+            registry.notify(resources.PORT, events.AFTER_UPDATE, self,
+                            **kwargs)
 
         if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
             db.delete_dvr_port_binding_if_stale(session, binding)
@@ -1596,20 +1630,22 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         return port['id']
 
     def port_bound_to_host(self, context, port_id, host):
+        if not host:
+            return
         port = db.get_port(context.session, port_id)
         if not port:
             LOG.debug("No Port match for: %s", port_id)
-            return False
+            return
         if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
             bindings = db.get_dvr_port_bindings(context.session, port_id)
             for b in bindings:
                 if b.host == host:
-                    return True
+                    return port
             LOG.debug("No binding found for DVR port %s", port['id'])
-            return False
+            return
         else:
             port_host = db.get_port_binding_host(context.session, port_id)
-            return (port_host == host)
+            return port if (port_host == host) else None
 
     def get_ports_from_devices(self, context, devices):
         port_ids_to_devices = dict(
@@ -1630,7 +1666,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         # REVISIT(rkukura): Consider calling into MechanismDrivers to
         # process device names, or having MechanismDrivers supply list
         # of device prefixes to strip.
-        for prefix in const.INTERFACE_PREFIXES:
+        for prefix in n_const.INTERFACE_PREFIXES:
             if device.startswith(prefix):
                 return device[len(prefix):]
         # REVISIT(irenab): Consider calling into bound MD to
@@ -1643,3 +1679,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
     def get_workers(self):
         return self.mechanism_manager.get_workers()
+
+    def filter_hosts_with_network_access(
+            self, context, network_id, candidate_hosts):
+        segments = db.get_network_segments(context.session, network_id)
+        return self.mechanism_manager.filter_hosts_with_segment_access(
+            context, segments, candidate_hosts, self.get_agents)
+
+    def check_segment_for_agent(self, segment, agent):
+        for mech_driver in self.mechanism_manager.ordered_mech_drivers:
+            driver_agent_type = getattr(mech_driver.obj, 'agent_type', None)
+            if driver_agent_type and driver_agent_type == agent['agent_type']:
+                if mech_driver.obj.check_segment_for_agent(segment, agent):
+                    return True
+        return False

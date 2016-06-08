@@ -106,6 +106,15 @@ class IptablesDriverTestCase(base.BaseTestCase):
         self.metering = iptables_driver.IptablesMeteringDriver('metering',
                                                                cfg.CONF)
 
+    def test_create_stateless_iptables_manager(self):
+        routers = TEST_ROUTERS[:1]
+        self.metering.add_metering_label(None, routers)
+        self.iptables_cls.assert_called_with(
+            binary_name=mock.ANY,
+            namespace=mock.ANY,
+            state_less=True,
+            use_ipv6=mock.ANY)
+
     def test_add_metering_label(self):
         routers = TEST_ROUTERS[:1]
 
@@ -156,6 +165,36 @@ class IptablesDriverTestCase(base.BaseTestCase):
                                     wrap=False, top=False)]
 
         self.v4filter_inst.assert_has_calls(calls)
+
+    def test_process_metering_label_rules_with_no_gateway_router(self):
+        routers = copy.deepcopy(TEST_ROUTERS)
+        for router in routers:
+            router['gw_port_id'] = None
+
+        self.metering.add_metering_label(None, routers)
+
+        calls = [mock.call.add_chain('neutron-meter-l-c5df2fe5-c60',
+                                     wrap=False),
+                 mock.call.add_chain('neutron-meter-r-c5df2fe5-c60',
+                                     wrap=False),
+                 mock.call.add_rule('neutron-meter-FORWARD', '-j '
+                                    'neutron-meter-r-c5df2fe5-c60',
+                                    wrap=False),
+                 mock.call.add_rule('neutron-meter-l-c5df2fe5-c60',
+                                    '',
+                                    wrap=False),
+                 mock.call.add_chain('neutron-meter-l-eeef45da-c60',
+                                     wrap=False),
+                 mock.call.add_chain('neutron-meter-r-eeef45da-c60',
+                                     wrap=False),
+                 mock.call.add_rule('neutron-meter-FORWARD', '-j '
+                                    'neutron-meter-r-eeef45da-c60',
+                                    wrap=False),
+                 mock.call.add_rule('neutron-meter-l-eeef45da-c60',
+                                    '',
+                                    wrap=False)]
+
+        self.v4filter_inst.assert_has_calls(calls, any_order=False)
 
     def test_add_metering_label_with_rules(self):
         routers = copy.deepcopy(TEST_ROUTERS)

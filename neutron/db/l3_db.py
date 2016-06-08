@@ -15,6 +15,9 @@
 import itertools
 
 import netaddr
+from neutron_lib.api import validators
+from neutron_lib import constants as l3_constants
+from neutron_lib import exceptions as n_exc
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
@@ -30,8 +33,7 @@ from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants as l3_constants
-from neutron.common import exceptions as n_exc
+from neutron.common import constants as n_const
 from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import utils
@@ -48,6 +50,7 @@ from neutron.plugins.common import utils as p_utils
 LOG = logging.getLogger(__name__)
 
 
+DEVICE_OWNER_HA_REPLICATED_INT = l3_constants.DEVICE_OWNER_HA_REPLICATED_INT
 DEVICE_OWNER_ROUTER_INTF = l3_constants.DEVICE_OWNER_ROUTER_INTF
 DEVICE_OWNER_ROUTER_GW = l3_constants.DEVICE_OWNER_ROUTER_GW
 DEVICE_OWNER_FLOATINGIP = l3_constants.DEVICE_OWNER_FLOATINGIP
@@ -137,6 +140,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
     """Mixin class to add L3/NAT router methods to db_base_plugin_v2."""
 
     router_device_owners = (
+        DEVICE_OWNER_HA_REPLICATED_INT,
         DEVICE_OWNER_ROUTER_INTF,
         DEVICE_OWNER_ROUTER_GW,
         DEVICE_OWNER_FLOATINGIP
@@ -174,17 +178,41 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             self._apply_dict_extend_functions(l3.ROUTERS, res, router)
         return self._fields(res, fields)
 
+    def filter_allocating_and_missing_routers(self, context, routers):
+        """Filter out routers that shouldn't go to the agent.
+
+        Any routers in the ALLOCATING state will be excluded by
+        this query because this indicates that the server is still
+        building necessary dependent sub-resources for the router and it
+        is not ready for consumption by the agent. It will also filter
+        out any routers that no longer exist to prevent conditions where
+        only part of a router's information was populated in sync_routers
+        due to it being deleted during the sync.
+        """
+        router_ids = set(r['id'] for r in routers)
+        query = (context.session.query(Router.id).
+                 filter(
+                     Router.id.in_(router_ids),
+                     Router.status != n_const.ROUTER_STATUS_ALLOCATING))
+        valid_routers = set(r.id for r in query)
+        if router_ids - valid_routers:
+            LOG.debug("Removing routers that were either concurrently "
+                      "deleted or are in the ALLOCATING state: %s",
+                      (router_ids - valid_routers))
+        return [r for r in routers if r['id'] in valid_routers]
+
     def _create_router_db(self, context, router, tenant_id):
         """Create the DB object."""
         with context.session.begin(subtransactions=True):
             # pre-generate id so it will be available when
             # configuring external gw port
+            status = router.get('status', n_const.ROUTER_STATUS_ACTIVE)
             router_db = Router(id=(router.get('id') or
                                    uuidutils.generate_uuid()),
                                tenant_id=tenant_id,
                                name=router['name'],
                                admin_state_up=router['admin_state_up'],
-                               status="ACTIVE",
+                               status=status,
                                description=router.get('description'))
             context.session.add(router_db)
             return router_db
@@ -214,12 +242,12 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
     def update_router(self, context, id, router):
         r = router['router']
-        gw_info = r.pop(EXTERNAL_GW_INFO, attributes.ATTR_NOT_SPECIFIED)
+        gw_info = r.pop(EXTERNAL_GW_INFO, l3_constants.ATTR_NOT_SPECIFIED)
         # check whether router needs and can be rescheduled to the proper
         # l3 agent (associated with given external network);
         # do check before update in DB as an exception will be raised
         # in case no proper l3 agent found
-        if gw_info != attributes.ATTR_NOT_SPECIFIED:
+        if gw_info != l3_constants.ATTR_NOT_SPECIFIED:
             candidates = self._check_router_needs_rescheduling(
                 context, id, gw_info)
             # Update the gateway outside of the DB update since it involves L2
@@ -304,7 +332,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         # Port has no 'tenant-id', as it is hidden from user
         port_data = {'tenant_id': '',  # intentionally not set
                      'network_id': network_id,
-                     'fixed_ips': ext_ips or attributes.ATTR_NOT_SPECIFIED,
+                     'fixed_ips': ext_ips or l3_constants.ATTR_NOT_SPECIFIED,
                      'device_id': router['id'],
                      'device_owner': DEVICE_OWNER_ROUTER_GW,
                      'admin_state_up': True,
@@ -406,10 +434,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                 # raise the underlying exception
                 raise e.errors[0].error
 
-            for subnet in subnets:
-                self._check_for_dup_router_subnet(context, router,
-                                                  new_network_id, subnet['id'],
-                                                  subnet['cidr'])
+            self._check_for_dup_router_subnets(context, router,
+                                               new_network_id, subnets)
             self._create_router_gw_port(context, router,
                                         new_network_id, ext_ips)
             registry.notify(resources.ROUTER_GATEWAY,
@@ -508,38 +534,42 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         return self._get_collection_count(context, Router,
                                           filters=filters)
 
-    def _check_for_dup_router_subnet(self, context, router,
-                                     network_id, subnet_id, subnet_cidr):
-        try:
-            # It's possible these ports are on the same network, but
-            # different subnets.
-            new_ipnet = netaddr.IPNetwork(subnet_cidr)
-            for p in (rp.port for rp in router.attached_ports):
-                for ip in p['fixed_ips']:
-                    if ip['subnet_id'] == subnet_id:
-                        msg = (_("Router already has a port on subnet %s")
-                               % subnet_id)
-                        raise n_exc.BadRequest(resource='router', msg=msg)
-                    # Ignore temporary Prefix Delegation CIDRs
-                    if subnet_cidr == l3_constants.PROVISIONAL_IPV6_PD_PREFIX:
-                        continue
-                    sub_id = ip['subnet_id']
-                    cidr = self._core_plugin.get_subnet(context.elevated(),
-                                                        sub_id)['cidr']
-                    ipnet = netaddr.IPNetwork(cidr)
-                    match1 = netaddr.all_matching_cidrs(new_ipnet, [cidr])
-                    match2 = netaddr.all_matching_cidrs(ipnet, [subnet_cidr])
-                    if match1 or match2:
-                        data = {'subnet_cidr': subnet_cidr,
-                                'subnet_id': subnet_id,
-                                'cidr': cidr,
-                                'sub_id': sub_id}
-                        msg = (_("Cidr %(subnet_cidr)s of subnet "
-                                 "%(subnet_id)s overlaps with cidr %(cidr)s "
-                                 "of subnet %(sub_id)s") % data)
-                        raise n_exc.BadRequest(resource='router', msg=msg)
-        except exc.NoResultFound:
-            pass
+    def _check_for_dup_router_subnets(self, context, router,
+                                      network_id, new_subnets):
+        # It's possible these ports are on the same network, but
+        # different subnets.
+        new_subnet_ids = {s['id'] for s in new_subnets}
+        router_subnets = []
+        for p in (rp.port for rp in router.attached_ports):
+            for ip in p['fixed_ips']:
+                if ip['subnet_id'] in new_subnet_ids:
+                    msg = (_("Router already has a port on subnet %s")
+                           % ip['subnet_id'])
+                    raise n_exc.BadRequest(resource='router', msg=msg)
+                router_subnets.append(ip['subnet_id'])
+        # Ignore temporary Prefix Delegation CIDRs
+        new_subnets = [s for s in new_subnets
+                       if s['cidr'] != n_const.PROVISIONAL_IPV6_PD_PREFIX]
+        id_filter = {'id': router_subnets}
+        subnets = self._core_plugin.get_subnets(context.elevated(),
+                                                filters=id_filter)
+        for sub in subnets:
+            cidr = sub['cidr']
+            ipnet = netaddr.IPNetwork(cidr)
+            for s in new_subnets:
+                new_cidr = s['cidr']
+                new_ipnet = netaddr.IPNetwork(new_cidr)
+                match1 = netaddr.all_matching_cidrs(new_ipnet, [cidr])
+                match2 = netaddr.all_matching_cidrs(ipnet, [new_cidr])
+                if match1 or match2:
+                    data = {'subnet_cidr': new_cidr,
+                            'subnet_id': s['id'],
+                            'cidr': cidr,
+                            'sub_id': sub['id']}
+                    msg = (_("Cidr %(subnet_cidr)s of subnet "
+                             "%(subnet_id)s overlaps with cidr %(cidr)s "
+                             "of subnet %(sub_id)s") % data)
+                    raise n_exc.BadRequest(resource='router', msg=msg)
 
     def _get_device_owner(self, context, router=None):
         """Get device_owner for the specified router."""
@@ -552,6 +582,12 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         if not (port_id_specified or subnet_id_specified):
             msg = _("Either subnet_id or port_id must be specified")
             raise n_exc.BadRequest(resource='router', msg=msg)
+        for key in ('port_id', 'subnet_id'):
+            if key not in interface_info:
+                continue
+            err = validators.validate_uuid(interface_info[key])
+            if err:
+                raise n_exc.BadRequest(resource='router', msg=err)
         if not for_removal:
             if port_id_specified and subnet_id_specified:
                 msg = _("Cannot specify both subnet-id and port-id")
@@ -601,10 +637,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                 subnet = self._core_plugin.get_subnet(context,
                                                       fixed_ip['subnet_id'])
                 subnets.append(subnet)
-                self._check_for_dup_router_subnet(context, router,
-                                                  port['network_id'],
-                                                  subnet['id'],
-                                                  subnet['cidr'])
+
+            if subnets:
+                self._check_for_dup_router_subnets(context, router,
+                                                   port['network_id'],
+                                                   subnets)
 
             # Keep the restriction against multiple IPv4 subnets
             if len([s for s in subnets if s['ip_version'] == 4]) > 1:
@@ -635,10 +672,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                    'external router cannot be added to Neutron Router.') %
                    subnet['id'])
             raise n_exc.BadRequest(resource='router', msg=msg)
-        self._check_for_dup_router_subnet(context, router,
-                                          subnet['network_id'],
-                                          subnet_id,
-                                          subnet['cidr'])
+        self._check_for_dup_router_subnets(context, router,
+                                           subnet['network_id'], [subnet])
         fixed_ip = {'ip_address': subnet['gateway_ip'],
                     'subnet_id': subnet['id']}
 
@@ -1069,7 +1104,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             msg = _("Network %s does not contain any IPv4 subnet") % f_net_id
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
 
-        dns_integration = utils.is_extension_supported(self, 'dns-integration')
+        dns_integration = utils.is_extension_supported(self._core_plugin,
+                                                       'dns-integration')
         with context.session.begin(subtransactions=True):
             # This external port is never exposed to the tenant.
             # it is used purely for internal system and admin use when
@@ -1136,7 +1172,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
     def _update_floatingip(self, context, id, floatingip):
         fip = floatingip['floatingip']
-        dns_integration = utils.is_extension_supported(self, 'dns-integration')
+        dns_integration = utils.is_extension_supported(self._core_plugin,
+                                                       'dns-integration')
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
             old_floatingip = self._make_floatingip_dict(floatingip_db)
@@ -1175,7 +1212,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
     def _delete_floatingip(self, context, id):
         floatingip = self._get_floatingip(context, id)
         floatingip_dict = self._make_floatingip_dict(floatingip)
-        if utils.is_extension_supported(self, 'dns-integration'):
+        if utils.is_extension_supported(self._core_plugin, 'dns-integration'):
             self._process_dns_floatingip_delete(context, floatingip_dict)
         # Foreign key cascade will take care of the removal of the
         # floating IP record once the port is deleted. We can't start
@@ -1390,7 +1427,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
     def _get_sync_interfaces(self, context, router_ids, device_owners=None):
         """Query router interfaces that relate to list of router_ids."""
-        device_owners = device_owners or [DEVICE_OWNER_ROUTER_INTF]
+        device_owners = device_owners or [DEVICE_OWNER_ROUTER_INTF,
+                                          DEVICE_OWNER_HA_REPLICATED_INT]
         if not router_ids:
             return []
         qry = context.session.query(RouterPort)
@@ -1575,6 +1613,13 @@ class L3RpcNotifierMixin(object):
 class L3_NAT_db_mixin(L3_NAT_dbonly_mixin, L3RpcNotifierMixin):
     """Mixin class to add rpc notifier methods to db_base_plugin_v2."""
 
+    def create_router(self, context, router):
+        router_dict = super(L3_NAT_db_mixin, self).create_router(context,
+                                                                 router)
+        if router_dict.get('external_gateway_info'):
+            self.notify_router_updated(context, router_dict['id'], None)
+        return router_dict
+
     def update_router(self, context, id, router):
         router_dict = super(L3_NAT_db_mixin, self).update_router(context,
                                                                  id, router)
@@ -1707,7 +1752,7 @@ def _notify_subnetpool_address_scope_update(resource, event,
         models_v2.Subnet.network_id == models_v2.Port.network_id)
     query = query.filter(
         models_v2.Subnet.subnetpool_id == subnetpool_id,
-        RouterPort.port_type.in_(l3_constants.ROUTER_PORT_OWNERS))
+        RouterPort.port_type.in_(n_const.ROUTER_PORT_OWNERS))
     query = query.distinct()
 
     router_ids = [r[0] for r in query]

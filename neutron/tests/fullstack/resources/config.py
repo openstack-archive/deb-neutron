@@ -15,23 +15,13 @@
 import tempfile
 
 import fixtures
+from neutron_lib import constants
 
-from neutron.common import constants
 from neutron.plugins.ml2.extensions import qos as qos_ext
 from neutron.tests import base
 from neutron.tests.common import config_fixtures
+from neutron.tests.common.exclusive_resources import port
 from neutron.tests.common import helpers as c_helpers
-from neutron.tests.common import net_helpers
-
-
-def _generate_port():
-    """Get a free TCP port from the Operating System and return it.
-
-    This might fail if some other process occupies this port after this
-    function finished but before the neutron-server process started.
-    """
-    return str(net_helpers.get_free_namespace_port(
-        constants.PROTO_NAME_TCP))
 
 
 class ConfigFixture(fixtures.Fixture):
@@ -73,13 +63,11 @@ class NeutronConfigFixture(ConfigFixture):
                 'host': self._generate_host(),
                 'state_path': self._generate_state_path(self.temp_dir),
                 'lock_path': '$state_path/lock',
-                'bind_port': _generate_port(),
                 'api_paste_config': self._generate_api_paste(),
                 'policy_file': self._generate_policy_json(),
                 'core_plugin': 'neutron.plugins.ml2.plugin.Ml2Plugin',
                 'service_plugins': ','.join(service_plugins),
                 'auth_strategy': 'noauth',
-                'verbose': 'True',
                 'debug': 'True',
             },
             'database': {
@@ -92,6 +80,13 @@ class NeutronConfigFixture(ConfigFixture):
                 'rabbit_virtual_host': rabbitmq_environment.vhost,
             }
         })
+
+    def _setUp(self):
+        self.config['DEFAULT'].update({
+            'bind_port': self.useFixture(
+                port.ExclusivePort(constants.PROTO_NAME_TCP)).port
+        })
+        super(NeutronConfigFixture, self)._setUp()
 
     def _generate_host(self):
         return base.get_rand_name(prefix='host-')
@@ -114,7 +109,7 @@ class ML2ConfigFixture(ConfigFixture):
         super(ML2ConfigFixture, self).__init__(
             env_desc, host_desc, temp_dir, base_filename='ml2_conf.ini')
 
-        mechanism_drivers = 'openvswitch,linuxbridge'
+        mechanism_drivers = self.env_desc.mech_drivers
         if self.env_desc.l2_pop:
             mechanism_drivers += ',l2population'
 
@@ -152,19 +147,15 @@ class OVSConfigFixture(ConfigFixture):
                 'local_ip': local_ip,
                 'integration_bridge': self._generate_integration_bridge(),
                 'of_interface': host_desc.of_interface,
+                'ovsdb_interface': host_desc.ovsdb_interface,
             },
             'securitygroup': {
-                'firewall_driver': ('neutron.agent.linux.iptables_firewall.'
-                                    'OVSHybridIptablesFirewallDriver'),
+                'firewall_driver': 'noop',
             },
             'agent': {
                 'l2_population': str(self.env_desc.l2_pop),
             }
         })
-
-        if self.config['ovs']['of_interface'] == 'native':
-            self.config['ovs'].update({
-                'of_listen_port': _generate_port()})
 
         if self.tunneling_enabled:
             self.config['agent'].update({
@@ -179,6 +170,14 @@ class OVSConfigFixture(ConfigFixture):
 
         if env_desc.qos:
             self.config['agent']['extensions'] = 'qos'
+
+    def _setUp(self):
+        if self.config['ovs']['of_interface'] == 'native':
+            self.config['ovs'].update({
+                'of_listen_port': self.useFixture(
+                    port.ExclusivePort(constants.PROTO_NAME_TCP)).port
+            })
+        super(OVSConfigFixture, self)._setUp()
 
     def _generate_bridge_mappings(self):
         return 'physnet1:%s' % base.get_rand_device_name(prefix='br-eth')
@@ -259,7 +258,6 @@ class L3ConfigFixture(ConfigFixture):
             self._prepare_config_with_linuxbridge_agent()
         self.config['DEFAULT'].update({
             'debug': 'True',
-            'verbose': 'True',
             'test_namespace_suffix': self._generate_namespace_suffix(),
         })
 

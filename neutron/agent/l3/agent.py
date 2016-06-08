@@ -15,6 +15,7 @@
 
 import eventlet
 import netaddr
+from neutron_lib import constants as lib_const
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
@@ -50,13 +51,6 @@ from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron import context as n_context
 from neutron import manager
-
-try:
-    from neutron_fwaas.services.firewall.agents.l3reference \
-        import firewall_l3_agent
-except Exception:
-    # TODO(dougw) - REMOVE THIS FROM NEUTRON; during l3_agent refactor only
-    from neutron.services.firewall.agents.l3reference import firewall_l3_agent
 
 LOG = logging.getLogger(__name__)
 # TODO(Carl) Following constants retained to increase SNR during refactoring
@@ -159,8 +153,7 @@ class L3PluginApi(object):
                           host=self.host, network_id=fip_net)
 
 
-class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
-                 ha.AgentMixin,
+class L3NATAgent(ha.AgentMixin,
                  dvr.AgentMixin,
                  manager.Manager):
     """Manager for L3NatAgent
@@ -204,9 +197,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         # Get the list of service plugins from Neutron Server
         # This is the first place where we contact neutron-server on startup
         # so retry in case its not ready to respond.
-        retry_count = 5
         while True:
-            retry_count = retry_count - 1
             try:
                 self.neutron_service_plugins = (
                     self.plugin_rpc.get_service_plugin_list(self.context))
@@ -223,13 +214,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                 self.neutron_service_plugins = None
             except oslo_messaging.MessagingTimeout as e:
                 with excutils.save_and_reraise_exception() as ctx:
-                    if retry_count > 0:
-                        ctx.reraise = False
-                        LOG.warning(_LW('l3-agent cannot check service '
-                                        'plugins enabled on the neutron '
-                                        'server. Retrying. '
-                                        'Detail message: %s'), e)
-                        continue
+                    ctx.reraise = False
+                    LOG.warning(_LW('l3-agent cannot contact neutron server '
+                                    'to retrieve service plugins enabled. '
+                                    'Check connectivity to neutron server. '
+                                    'Retrying... '
+                                    'Detailed message: %(msg)s.') % {'msg': e})
+                    continue
             break
 
         self.metadata_driver = None
@@ -242,7 +233,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             self.metadata_driver)
 
         self._queue = queue.RouterProcessingQueue()
-        super(L3NATAgent, self).__init__(conf=self.conf)
+        super(L3NATAgent, self).__init__(host=self.conf.host)
 
         self.target_ex_net_id = None
         self.use_ipv6 = ipv6_utils.is_enabled()
@@ -344,9 +335,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         self.router_info[router_id] = ri
 
         ri.initialize(self.process_monitor)
-
-        # TODO(Carl) This is a hook in to fwaas.  It should be cleaned up.
-        self.process_router_add(ri)
 
     def _safe_router_removed(self, router_id):
         """Try to delete a router and return True if successful."""
@@ -522,7 +510,6 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
     # is responsible for task execution.
     @periodic_task.periodic_task(spacing=1, run_immediately=True)
     def periodic_sync_routers_task(self, context):
-        self.process_services_sync(context)
         if not self.fullsync:
             return
         LOG.debug("Starting fullsync periodic_sync_routers_task")
@@ -646,7 +633,7 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 'interface_driver': self.conf.interface_driver,
                 'log_agent_heartbeats': self.conf.AGENT.log_agent_heartbeats},
             'start_flag': True,
-            'agent_type': l3_constants.AGENT_TYPE_L3}
+            'agent_type': lib_const.AGENT_TYPE_L3}
         report_interval = self.conf.AGENT.report_interval
         if report_interval:
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(
@@ -663,9 +650,9 @@ class L3NATAgentWithStateReport(L3NATAgent):
             ex_gw_port = ri.get_ex_gw_port()
             if ex_gw_port:
                 num_ex_gw_ports += 1
-            num_interfaces += len(ri.router.get(l3_constants.INTERFACE_KEY,
+            num_interfaces += len(ri.router.get(lib_const.INTERFACE_KEY,
                                                 []))
-            num_floating_ips += len(ri.router.get(l3_constants.FLOATINGIP_KEY,
+            num_floating_ips += len(ri.router.get(lib_const.FLOATINGIP_KEY,
                                                   []))
         configurations = self.agent_state['configurations']
         configurations['routers'] = num_routers

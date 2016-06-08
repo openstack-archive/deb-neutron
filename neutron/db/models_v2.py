@@ -121,7 +121,8 @@ class Port(model_base.HasStandardAttributes, model_base.BASEV2,
     network_id = sa.Column(sa.String(36), sa.ForeignKey("networks.id"),
                            nullable=False)
     fixed_ips = orm.relationship(IPAllocation, backref='port', lazy='joined',
-                                 passive_deletes='all')
+                                 cascade='all, delete-orphan')
+
     mac_address = sa.Column(sa.String(32), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
     status = sa.Column(sa.String(16), nullable=False)
@@ -134,6 +135,7 @@ class Port(model_base.HasStandardAttributes, model_base.BASEV2,
             'ix_ports_network_id_mac_address', 'network_id', 'mac_address'),
         sa.Index(
             'ix_ports_network_id_device_owner', 'network_id', 'device_owner'),
+        sa.Index('ix_ports_device_id', 'device_id'),
         sa.UniqueConstraint(
             network_id, mac_address,
             name='uniq_ports0network_id0mac_address'),
@@ -183,6 +185,8 @@ class Subnet(model_base.HasStandardAttributes, model_base.BASEV2,
 
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     network_id = sa.Column(sa.String(36), sa.ForeignKey('networks.id'))
+    # Added by the segments service plugin
+    segment_id = sa.Column(sa.String(36), sa.ForeignKey('networksegments.id'))
     subnetpool_id = sa.Column(sa.String(36), index=True)
     # NOTE: Explicitly specify join conditions for the relationship because
     # subnetpool_id in subnet might be 'prefix_delegation' when the IPv6 Prefix
@@ -219,7 +223,7 @@ class Subnet(model_base.HasStandardAttributes, model_base.BASEV2,
     # subnets don't have their own rbac_entries, they just inherit from
     # the network rbac entries
     rbac_entries = orm.relationship(
-        rbac_db_models.NetworkRBAC, lazy='joined',
+        rbac_db_models.NetworkRBAC, lazy='joined', uselist=True,
         foreign_keys='Subnet.network_id',
         primaryjoin='Subnet.network_id==NetworkRBAC.object_id')
 

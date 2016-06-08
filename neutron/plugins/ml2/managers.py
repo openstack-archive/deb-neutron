@@ -13,6 +13,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api import validators
+from neutron_lib import constants
+from neutron_lib import exceptions as exc
 from oslo_config import cfg
 from oslo_log import log
 from oslo_utils import excutils
@@ -20,8 +23,6 @@ import six
 import stevedore
 
 from neutron._i18n import _, _LE, _LI, _LW
-from neutron.api.v2 import attributes
-from neutron.common import exceptions as exc
 from neutron.extensions import external_net
 from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
@@ -91,7 +92,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
          segmentation_id) = (self._get_attribute(segment, attr)
                              for attr in provider.ATTRIBUTES)
 
-        if attributes.is_attr_set(network_type):
+        if validators.is_attr_set(network_type):
             segment = {api.NETWORK_TYPE: network_type,
                        api.PHYSICAL_NETWORK: physical_network,
                        api.SEGMENTATION_ID: segmentation_id}
@@ -102,15 +103,15 @@ class TypeManager(stevedore.named.NamedExtensionManager):
         raise exc.InvalidInput(error_message=msg)
 
     def _process_provider_create(self, network):
-        if any(attributes.is_attr_set(network.get(attr))
+        if any(validators.is_attr_set(network.get(attr))
                for attr in provider.ATTRIBUTES):
             # Verify that multiprovider and provider attributes are not set
             # at the same time.
-            if attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
+            if validators.is_attr_set(network.get(mpnet.SEGMENTS)):
                 raise mpnet.SegmentsSetInConjunctionWithProviders()
             segment = self._get_provider_segment(network)
             return [self._process_provider_segment(segment)]
-        elif attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
+        elif validators.is_attr_set(network.get(mpnet.SEGMENTS)):
             segments = [self._process_provider_segment(s)
                         for s in network[mpnet.SEGMENTS]]
             mpnet.check_duplicate_segments(segments, self.is_partial_segment)
@@ -132,10 +133,10 @@ class TypeManager(stevedore.named.NamedExtensionManager):
     def network_matches_filters(self, network, filters):
         if not filters:
             return True
-        if any(attributes.is_attr_set(network.get(attr))
+        if any(validators.is_attr_set(network.get(attr))
                for attr in provider.ATTRIBUTES):
             segments = [self._get_provider_segment(network)]
-        elif attributes.is_attr_set(network.get(mpnet.SEGMENTS)):
+        elif validators.is_attr_set(network.get(mpnet.SEGMENTS)):
             segments = self._get_attribute(network, mpnet.SEGMENTS)
         else:
             return True
@@ -143,7 +144,7 @@ class TypeManager(stevedore.named.NamedExtensionManager):
 
     def _get_attribute(self, attrs, key):
         value = attrs.get(key)
-        if value is attributes.ATTR_NOT_SPECIFIED:
+        if value is constants.ATTR_NOT_SPECIFIED:
             value = None
         return value
 
@@ -311,6 +312,10 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
                                                name_order=True)
         LOG.info(_LI("Loaded mechanism driver names: %s"), self.names())
         self._register_mechanisms()
+        self.host_filtering_supported = self.is_host_filtering_supported()
+        if not self.host_filtering_supported:
+            LOG.warning(_LW("Host filtering is disabled because at least one "
+                            "mechanism doesn't support it."))
 
     def _register_mechanisms(self):
         """Register all mechanism drivers.
@@ -419,7 +424,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver create_network_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -447,7 +452,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver update_network_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -474,7 +479,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver delete_network_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -505,7 +510,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver create_subnet_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -532,7 +537,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver update_subnet_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -559,7 +564,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver delete_subnet_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -590,7 +595,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver create_port_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -617,7 +622,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver update_port_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -644,7 +649,7 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
         if any mechanism driver delete_port_precommit call fails.
 
         Called within the database transaction. If a mechanism driver
-        raises an exception, then a MechanismDriverError is propogated
+        raises an exception, then a MechanismDriverError is propagated
         to the caller, triggering a rollback. There is no guarantee
         that all mechanism drivers are called in this case.
         """
@@ -758,15 +763,44 @@ class MechanismManager(stevedore.named.NamedExtensionManager):
                                   "bind_port"),
                               driver.name)
 
+    def is_host_filtering_supported(self):
+        return all(driver.obj.is_host_filtering_supported()
+                   for driver in self.ordered_mech_drivers)
+
+    def filter_hosts_with_segment_access(
+            self, context, segments, candidate_hosts, agent_getter):
+        """Filter hosts with access to at least one segment.
+
+        :returns: a subset of candidate_hosts.
+
+        This method returns all hosts from candidate_hosts with access to a
+        segment according to at least one driver.
+        """
+        candidate_hosts = set(candidate_hosts)
+        if not self.host_filtering_supported:
+            return candidate_hosts
+
+        hosts_with_access = set()
+        for driver in self.ordered_mech_drivers:
+            hosts = driver.obj.filter_hosts_with_segment_access(
+                context, segments, candidate_hosts, agent_getter)
+            hosts_with_access |= hosts
+            candidate_hosts -= hosts
+            if not candidate_hosts:
+                break
+        return hosts_with_access
+
     def _check_driver_to_bind(self, driver, segments_to_bind, binding_levels):
         # To prevent a possible binding loop, don't try to bind with
         # this driver if the same driver has already bound at a higher
         # level to one of the segments we are currently trying to
         # bind. Note that it is OK for the same driver to bind at
         # multiple levels using different segments.
+        segment_ids_to_bind = {s[api.SEGMENTATION_ID]
+                               for s in segments_to_bind}
         for level in binding_levels:
             if (level.driver == driver and
-                level.segment_id in segments_to_bind):
+                level.segment_id in segment_ids_to_bind):
                 return False
         return True
 

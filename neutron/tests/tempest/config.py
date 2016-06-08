@@ -12,7 +12,9 @@
 
 from oslo_config import cfg
 
+from neutron import api
 from tempest import config
+
 
 CONF = config.CONF
 
@@ -21,9 +23,32 @@ NeutronPluginOptions = [
     cfg.BoolOpt('specify_floating_ip_address_available',
                 default=True,
                 help='Allow passing an IP Address of the floating ip when '
-                     'creating the floating ip')]
+                     'creating the floating ip'),
+    cfg.BoolOpt('validate_pagination',
+                default=api.DEFAULT_ALLOW_PAGINATION,
+                help='Validate pagination'),
+    cfg.BoolOpt('validate_sorting',
+                default=api.DEFAULT_ALLOW_SORTING,
+                help='Validate sorting')]
 
 # TODO(amuller): Redo configuration options registration as part of the planned
 # transition to the Tempest plugin architecture
 for opt in NeutronPluginOptions:
     CONF.register_opt(opt, 'neutron_plugin_options')
+
+
+config_opts_translator = {
+    'project_network_cidr': 'tenant_network_cidr',
+    'project_network_v6_cidr': 'tenant_network_v6_cidr',
+    'project_network_mask_bits': 'tenant_network_mask_bits',
+    'project_network_v6_mask_bits': 'tenant_network_v6_mask_bits'}
+
+
+def safe_get_config_value(group, name):
+    """Safely get Oslo config opts from Tempest, using old and new names."""
+    conf_group = getattr(CONF, group)
+
+    try:
+        return getattr(conf_group, name)
+    except cfg.NoSuchOptError:
+        return getattr(conf_group, config_opts_translator[name])

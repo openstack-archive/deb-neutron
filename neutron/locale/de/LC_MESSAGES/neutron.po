@@ -4,16 +4,17 @@
 #
 # Translators:
 # Ettore Atalan <atalanttore@googlemail.com>, 2014
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 # Frank Kloeker <eumel@arcor.de>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 8.0.0.0rc2.dev16\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-24 09:29+0000\n"
+"Project-Id-Version: neutron 8.0.1.dev189\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-18 05:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"PO-Revision-Date: 2016-03-24 05:41+0000\n"
+"PO-Revision-Date: 2016-04-16 09:19+0000\n"
 "Last-Translator: Monika Wolf <vcomas3@de.ibm.com>\n"
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -775,9 +776,6 @@ msgstr ""
 "Dynamische IP-Adresse kann nicht erstellt und an Port %s gebunden werden, da "
 "dieser Port einem anderen Nutzer gehört."
 
-msgid "Cannot create resource for another tenant"
-msgstr "Erstellen von Ressource für einen weiteren Nutzer nicht möglich"
-
 msgid "Cannot disable enable_dhcp with ipv6 attributes set"
 msgstr ""
 "enable_dhcp kann nicht inaktiviert werden, wenn ipv6-Attribute gesetzt sind"
@@ -1428,16 +1426,6 @@ msgstr ""
 "Overlay durchzuführen."
 
 msgid ""
-"Enable local ARP responder which provides local responses instead of "
-"performing ARP broadcast into the overlay. Enabling local ARP responder is "
-"not fullycompatible with the allowed-address-pairs extension."
-msgstr ""
-"Aktivieren Sie den lokalen ARP-Responder, der lokale Antworten bereitstellt "
-"anstatt ARP-Broadcasts im Overlay durchzuführen. Die Aktivierung eines "
-"lokalen ARP-Responders ist nicht vollständig kompatibel mit der Erweiterung "
-"zulässiger Adresspaare."
-
-msgid ""
 "Enable services on an agent with admin_state_up False. If this option is "
 "False, when admin_state_up of an agent is turned False, services on it will "
 "be disabled. Agents with admin_state_up False are not selected for automatic "
@@ -1531,17 +1519,6 @@ msgstr "Ende des Tunnelbereichs ist kleiner als Anfang des Tunnelbereichs"
 
 msgid "Enforce using split branches file structure."
 msgstr "Verwendung einer Dateistruktur mit getrennten Zweigen erzwingen."
-
-msgid ""
-"Ensure that configured gateway is on subnet. For IPv6, validate only if "
-"gateway is not a link local address. Deprecated, to be removed during the "
-"Newton release, at which point the gateway will not be forced on to subnet."
-msgstr ""
-"Stellen Sie sicher, dass sich das konfigurierte Gateway in einem Subnetz "
-"befindet. Bei IPv6 muss nur dann geprüft werden, wenn  das Gateway keine "
-"Link-Lokal-Adresse ist. Veraltet, soll beim Newton-Release entfernt werden. "
-"Zu dem Zeitpunkt muss sich das Gateway nicht mehr zwingend im Subnetz "
-"befinden."
 
 #, python-format
 msgid "Error %(reason)s while attempting the operation."
@@ -1843,11 +1820,6 @@ msgid "Group (gid or name) running this process after its initialization"
 msgstr ""
 "Gruppe (Gruppen-ID oder Name), die diesen Prozess nach der Initialisierung "
 "ausführt"
-
-#, python-format
-msgid "HEAD file does not match migration timeline head, expected: %s"
-msgstr ""
-"HEAD-Datei stimmt nicht mit Migrationszeitplan für HEAD überein. Erwartet: %s"
 
 msgid ""
 "Hostname to be used by the Neutron server, agents and services running on "
@@ -3028,10 +3000,6 @@ msgid "Plugin does not support updating provider attributes"
 msgstr ""
 "Aktualisieren von Provider-Attributen wird von Plugin nicht unterstützt"
 
-msgid "Policy configuration policy.json could not be found."
-msgstr ""
-"Die Richtlinienkonfiguration 'policy.json' konnte nicht gefunden werden."
-
 #, python-format
 msgid "Port %(id)s does not have fixed ip %(address)s"
 msgstr "Port %(id)s verfügt nicht über statische IP-Adresse %(address)s"
@@ -3075,9 +3043,6 @@ msgid ""
 msgstr ""
 "Portsicherheit muss aktiviert werden, damit zulässige Adresspaare für einen "
 "Port vorhanden sind."
-
-msgid "Port does not have port security binding."
-msgstr "Port verfügt nicht über Portsicherheitsbindung."
 
 msgid ""
 "Port has security group associated. Cannot disable port security or ip "
@@ -4526,10 +4491,6 @@ msgstr "'dns_name' kann nicht ohne 'dns_domain' angegeben werden."
 
 msgid "fixed_ip_address cannot be specified without a port_id"
 msgstr "'fixed_ip_address' kann nicht ohne 'port_id' angegeben werden"
-
-#, python-format
-msgid "gateway_ip %s is not in the subnet"
-msgstr "gateway_ip %s ist nicht im Subnetz."
 
 #, python-format
 msgid "has device owner %s"

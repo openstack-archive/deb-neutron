@@ -15,13 +15,14 @@
 
 import sys
 
+from neutron_lib import constants as n_const
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_utils import excutils
+from osprofiler import profiler
 
 from neutron._i18n import _LE, _LI, _LW
-from neutron.common import constants as n_const
 from neutron.common import utils as n_utils
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants
@@ -112,6 +113,7 @@ class OVSPort(object):
         return self.ofport
 
 
+@profiler.trace_cls("ovs_dvr_agent")
 class OVSDVRNeutronAgent(object):
     '''
     Implements OVS-based DVR(Distributed Virtual Router), for overlay networks.
@@ -572,6 +574,12 @@ class OVSDVRNeutronAgent(object):
                                              local_vlan_map.network_type))
             return
 
+        if (port.vif_id in self.local_ports and
+                self.local_ports[port.vif_id].ofport != port.ofport):
+            LOG.info(_LI("DVR: Port %(vif)s changed port number to "
+                         "%(ofport)s, rebinding."),
+                     {'vif': port.vif_id, 'ofport': port.ofport})
+            self.unbind_port_from_dvr(port, local_vlan_map)
         if device_owner == n_const.DEVICE_OWNER_DVR_INTERFACE:
             self._bind_distributed_router_interface_port(port,
                                                          local_vlan_map,

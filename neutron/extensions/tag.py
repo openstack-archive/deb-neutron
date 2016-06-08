@@ -12,9 +12,11 @@
 #    under the License.
 
 import abc
-import six
 
+from neutron_lib.api import validators
+from neutron_lib import exceptions
 from oslo_log import log as logging
+import six
 import webob.exc
 
 from neutron._i18n import _
@@ -22,7 +24,6 @@ from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron.api.v2 import base
 from neutron.api.v2 import resource as api_resource
-from neutron.common import exceptions
 from neutron import manager
 from neutron.services import service_base
 
@@ -61,7 +62,7 @@ def get_parent_resource_and_id(kwargs):
 
 
 def validate_tag(tag):
-    msg = attributes._validate_string(tag, MAX_TAG_LEN)
+    msg = validators.validate_string(tag, MAX_TAG_LEN)
     if msg:
         raise exceptions.InvalidInput(error_message=msg)
 
@@ -69,7 +70,7 @@ def validate_tag(tag):
 def validate_tags(body):
     if 'tags' not in body:
         raise exceptions.InvalidInput(error_message="Invalid tags body.")
-    msg = attributes.validate_list_of_unique_strings(body['tags'], MAX_TAG_LEN)
+    msg = validators.validate_list_of_unique_strings(body['tags'], MAX_TAG_LEN)
     if msg:
         raise exceptions.InvalidInput(error_message=msg)
 

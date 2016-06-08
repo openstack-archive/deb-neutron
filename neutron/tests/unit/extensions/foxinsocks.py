@@ -16,6 +16,7 @@
 import abc
 
 from oslo_serialization import jsonutils
+import six
 
 from neutron.api import extensions
 from neutron import wsgi
@@ -27,6 +28,7 @@ class FoxInSocksController(wsgi.Controller):
         return "Try to say this Mr. Knox, sir..."
 
 
+@six.add_metaclass(abc.ABCMeta)
 class FoxInSocksPluginInterface(extensions.PluginInterface):
 
     @abc.abstractmethod
@@ -77,7 +79,7 @@ class Foxinsocks(extensions.ExtensionDescriptor):
             # You can use content type header to test for XML.
             data = jsonutils.loads(res.body)
             data['FOXNSOX:googoose'] = req.GET.get('chewing')
-            res.body = jsonutils.dumps(data).encode('utf-8')
+            res.body = jsonutils.dump_as_bytes(data)
             return res
 
         req_ext1 = extensions.RequestExtension('GET', '/dummy_resources/:(id)',
@@ -89,7 +91,7 @@ class Foxinsocks(extensions.ExtensionDescriptor):
             # You can use content type header to test for XML.
             data = jsonutils.loads(res.body)
             data['FOXNSOX:big_bands'] = 'Pig Bands!'
-            res.body = jsonutils.dumps(data).encode('utf-8')
+            res.body = jsonutils.dump_as_bytes(data)
             return res
 
         req_ext2 = extensions.RequestExtension('GET', '/dummy_resources/:(id)',

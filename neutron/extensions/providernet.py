@@ -13,10 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api import converters
+from neutron_lib.api import validators
+from neutron_lib import constants
+from neutron_lib import exceptions as n_exc
+
 from neutron._i18n import _
 from neutron.api import extensions
-from neutron.api.v2 import attributes
-from neutron.common import exceptions as n_exc
 
 
 NETWORK_TYPE = 'provider:network_type'
@@ -32,19 +35,19 @@ EXTENDED_ATTRIBUTES_2_0 = {
     'networks': {
         NETWORK_TYPE: {'allow_post': True, 'allow_put': True,
                        'validate': {'type:string': NETWORK_TYPE_MAX_LEN},
-                       'default': attributes.ATTR_NOT_SPECIFIED,
+                       'default': constants.ATTR_NOT_SPECIFIED,
                        'enforce_policy': True,
                        'is_visible': True},
         PHYSICAL_NETWORK: {'allow_post': True, 'allow_put': True,
                            'validate': {'type:string':
                                         PHYSICAL_NETWORK_MAX_LEN},
-                           'default': attributes.ATTR_NOT_SPECIFIED,
+                           'default': constants.ATTR_NOT_SPECIFIED,
                            'enforce_policy': True,
                            'is_visible': True},
         SEGMENTATION_ID: {'allow_post': True, 'allow_put': True,
-                          'convert_to': attributes.convert_to_int,
+                          'convert_to': converters.convert_to_int,
                           'enforce_policy': True,
-                          'default': attributes.ATTR_NOT_SPECIFIED,
+                          'default': constants.ATTR_NOT_SPECIFIED,
                           'is_visible': True},
     }
 }
@@ -56,7 +59,7 @@ def _raise_if_updates_provider_attributes(attrs):
     This method is used for plugins that do not support
     updating provider networks.
     """
-    if any(attributes.is_attr_set(attrs.get(a)) for a in ATTRIBUTES):
+    if any(validators.is_attr_set(attrs.get(a)) for a in ATTRIBUTES):
         msg = _("Plugin does not support updating provider attributes")
         raise n_exc.InvalidInput(error_message=msg)
 

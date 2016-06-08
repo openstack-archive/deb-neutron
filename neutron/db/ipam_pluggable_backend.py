@@ -13,16 +13,17 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
+
 import netaddr
+from neutron_lib import constants
+from neutron_lib import exceptions as n_exc
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 from oslo_utils import excutils
 from sqlalchemy import and_
 
-from neutron._i18n import _, _LE
-from neutron.api.v2 import attributes
-from neutron.common import constants
-from neutron.common import exceptions as n_exc
+from neutron._i18n import _, _LE, _LW
 from neutron.common import ipv6_utils
 from neutron.db import ipam_backend_mixin
 from neutron.db import models_v2
@@ -40,6 +41,17 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         ips_list = (ip_dict['ip_address'] for ip_dict in success_ips)
         return (ip_dict['ip_address'] for ip_dict in all_ips
                 if ip_dict['ip_address'] not in ips_list)
+
+    def _safe_rollback(self, func, *args, **kwargs):
+        """Calls rollback actions and catch all exceptions.
+
+        All exceptions are catched and logged here to prevent rewriting
+        original exception that triggered rollback action.
+        """
+        try:
+            func(*args, **kwargs)
+        except Exception as e:
+            LOG.warning(_LW("Revert failed with: %s"), e)
 
     def _ipam_deallocate_ips(self, context, ipam_driver, port, ips,
                              revert_on_fail=True):
@@ -64,36 +76,18 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                 LOG.debug("An exception occurred during IP deallocation.")
                 if revert_on_fail and deallocated:
                     LOG.debug("Reverting deallocation")
-                    self._ipam_allocate_ips(context, ipam_driver, port,
-                                            deallocated, revert_on_fail=False)
+                    # In case of deadlock allocate fails with db error
+                    # and rewrites original exception preventing db_retry
+                    # wrappers from restarting entire api request.
+                    self._safe_rollback(self._ipam_allocate_ips, context,
+                                        ipam_driver, port, deallocated,
+                                        revert_on_fail=False)
                 elif not revert_on_fail and ips:
                     addresses = ', '.join(self._get_failed_ips(ips,
                                                                deallocated))
                     LOG.error(_LE("IP deallocation failed on "
                                   "external system for %s"), addresses)
         return deallocated
-
-    def _ipam_try_allocate_ip(self, context, ipam_driver, port, ip_dict):
-        factory = ipam_driver.get_address_request_factory()
-        ip_request = factory.get_request(context, port, ip_dict)
-        ipam_subnet = ipam_driver.get_subnet(ip_dict['subnet_id'])
-        return ipam_subnet.allocate(ip_request)
-
-    def _ipam_allocate_single_ip(self, context, ipam_driver, port, subnets):
-        """Allocates single ip from set of subnets
-
-        Raises n_exc.IpAddressGenerationFailure if allocation failed for
-        all subnets.
-        """
-        for subnet in subnets:
-            try:
-                return [self._ipam_try_allocate_ip(context, ipam_driver,
-                                                   port, subnet),
-                        subnet]
-            except ipam_exc.IpAddressGenerationFailure:
-                continue
-        raise n_exc.IpAddressGenerationFailure(
-            net_id=port['network_id'])
 
     def _ipam_allocate_ips(self, context, ipam_driver, port, ips,
                            revert_on_fail=True):
@@ -113,21 +107,32 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                 # By default IP info is dict, used to allocate single ip
                 # from single subnet.
                 # IP info can be list, used to allocate single ip from
-                # multiple subnets (i.e. first successful ip allocation
-                # is returned)
+                # multiple subnets
                 ip_list = [ip] if isinstance(ip, dict) else ip
-                ip_address, ip_subnet = self._ipam_allocate_single_ip(
-                    context, ipam_driver, port, ip_list)
+                subnets = [ip_dict['subnet_id'] for ip_dict in ip_list]
+                try:
+                    factory = ipam_driver.get_address_request_factory()
+                    ip_request = factory.get_request(context, port, ip_list[0])
+                    ipam_allocator = ipam_driver.get_allocator(subnets)
+                    ip_address, subnet_id = ipam_allocator.allocate(ip_request)
+                except ipam_exc.IpAddressGenerationFailureAllSubnets:
+                    raise n_exc.IpAddressGenerationFailure(
+                        net_id=port['network_id'])
+
                 allocated.append({'ip_address': ip_address,
-                                  'subnet_id': ip_subnet['subnet_id']})
+                                  'subnet_id': subnet_id})
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.debug("An exception occurred during IP allocation.")
 
                 if revert_on_fail and allocated:
                     LOG.debug("Reverting allocation")
-                    self._ipam_deallocate_ips(context, ipam_driver, port,
-                                              allocated, revert_on_fail=False)
+                    # In case of deadlock deallocation fails with db error
+                    # and rewrites original exception preventing db_retry
+                    # wrappers from restarting entire api request.
+                    self._safe_rollback(self._ipam_deallocate_ips, context,
+                                        ipam_driver, port, allocated,
+                                        revert_on_fail=False)
                 elif not revert_on_fail and ips:
                     addresses = ', '.join(self._get_failed_ips(ips,
                                                                allocated))
@@ -137,9 +142,6 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         return allocated
 
     def _ipam_update_allocation_pools(self, context, ipam_driver, subnet):
-        self.validate_allocation_pools(subnet['allocation_pools'],
-                                       subnet['cidr'])
-
         factory = ipam_driver.get_subnet_request_factory()
         subnet_request = factory.get_request(context, subnet, None)
 
@@ -174,9 +176,9 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                     LOG.debug("An exception occurred during port creation. "
                               "Reverting IP allocation")
                     ipam_driver = driver.Pool.get_instance(None, context)
-                    self._ipam_deallocate_ips(context, ipam_driver,
-                                              port_copy['port'], ips,
-                                              revert_on_fail=False)
+                    self._safe_rollback(self._ipam_deallocate_ips, context,
+                                        ipam_driver, port_copy['port'], ips,
+                                        revert_on_fail=False)
 
     def _allocate_ips_for_port(self, context, port):
         """Allocate IP addresses for the port. IPAM version.
@@ -186,56 +188,42 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         a subnet_id then allocate an IP address accordingly.
         """
         p = port['port']
-        ips = []
-        v6_stateless = []
-        net_id_filter = {'network_id': [p['network_id']]}
-        subnets = self._get_subnets(context, filters=net_id_filter)
-        is_router_port = (
-            p['device_owner'] in constants.ROUTER_INTERFACE_OWNERS_SNAT)
+        subnets = self._ipam_get_subnets(
+            context, network_id=p['network_id'], segment_id=None)
 
-        fixed_configured = p['fixed_ips'] is not attributes.ATTR_NOT_SPECIFIED
+        v4, v6_stateful, v6_stateless = self._classify_subnets(
+            context, subnets)
+
+        fixed_configured = p['fixed_ips'] is not constants.ATTR_NOT_SPECIFIED
         if fixed_configured:
             ips = self._test_fixed_ips_for_port(context,
                                                 p["network_id"],
                                                 p['fixed_ips'],
-                                                p['device_owner'])
-            # For ports that are not router ports, implicitly include all
-            # auto-address subnets for address association.
-            if not is_router_port:
-                v6_stateless += [subnet for subnet in subnets
-                                 if ipv6_utils.is_auto_address_subnet(subnet)]
+                                                p['device_owner'],
+                                                subnets)
         else:
-            # Split into v4, v6 stateless and v6 stateful subnets
-            v4 = []
-            v6_stateful = []
-            for subnet in subnets:
-                if subnet['ip_version'] == 4:
-                    v4.append(subnet)
-                else:
-                    if ipv6_utils.is_auto_address_subnet(subnet):
-                        if not is_router_port:
-                            v6_stateless.append(subnet)
-                    else:
-                        v6_stateful.append(subnet)
-
+            ips = []
             version_subnets = [v4, v6_stateful]
             for subnets in version_subnets:
                 if subnets:
                     ips.append([{'subnet_id': s['id']}
                                 for s in subnets])
 
-        for subnet in v6_stateless:
-            # IP addresses for IPv6 SLAAC and DHCPv6-stateless subnets
-            # are implicitly included.
-            ips.append({'subnet_id': subnet['id'],
-                        'subnet_cidr': subnet['cidr'],
-                        'eui64_address': True,
-                        'mac': p['mac_address']})
+        is_router_port = (
+            p['device_owner'] in constants.ROUTER_INTERFACE_OWNERS_SNAT)
+        if not is_router_port:
+            for subnet in v6_stateless:
+                # IP addresses for IPv6 SLAAC and DHCPv6-stateless subnets
+                # are implicitly included.
+                ips.append({'subnet_id': subnet['id'],
+                            'subnet_cidr': subnet['cidr'],
+                            'eui64_address': True,
+                            'mac': p['mac_address']})
         ipam_driver = driver.Pool.get_instance(None, context)
         return self._ipam_allocate_ips(context, ipam_driver, p, ips)
 
     def _test_fixed_ips_for_port(self, context, network_id, fixed_ips,
-                                 device_owner):
+                                 device_owner, subnets):
         """Test fixed IPs for port.
 
         Check that configured subnets are valid prior to allocating any
@@ -247,7 +235,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         """
         fixed_ip_list = []
         for fixed in fixed_ips:
-            subnet = self._get_subnet_for_fixed_ip(context, fixed, network_id)
+            subnet = self._get_subnet_for_fixed_ip(context, fixed, subnets)
 
             is_auto_addr_subnet = ipv6_utils.is_auto_address_subnet(subnet)
             if 'ip_address' in fixed:
@@ -280,10 +268,16 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         removed = []
         changes = self._get_changed_ips_for_port(
             context, original_ips, new_ips, port['device_owner'])
+        subnets = self._ipam_get_subnets(
+            context, network_id=port['network_id'], segment_id=None)
         # Check if the IP's to add are OK
         to_add = self._test_fixed_ips_for_port(
             context, port['network_id'], changes.add,
-            port['device_owner'])
+            port['device_owner'], subnets)
+
+        if port['device_owner'] not in constants.ROUTER_INTERFACE_OWNERS:
+            to_add += self._update_ips_for_pd_subnet(
+                context, subnets, changes.add, mac)
 
         ipam_driver = driver.Pool.get_instance(None, context)
         if changes.remove:
@@ -335,14 +329,20 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                     ipam_driver = driver.Pool.get_instance(None, context)
                     if changes.add:
                         LOG.debug("Reverting IP allocation.")
-                        self._ipam_deallocate_ips(context, ipam_driver,
-                                                  db_port, changes.add,
-                                                  revert_on_fail=False)
+                        self._safe_rollback(self._ipam_deallocate_ips,
+                                            context,
+                                            ipam_driver,
+                                            db_port,
+                                            changes.add,
+                                            revert_on_fail=False)
                     if changes.remove:
                         LOG.debug("Reverting IP deallocation.")
-                        self._ipam_allocate_ips(context, ipam_driver,
-                                                db_port, changes.remove,
-                                                revert_on_fail=False)
+                        self._safe_rollback(self._ipam_allocate_ips,
+                                            context,
+                                            ipam_driver,
+                                            db_port,
+                                            changes.remove,
+                                            revert_on_fail=False)
         return changes
 
     def delete_port(self, context, id):
@@ -358,22 +358,22 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                                   port['fixed_ips'])
 
     def update_db_subnet(self, context, id, s, old_pools):
+        # 'allocation_pools' is removed from 's' in
+        # _update_subnet_allocation_pools (ipam_backend_mixin),
+        # so create unchanged copy for ipam driver
+        subnet_copy = copy.deepcopy(s)
+        subnet, changes = super(IpamPluggableBackend, self).update_db_subnet(
+            context, id, s, old_pools)
         ipam_driver = driver.Pool.get_instance(None, context)
-        if "allocation_pools" in s:
-            self._ipam_update_allocation_pools(context, ipam_driver, s)
 
-        try:
-            subnet, changes = super(IpamPluggableBackend,
-                                    self).update_db_subnet(context, id,
-                                                           s, old_pools)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                if "allocation_pools" in s and old_pools:
-                    LOG.error(
-                        _LE("An exception occurred during subnet update. "
-                            "Reverting allocation pool changes"))
-                    s['allocation_pools'] = old_pools
-                    self._ipam_update_allocation_pools(context, ipam_driver, s)
+        # Set old allocation pools if no new pools are provided by user.
+        # Passing old pools allows to call ipam driver on each subnet update
+        # even if allocation pools are not changed. So custom ipam drivers
+        # are able to track other fields changes on subnet update.
+        if 'allocation_pools' not in subnet_copy:
+            subnet_copy['allocation_pools'] = old_pools
+        self._ipam_update_allocation_pools(context, ipam_driver, subnet_copy)
+
         return subnet, changes
 
     def add_auto_addrs_on_network_ports(self, context, subnet, ipam_subnet):
@@ -424,7 +424,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
 
         # gateway_ip and allocation pools should be validated or generated
         # only for specific request
-        if subnet['cidr'] is not attributes.ATTR_NOT_SPECIFIED:
+        if subnet['cidr'] is not constants.ATTR_NOT_SPECIFIED:
             subnet['gateway_ip'] = self._gateway_ip_str(subnet,
                                                         subnet['cidr'])
             subnet['allocation_pools'] = self._prepare_allocation_pools(

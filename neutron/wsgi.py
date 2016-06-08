@@ -24,6 +24,7 @@ import sys
 import time
 
 import eventlet.wsgi
+from neutron_lib import exceptions as exception
 from oslo_config import cfg
 import oslo_i18n
 from oslo_log import log as logging
@@ -32,6 +33,7 @@ from oslo_service import service as common_service
 from oslo_service import sslutils
 from oslo_service import systemd
 from oslo_service import wsgi
+from oslo_utils import encodeutils
 from oslo_utils import excutils
 import six
 import webob.dec
@@ -39,7 +41,7 @@ import webob.exc
 
 from neutron._i18n import _, _LE, _LI
 from neutron.common import config
-from neutron.common import exceptions as exception
+from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron.db import api
 from neutron import worker
@@ -69,16 +71,15 @@ def encode_body(body):
 
     WebOb requires to encode unicode body used to update response body.
     """
-    if isinstance(body, six.text_type):
-        return body.encode('utf-8')
-    return body
+    return encodeutils.to_utf8(body)
 
 
 class WorkerService(worker.NeutronWorker):
     """Wraps a worker to be handled by ProcessLauncher"""
-    def __init__(self, service, application):
+    def __init__(self, service, application, disable_ssl=False):
         self._service = service
         self._application = application
+        self._disable_ssl = disable_ssl
         self._server = None
 
     def start(self):
@@ -89,7 +90,7 @@ class WorkerService(worker.NeutronWorker):
         # errors on service restart.
         # Duplicate a socket object to keep a file descriptor usable.
         dup_sock = self._service._socket.dup()
-        if CONF.use_ssl:
+        if CONF.use_ssl and not self._disable_ssl:
             dup_sock = sslutils.wrap(CONF, dup_sock)
         self._server = self._service.pool.spawn(self._service._run,
                                                 self._application,
@@ -112,10 +113,11 @@ class WorkerService(worker.NeutronWorker):
 class Server(object):
     """Server class to manage multiple WSGI sockets and applications."""
 
-    def __init__(self, name, num_threads=1000):
+    def __init__(self, name, num_threads=None, disable_ssl=False):
         # Raise the default from 8192 to accommodate large tokens
         eventlet.wsgi.MAX_HEADER_LINE = CONF.max_header_line
-        self.num_threads = num_threads
+        self.num_threads = num_threads or CONF.wsgi_default_pool_size
+        self.disable_ssl = disable_ssl
         # Pool for a greenthread in which wsgi server will be running
         self.pool = eventlet.GreenPool(1)
         self.name = name
@@ -123,7 +125,7 @@ class Server(object):
         # A value of 0 is converted to None because None is what causes the
         # wsgi server to wait forever.
         self.client_socket_timeout = CONF.client_socket_timeout or None
-        if CONF.use_ssl:
+        if CONF.use_ssl and not self.disable_ssl:
             sslutils.is_enabled(CONF)
 
     def _get_socket(self, host, port, backlog):
@@ -186,7 +188,7 @@ class Server(object):
         self._launch(application, workers)
 
     def _launch(self, application, workers=0):
-        service = WorkerService(self, application)
+        service = WorkerService(self, application, self.disable_ssl)
         if workers < 1:
             # The API service should run in the current process.
             self._server = service
@@ -387,7 +389,7 @@ class JSONDeserializer(TextDeserializer):
             return jsonutils.loads(datastring)
         except ValueError:
             msg = _("Cannot understand JSON")
-            raise exception.MalformedRequestBody(reason=msg)
+            raise n_exc.MalformedRequestBody(reason=msg)
 
     def default(self, datastring):
         return {'body': self._from_json(datastring)}
@@ -600,7 +602,7 @@ class Resource(Application):
             msg = _("Unsupported Content-Type")
             LOG.exception(_LE("InvalidContentType: %s"), msg)
             return Fault(webob.exc.HTTPBadRequest(explanation=msg))
-        except exception.MalformedRequestBody:
+        except n_exc.MalformedRequestBody:
             msg = _("Malformed request body")
             LOG.exception(_LE("MalformedRequestBody: %s"), msg)
             return Fault(webob.exc.HTTPBadRequest(explanation=msg))
@@ -633,7 +635,7 @@ class Resource(Application):
         return response
 
     def dispatch(self, request, action, action_args):
-        """Find action-spefic method on controller and call it."""
+        """Find action-specific method on controller and call it."""
 
         controller_method = getattr(self.controller, action)
         try:

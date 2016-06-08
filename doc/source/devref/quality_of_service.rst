@@ -76,6 +76,23 @@ Service side design
   integrated into other plugins with ease.
 
 
+QoS plugin implementation guide
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The neutron.extensions.qos.QoSPluginBase class uses method proxies for methods
+relating to QoS policy rules. Each of these such methods is generic in the sense
+that it is intended to handle any rule type. For example, QoSPluginBase has a
+create_policy_rule method instead of both create_policy_dscp_marking_rule and
+create_policy_bandwidth_limit_rule methods. The logic behind the proxies allows
+a call to a plugin's create_policy_dscp_marking_rule to be handled by the
+create_policy_rule method, which will receive a QosDscpMarkingRule object as an
+argument in order to execute behavior specific to the DSCP marking rule type.
+This approach allows new rule types to be introduced without requiring a plugin
+to modify code as a result. As would be expected, any subclass of QoSPluginBase
+must override the base class's abc.abstractmethod methods, even if to raise
+NotImplemented.
+
+
 Supported QoS rule types
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -157,8 +174,13 @@ Base object class is defined in:
 For QoS, new neutron objects were implemented:
 
 * QosPolicy: directly maps to the conceptual policy resource, as defined above.
-* QosBandwidthLimitRule: class that represents the only rule type supported by
-  initial QoS design.
+* QosBandwidthLimitRule: defines the instance-egress bandwidth limit rule
+  type, characterized by a max kbps and a max burst kbits.
+* QosDscpMarkingRule: defines the DSCP rule type, characterized by an even integer
+  between 0 and 56.  These integers are the result of the bits in the DiffServ section
+  of the IP header, and only certain configurations are valid.  As a result, the list
+  of valid DSCP rule types is: 0, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
+  34, 36, 38, 40, 46, 48, and 56.
 
 Those are defined in:
 
@@ -299,6 +321,18 @@ That approach is less flexible than linux-htb, Queues and OvS QoS profiles,
 which we may explore in the future, but which will need to be used in
 combination with openflow rules.
 
+The Open vSwitch DSCP marking implementation relies on the recent addition
+of the ovs_agent_extension_api OVSAgentExtensionAPI to request access to the
+integration bridge functions:
+
+* add_flow
+* mod_flow
+* delete_flows
+* dump_flows_for
+
+The DSCP markings are in fact configured on the port by means of
+openflow rules.
+
 SR-IOV
 ++++++
 
@@ -332,6 +366,21 @@ This value is neccessary to calculate the minimal burst value which is set in
 tc. Details about how it is calculated can be found in
 `here <http://unix.stackexchange.com/a/100797>`_. This solution is similar to Open
 vSwitch implementation.
+
+Notification driver design
+--------------------------
+
+QoS framework is flexible enough to support any third-party vendor. To integrate a
+third party driver (that just wants to be aware of the QoS create/update/delete API
+calls), one needs to implement 'neutron.services.qos.notification_drivers.qos_base',
+register its specific driver information to the 'notification_drivers' stevedore
+namespace in the setup.cfg and finally set the 'notification_drivers' parameter in
+the [qos] section of the neutron config file.
+
+.. note::
+ All the functionality MUST be implemented by the vendor, neutron's QoS framework
+ will just act as an interface to bypass the received QoS API request and help with
+ database persistence for the API operations.
 
 Configuration
 -------------
@@ -395,4 +444,4 @@ API tests
 
 API tests for basic CRUD operations for ports, networks, policies, and rules were added in:
 
-* neutron.tests.api.test_qos
+* neutron.tests.tempest.api.test_qos

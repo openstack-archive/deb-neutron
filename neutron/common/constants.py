@@ -23,6 +23,11 @@ from neutron.common import _deprecate
 ROUTER_PORT_OWNERS = lib_constants.ROUTER_INTERFACE_OWNERS_SNAT + \
     (lib_constants.DEVICE_OWNER_ROUTER_GW,)
 
+ROUTER_STATUS_ACTIVE = 'ACTIVE'
+# NOTE(kevinbenton): a BUILD status for routers could be added in the future
+# for agents to indicate when they are wiring up the ports. The following is
+# to indicate when the server is busy building sub-components of a router
+ROUTER_STATUS_ALLOCATING = 'ALLOCATING'
 L3_AGENT_MODE_DVR = 'dvr'
 L3_AGENT_MODE_DVR_SNAT = 'dvr_snat'
 L3_AGENT_MODE_LEGACY = 'legacy'
@@ -53,102 +58,19 @@ ETHERTYPE_ARP = 0x0806
 ETHERTYPE_IP = 0x0800
 ETHERTYPE_IPV6 = 0x86DD
 
-# Protocol names and numbers for Security Groups/Firewalls
-PROTO_NAME_AH = 'ah'
-PROTO_NAME_DCCP = 'dccp'
-PROTO_NAME_EGP = 'egp'
-PROTO_NAME_ESP = 'esp'
-PROTO_NAME_GRE = 'gre'
-PROTO_NAME_ICMP = 'icmp'
-PROTO_NAME_IGMP = 'igmp'
-PROTO_NAME_IPV6_ENCAP = 'ipv6-encap'
-PROTO_NAME_IPV6_FRAG = 'ipv6-frag'
-PROTO_NAME_IPV6_ICMP = 'ipv6-icmp'
-PROTO_NAME_IPV6_NONXT = 'ipv6-nonxt'
-PROTO_NAME_IPV6_OPTS = 'ipv6-opts'
-PROTO_NAME_IPV6_ROUTE = 'ipv6-route'
-PROTO_NAME_OSPF = 'ospf'
-PROTO_NAME_PGM = 'pgm'
-PROTO_NAME_RSVP = 'rsvp'
-PROTO_NAME_SCTP = 'sctp'
-PROTO_NAME_TCP = 'tcp'
-PROTO_NAME_UDP = 'udp'
-PROTO_NAME_UDPLITE = 'udplite'
-PROTO_NAME_VRRP = 'vrrp'
+IP_PROTOCOL_NAME_ALIASES = {lib_constants.PROTO_NAME_IPV6_ICMP_LEGACY:
+                            lib_constants.PROTO_NAME_IPV6_ICMP}
 
-# TODO(amotoki): It should be moved to neutron-lib.
-# For backward-compatibility of security group rule API,
-# we keep the old value for IPv6 ICMP.
-# It should be clean up in the future.
-PROTO_NAME_IPV6_ICMP_LEGACY = 'icmpv6'
+VALID_DSCP_MARKS = [0, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
+                    36, 38, 40, 46, 48, 56]
 
-PROTO_NUM_AH = 51
-PROTO_NUM_DCCP = 33
-PROTO_NUM_EGP = 8
-PROTO_NUM_ESP = 50
-PROTO_NUM_GRE = 47
-PROTO_NUM_ICMP = 1
-PROTO_NUM_IGMP = 2
-PROTO_NUM_IPV6_ENCAP = 41
-PROTO_NUM_IPV6_FRAG = 44
-PROTO_NUM_IPV6_ICMP = 58
-PROTO_NUM_IPV6_NONXT = 59
-PROTO_NUM_IPV6_OPTS = 60
-PROTO_NUM_IPV6_ROUTE = 43
-PROTO_NUM_OSPF = 89
-PROTO_NUM_PGM = 113
-PROTO_NUM_RSVP = 46
-PROTO_NUM_SCTP = 132
-PROTO_NUM_TCP = 6
-PROTO_NUM_UDP = 17
-PROTO_NUM_UDPLITE = 136
-PROTO_NUM_VRRP = 112
-
-IP_PROTOCOL_MAP = {PROTO_NAME_AH: PROTO_NUM_AH,
-                   PROTO_NAME_DCCP: PROTO_NUM_DCCP,
-                   PROTO_NAME_EGP: PROTO_NUM_EGP,
-                   PROTO_NAME_ESP: PROTO_NUM_ESP,
-                   PROTO_NAME_GRE: PROTO_NUM_GRE,
-                   PROTO_NAME_ICMP: PROTO_NUM_ICMP,
-                   PROTO_NAME_IGMP: PROTO_NUM_IGMP,
-                   PROTO_NAME_IPV6_ENCAP: PROTO_NUM_IPV6_ENCAP,
-                   PROTO_NAME_IPV6_FRAG: PROTO_NUM_IPV6_FRAG,
-                   PROTO_NAME_IPV6_ICMP: PROTO_NUM_IPV6_ICMP,
-                   PROTO_NAME_IPV6_NONXT: PROTO_NUM_IPV6_NONXT,
-                   PROTO_NAME_IPV6_OPTS: PROTO_NUM_IPV6_OPTS,
-                   PROTO_NAME_IPV6_ROUTE: PROTO_NUM_IPV6_ROUTE,
-                   PROTO_NAME_OSPF: PROTO_NUM_OSPF,
-                   PROTO_NAME_PGM: PROTO_NUM_PGM,
-                   PROTO_NAME_RSVP: PROTO_NUM_RSVP,
-                   PROTO_NAME_SCTP: PROTO_NUM_SCTP,
-                   PROTO_NAME_TCP: PROTO_NUM_TCP,
-                   PROTO_NAME_UDP: PROTO_NUM_UDP,
-                   PROTO_NAME_UDPLITE: PROTO_NUM_UDPLITE,
-                   PROTO_NAME_VRRP: PROTO_NUM_VRRP}
-
-IP_PROTOCOL_NAME_ALIASES = {PROTO_NAME_IPV6_ICMP_LEGACY: PROTO_NAME_IPV6_ICMP}
-
-# List of ICMPv6 types that should be allowed by default:
-# Multicast Listener Query (130),
-# Multicast Listener Report (131),
-# Multicast Listener Done (132),
-# Neighbor Solicitation (135),
-ICMPV6_TYPE_NC = 135
-# Neighbor Advertisement (136)
-ICMPV6_TYPE_NA = 136
-ICMPV6_ALLOWED_TYPES = [130, 131, 132, 135, 136]
-ICMPV6_TYPE_RA = 134
+IP_PROTOCOL_NUM_TO_NAME_MAP = {
+    str(v): k for k, v in lib_constants.IP_PROTOCOL_MAP.items()}
 
 DHCPV6_STATEFUL = 'dhcpv6-stateful'
 DHCPV6_STATELESS = 'dhcpv6-stateless'
 IPV6_SLAAC = 'slaac'
 IPV6_MODES = [DHCPV6_STATEFUL, DHCPV6_STATELESS, IPV6_SLAAC]
-
-IPV6_LLA_PREFIX = 'fe80::/64'
-
-# Human-readable ID to which the subnetpool ID should be set to
-# indicate that IPv6 Prefix Delegation is enabled for a given subnet
-IPV6_PD_POOL_ID = 'prefix_delegation'
 
 # Special provisional prefix for IPv6 Prefix Delegation
 PROVISIONAL_IPV6_PD_PREFIX = '::/64'
@@ -156,23 +78,12 @@ PROVISIONAL_IPV6_PD_PREFIX = '::/64'
 # Timeout in seconds for getting an IPv6 LLA
 LLA_TASK_TIMEOUT = 40
 
-# Linux interface max length
-DEVICE_NAME_MAX_LEN = 15
-
-# vhost-user device names start with "vhu"
-VHOST_USER_DEVICE_PREFIX = 'vhu'
-# Device names start with "macvtap"
-MACVTAP_DEVICE_PREFIX = 'macvtap'
-# The vswitch side of a veth pair for a nova iptables filter setup
-VETH_DEVICE_PREFIX = 'qvo'
-# prefix for SNAT interface in DVR
-SNAT_INT_DEV_PREFIX = 'sg-'
-
 # Possible prefixes to partial port IDs in interface names used by the OVS,
 # Linux Bridge, and IVS VIF drivers in Nova and the neutron agents. See the
 # 'get_ovs_interfaceid' method in Nova (nova/virt/libvirt/vif.py) for details.
-INTERFACE_PREFIXES = (lib_constants.TAP_DEVICE_PREFIX, VETH_DEVICE_PREFIX,
-                      SNAT_INT_DEV_PREFIX)
+INTERFACE_PREFIXES = (lib_constants.TAP_DEVICE_PREFIX,
+                      lib_constants.VETH_DEVICE_PREFIX,
+                      lib_constants.SNAT_INT_DEV_PREFIX)
 
 ATTRIBUTES_TO_UPDATE = 'attributes_to_update'
 
@@ -212,6 +123,26 @@ AGENT_ALIVE = 'alive'
 # agent has just returned to alive after being dead
 AGENT_REVIVED = 'revived'
 
+INGRESS_DIRECTION = 'ingress'
+EGRESS_DIRECTION = 'egress'
+
+VALID_DIRECTIONS = (INGRESS_DIRECTION, EGRESS_DIRECTION)
+VALID_ETHERTYPES = (lib_constants.IPv4, lib_constants.IPv6)
+
+IP_ALLOWED_VERSIONS = [lib_constants.IP_VERSION_4, lib_constants.IP_VERSION_6]
+
+IPV4_MAX_PREFIXLEN = 32
+IPV6_MAX_PREFIXLEN = 128
+
+# Some components communicate using private address ranges, define
+# them all here. These address ranges should not cause any issues
+# even if they overlap since they are used in disjoint namespaces,
+# but for now they are unique.
+# We define the metadata cidr since it falls in the range.
+PRIVATE_CIDR_RANGE = '169.254.0.0/16'
+DVR_FIP_LL_CIDR = '169.254.64.0/18'
+L3_HA_NET_CIDR = '169.254.192.0/18'
+METADATA_CIDR = '169.254.169.254/32'
 
 # Neutron-lib migration shim. This will wrap any constants that are moved
 # to that library in a deprecation warning, until they can be updated to

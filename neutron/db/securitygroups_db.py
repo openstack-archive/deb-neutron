@@ -13,6 +13,8 @@
 #    under the License.
 
 import netaddr
+from neutron_lib.api import validators
+from neutron_lib import constants
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 from oslo_utils import uuidutils
@@ -27,7 +29,7 @@ from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants
+from neutron.common import constants as n_const
 from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2
@@ -420,9 +422,20 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         # problems with comparing int and string in PostgreSQL. Here this
         # string is converted to int to give an opportunity to use it as
         # before.
-        if protocol in constants.IP_PROTOCOL_NAME_ALIASES:
-            protocol = constants.IP_PROTOCOL_NAME_ALIASES[protocol]
+        if protocol in n_const.IP_PROTOCOL_NAME_ALIASES:
+            protocol = n_const.IP_PROTOCOL_NAME_ALIASES[protocol]
         return int(constants.IP_PROTOCOL_MAP.get(protocol, protocol))
+
+    def _get_ip_proto_name_and_num(self, protocol):
+        if protocol is None:
+            return
+        protocol = str(protocol)
+        if protocol in constants.IP_PROTOCOL_MAP:
+            return [protocol, str(constants.IP_PROTOCOL_MAP.get(protocol))]
+        elif protocol in n_const.IP_PROTOCOL_NUM_TO_NAME_MAP:
+            return [n_const.IP_PROTOCOL_NUM_TO_NAME_MAP.get(protocol),
+                    protocol]
+        return [protocol, protocol]
 
     def _validate_port_range(self, rule):
         """Check that port_range is valid."""
@@ -441,7 +454,8 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                 pass
             else:
                 raise ext_sg.SecurityGroupInvalidPortRange()
-        elif ip_proto == constants.PROTO_NUM_ICMP:
+        elif ip_proto in [constants.PROTO_NUM_ICMP,
+                          constants.PROTO_NUM_IPV6_ICMP]:
             for attr, field in [('port_range_min', 'type'),
                                 ('port_range_max', 'code')]:
                 if rule[attr] is not None and not (0 <= rule[attr] <= 255):
@@ -539,13 +553,26 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             value = sgr.get(key)
             if value:
                 res[key] = [value]
+        # protocol field will get corresponding name and number
+        value = sgr.get('protocol')
+        if value:
+            res['protocol'] = self._get_ip_proto_name_and_num(value)
         return res
+
+    def _rules_equal(self, rule1, rule2):
+        """Determines if two rules are equal ignoring id field."""
+        rule1_copy = rule1.copy()
+        rule2_copy = rule2.copy()
+        rule1_copy.pop('id', None)
+        rule2_copy.pop('id', None)
+        return rule1_copy == rule2_copy
 
     def _check_for_duplicate_rules(self, context, security_group_rules):
         for i in security_group_rules:
             found_self = False
             for j in security_group_rules:
-                if i['security_group_rule'] == j['security_group_rule']:
+                if self._rules_equal(i['security_group_rule'],
+                                     j['security_group_rule']):
                     if found_self:
                         raise ext_sg.DuplicateSecurityGroupRuleInPost(rule=i)
                     found_self = True
@@ -569,9 +596,17 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         # is changed which cannot be because other methods are already
         # relying on this behavior. Therefore, we do the filtering
         # below to check for these corner cases.
+        rule_dict = security_group_rule['security_group_rule'].copy()
+        rule_dict.pop('id', None)
+        sg_protocol = rule_dict.pop('protocol', None)
         for db_rule in db_rules:
             rule_id = db_rule.pop('id', None)
-            if (security_group_rule['security_group_rule'] == db_rule):
+            # remove protocol and match separately for number and type
+            db_protocol = db_rule.pop('protocol', None)
+            is_protocol_matching = (
+                self._get_ip_proto_name_and_num(db_protocol) ==
+                self._get_ip_proto_name_and_num(sg_protocol))
+            if (is_protocol_matching and rule_dict == db_rule):
                 raise ext_sg.SecurityGroupRuleExists(rule_id=rule_id)
 
     def _validate_ip_prefix(self, rule):
@@ -665,7 +700,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
     def _process_port_create_security_group(self, context, port,
                                             security_group_ids):
-        if attributes.is_attr_set(security_group_ids):
+        if validators.is_attr_set(security_group_ids):
             for security_group_id in security_group_ids:
                 self._create_port_security_group_binding(context, port['id'],
                                                          security_group_id)
@@ -712,7 +747,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         :returns: all security groups IDs on port belonging to tenant.
         """
         port = port['port']
-        if not attributes.is_attr_set(port.get(ext_sg.SECURITYGROUPS)):
+        if not validators.is_attr_set(port.get(ext_sg.SECURITYGROUPS)):
             return
         if port.get('device_owner') and utils.is_port_trusted(port):
             return
@@ -740,7 +775,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             return
         default_sg = self._ensure_default_security_group(context,
                                                          port['tenant_id'])
-        if not attributes.is_attr_set(port.get(ext_sg.SECURITYGROUPS)):
+        if not validators.is_attr_set(port.get(ext_sg.SECURITYGROUPS)):
             port[ext_sg.SECURITYGROUPS] = [default_sg]
 
     def _check_update_deletes_security_groups(self, port):
@@ -748,7 +783,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         is either [] or not is_attr_set, otherwise return False
         """
         if (ext_sg.SECURITYGROUPS in port['port'] and
-            not (attributes.is_attr_set(port['port'][ext_sg.SECURITYGROUPS])
+            not (validators.is_attr_set(port['port'][ext_sg.SECURITYGROUPS])
                  and port['port'][ext_sg.SECURITYGROUPS] != [])):
             return True
         return False
@@ -759,7 +794,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         This method is called both for port create and port update.
         """
         if (ext_sg.SECURITYGROUPS in port['port'] and
-            (attributes.is_attr_set(port['port'][ext_sg.SECURITYGROUPS]) and
+            (validators.is_attr_set(port['port'][ext_sg.SECURITYGROUPS]) and
              port['port'][ext_sg.SECURITYGROUPS] != [])):
             return True
         return False

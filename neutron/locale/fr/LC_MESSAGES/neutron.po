@@ -7,18 +7,12 @@
 # Maxime COQUEREL <max.coquerel@gmail.com>, 2014-2015
 # Patrice LACHANCE <patlachance@gmail.com>, 2013
 # Patrice LACHANCE <patlachance@gmail.com>, 2013
-# Cedric Savignan <liced@liced.fr>, 2015. #zanata
-# Maxime Coquerel <max.coquerel@gmail.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
-# Angelique Pillal <pillal@fr.ibm.com>, 2016. #zanata
-# Martine Marin <mmarin@fr.ibm.com>, 2016. #zanata
-# Tom Cocozzello <tjcocozz@us.ibm.com>, 2016. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 8.0.0.0rc3.dev2\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-25 15:59+0000\n"
+"Project-Id-Version: neutron 8.0.1.dev189\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-18 05:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -780,9 +774,6 @@ msgstr ""
 "Impossible de créer une adresse IP flottante et de la lier au port %s, car "
 "ce port appartient à un locataire différent."
 
-msgid "Cannot create resource for another tenant"
-msgstr "Impossible de créer une ressource pour un autre titulaire"
-
 msgid "Cannot disable enable_dhcp with ipv6 attributes set"
 msgstr "Impossible de désactiver enable_dhcp avec des attributs ipv6 définis"
 
@@ -1432,16 +1423,6 @@ msgstr ""
 "effectuer de diffusion ARP coûteuse dans le réseau Overlay."
 
 msgid ""
-"Enable local ARP responder which provides local responses instead of "
-"performing ARP broadcast into the overlay. Enabling local ARP responder is "
-"not fullycompatible with the allowed-address-pairs extension."
-msgstr ""
-"Activez le canal répondeur ARP local qui fournit des réponses locales au "
-"lieu d'effectuer une multidiffusion ARP dans la superposition. L'activation "
-"du canal répondeur ARP local n'est pas pleinement compatible avec "
-"l'extension de paires d'adresses autorisées."
-
-msgid ""
 "Enable services on an agent with admin_state_up False. If this option is "
 "False, when admin_state_up of an agent is turned False, services on it will "
 "be disabled. Agents with admin_state_up False are not selected for automatic "
@@ -1537,16 +1518,6 @@ msgstr "La fin de la plage de tunnels est inférieure au début"
 msgid "Enforce using split branches file structure."
 msgstr ""
 "Imposer l'utilisation d'une structure de fichier de branches fractionnées. "
-
-msgid ""
-"Ensure that configured gateway is on subnet. For IPv6, validate only if "
-"gateway is not a link local address. Deprecated, to be removed during the "
-"Newton release, at which point the gateway will not be forced on to subnet."
-msgstr ""
-"Assurez-vous que la passerelle configurée est sur le sous-réseau. Pour IPv6, "
-"validez uniquement si la passerelle n'est pas une adresse locale de liaison. "
-"Paramètre obsolète, qui sera retiré dans la version Newton, auquel cas la "
-"passerelle ne sera pas forcée sur le sous-réseau."
 
 #, python-format
 msgid "Error %(reason)s while attempting the operation."
@@ -1744,6 +1715,10 @@ msgstr ""
 "Echec lors de l'attente du passage de l'adresse %(address)s à l'état prêt : "
 "%(reason)s"
 
+#, python-format
+msgid "Field value %s is invalid"
+msgstr "La valeur du champs %s est non valide."
+
 msgid "Flat provider networks are disabled"
 msgstr "Les réseaux de fournisseurs centralisés sont désactivés"
 
@@ -1843,12 +1818,6 @@ msgstr ""
 
 msgid "Group (gid or name) running this process after its initialization"
 msgstr "Groupe (UID ou nom) exécutant ce processus après son initialisation"
-
-#, python-format
-msgid "HEAD file does not match migration timeline head, expected: %s"
-msgstr ""
-"Le fichier HEAD ne correspond pas à l'élément Head de calendrier de "
-"migration, attendu : %s"
 
 msgid ""
 "Hostname to be used by the Neutron server, agents and services running on "
@@ -3026,9 +2995,6 @@ msgid "Plugin does not support updating provider attributes"
 msgstr ""
 "Le plug-in ne prend pas en charge la mise à jour des attributs de fournisseur"
 
-msgid "Policy configuration policy.json could not be found."
-msgstr "La configuration de stratégie policy.json est introuvable."
-
 #, python-format
 msgid "Port %(id)s does not have fixed ip %(address)s"
 msgstr "Le port %(id)s ne dispose pas de l'adresse IP fixe %(address)s."
@@ -3072,9 +3038,6 @@ msgid ""
 msgstr ""
 "La sécurité du port doit être activée pour avoir les paires d'adresse "
 "autorisées sur un port."
-
-msgid "Port does not have port security binding."
-msgstr "Le port ne comporte pas de liaison de sécurité."
 
 msgid ""
 "Port has security group associated. Cannot disable port security or ip "
@@ -4513,10 +4476,6 @@ msgstr "dns_name ne peut pas être spécifié sans dns_domain"
 
 msgid "fixed_ip_address cannot be specified without a port_id"
 msgstr "Impossible de spécifier une adresse IP fixe sans ID port"
-
-#, python-format
-msgid "gateway_ip %s is not in the subnet"
-msgstr "gateway_ip %s ne figure pas dans le sous-réseau"
 
 #, python-format
 msgid "has device owner %s"

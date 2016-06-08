@@ -13,14 +13,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api import validators
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy import orm
 
 from neutron._i18n import _, _LE
-from neutron.api.v2 import attributes
-from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.db import db_base_plugin_v2
 from neutron.db import l3_db
@@ -28,8 +28,6 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import dns
 from neutron.extensions import l3
-from neutron import manager
-from neutron.plugins.common import constants as service_constants
 from neutron.services.externaldns import driver
 
 LOG = logging.getLogger(__name__)
@@ -154,7 +152,7 @@ class DNSDbMixin(object):
                                                  floatingip_data, req_data):
         # expects to be called within a plugin's session
         dns_domain = req_data.get(dns.DNSDOMAIN)
-        if not attributes.is_attr_set(dns_domain):
+        if not validators.is_attr_set(dns_domain):
             return
         if not self.dns_driver:
             return
@@ -193,9 +191,8 @@ class DNSDbMixin(object):
     def _process_dns_floatingip_update_precommit(self, context,
                                                  floatingip_data):
         # expects to be called within a plugin's session
-        plugin = manager.NeutronManager.get_service_plugins().get(
-            service_constants.L3_ROUTER_NAT)
-        if not utils.is_extension_supported(plugin, dns.Dns.get_alias()):
+        if not utils.is_extension_supported(self._core_plugin,
+                                            dns.Dns.get_alias()):
             return
         if not self.dns_driver:
             return
@@ -251,9 +248,8 @@ class DNSDbMixin(object):
                 [floatingip_data['floating_ip_address']])
 
     def _process_dns_floatingip_delete(self, context, floatingip_data):
-        plugin = manager.NeutronManager.get_service_plugins().get(
-            service_constants.L3_ROUTER_NAT)
-        if not utils.is_extension_supported(plugin, dns.Dns.get_alias()):
+        if not utils.is_extension_supported(self._core_plugin,
+                                            dns.Dns.get_alias()):
             return
         dns_data_db = context.session.query(FloatingIPDNS).filter_by(
             floatingip_id=floatingip_data['id']).one_or_none()

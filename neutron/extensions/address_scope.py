@@ -14,13 +14,15 @@
 
 import abc
 
+from neutron_lib.api import converters
+from neutron_lib import constants
+from neutron_lib import exceptions as nexception
 import six
 
 from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
-from neutron.common import exceptions as nexception
 from neutron import manager
 
 ADDRESS_SCOPE = 'address_scope'
@@ -50,19 +52,19 @@ RESOURCE_ATTRIBUTE_MAP = {
         attr.SHARED: {'allow_post': True,
                       'allow_put': True,
                       'default': False,
-                      'convert_to': attr.convert_to_boolean,
+                      'convert_to': converters.convert_to_boolean,
                       'is_visible': True,
                       'required_by_policy': True,
                       'enforce_policy': True},
         'ip_version': {'allow_post': True, 'allow_put': False,
-                       'convert_to': attr.convert_to_int,
+                       'convert_to': converters.convert_to_int,
                        'validate': {'type:values': [4, 6]},
                        'is_visible': True},
     },
     attr.SUBNETPOOLS: {
         ADDRESS_SCOPE_ID: {'allow_post': True,
                            'allow_put': True,
-                           'default': attr.ATTR_NOT_SPECIFIED,
+                           'default': constants.ATTR_NOT_SPECIFIED,
                            'validate': {'type:uuid_or_none': None},
                            'is_visible': True}
     },

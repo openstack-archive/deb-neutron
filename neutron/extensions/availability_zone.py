@@ -14,13 +14,15 @@
 
 import abc
 
+from neutron_lib.api import validators
+from neutron_lib import exceptions
 from oslo_serialization import jsonutils
+import six
 
 from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
-from neutron.common import exceptions
 from neutron import manager
 
 
@@ -38,7 +40,7 @@ def convert_az_string_to_list(az_string):
 
 def _validate_availability_zone_hints(data, valid_value=None):
     # syntax check only here. existence of az will be checked later.
-    msg = attr.validate_list_of_unique_strings(data)
+    msg = validators.validate_list_of_unique_strings(data)
     if msg:
         return msg
     az_string = convert_az_list_to_string(data)
@@ -47,7 +49,7 @@ def _validate_availability_zone_hints(data, valid_value=None):
         raise exceptions.InvalidInput(error_message=msg)
 
 
-attr.validators['type:availability_zone_hints'] = (
+validators.validators['type:availability_zone_hints'] = (
     _validate_availability_zone_hints)
 
 # Attribute Map
@@ -122,6 +124,7 @@ class Availability_zone(extensions.ExtensionDescriptor):
             return {}
 
 
+@six.add_metaclass(abc.ABCMeta)
 class AvailabilityZonePluginBase(object):
     """REST API to operate the Availability Zone."""
 

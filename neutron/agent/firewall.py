@@ -18,14 +18,25 @@ import contextlib
 
 import six
 
+from neutron_lib import constants as n_const
+
+import neutron.common.constants as const
 from neutron.common import utils
 from neutron.extensions import portsecurity as psec
 
-INGRESS_DIRECTION = 'ingress'
-EGRESS_DIRECTION = 'egress'
+INGRESS_DIRECTION = const.INGRESS_DIRECTION
+EGRESS_DIRECTION = const.EGRESS_DIRECTION
 
 DIRECTION_IP_PREFIX = {INGRESS_DIRECTION: 'source_ip_prefix',
                        EGRESS_DIRECTION: 'dest_ip_prefix'}
+
+# List of ICMPv6 types that should be permitted (ingress) by default. This list
+# depends on iptables conntrack behavior of recognizing ICMP errors (types 1-4)
+# as related traffic.
+ICMPV6_ALLOWED_TYPES = [n_const.ICMPV6_TYPE_MLD_QUERY,
+                        n_const.ICMPV6_TYPE_RA,
+                        n_const.ICMPV6_TYPE_NS,
+                        n_const.ICMPV6_TYPE_NA]
 
 
 def port_sec_enabled(port):

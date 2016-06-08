@@ -35,6 +35,7 @@ from neutron.tests import tools
 from neutron.tests.unit.api.v2 import test_base
 from neutron.tests.unit import testlib_api
 
+DEFAULT_QUOTAS_ACTION = 'default'
 TARGET_PLUGIN = 'neutron.plugins.ml2.plugin.Ml2Plugin'
 
 _get_path = test_base._get_path
@@ -125,6 +126,44 @@ class QuotaExtensionDbTestCase(QuotaExtensionTestCase):
              'subnet': -1,
              'port': -1,
              'extra1': -1})
+
+    def test_show_default_quotas_with_admin(self):
+        tenant_id = 'tenant_id1'
+        env = {'neutron.context': context.Context('', tenant_id + '2',
+                                                  is_admin=True)}
+        res = self.api.get(_get_path('quotas', id=tenant_id,
+                                     action=DEFAULT_QUOTAS_ACTION,
+                                     fmt=self.fmt),
+                           extra_environ=env)
+        self.assertEqual(200, res.status_int)
+        quota = self.deserialize(res)
+        self.assertEqual(10, quota['quota']['network'])
+        self.assertEqual(10, quota['quota']['subnet'])
+        self.assertEqual(50, quota['quota']['port'])
+
+    def test_show_default_quotas_with_owner_tenant(self):
+        tenant_id = 'tenant_id1'
+        env = {'neutron.context': context.Context('', tenant_id,
+                                                  is_admin=False)}
+        res = self.api.get(_get_path('quotas', id=tenant_id,
+                                     action=DEFAULT_QUOTAS_ACTION,
+                                     fmt=self.fmt),
+                           extra_environ=env)
+        self.assertEqual(200, res.status_int)
+        quota = self.deserialize(res)
+        self.assertEqual(10, quota['quota']['network'])
+        self.assertEqual(10, quota['quota']['subnet'])
+        self.assertEqual(50, quota['quota']['port'])
+
+    def test_show_default_quotas_without_admin_forbidden_returns_403(self):
+        tenant_id = 'tenant_id1'
+        env = {'neutron.context': context.Context('', tenant_id + '2',
+                                                  is_admin=False)}
+        res = self.api.get(_get_path('quotas', id=tenant_id,
+                                     action=DEFAULT_QUOTAS_ACTION,
+                                     fmt=self.fmt),
+                           extra_environ=env, expect_errors=True)
+        self.assertEqual(403, res.status_int)
 
     def test_show_quotas_with_admin(self):
         tenant_id = 'tenant_id1'
@@ -280,6 +319,10 @@ class QuotaExtensionDbTestCase(QuotaExtensionTestCase):
         tenant_id = 'tenant_id1'
         env = {'neutron.context': context.Context('', tenant_id + '2',
                                                   is_admin=True)}
+        # Create a quota to ensure we have something to delete
+        quotas = {'quota': {'network': 100}}
+        self.api.put(_get_path('quotas', id=tenant_id, fmt=self.fmt),
+                     self.serialize(quotas), extra_environ=env)
         res = self.api.delete(_get_path('quotas', id=tenant_id, fmt=self.fmt),
                               extra_environ=env)
         self.assertEqual(204, res.status_int)
@@ -291,6 +334,14 @@ class QuotaExtensionDbTestCase(QuotaExtensionTestCase):
         res = self.api.delete(_get_path('quotas', id=tenant_id, fmt=self.fmt),
                               extra_environ=env, expect_errors=True)
         self.assertEqual(403, res.status_int)
+
+    def test_delete_quota_with_unknown_tenant_returns_404(self):
+        tenant_id = 'idnotexist'
+        env = {'neutron.context': context.Context('', tenant_id + '2',
+                                                  is_admin=True)}
+        res = self.api.delete(_get_path('quotas', id=tenant_id, fmt=self.fmt),
+                              extra_environ=env, expect_errors=True)
+        self.assertEqual(exc.HTTPNotFound.code, res.status_int)
 
     def test_quotas_loaded_bad_returns_404(self):
         try:

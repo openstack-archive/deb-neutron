@@ -4,16 +4,12 @@
 #
 # Translators:
 # Gabriel Wainer, 2013
-# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
-# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
-# Carlos Marques <marquesc@br.ibm.com>, 2016. #zanata
-# Eric Baum <ecbaum@gmail.com>, 2016. #zanata
-# Lucas Palm <lapalm@us.ibm.com>, 2016. #zanata
+# Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 8.0.0.0rc2.dev13\n"
-"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2016-03-22 12:05+0000\n"
+"Project-Id-Version: neutron 8.0.1.dev189\n"
+"Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
+"POT-Creation-Date: 2016-04-18 05:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -757,9 +753,6 @@ msgstr ""
 "Não é possível criar IP flutuante e ligá-lo à porta %s, uma vez que a porta "
 "é de propriedade de um locatário diferente."
 
-msgid "Cannot create resource for another tenant"
-msgstr "Não é possível criar recurso para outro arrendatário"
-
 msgid "Cannot disable enable_dhcp with ipv6 attributes set"
 msgstr "Não é possível desativar enable_dhcp com conjunto de atributos ipv6"
 
@@ -1396,15 +1389,6 @@ msgstr ""
 "transmissão dispendiosa de ARP na sobreposição."
 
 msgid ""
-"Enable local ARP responder which provides local responses instead of "
-"performing ARP broadcast into the overlay. Enabling local ARP responder is "
-"not fullycompatible with the allowed-address-pairs extension."
-msgstr ""
-"Ative o respondente ARP local que fornece respostas locais em vez de "
-"executar a transmissão ARP na sobreposição. A ativação do respondente ARP "
-"local não é totalmente compatível com a extensão allowed-address-pairs~. "
-
-msgid ""
 "Enable services on an agent with admin_state_up False. If this option is "
 "False, when admin_state_up of an agent is turned False, services on it will "
 "be disabled. Agents with admin_state_up False are not selected for automatic "
@@ -1495,16 +1479,6 @@ msgstr ""
 
 msgid "Enforce using split branches file structure."
 msgstr "Impingir usando a estrutura do arquivo de ramificações divididas."
-
-msgid ""
-"Ensure that configured gateway is on subnet. For IPv6, validate only if "
-"gateway is not a link local address. Deprecated, to be removed during the "
-"Newton release, at which point the gateway will not be forced on to subnet."
-msgstr ""
-"Assegure-se de que o gateway configurado esteja na sub-rede. Para IPv6, "
-"valide apenas se o gateway não for um endereço local do link. Descontinuado, "
-"será removido durante a liberação Newton, no ponto em que o gateway não será "
-"forçado para a sub-rede."
 
 #, python-format
 msgid "Error %(reason)s while attempting the operation."
@@ -1795,12 +1769,6 @@ msgstr ""
 
 msgid "Group (gid or name) running this process after its initialization"
 msgstr "Grupo (gid ou nome) executando esse processo após sua inicialização"
-
-#, python-format
-msgid "HEAD file does not match migration timeline head, expected: %s"
-msgstr ""
-"O arquivo HEAD não corresponde ao cabeçalho da linha de tempo de migração, "
-"esperado: %s"
 
 msgid ""
 "Hostname to be used by the Neutron server, agents and services running on "
@@ -2944,9 +2912,6 @@ msgstr "Plugin '%s' não encontrado."
 msgid "Plugin does not support updating provider attributes"
 msgstr "O plug-in não suporta atualização de atributos do provedor"
 
-msgid "Policy configuration policy.json could not be found."
-msgstr "A configuração de política policy.json não pôde ser localizada."
-
 #, python-format
 msgid "Port %(id)s does not have fixed ip %(address)s"
 msgstr "A porta %(id)s não possui IP fixo %(address)s"
@@ -2989,9 +2954,6 @@ msgid ""
 msgstr ""
 "A Segurança da Porta deve ser ativada para ter pares de endereços permitidos "
 "em uma porta."
-
-msgid "Port does not have port security binding."
-msgstr "A porta não possui uma ligação de segurança da porta."
 
 msgid ""
 "Port has security group associated. Cannot disable port security or ip "
@@ -4387,10 +4349,6 @@ msgstr "dns_name não pode ser especificado sem um dns_domain"
 
 msgid "fixed_ip_address cannot be specified without a port_id"
 msgstr "fixed_ip_address não pode ser especificado sem um port_id"
-
-#, python-format
-msgid "gateway_ip %s is not in the subnet"
-msgstr "O gateway_ip %s não está na sub-rede"
 
 #, python-format
 msgid "has device owner %s"

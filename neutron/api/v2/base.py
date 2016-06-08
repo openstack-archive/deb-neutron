@@ -17,6 +17,8 @@ import collections
 import copy
 
 import netaddr
+from neutron_lib import constants
+from neutron_lib import exceptions
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_policy import policy as oslo_policy
@@ -29,8 +31,8 @@ from neutron.api import api_common
 from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.api.v2 import resource as wsgi_resource
-from neutron.common import constants as const
-from neutron.common import exceptions
+from neutron.common import constants as n_const
+from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
 from neutron.db import api as db_api
 from neutron import policy
@@ -58,6 +60,14 @@ class Controller(object):
     UPDATE = 'update'
     DELETE = 'delete'
 
+    @property
+    def plugin(self):
+        return self._plugin
+
+    @property
+    def resource(self):
+        return self._resource
+
     def __init__(self, plugin, collection, resource, attr_info,
                  allow_bulk=False, member_actions=None, parent=None,
                  allow_pagination=False, allow_sorting=False):
@@ -79,7 +89,7 @@ class Controller(object):
         # use plugin's dhcp notifier, if this is already instantiated
         agent_notifiers = getattr(plugin, 'agent_notifiers', {})
         self._dhcp_agent_notifier = (
-            agent_notifiers.get(const.AGENT_TYPE_DHCP) or
+            agent_notifiers.get(constants.AGENT_TYPE_DHCP) or
             dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
         )
         if cfg.CONF.notify_nova_on_port_data_changes:
@@ -453,7 +463,7 @@ class Controller(object):
                     {self._resource: delta},
                     self._plugin)
                 reservations.append(reservation)
-        except exceptions.QuotaResourceUnknown as e:
+        except n_exc.QuotaResourceUnknown as e:
                 # We don't want to quota this resource
                 LOG.debug(e)
 
@@ -526,6 +536,9 @@ class Controller(object):
 
     def delete(self, request, id, **kwargs):
         """Deletes the specified entity."""
+        if request.body:
+            msg = _('Request body is not supported in DELETE.')
+            raise webob.exc.HTTPBadRequest(msg)
         self._notifier.info(request.context,
                             self._resource + '.delete.start',
                             {self._resource + '_id': id})
@@ -580,7 +593,8 @@ class Controller(object):
 
     @db_api.retry_db_errors
     def _update(self, request, id, body, **kwargs):
-        body = Controller.prepare_request_body(request.context, body, False,
+        body = Controller.prepare_request_body(request.context,
+                                               copy.deepcopy(body), False,
                                                self._resource, self._attr_info,
                                                allow_bulk=self._allow_bulk)
         action = self._plugin_handlers[self.UPDATE]
@@ -601,7 +615,7 @@ class Controller(object):
         # Make a list of attributes to be updated to inform the policy engine
         # which attributes are set explicitly so that it can distinguish them
         # from the ones that are set to their default values.
-        orig_obj[const.ATTRIBUTES_TO_UPDATE] = body[self._resource].keys()
+        orig_obj[n_const.ATTRIBUTES_TO_UPDATE] = body[self._resource].keys()
         try:
             policy.enforce(request.context,
                            action,

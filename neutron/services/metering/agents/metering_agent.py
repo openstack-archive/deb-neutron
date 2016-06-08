@@ -13,8 +13,8 @@
 # under the License.
 
 import sys
-import time
 
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
@@ -22,12 +22,13 @@ from oslo_service import loopingcall
 from oslo_service import periodic_task
 from oslo_service import service
 from oslo_utils import importutils
+from oslo_utils import timeutils
 
 from neutron._i18n import _, _LE, _LI, _LW
 from neutron.agent.common import config
 from neutron.agent import rpc as agent_rpc
 from neutron.common import config as common_config
-from neutron.common import constants as constants
+from neutron.common import constants as n_const
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.common import utils
@@ -117,7 +118,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             info['time'] = 0
 
     def _purge_metering_info(self):
-        deadline_timestamp = int(time.time()) - self.conf.report_interval
+        deadline_timestamp = timeutils.utcnow_ts() - self.conf.report_interval
         label_ids = [
             label_id
             for label_id, info in self.metering_infos.items()
@@ -126,7 +127,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
             del self.metering_infos[label_id]
 
     def _add_metering_info(self, label_id, pkts, bytes):
-        ts = int(time.time())
+        ts = timeutils.utcnow_ts()
         info = self.metering_infos.get(label_id, {'bytes': 0,
                                                   'pkts': 0,
                                                   'time': 0,
@@ -145,7 +146,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         self.label_tenant_id = {}
         for router in self.routers.values():
             tenant_id = router['tenant_id']
-            labels = router.get(constants.METERING_LABEL_KEY, [])
+            labels = router.get(n_const.METERING_LABEL_KEY, [])
             for label in labels:
                 label_id = label['id']
                 self.label_tenant_id[label_id] = tenant_id
@@ -161,11 +162,11 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     def _metering_loop(self):
         self._add_metering_infos()
 
-        ts = int(time.time())
+        ts = timeutils.utcnow_ts()
         delta = ts - self.last_report
 
         report_interval = self.conf.report_interval
-        if delta > report_interval:
+        if delta >= report_interval:
             self._metering_notification()
             self._purge_metering_info()
             self.last_report = ts

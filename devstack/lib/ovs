@@ -35,23 +35,33 @@ function load_module {
 #                 Accepts two parameters:
 #                   - first one is True, modules are built and installed.
 #                   - second optional parameter defines prefix for ovs compilation
+#                   - third optional parameter defines localstatedir for ovs single machine runtime
 #                 Env variables OVS_REPO_NAME, OVS_REPO and OVS_BRANCH must be set
 function compile_ovs {
     local _pwd=$PWD
     local build_modules=${1:-True}
     local prefix=$2
+    local localstatedir=$3
 
     if [ -n "$prefix" ]; then
         prefix="--prefix=$prefix"
     fi
 
-    cd $DEST
-    if [ ! -d $OVS_REPO_NAME ] ; then
-        git clone $OVS_REPO
-        cd $OVS_REPO_NAME
+    if [ -n "$localstatedir" ]; then
+        localstatedir="--localstatedir=$localstatedir"
+    fi
+
+    OVS_DIR=$DEST/$OVS_REPO_NAME
+    if [ ! -d $OVS_DIR ] ; then
+        # We can't use git_clone here because we want to ignore ERROR_ON_CLONE
+        git_timed clone $OVS_REPO $OVS_DIR
+        cd $OVS_DIR
         git checkout $OVS_BRANCH
     else
-        cd $OVS_REPO_NAME
+        # Even though the directory already exists, call git_clone to update it
+        # if needed based on the RECLONE option
+        git_clone $OVS_REPO $OVS_DIR $OVS_BRANCH
+        cd $OVS_DIR
     fi
 
     # TODO: Can you create package list files like you can inside devstack?
@@ -59,7 +69,15 @@ function compile_ovs {
 
     if is_fedora ; then
         # is_fedora covers Fedora, RHEL, CentOS, etc...
-        install_package kernel-devel
+        echo NOTE: if kernel-devel-$(uname -r) or kernel-headers-$(uname -r) installation
+        echo failed, please, provide a repository with the package, or yum update / reboot
+        echo your machine to get the latest kernel.
+
+        install_package kernel-devel-$(uname -r)
+        install_package kernel-headers-$(uname -r)
+
+    elif is_ubuntu ; then
+        install_package linux-headers-$(uname -r)
     fi
 
     if [ ! -f configure ] ; then
@@ -67,9 +85,9 @@ function compile_ovs {
     fi
     if [ ! -f config.status ] || [ configure -nt config.status ] ; then
         if [[ "$build_modules" == "True" ]]; then
-            ./configure $prefix --with-linux=/lib/modules/$(uname -r)/build
+            ./configure $prefix $localstatedir --with-linux=/lib/modules/$(uname -r)/build
         else
-            ./configure $prefix
+            ./configure $prefix $localstatedir
         fi
     fi
     make -j$[$(nproc) + 1]
@@ -88,6 +106,15 @@ function compile_ovs {
 
 # start_new_ovs() - removes old ovs database, creates a new one and starts ovs
 function start_new_ovs () {
-    rm -f /etc/openvswitch/conf.db /etc/openvswitch/.conf.db~lock~
+    sudo rm -f /etc/openvswitch/conf.db /etc/openvswitch/.conf.db~lock~
     sudo /usr/share/openvswitch/scripts/ovs-ctl start
+}
+
+# remove_ovs_packages() - removes old ovs packages from the system
+function remove_ovs_packages() {
+    for package in openvswitch openvswitch-switch openvswitch-common; do
+        if is_package_installed $package; then
+            uninstall_package $package
+        fi
+    done
 }

@@ -17,6 +17,7 @@ import datetime
 import random
 import time
 
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
@@ -26,7 +27,7 @@ from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
 from neutron._i18n import _, _LE, _LI, _LW
-from neutron.common import constants
+from neutron.common import constants as n_const
 from neutron.common import utils
 from neutron import context as ncontext
 from neutron.db import agents_db
@@ -268,14 +269,13 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
         cutoff = self.get_cutoff_time(agent_dead_limit)
 
         context = ncontext.get_admin_context()
-        down_bindings = (
-            context.session.query(NetworkDhcpAgentBinding).
-            join(agents_db.Agent).
-            filter(agents_db.Agent.heartbeat_timestamp < cutoff,
-                   agents_db.Agent.admin_state_up))
-        dhcp_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_DHCP)
-
         try:
+            down_bindings = (
+                context.session.query(NetworkDhcpAgentBinding).
+                join(agents_db.Agent).
+                filter(agents_db.Agent.heartbeat_timestamp < cutoff,
+                       agents_db.Agent.admin_state_up))
+            dhcp_notifier = self.agent_notifiers.get(constants.AGENT_TYPE_DHCP)
             dead_bindings = [b for b in
                              self._filter_bindings(context, down_bindings)]
             agents = self.get_agents_db(
@@ -375,29 +375,28 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
     def remove_network_from_dhcp_agent(self, context, id, network_id,
                                        notify=True):
         agent = self._get_agent(context, id)
-        with context.session.begin(subtransactions=True):
-            try:
-                query = context.session.query(NetworkDhcpAgentBinding)
-                query = query.filter(
-                    NetworkDhcpAgentBinding.network_id == network_id,
-                    NetworkDhcpAgentBinding.dhcp_agent_id == id)
-                # just ensure the binding exists
-                query.one()
-            except exc.NoResultFound:
-                raise dhcpagentscheduler.NetworkNotHostedByDhcpAgent(
-                    network_id=network_id, agent_id=id)
+        try:
+            query = context.session.query(NetworkDhcpAgentBinding)
+            binding = query.filter(
+                NetworkDhcpAgentBinding.network_id == network_id,
+                NetworkDhcpAgentBinding.dhcp_agent_id == id).one()
+        except exc.NoResultFound:
+            raise dhcpagentscheduler.NetworkNotHostedByDhcpAgent(
+                network_id=network_id, agent_id=id)
 
-            # reserve the port, so the ip is reused on a subsequent add
-            device_id = utils.get_dhcp_agent_device_id(network_id,
-                                                       agent['host'])
-            filters = dict(device_id=[device_id])
-            ports = self.get_ports(context, filters=filters)
-            for port in ports:
-                port['device_id'] = constants.DEVICE_ID_RESERVED_DHCP_PORT
-                self.update_port(context, port['id'], dict(port=port))
-            # avoid issues with query.one() object that was
-            # loaded into the session
-            query.delete(synchronize_session=False)
+        # reserve the port, so the ip is reused on a subsequent add
+        device_id = utils.get_dhcp_agent_device_id(network_id,
+                                                   agent['host'])
+        filters = dict(device_id=[device_id])
+        ports = self.get_ports(context, filters=filters)
+        # NOTE(kevinbenton): there should only ever be one port per
+        # DHCP agent per network so we don't have to worry about one
+        # update_port passing and another failing
+        for port in ports:
+            port['device_id'] = n_const.DEVICE_ID_RESERVED_DHCP_PORT
+            self.update_port(context, port['id'], dict(port=port))
+        with context.session.begin():
+            context.session.delete(binding)
 
         if not notify:
             return

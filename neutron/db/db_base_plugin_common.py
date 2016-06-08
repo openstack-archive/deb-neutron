@@ -15,13 +15,16 @@
 
 import functools
 
+from neutron_lib.api import validators
+from neutron_lib import constants
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log as logging
 from sqlalchemy.orm import exc
 
 from neutron.api.v2 import attributes
-from neutron.common import constants
-from neutron.common import exceptions as n_exc
+from neutron.common import constants as n_const
+from neutron.common import exceptions
 from neutron.common import utils
 from neutron.db import common_db_mixin
 from neutron.db import models_v2
@@ -107,6 +110,12 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
             subnet_id=subnet_id
         )
         context.session.add(allocated)
+        # NOTE(kevinbenton): We add this to the session info so the sqlalchemy
+        # object isn't immediately garbage collected. Otherwise when the
+        # fixed_ips relationship is referenced a new persistent object will be
+        # added to the session that will interfere with retry operations.
+        # See bug 1556178 for details.
+        context.session.info.setdefault('allocated_ips', []).append(allocated)
 
     def _make_subnet_dict(self, subnet, fields=None, context=None):
         res = {'id': subnet['id'],
@@ -201,7 +210,7 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
         try:
             return self._get_by_id(context, models_v2.SubnetPool, id)
         except exc.NoResultFound:
-            raise n_exc.SubnetPoolNotFound(subnetpool_id=id)
+            raise exceptions.SubnetPoolNotFound(subnetpool_id=id)
 
     def _get_all_subnetpools(self, context):
         # NOTE(tidwellr): see note in _get_all_subnets()
@@ -267,7 +276,7 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                'name': network['name'],
                'tenant_id': network['tenant_id'],
                'admin_state_up': network['admin_state_up'],
-               'mtu': network.get('mtu', constants.DEFAULT_NETWORK_MTU),
+               'mtu': network.get('mtu', n_const.DEFAULT_NETWORK_MTU),
                'status': network['status'],
                'subnets': [subnet['id']
                            for subnet in network['subnets']]}
@@ -301,9 +310,9 @@ class DbBasePluginCommon(common_db_mixin.CommonDbMixin):
                 'gateway_ip': gateway_ip,
                 'description': subnet.get('description')}
         if subnet['ip_version'] == 6 and subnet['enable_dhcp']:
-            if attributes.is_attr_set(subnet['ipv6_ra_mode']):
+            if validators.is_attr_set(subnet['ipv6_ra_mode']):
                 args['ipv6_ra_mode'] = subnet['ipv6_ra_mode']
-            if attributes.is_attr_set(subnet['ipv6_address_mode']):
+            if validators.is_attr_set(subnet['ipv6_address_mode']):
                 args['ipv6_address_mode'] = subnet['ipv6_address_mode']
         return args
 

@@ -16,6 +16,8 @@
 import collections
 import re
 
+from neutron_lib import constants
+from neutron_lib import exceptions as lib_exc
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
@@ -89,10 +91,10 @@ def _is_attribute_explicitly_set(attribute_name, resource, target, action):
         # default value of an attribute, but check whether it was explicitly
         # marked as being updated instead.
         return (attribute_name in target[const.ATTRIBUTES_TO_UPDATE] and
-                target[attribute_name] is not attributes.ATTR_NOT_SPECIFIED)
+                target[attribute_name] is not constants.ATTR_NOT_SPECIFIED)
     return ('default' in resource[attribute_name] and
             attribute_name in target and
-            target[attribute_name] is not attributes.ATTR_NOT_SPECIFIED and
+            target[attribute_name] is not constants.ATTR_NOT_SPECIFIED and
             target[attribute_name] != resource[attribute_name]['default'])
 
 
@@ -262,7 +264,7 @@ class OwnerCheck(policy.Check):
                          target[parent_foreign_key],
                          fields=[parent_field])
                 target[self.target_field] = data[parent_field]
-            except exceptions.NotFound as e:
+            except lib_exc.NotFound as e:
                 # NOTE(kevinbenton): a NotFound exception can occur if a
                 # list operation is happening at the same time as one of
                 # the parents and its children being deleted. So we issue

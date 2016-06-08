@@ -14,6 +14,7 @@
 #    under the License.
 
 import mock
+from neutron_lib import exceptions
 from oslo_utils import uuidutils
 
 from neutron.agent.l2.extensions import qos
@@ -21,11 +22,14 @@ from neutron.api.rpc.callbacks.consumer import registry
 from neutron.api.rpc.callbacks import events
 from neutron.api.rpc.callbacks import resources
 from neutron.api.rpc.handlers import resources_rpc
-from neutron.common import exceptions
 from neutron import context
 from neutron.objects.qos import policy
 from neutron.objects.qos import rule
+from neutron.plugins.ml2.drivers.openvswitch.agent import (
+        ovs_agent_extension_api as ovs_ext_api)
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants
+from neutron.plugins.ml2.drivers.openvswitch.agent.openflow.ovs_ofctl import (
+    ovs_bridge)
 from neutron.services.qos import qos_consts
 from neutron.tests import base
 
@@ -120,6 +124,14 @@ class QosAgentDriverTestCase(base.BaseTestCase):
         self.driver.create(self.port, self.policy)
         self.assertTrue(self.driver.create_bandwidth_limit.called)
 
+    def test__get_max_burst_value(self):
+        rule = self.rule
+        rule.max_burst_kbps = 0
+        expected_burst = rule.max_kbps * qos_consts.DEFAULT_BURST_RATE
+        self.assertEqual(
+            expected_burst, self.driver._get_egress_burst_value(rule)
+        )
+
 
 class QosExtensionBaseTestCase(base.BaseTestCase):
 
@@ -128,6 +140,10 @@ class QosExtensionBaseTestCase(base.BaseTestCase):
         self.qos_ext = qos.QosAgentExtension()
         self.context = context.get_admin_context()
         self.connection = mock.Mock()
+        self.agent_api = ovs_ext_api.OVSAgentExtensionAPI(
+                         ovs_bridge.OVSAgentBridge('br-int'),
+                         ovs_bridge.OVSAgentBridge('br-tun'))
+        self.qos_ext.consume_api(self.agent_api)
 
         # Don't rely on used driver
         mock.patch(

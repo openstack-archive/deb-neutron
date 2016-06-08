@@ -24,13 +24,11 @@ Based on this comparison database can be healed with healing migration.
 from neutron.db import address_scope_db  # noqa
 from neutron.db import agents_db  # noqa
 from neutron.db import agentschedulers_db  # noqa
-from neutron.db import allowedaddresspairs_db  # noqa
-from neutron.db import bgp_db  # noqa
-from neutron.db import bgp_dragentscheduler_db  # noqa
+from neutron.db.allowed_address_pairs import models  # noqa
 from neutron.db import dns_db  # noqa
 from neutron.db import dvr_mac_db  # noqa
 from neutron.db import external_net_db  # noqa
-from neutron.db import extradhcpopt_db  # noqa
+from neutron.db.extra_dhcp_opt import models  # noqa
 from neutron.db import extraroute_db  # noqa
 from neutron.db import flavors_db  # noqa
 from neutron.db import l3_agentschedulers_db  # noqa
@@ -44,10 +42,12 @@ from neutron.db import model_base
 from neutron.db import models_v2  # noqa
 from neutron.db import portbindings_db  # noqa
 from neutron.db import portsecurity_db  # noqa
+from neutron.db import provisioning_blocks  # noqa
 from neutron.db.qos import models as qos_models  # noqa
 from neutron.db.quota import models  # noqa
 from neutron.db import rbac_db_models  # noqa
 from neutron.db import securitygroups_db  # noqa
+from neutron.db import segments_db  # noqa
 from neutron.db import servicetype_db  # noqa
 from neutron.db import tag_db  # noqa
 from neutron.ipam.drivers.neutrondb_ipam import db_models  # noqa
@@ -58,6 +58,7 @@ from neutron.plugins.ml2.drivers import type_vlan  # noqa
 from neutron.plugins.ml2.drivers import type_vxlan  # noqa
 from neutron.plugins.ml2 import models  # noqa
 from neutron.services.auto_allocate import models  # noqa
+from neutron.services.trunk import models  # noqa
 
 
 def get_metadata():

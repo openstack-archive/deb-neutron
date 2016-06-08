@@ -17,6 +17,8 @@ import copy
 import itertools
 import operator
 
+from neutron_lib import constants
+from neutron_lib import exceptions
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
@@ -24,11 +26,12 @@ import oslo_messaging
 from oslo_utils import excutils
 
 from neutron._i18n import _, _LW
-from neutron.api.v2 import attributes
-from neutron.common import constants
+from neutron.callbacks import resources
+from neutron.common import constants as n_const
 from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.db import api as db_api
+from neutron.db import provisioning_blocks
 from neutron.extensions import portbindings
 from neutron import manager
 from neutron.plugins.common import utils as p_utils
@@ -60,9 +63,13 @@ class DhcpRpcCallback(object):
     #     1.3 - Removed release_port_fixed_ip. It's not used by reference DHCP
     #           agent since Juno, so similar rationale for not bumping the
     #           major version as above applies here too.
+    #     1.4 - Removed update_lease_expiration. It's not used by reference
+    #           DHCP agent since Juno, so similar rationale for not bumping the
+    #           major version as above applies here too.
+    #     1.5 - Added dhcp_ready_on_ports.
     target = oslo_messaging.Target(
-        namespace=constants.RPC_NAMESPACE_DHCP_PLUGIN,
-        version='1.3')
+        namespace=n_const.RPC_NAMESPACE_DHCP_PLUGIN,
+        version='1.5')
 
     def _get_active_networks(self, context, **kwargs):
         """Retrieve and return a list of the active networks."""
@@ -88,18 +95,20 @@ class DhcpRpcCallback(object):
                 return plugin.update_port(context, port['id'], port)
             else:
                 msg = _('Unrecognized action')
-                raise n_exc.Invalid(message=msg)
-        except (db_exc.DBError, n_exc.NetworkNotFound,
-                n_exc.SubnetNotFound, n_exc.IpAddressGenerationFailure) as e:
+                raise exceptions.Invalid(message=msg)
+        except (db_exc.DBError,
+                exceptions.NetworkNotFound,
+                exceptions.SubnetNotFound,
+                exceptions.IpAddressGenerationFailure) as e:
             with excutils.save_and_reraise_exception(reraise=False) as ctxt:
-                if isinstance(e, n_exc.IpAddressGenerationFailure):
+                if isinstance(e, exceptions.IpAddressGenerationFailure):
                     # Check if the subnet still exists and if it does not,
                     # this is the reason why the ip address generation failed.
                     # In any other unlikely event re-raise
                     try:
                         subnet_id = port['port']['fixed_ips'][0]['subnet_id']
                         plugin.get_subnet(context, subnet_id)
-                    except n_exc.SubnetNotFound:
+                    except exceptions.SubnetNotFound:
                         pass
                     else:
                         ctxt.reraise = True
@@ -135,7 +144,11 @@ class DhcpRpcCallback(object):
         filters = {'network_id': [network['id'] for network in networks]}
         ports = plugin.get_ports(context, filters=filters)
         filters['enable_dhcp'] = [True]
-        subnets = plugin.get_subnets(context, filters=filters)
+        # NOTE(kevinbenton): we sort these because the agent builds tags
+        # based on position in the list and has to restart the process if
+        # the order changes.
+        subnets = sorted(plugin.get_subnets(context, filters=filters),
+                         key=operator.itemgetter('id'))
 
         grouped_subnets = self._group_by_network_id(subnets)
         grouped_ports = self._group_by_network_id(ports)
@@ -155,12 +168,17 @@ class DhcpRpcCallback(object):
         plugin = manager.NeutronManager.get_plugin()
         try:
             network = plugin.get_network(context, network_id)
-        except n_exc.NetworkNotFound:
+        except exceptions.NetworkNotFound:
             LOG.debug("Network %s could not be found, it might have "
                       "been deleted concurrently.", network_id)
             return
         filters = dict(network_id=[network_id])
-        network['subnets'] = plugin.get_subnets(context, filters=filters)
+        # NOTE(kevinbenton): we sort these because the agent builds tags
+        # based on position in the list and has to restart the process if
+        # the order changes.
+        network['subnets'] = sorted(
+            plugin.get_subnets(context, filters=filters),
+            key=operator.itemgetter('id'))
         network['ports'] = plugin.get_ports(context, filters=filters)
         return network
 
@@ -176,16 +194,6 @@ class DhcpRpcCallback(object):
                   {'network_id': network_id, 'host': host})
         plugin = manager.NeutronManager.get_plugin()
         plugin.delete_ports_by_device_id(context, device_id, network_id)
-
-    def update_lease_expiration(self, context, **kwargs):
-        """Release the fixed_ip associated the subnet on a port."""
-        # NOTE(arosen): This method is no longer used by the DHCP agent but is
-        # left so that neutron-dhcp-agents will still continue to work if
-        # neutron-server is upgraded and not the agent.
-        host = kwargs.get('host')
-
-        LOG.warning(_LW('Updating lease expiration is now deprecated. Issued  '
-                        'from host %s.'), host)
 
     @db_api.retry_db_errors
     @resource_registry.mark_resources_dirty
@@ -207,7 +215,7 @@ class DhcpRpcCallback(object):
         port['port']['device_owner'] = constants.DEVICE_OWNER_DHCP
         port['port'][portbindings.HOST_ID] = host
         if 'mac_address' not in port['port']:
-            port['port']['mac_address'] = attributes.ATTR_NOT_SPECIFIED
+            port['port']['mac_address'] = constants.ATTR_NOT_SPECIFIED
         plugin = manager.NeutronManager.get_plugin()
         return self._port_action(plugin, context, port, 'create_port')
 
@@ -220,7 +228,7 @@ class DhcpRpcCallback(object):
         port['port'][portbindings.HOST_ID] = host
         plugin = manager.NeutronManager.get_plugin()
         old_port = plugin.get_port(context, port['id'])
-        if (old_port['device_id'] != constants.DEVICE_ID_RESERVED_DHCP_PORT
+        if (old_port['device_id'] != n_const.DEVICE_ID_RESERVED_DHCP_PORT
             and old_port['device_id'] !=
             utils.get_dhcp_agent_device_id(port['port']['network_id'], host)):
             raise n_exc.DhcpPortInUse(port_id=port['id'])
@@ -229,3 +237,9 @@ class DhcpRpcCallback(object):
                   {'port': port,
                    'host': host})
         return self._port_action(plugin, context, port, 'update_port')
+
+    def dhcp_ready_on_ports(self, context, port_ids):
+        for port_id in port_ids:
+            provisioning_blocks.provisioning_complete(
+                context, port_id, resources.PORT,
+                provisioning_blocks.DHCP_ENTITY)

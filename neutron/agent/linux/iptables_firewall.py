@@ -17,6 +17,7 @@ import collections
 import re
 
 import netaddr
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 import six
@@ -28,7 +29,6 @@ from neutron.agent.linux import ipset_manager
 from neutron.agent.linux import iptables_comments as ic
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import utils
-from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.common import utils as c_utils
@@ -379,21 +379,25 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
             mac_ipv4_pairs.append((mac, ip_address))
         else:
             mac_ipv6_pairs.append((mac, ip_address))
+            lla = str(ipv6_utils.get_ipv6_addr_by_EUI64(
+                    constants.IPv6_LLA_PREFIX, mac))
+            mac_ipv6_pairs.append((mac, lla))
 
     def _spoofing_rule(self, port, ipv4_rules, ipv6_rules):
-        # Allow dhcp client packets
-        ipv4_rules += [comment_rule('-p udp -m udp --sport 68 '
-                                    '-m udp --dport 67 '
+        # Fixed rules for traffic sourced from unspecified addresses: 0.0.0.0
+        # and ::
+        # Allow dhcp client discovery and request
+        ipv4_rules += [comment_rule('-s 0.0.0.0/32 -d 255.255.255.255/32 '
+                                    '-p udp -m udp --sport 68 --dport 67 '
                                     '-j RETURN', comment=ic.DHCP_CLIENT)]
-        # Drop Router Advts from the port.
-        ipv6_rules += [comment_rule('-p ipv6-icmp -m icmp6 --icmpv6-type %s '
-                                    '-j DROP' % constants.ICMPV6_TYPE_RA,
-                                    comment=ic.IPV6_RA_DROP)]
-        ipv6_rules += [comment_rule('-p ipv6-icmp -j RETURN',
-                                    comment=ic.IPV6_ICMP_ALLOW)]
-        ipv6_rules += [comment_rule('-p udp -m udp --sport 546 '
-                                    '-m udp --dport 547 '
-                                    '-j RETURN', comment=ic.DHCP_CLIENT)]
+        # Allow neighbor solicitation and multicast listener discovery
+        # from the unspecified address for duplicate address detection
+        for icmp6_type in constants.ICMPV6_ALLOWED_UNSPEC_ADDR_TYPES:
+            ipv6_rules += [comment_rule('-s ::/128 -d ff02::/16 '
+                                        '-p ipv6-icmp -m icmp6 '
+                                        '--icmpv6-type %s -j RETURN' %
+                                        icmp6_type,
+                                        comment=ic.IPV6_ICMP_ALLOW)]
         mac_ipv4_pairs = []
         mac_ipv6_pairs = []
 
@@ -415,6 +419,19 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
                                        mac_ipv4_pairs, ipv4_rules)
         self._setup_spoof_filter_chain(port, self.iptables.ipv6['filter'],
                                        mac_ipv6_pairs, ipv6_rules)
+        # Fixed rules for traffic after source address is verified
+        # Allow dhcp client renewal and rebinding
+        ipv4_rules += [comment_rule('-p udp -m udp --sport 68 --dport 67 '
+                                    '-j RETURN', comment=ic.DHCP_CLIENT)]
+        # Drop Router Advts from the port.
+        ipv6_rules += [comment_rule('-p ipv6-icmp -m icmp6 --icmpv6-type %s '
+                                    '-j DROP' % constants.ICMPV6_TYPE_RA,
+                                    comment=ic.IPV6_RA_DROP)]
+        ipv6_rules += [comment_rule('-p ipv6-icmp -j RETURN',
+                                    comment=ic.IPV6_ICMP_ALLOW)]
+        ipv6_rules += [comment_rule('-p udp -m udp --sport 546 '
+                                    '-m udp --dport 547 '
+                                    '-j RETURN', comment=ic.DHCP_CLIENT)]
 
     def _drop_dhcp_rule(self, ipv4_rules, ipv6_rules):
         #Note(nati) Drop dhcp packet from VM
@@ -429,7 +446,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
         # Allow multicast listener, neighbor solicitation and
         # neighbor advertisement into the instance
         icmpv6_rules = []
-        for icmp6_type in constants.ICMPV6_ALLOWED_TYPES:
+        for icmp6_type in firewall.ICMPV6_ALLOWED_TYPES:
             icmpv6_rules += ['-p ipv6-icmp -m icmp6 --icmpv6-type %s '
                              '-j RETURN' % icmp6_type]
         return icmpv6_rules
@@ -571,10 +588,17 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
     def _convert_sgr_to_iptables_rules(self, security_group_rules):
         iptables_rules = []
         self._allow_established(iptables_rules)
+        seen_sg_rules = set()
         for rule in security_group_rules:
             args = self._convert_sg_rule_to_iptables_args(rule)
             if args:
-                iptables_rules += [' '.join(args)]
+                rule_command = ' '.join(args)
+                if rule_command in seen_sg_rules:
+                    # since these rules are from multiple security groups,
+                    # there may be duplicates so we prune them out here
+                    continue
+                seen_sg_rules.add(rule_command)
+                iptables_rules.append(rule_command)
 
         self._drop_invalid_packets(iptables_rules)
         iptables_rules += [comment_rule('-j $sg-fallback',
@@ -886,6 +910,7 @@ class IptablesFirewallDriver(firewall.FirewallDriver):
 
 class OVSHybridIptablesFirewallDriver(IptablesFirewallDriver):
     OVS_HYBRID_TAP_PREFIX = constants.TAP_DEVICE_PREFIX
+    OVS_HYBRID_PLUG_REQUIRED = True
 
     def _port_chain_name(self, port, direction):
         return iptables_manager.get_chain_name(

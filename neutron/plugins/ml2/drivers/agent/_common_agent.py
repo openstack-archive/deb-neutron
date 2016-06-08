@@ -18,10 +18,12 @@ import collections
 import sys
 import time
 
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
 from oslo_service import service
+from osprofiler import profiler
 
 from neutron._i18n import _LE, _LI
 from neutron.agent.l2.extensions import manager as ext_manager
@@ -29,7 +31,7 @@ from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.callbacks import resources
 from neutron.common import config as common_config
-from neutron.common import constants
+from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron import context
 from neutron.plugins.ml2.drivers.agent import _agent_manager_base as amb
@@ -38,6 +40,7 @@ from neutron.plugins.ml2.drivers.agent import config as cagt_config  # noqa
 LOG = logging.getLogger(__name__)
 
 
+@profiler.trace_cls("rpc")
 class CommonAgentLoop(service.Service):
 
     def __init__(self, manager, polling_interval,
@@ -118,11 +121,13 @@ class CommonAgentLoop(service.Service):
             agent_status = self.state_rpc.report_state(self.context,
                                                        self.agent_state,
                                                        True)
-            if agent_status == constants.AGENT_REVIVED:
+            if agent_status == n_const.AGENT_REVIVED:
                 LOG.info(_LI('%s Agent has just been revived. '
                              'Doing a full sync.'),
                          self.agent_type)
                 self.fullsync = True
+            # we only want to update resource versions on startup
+            self.agent_state.pop('resource_versions', None)
             self.agent_state.pop('start_flag', None)
         except Exception:
             LOG.exception(_LE("Failed reporting state!"))

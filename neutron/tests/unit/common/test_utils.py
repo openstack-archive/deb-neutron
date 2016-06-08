@@ -18,11 +18,12 @@ import re
 import eventlet
 import mock
 import netaddr
+from neutron_lib import constants
+from neutron_lib import exceptions as exc
 from oslo_log import log as logging
 import six
 import testtools
 
-from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.plugins.common import constants as p_const
@@ -32,8 +33,8 @@ from neutron.tests.common import helpers
 
 
 class TestParseMappings(base.BaseTestCase):
-    def parse(self, mapping_list, unique_values=True):
-        return utils.parse_mappings(mapping_list, unique_values)
+    def parse(self, mapping_list, unique_values=True, unique_keys=True):
+        return utils.parse_mappings(mapping_list, unique_values, unique_keys)
 
     def test_parse_mappings_fails_for_missing_separator(self):
         with testtools.ExpectedException(ValueError):
@@ -73,6 +74,11 @@ class TestParseMappings(base.BaseTestCase):
     def test_parse_mappings_succeeds_for_no_mappings(self):
         self.assertEqual({}, self.parse(['']))
 
+    def test_parse_mappings_succeeds_for_nonuniq_key(self):
+        self.assertEqual({'key': ['val1', 'val2']},
+                         self.parse(['key:val1', 'key:val2', 'key:val2'],
+                                    unique_keys=False))
+
 
 class TestParseTunnelRangesMixin(object):
     TUN_MIN = None
@@ -98,12 +104,12 @@ class TestParseTunnelRangesMixin(object):
 
     def _check_range_invalid_ranges(self, bad_range, which):
         expected_msg = self._build_invalid_tunnel_range_msg(bad_range, which)
-        err = self.assertRaises(n_exc.NetworkTunnelRangeError,
+        err = self.assertRaises(exc.NetworkTunnelRangeError,
                                 self._verify_range, bad_range)
         self.assertEqual(expected_msg, str(err))
 
     def _check_range_reversed(self, bad_range):
-        err = self.assertRaises(n_exc.NetworkTunnelRangeError,
+        err = self.assertRaises(exc.NetworkTunnelRangeError,
                                 self._verify_range, bad_range)
         expected_msg = self._build_range_reversed_msg(bad_range)
         self.assertEqual(expected_msg, str(err))
@@ -778,3 +784,27 @@ class TestPortRuleMasking(base.BaseTestCase):
         port_max = 5
         with testtools.ExpectedException(ValueError):
             utils.port_rule_masking(port_min, port_max)
+
+
+class TestAuthenticEUI(base.BaseTestCase):
+
+    def test_retains_original_format(self):
+        for mac_str in ('FA-16-3E-73-A2-E9', 'fa:16:3e:73:a2:e9'):
+            self.assertEqual(mac_str, str(utils.AuthenticEUI(mac_str)))
+
+    def test_invalid_values(self):
+        for mac in ('XXXX', 'ypp', 'g3:vvv'):
+            with testtools.ExpectedException(netaddr.core.AddrFormatError):
+                utils.AuthenticEUI(mac)
+
+
+class TestAuthenticIPNetwork(base.BaseTestCase):
+
+    def test_retains_original_format(self):
+        for addr_str in ('10.0.0.0/24', '10.0.0.10/32', '100.0.0.1'):
+            self.assertEqual(addr_str, str(utils.AuthenticIPNetwork(addr_str)))
+
+    def test_invalid_values(self):
+        for addr in ('XXXX', 'ypp', 'g3:vvv'):
+            with testtools.ExpectedException(netaddr.core.AddrFormatError):
+                utils.AuthenticIPNetwork(addr)

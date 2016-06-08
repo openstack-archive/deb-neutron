@@ -67,17 +67,16 @@ Neutron Internals
    ovs_vhostuser
    quality_of_service
    service_extensions
-   oslo-incubator
    callbacks
    dns_order
    external_dns_integration
    upgrade
    i18n
-   instrumentation
    address_scopes
    openvswitch_firewall
    network_ip_availability
    tag
+   provisioning_blocks
 
 Testing
 -------

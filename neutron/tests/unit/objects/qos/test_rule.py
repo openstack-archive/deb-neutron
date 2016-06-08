@@ -10,7 +10,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.common import constants
+from neutron_lib import constants
+
 from neutron.objects.qos import policy
 from neutron.objects.qos import rule
 from neutron.services.qos import qos_consts
@@ -79,6 +80,25 @@ class QosBandwidthLimitRuleDbObjectTestCase(test_base.BaseDbObjectTestCase,
     def setUp(self):
         super(QosBandwidthLimitRuleDbObjectTestCase, self).setUp()
 
+        # Prepare policy to be able to insert a rule
+        generated_qos_policy_id = self.db_obj['qos_policy_id']
+        policy_obj = policy.QosPolicy(self.context,
+                                      id=generated_qos_policy_id)
+        policy_obj.create()
+
+
+class QosDscpMarkingRuleObjectTestCase(test_base.BaseObjectIfaceTestCase):
+
+    _test_class = rule.QosDscpMarkingRule
+
+
+class QosDscpMarkingRuleDbObjectTestCase(test_base.BaseDbObjectTestCase,
+                                         testlib_api.SqlTestCase):
+
+    _test_class = rule.QosDscpMarkingRule
+
+    def setUp(self):
+        super(QosDscpMarkingRuleDbObjectTestCase, self).setUp()
         # Prepare policy to be able to insert a rule
         generated_qos_policy_id = self.db_obj['qos_policy_id']
         policy_obj = policy.QosPolicy(self.context,

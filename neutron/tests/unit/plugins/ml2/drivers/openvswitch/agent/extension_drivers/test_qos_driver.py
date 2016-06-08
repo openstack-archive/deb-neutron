@@ -10,14 +10,20 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
+
 import mock
 from oslo_utils import uuidutils
 
 from neutron import context
 from neutron.objects.qos import policy
 from neutron.objects.qos import rule
+from neutron.plugins.ml2.drivers.openvswitch.agent import (
+        ovs_agent_extension_api as ovs_ext_api)
 from neutron.plugins.ml2.drivers.openvswitch.agent.extension_drivers import (
     qos_driver)
+from neutron.plugins.ml2.drivers.openvswitch.agent.openflow.ovs_ofctl import (
+    ovs_bridge)
 from neutron.tests.unit.plugins.ml2.drivers.openvswitch.agent import (
     ovs_test_base)
 
@@ -28,6 +34,10 @@ class QosOVSAgentDriverTestCase(ovs_test_base.OVSAgentConfigTestBase):
         super(QosOVSAgentDriverTestCase, self).setUp()
         self.context = context.get_admin_context()
         self.qos_driver = qos_driver.QosOVSAgentDriver()
+        self.agent_api = ovs_ext_api.OVSAgentExtensionAPI(
+                         ovs_bridge.OVSAgentBridge('br-int'),
+                         ovs_bridge.OVSAgentBridge('br-tun'))
+        self.qos_driver.consume_api(self.agent_api)
         self.qos_driver.initialize()
         self.qos_driver.br_int = mock.Mock()
         self.qos_driver.br_int.get_egress_bw_limit_for_port = mock.Mock(
@@ -95,9 +105,21 @@ class QosOVSAgentDriverTestCase(ovs_test_base.OVSAgentConfigTestBase):
         self.qos_driver.update(self.port, self.qos_policy)
         self._assert_rule_create_updated()
 
+    def test_update_rules_no_vif_port(self):
+        port = copy.copy(self.port)
+        port.pop("vif_port")
+        self.qos_driver.update(port, self.qos_policy)
+        self.create.assert_not_called()
+
     def test_delete_rules(self):
         self.qos_driver.delete(self.port, self.qos_policy)
         self.delete.assert_called_once_with(self.port_name)
+
+    def test_delete_rules_no_vif_port(self):
+        port = copy.copy(self.port)
+        port.pop("vif_port")
+        self.qos_driver.delete(port, self.qos_policy)
+        self.delete.assert_not_called()
 
     def _assert_rule_create_updated(self):
         # Assert create is the last call

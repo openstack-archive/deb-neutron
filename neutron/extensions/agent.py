@@ -15,11 +15,14 @@
 
 import abc
 
+from neutron_lib.api import converters
+from neutron_lib import exceptions
+import six
+
 from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
-from neutron.common import exceptions
 from neutron import manager
 
 
@@ -39,7 +42,7 @@ RESOURCE_ATTRIBUTE_MAP = {
         'host': {'allow_post': False, 'allow_put': False,
                  'is_visible': True},
         'admin_state_up': {'allow_post': False, 'allow_put': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'created_at': {'allow_post': False, 'allow_put': False,
                        'is_visible': True},
@@ -120,6 +123,7 @@ class Agent(extensions.ExtensionDescriptor):
             return {}
 
 
+@six.add_metaclass(abc.ABCMeta)
 class AgentPluginBase(object):
     """REST API to operate the Agent.
 

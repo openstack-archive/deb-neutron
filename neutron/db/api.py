@@ -16,15 +16,20 @@
 import contextlib
 
 import debtcollector
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_db import api as oslo_db_api
 from oslo_db import exception as db_exc
-from oslo_db.sqlalchemy import session
+from oslo_db.sqlalchemy import enginefacade
 from oslo_utils import excutils
 from oslo_utils import uuidutils
+import osprofiler.sqlalchemy
+import sqlalchemy
 
-from neutron.common import exceptions as n_exc
+from neutron.common import profiler  # noqa
 from neutron.db import common_db_mixin
+
+context_manager = enginefacade.transaction_context()
 
 
 _FACADE = None
@@ -53,7 +58,13 @@ def _create_facade_lazily():
     global _FACADE
 
     if _FACADE is None:
-        _FACADE = session.EngineFacade.from_config(cfg.CONF, sqlite_fk=True)
+        context_manager.configure(sqlite_fk=True, **cfg.CONF.database)
+        _FACADE = context_manager._factory.get_legacy_facade()
+
+        if cfg.CONF.profiler.enabled and cfg.CONF.profiler.trace_sqlalchemy:
+            osprofiler.sqlalchemy.add_tracing(sqlalchemy,
+                                              _FACADE.get_engine(),
+                                              "db")
 
     return _FACADE
 

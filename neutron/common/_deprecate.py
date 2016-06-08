@@ -11,39 +11,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import debtcollector
 import inspect
-import os
 
 from neutron._i18n import _
 
 
 class _DeprecateSubset(object):
+    additional = {}
+
     def __init__(self, my_globals, other_mod):
         self.other_mod = other_mod
-        self.my_globals = copy.copy(my_globals)
+        self.my_globals = my_globals
+
+    @classmethod
+    def and_also(cls, name, other_mod):
+        cls.additional[name] = other_mod
 
     def __getattr__(self, name):
         a = self.my_globals.get(name)
-        if (not name.startswith("__") and not inspect.ismodule(a) and
-            name in vars(self.other_mod)):
+        if not name.startswith("__") and not inspect.ismodule(a):
+            other_mod = self.additional.get(name) or self.other_mod
+            if name in vars(other_mod):
 
-            # These should be enabled after most have been cleaned up
-            # in neutron proper, which may not happen during the busy M-3.
+                # These should be enabled after most have been cleaned up
+                # in neutron proper, which may not happen during the busy M-3.
 
-            if os.getenv('NEUTRON_SHOW_DEPRECATION_WARNINGS'):
                 debtcollector.deprecate(
                     name,
-                    message='moved to neutron_lib',
+                    message='moved to %s' % other_mod.__name__,
                     version='mitaka',
                     removal_version='newton',
                     stacklevel=4)
 
-            return vars(self.other_mod)[name]
+                return vars(other_mod)[name]
 
         try:
             return self.my_globals[name]
         except KeyError:
             raise AttributeError(
                 _("'module' object has no attribute '%s'") % name)
+
+    def __setattr__(self, name, val):
+        if name in ('other_mod', 'my_globals'):
+            return super(_DeprecateSubset, self).__setattr__(name, val)
+        self.my_globals[name] = val
+
+    def __delattr__(self, name):
+        if name not in self.my_globals:
+            raise AttributeError(
+                _("'module' object has no attribute '%s'") % name)
+        self.my_globals.pop(name)

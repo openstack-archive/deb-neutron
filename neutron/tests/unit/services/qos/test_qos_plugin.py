@@ -21,6 +21,7 @@ from neutron.objects import base as base_object
 from neutron.objects.qos import policy as policy_object
 from neutron.objects.qos import rule as rule_object
 from neutron.plugins.common import constants
+from neutron.services.qos import qos_consts
 from neutron.tests.unit.services.qos import base
 
 
@@ -39,6 +40,11 @@ class TestQosPlugin(base.BaseQosTestCase):
         mock.patch('neutron.objects.db.api.get_object').start()
         mock.patch(
             'neutron.objects.qos.policy.QosPolicy.obj_load_attr').start()
+        # We don't use real models as per mocks above. We also need to mock-out
+        # methods that work with real data types
+        mock.patch(
+            'neutron.objects.base.NeutronDbObject.modify_fields_from_db'
+        ).start()
 
         cfg.CONF.set_override("core_plugin", DB_PLUGIN_KLASS)
         cfg.CONF.set_override("service_plugins", ["qos"])
@@ -50,24 +56,28 @@ class TestQosPlugin(base.BaseQosTestCase):
         self.qos_plugin.notification_driver_manager = mock.Mock()
 
         self.ctxt = context.Context('fake_user', 'fake_tenant')
-        policy_id = uuidutils.generate_uuid()
         self.policy_data = {
-            'policy': {'id': policy_id,
+            'policy': {'id': uuidutils.generate_uuid(),
                        'tenant_id': uuidutils.generate_uuid(),
                        'name': 'test-policy',
                        'description': 'Test policy description',
                        'shared': True}}
 
         self.rule_data = {
-            'bandwidth_limit_rule': {'id': policy_id,
+            'bandwidth_limit_rule': {'id': uuidutils.generate_uuid(),
                                      'max_kbps': 100,
-                                     'max_burst_kbps': 150}}
+                                     'max_burst_kbps': 150},
+            'dscp_marking_rule': {'id': uuidutils.generate_uuid(),
+                                  'dscp_mark': 16}}
 
         self.policy = policy_object.QosPolicy(
             self.ctxt, **self.policy_data['policy'])
 
         self.rule = rule_object.QosBandwidthLimitRule(
             self.ctxt, **self.rule_data['bandwidth_limit_rule'])
+
+        self.dscp_rule = rule_object.QosDscpMarkingRule(
+            self.ctxt, **self.rule_data['dscp_marking_rule'])
 
     def _validate_notif_driver_params(self, method_name):
         method = getattr(self.qos_plugin.notification_driver_manager,
@@ -148,6 +158,17 @@ class TestQosPlugin(base.BaseQosTestCase):
                 self.qos_plugin.delete_policy_bandwidth_limit_rule,
                 self.ctxt, self.rule.id, _policy.id)
 
+    def test_get_policy_bandwidth_limit_rule(self):
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=self.policy):
+            with mock.patch('neutron.objects.qos.rule.'
+                            'QosBandwidthLimitRule.'
+                            'get_object') as get_object_mock:
+                self.qos_plugin.get_policy_bandwidth_limit_rule(
+                    self.ctxt, self.rule.id, self.policy.id)
+                get_object_mock.assert_called_once_with(self.ctxt,
+                    id=self.rule.id)
+
     def test_get_policy_bandwidth_limit_rules_for_policy(self):
         with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
                         return_value=self.policy):
@@ -197,6 +218,77 @@ class TestQosPlugin(base.BaseQosTestCase):
                 self.qos_plugin.get_policy_bandwidth_limit_rules,
                 self.ctxt, self.policy.id)
 
+    def test_create_policy_dscp_marking_rule(self):
+        _policy = policy_object.QosPolicy(
+            self.ctxt, **self.policy_data['policy'])
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=_policy):
+            setattr(_policy, "rules", [self.dscp_rule])
+            self.qos_plugin.create_policy_dscp_marking_rule(
+                self.ctxt, self.policy.id, self.rule_data)
+            self._validate_notif_driver_params('update_policy')
+
+    def test_update_policy_dscp_marking_rule(self):
+        _policy = policy_object.QosPolicy(
+            self.ctxt, **self.policy_data['policy'])
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=_policy):
+            setattr(_policy, "rules", [self.dscp_rule])
+            self.qos_plugin.update_policy_dscp_marking_rule(
+                self.ctxt, self.dscp_rule.id, self.policy.id, self.rule_data)
+            self._validate_notif_driver_params('update_policy')
+
+    def test_delete_policy_dscp_marking_rule(self):
+        _policy = policy_object.QosPolicy(
+            self.ctxt, **self.policy_data['policy'])
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=_policy):
+            setattr(_policy, "rules", [self.dscp_rule])
+            self.qos_plugin.delete_policy_dscp_marking_rule(
+                self.ctxt, self.dscp_rule.id, self.policy.id)
+            self._validate_notif_driver_params('update_policy')
+
+    def test_get_policy_dscp_marking_rules(self):
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=self.policy):
+            with mock.patch('neutron.objects.qos.rule.'
+                            'QosDscpMarkingRule.'
+                            'get_objects') as get_object_mock:
+                self.qos_plugin.get_policy_dscp_marking_rules(
+                    self.ctxt, self.policy.id)
+                get_object_mock.assert_called_once_with(
+                    self.ctxt, qos_policy_id=self.policy.id)
+
+    def test_get_policy_dscp_marking_rules_for_policy_with_filters(self):
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=self.policy):
+            with mock.patch('neutron.objects.qos.rule.'
+                            'QosDscpMarkingRule.'
+                            'get_objects') as get_object_mock:
+
+                filters = {'filter': 'filter_id'}
+                self.qos_plugin.get_policy_dscp_marking_rules(
+                    self.ctxt, self.policy.id, filters=filters)
+                get_object_mock.assert_called_once_with(
+                    self.ctxt, qos_policy_id=self.policy.id,
+                    filter='filter_id')
+
+    def test_get_policy_dscp_marking_rule_for_nonexistent_policy(self):
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=None):
+            self.assertRaises(
+                n_exc.QosPolicyNotFound,
+                self.qos_plugin.get_policy_dscp_marking_rule,
+                self.ctxt, self.dscp_rule.id, self.policy.id)
+
+    def test_get_policy_dscp_marking_rules_for_nonexistent_policy(self):
+        with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
+                        return_value=None):
+            self.assertRaises(
+                n_exc.QosPolicyNotFound,
+                self.qos_plugin.get_policy_dscp_marking_rules,
+                self.ctxt, self.policy.id)
+
     def test_create_policy_rule_for_nonexistent_policy(self):
         with mock.patch('neutron.objects.qos.policy.QosPolicy.get_object',
                         return_value=None):
@@ -220,3 +312,19 @@ class TestQosPlugin(base.BaseQosTestCase):
                 n_exc.QosPolicyNotFound,
                 self.qos_plugin.delete_policy_bandwidth_limit_rule,
                 self.ctxt, self.rule.id, self.policy.id)
+
+    def test_verify_bad_method_call(self):
+        self.assertRaises(AttributeError, getattr, self.qos_plugin,
+                          'create_policy_bandwidth_limit_rules')
+
+    def test_get_rule_types(self):
+        core_plugin = manager.NeutronManager.get_plugin()
+        rule_types_mock = mock.PropertyMock(
+            return_value=qos_consts.VALID_RULE_TYPES)
+        filters = {'type': 'type_id'}
+        with mock.patch.object(core_plugin, 'supported_qos_rule_types',
+                               new_callable=rule_types_mock,
+                               create=True):
+            types = self.qos_plugin.get_rule_types(self.ctxt, filters=filters)
+            self.assertEqual(sorted(qos_consts.VALID_RULE_TYPES),
+                             sorted(type_['type'] for type_ in types))

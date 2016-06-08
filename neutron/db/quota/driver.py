@@ -13,10 +13,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib import exceptions
 from oslo_db import api as oslo_db_api
 from oslo_log import log
 
-from neutron.common import exceptions
+from neutron.common import exceptions as n_exc
 from neutron.db import api as db_api
 from neutron.db import common_db_mixin as common_db
 from neutron.db.quota import api as quota_api
@@ -31,6 +32,22 @@ class DbQuotaDriver(object):
 
     The default driver utilizes the local database.
     """
+
+    @staticmethod
+    def get_default_quotas(context, resources, tenant_id):
+        """Given a list of resources, retrieve the default quotas set for
+        a tenant.
+
+        :param context: The request context, for access checks.
+        :param resources: A dictionary of the registered resource keys.
+        :param tenant_id: The ID of the tenant to return default quotas for.
+        :return dict: from resource name to dict of name and limit
+        """
+        # Currently the tenant_id parameter is unused, since all tenants
+        # share the same default values. This may change in the future so
+        # we include tenant-id to remain backwards compatible.
+        return dict((key, resource.default)
+                    for key, resource in resources.items())
 
     @staticmethod
     def get_tenant_quotas(context, resources, tenant_id):
@@ -61,11 +78,15 @@ class DbQuotaDriver(object):
         """Delete the quota entries for a given tenant_id.
 
         After deletion, this tenant will use default quota values in conf.
+        Raise a "not found" error if the quota for the given tenant was
+        never defined.
         """
         with context.session.begin():
             tenant_quotas = context.session.query(quota_models.Quota)
             tenant_quotas = tenant_quotas.filter_by(tenant_id=tenant_id)
-            tenant_quotas.delete()
+            if not tenant_quotas.delete():
+                # No record deleted means the quota was not found
+                raise n_exc.TenantQuotaNotFound(tenant_id=tenant_id)
 
     @staticmethod
     def get_all_quotas(context, resources):
@@ -247,14 +268,13 @@ class DbQuotaDriver(object):
         # Ensure no value is less than zero
         unders = [key for key, val in values.items() if val < 0]
         if unders:
-            raise exceptions.InvalidQuotaValue(unders=sorted(unders))
+            raise n_exc.InvalidQuotaValue(unders=sorted(unders))
 
         # Get the applicable quotas
         quotas = self._get_quotas(context, tenant_id, resources)
 
         # Check the quotas and construct a list of the resources that
         # would be put over limit by the desired values
-        overs = [key for key, val in values.items()
-                 if quotas[key] >= 0 and quotas[key] < val]
+        overs = [key for key, val in values.items() if 0 <= quotas[key] < val]
         if overs:
             raise exceptions.OverQuota(overs=sorted(overs))

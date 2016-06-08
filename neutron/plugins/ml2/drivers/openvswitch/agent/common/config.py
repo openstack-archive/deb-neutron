@@ -12,11 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib import constants as n_const
 from oslo_config import cfg
 
 from neutron._i18n import _
 from neutron.agent.common import config
-from neutron.common import constants as n_const
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common \
     import constants
@@ -44,8 +44,9 @@ ovs_opts = [
     cfg.StrOpt('tun_peer_patch_port', default='patch-int',
                help=_("Peer patch port in tunnel bridge for integration "
                       "bridge.")),
-    cfg.IPOpt('local_ip', version=4,
-              help=_("Local IP address of tunnel endpoint.")),
+    cfg.IPOpt('local_ip',
+              help=_("Local IP address of tunnel endpoint. Can be either "
+                     "an IPv4 or IPv6 address.")),
     cfg.ListOpt('bridge_mappings',
                 default=DEFAULT_BRIDGE_MAPPINGS,
                 help=_("Comma-separated list of <physical_network>:<bridge> "
@@ -60,7 +61,7 @@ ovs_opts = [
                        "Note: If you remove a bridge from this "
                        "mapping, make sure to disconnect it from the "
                        "integration bridge as it won't be managed by the "
-                       "agent anymore. Deprecated for ofagent.")),
+                       "agent anymore.")),
     cfg.BoolOpt('use_veth_interconnection', default=False,
                 help=_("Use veths instead of patch ports to interconnect the "
                        "integration bridge to physical networks. "
@@ -133,7 +134,7 @@ agent_opts = [
                        "added to any ports that have port security disabled. "
                        "For LinuxBridge, this requires ebtables. For OVS, it "
                        "requires a version that supports matching ARP "
-                       "headers. This option will be removed in Newton so "
+                       "headers. This option will be removed in Ocata so "
                        "the only way to disable protection will be via the "
                        "port security extension.")),
     cfg.BoolOpt('dont_fragment', default=True,

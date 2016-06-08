@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api import converters
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_utils import importutils
 import webob
@@ -23,13 +25,16 @@ from neutron.api.v2 import attributes
 from neutron.api.v2 import base
 from neutron.api.v2 import resource
 from neutron.common import constants as const
-from neutron.common import exceptions as n_exc
+from neutron.common import exceptions
 from neutron import manager
 from neutron.pecan_wsgi import controllers
+from neutron.pecan_wsgi.controllers import utils as pecan_utils
 from neutron import quota
 from neutron.quota import resource_registry
 from neutron import wsgi
 
+
+DEFAULT_QUOTAS_ACTION = 'default'
 RESOURCE_NAME = 'quota'
 RESOURCE_COLLECTION = RESOURCE_NAME + "s"
 QUOTAS = quota.QUOTAS
@@ -55,7 +60,7 @@ class QuotaSetsController(wsgi.Controller):
             attr_dict[quota_resource] = {
                 'allow_post': False,
                 'allow_put': True,
-                'convert_to': attributes.convert_to_int,
+                'convert_to': converters.convert_to_int,
                 'validate': {'type:range': [-1, const.DB_INTEGER_MAX_VALUE]},
                 'is_visible': True}
         self._update_extended_attributes = False
@@ -65,6 +70,16 @@ class QuotaSetsController(wsgi.Controller):
             request.context,
             resource_registry.get_all_resources(),
             tenant_id)
+
+    def default(self, request, id):
+        if id != request.context.tenant_id:
+            self._check_admin(request.context,
+                              reason=_("Only admin is authorized "
+                                       "to access quotas for another tenant"))
+        return {self._resource_name: self._driver.get_default_quotas(
+                   context=request.context,
+                   resources=resource_registry.get_all_resources(),
+                   tenant_id=id)}
 
     def create(self, request, body=None):
         msg = _('POST requests are not supported on this resource.')
@@ -81,7 +96,7 @@ class QuotaSetsController(wsgi.Controller):
         """Retrieve the tenant info in context."""
         context = request.context
         if not context.tenant_id:
-            raise n_exc.QuotaMissingTenant()
+            raise exceptions.QuotaMissingTenant()
         return {'tenant': {'tenant_id': context.tenant_id}}
 
     def show(self, request, id):
@@ -143,11 +158,16 @@ class Quotasv2(extensions.ExtensionDescriptor):
         return [extensions.ResourceExtension(
             Quotasv2.get_alias(),
             controller,
+            member_actions={DEFAULT_QUOTAS_ACTION: 'GET'},
             collection_actions={'tenant': 'GET'})]
 
     @classmethod
-    def get_pecan_controllers(cls):
-        return ((RESOURCE_COLLECTION, controllers.QuotasController()), )
+    def get_pecan_resources(cls):
+        # NOTE: quotas in PLURALS is needed because get_resources never sets it
+        attributes.PLURALS[RESOURCE_COLLECTION] = RESOURCE_NAME
+        # NOTE: plugin is not needed for quotas
+        return [pecan_utils.PecanResourceExtension(
+            RESOURCE_COLLECTION, controllers.QuotasController(), None)]
 
     def get_extended_resources(self, version):
         if version == "2.0":

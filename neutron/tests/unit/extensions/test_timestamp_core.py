@@ -16,7 +16,6 @@ import datetime
 import six
 
 import mock
-from oslo_config import cfg
 
 from neutron import context
 from neutron.db import db_base_plugin_v2
@@ -61,7 +60,9 @@ class TimeStampChangedsinceTestCase(test_db_base_plugin_v2.
         self.addCleanup(manager.NeutronManager.clear_instance)
 
     def setup_coreplugin(self, core_plugin=None):
-        cfg.CONF.set_override('core_plugin', self.plugin)
+        super(TimeStampChangedsinceTestCase, self).setup_coreplugin(
+            self.plugin)
+        self.patched_default_svc_plugins.return_value = ['timestamp_core']
 
     def _get_resp_with_changed_since(self, resource_type, changed_since):
         query_params = 'changed_since=%s' % changed_since
@@ -227,6 +228,19 @@ class TimeStampChangedsinceTestCase(test_db_base_plugin_v2.
                                             'changed_since=%s' % changed_since)
                 res = self.deserialize(self.fmt, req.get_response(self.api))
                 self.assertEqual(list(res.values())[0]['type'], 'InvalidInput')
+
+    def test_timestamp_fields_ignored_in_update(self):
+        ctx = context.get_admin_context()
+        with self.port() as port:
+            plugin = manager.NeutronManager.get_plugin()
+            port = plugin.get_port(ctx, port['port']['id'])
+            port['name'] = 'updated'
+            port['created_at'] = '2011-04-06T14:34:23'
+            port['updated_at'] = '2012-04-06T15:34:23'
+            updated = plugin.update_port(ctx, port['id'], {'port': port})
+        self.assertEqual('updated', updated['name'])
+        self.assertNotEqual(port['updated_at'], updated['updated_at'])
+        self.assertNotEqual(port['created_at'], updated['created_at'])
 
 
 class TimeStampDBMixinTestCase(TimeStampChangedsinceTestCase):

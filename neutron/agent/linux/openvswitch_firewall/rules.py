@@ -20,7 +20,6 @@ from oslo_log import log as logging
 from neutron.agent import firewall
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux.openvswitch_firewall import constants as ovsfw_consts
-from neutron.common import constants
 from neutron.common import utils
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants \
         as ovs_consts
@@ -46,7 +45,7 @@ def create_flows_from_rule_and_port(rule, port):
     flow_template = {
         'priority': 70,
         'dl_type': ovsfw_consts.ethertype_to_dl_type_map[ethertype],
-        'reg5': port.ofport,
+        'reg_port': port.ofport,
     }
 
     if is_valid_prefix(dst_ip_prefix):
@@ -71,8 +70,7 @@ def create_protocol_flows(direction, flow_template, port, rule):
     if direction == firewall.INGRESS_DIRECTION:
         flow_template['table'] = ovs_consts.RULES_INGRESS_TABLE
         flow_template['dl_dst'] = port.mac
-        flow_template['actions'] = ('ct(commit,zone=NXM_NX_REG5[0..15]),'
-                                    'output:{:d}'.format(port.ofport))
+        flow_template['actions'] = "strip_vlan,output:{:d}".format(port.ofport)
     elif direction == firewall.EGRESS_DIRECTION:
         flow_template['table'] = ovs_consts.RULES_EGRESS_TABLE
         flow_template['dl_src'] = port.mac
@@ -84,7 +82,7 @@ def create_protocol_flows(direction, flow_template, port, rule):
     try:
         flow_template['nw_proto'] = ovsfw_consts.protocol_to_nw_proto[protocol]
         if rule['ethertype'] == n_consts.IPv6 and protocol == 'icmp':
-            flow_template['nw_proto'] = constants.PROTO_NUM_IPV6_ICMP
+            flow_template['nw_proto'] = n_consts.PROTO_NUM_IPV6_ICMP
     except KeyError:
         pass
 

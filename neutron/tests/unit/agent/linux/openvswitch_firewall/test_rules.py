@@ -13,14 +13,17 @@
 #    under the License.
 
 import mock
+from neutron_lib import constants
 
 from neutron.agent import firewall
 from neutron.agent.linux.openvswitch_firewall import firewall as ovsfw
 from neutron.agent.linux.openvswitch_firewall import rules
-from neutron.common import constants
+from neutron.common import constants as n_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import constants \
         as ovs_consts
 from neutron.tests import base
+
+TESTING_VLAN_TAG = 1
 
 
 class TestIsValidPrefix(base.BaseTestCase):
@@ -51,7 +54,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         ovs_port = mock.Mock(vif_mac='00:00:00:00:00:00')
         ovs_port.ofport = 1
         port_dict = {'device': 'port_id'}
-        self.port = ovsfw.OFPort(port_dict, ovs_port)
+        self.port = ovsfw.OFPort(
+            port_dict, ovs_port, vlan_tag=TESTING_VLAN_TAG)
 
         self.create_flows_mock = mock.patch.object(
             rules, 'create_protocol_flows').start()
@@ -73,8 +77,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IP,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IP,
+            'reg_port': self.port.ofport,
         }
         self._test_create_flows_from_rule_and_port_helper(rule,
                                                           expected_template)
@@ -88,8 +92,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IP,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IP,
+            'reg_port': self.port.ofport,
             'nw_src': '192.168.0.0/24',
             'nw_dst': '10.0.0.1/32',
         }
@@ -105,8 +109,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IP,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IP,
+            'reg_port': self.port.ofport,
             'nw_src': '192.168.0.0/24',
         }
         self._test_create_flows_from_rule_and_port_helper(rule,
@@ -119,8 +123,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IPV6,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IPV6,
+            'reg_port': self.port.ofport,
         }
         self._test_create_flows_from_rule_and_port_helper(rule,
                                                           expected_template)
@@ -134,8 +138,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IPV6,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IPV6,
+            'reg_port': self.port.ofport,
             'ipv6_src': '2001:db8:bbbb::1/64',
             'ipv6_dst': '2001:db8:aaaa::1/64',
         }
@@ -151,8 +155,8 @@ class TestCreateFlowsFromRuleAndPort(base.BaseTestCase):
         }
         expected_template = {
             'priority': 70,
-            'dl_type': constants.ETHERTYPE_IPV6,
-            'reg5': self.port.ofport,
+            'dl_type': n_const.ETHERTYPE_IPV6,
+            'reg_port': self.port.ofport,
             'ipv6_src': '2001:db8:bbbb::1/64',
         }
         self._test_create_flows_from_rule_and_port_helper(rule,
@@ -165,7 +169,8 @@ class TestCreateProtocolFlows(base.BaseTestCase):
         ovs_port = mock.Mock(vif_mac='00:00:00:00:00:00')
         ovs_port.ofport = 1
         port_dict = {'device': 'port_id'}
-        self.port = ovsfw.OFPort(port_dict, ovs_port)
+        self.port = ovsfw.OFPort(
+            port_dict, ovs_port, vlan_tag=TESTING_VLAN_TAG)
 
     def _test_create_protocol_flows_helper(self, direction, rule,
                                            expected_flows):
@@ -181,7 +186,7 @@ class TestCreateProtocolFlows(base.BaseTestCase):
         expected_flows = [{
             'table': ovs_consts.RULES_INGRESS_TABLE,
             'dl_dst': self.port.mac,
-            'actions': 'ct(commit,zone=NXM_NX_REG5[0..15]),output:1',
+            'actions': 'strip_vlan,output:1',
             'nw_proto': constants.PROTO_NUM_TCP,
         }]
         self._test_create_protocol_flows_helper(

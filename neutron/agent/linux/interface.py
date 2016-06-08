@@ -16,8 +16,10 @@
 import abc
 
 import netaddr
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_log import versionutils
 import six
 
 from neutron._i18n import _, _LE, _LI, _LW
@@ -55,7 +57,7 @@ class LinuxInterfaceDriver(object):
 
     # from linux IF_NAMESIZE
     DEV_NAME_LEN = 14
-    DEV_NAME_PREFIX = n_const.TAP_DEVICE_PREFIX
+    DEV_NAME_PREFIX = constants.TAP_DEVICE_PREFIX
 
     def __init__(self, conf):
         self.conf = conf
@@ -180,8 +182,8 @@ class LinuxInterfaceDriver(object):
         # Manage on-link routes (routes without an associated address)
         new_onlink_cidrs = set(s['cidr'] for s in extra_subnets or [])
 
-        v4_onlink = device.route.list_onlink_routes(n_const.IP_VERSION_4)
-        v6_onlink = device.route.list_onlink_routes(n_const.IP_VERSION_6)
+        v4_onlink = device.route.list_onlink_routes(constants.IP_VERSION_4)
+        v6_onlink = device.route.list_onlink_routes(constants.IP_VERSION_6)
         existing_onlink_cidrs = set(r['cidr'] for r in v4_onlink + v6_onlink)
 
         for route in new_onlink_cidrs - existing_onlink_cidrs:
@@ -244,8 +246,16 @@ class LinuxInterfaceDriver(object):
              bridge=None, namespace=None, prefix=None, mtu=None):
         if not ip_lib.device_exists(device_name,
                                     namespace=namespace):
-            self.plug_new(network_id, port_id, device_name, mac_address,
-                          bridge, namespace, prefix, mtu)
+            try:
+                self.plug_new(network_id, port_id, device_name, mac_address,
+                              bridge, namespace, prefix, mtu)
+            except TypeError:
+                versionutils.report_deprecated_feature(
+                    LOG,
+                    _LW('Interface driver does not support MTU parameter. '
+                        'This may not work in future releases.'))
+                self.plug_new(network_id, port_id, device_name, mac_address,
+                              bridge, namespace, prefix)
         else:
             LOG.info(_LI("Device %s already exists"), device_name)
 
@@ -283,7 +293,7 @@ class NullDriver(LinuxInterfaceDriver):
 class OVSInterfaceDriver(LinuxInterfaceDriver):
     """Driver for creating an internal interface on an OVS bridge."""
 
-    DEV_NAME_PREFIX = n_const.TAP_DEVICE_PREFIX
+    DEV_NAME_PREFIX = constants.TAP_DEVICE_PREFIX
 
     def __init__(self, conf):
         super(OVSInterfaceDriver, self).__init__(conf)
@@ -293,7 +303,7 @@ class OVSInterfaceDriver(LinuxInterfaceDriver):
     def _get_tap_name(self, dev_name, prefix=None):
         if self.conf.ovs_use_veth:
             dev_name = dev_name.replace(prefix or self.DEV_NAME_PREFIX,
-                                        n_const.TAP_DEVICE_PREFIX)
+                                        constants.TAP_DEVICE_PREFIX)
         return dev_name
 
     def _ovs_add_port(self, bridge, device_name, port_id, mac_address,
@@ -372,7 +382,7 @@ class OVSInterfaceDriver(LinuxInterfaceDriver):
 class IVSInterfaceDriver(LinuxInterfaceDriver):
     """Driver for creating an internal interface on an IVS bridge."""
 
-    DEV_NAME_PREFIX = n_const.TAP_DEVICE_PREFIX
+    DEV_NAME_PREFIX = constants.TAP_DEVICE_PREFIX
 
     def __init__(self, conf):
         super(IVSInterfaceDriver, self).__init__(conf)
@@ -380,7 +390,7 @@ class IVSInterfaceDriver(LinuxInterfaceDriver):
 
     def _get_tap_name(self, dev_name, prefix=None):
         dev_name = dev_name.replace(prefix or self.DEV_NAME_PREFIX,
-                                    n_const.TAP_DEVICE_PREFIX)
+                                    constants.TAP_DEVICE_PREFIX)
         return dev_name
 
     def _ivs_add_port(self, device_name, port_id, mac_address):
@@ -441,7 +451,7 @@ class BridgeInterfaceDriver(LinuxInterfaceDriver):
 
         # Enable agent to define the prefix
         tap_name = device_name.replace(prefix or self.DEV_NAME_PREFIX,
-                                       n_const.TAP_DEVICE_PREFIX)
+                                       constants.TAP_DEVICE_PREFIX)
         # Create ns_veth in a namespace if one is configured.
         root_veth, ns_veth = ip.add_veth(tap_name, device_name,
                                          namespace2=namespace)

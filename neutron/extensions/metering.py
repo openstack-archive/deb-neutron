@@ -14,13 +14,14 @@
 
 import abc
 
+from neutron_lib.api import converters
+from neutron_lib import exceptions as nexception
 import six
 
 from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
-from neutron.common import exceptions as nexception
 from neutron.plugins.common import constants
 from neutron.services import service_base
 
@@ -57,7 +58,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'is_visible': True},
         'shared': {'allow_post': True, 'allow_put': False,
                    'is_visible': True, 'default': False,
-                   'convert_to': attr.convert_to_boolean}
+                   'convert_to': converters.convert_to_boolean}
     },
     'metering_label_rules': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -71,7 +72,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'validate': {'type:values': ['ingress', 'egress']}},
         'excluded': {'allow_post': True, 'allow_put': False,
                      'is_visible': True, 'default': False,
-                     'convert_to': attr.convert_to_boolean},
+                     'convert_to': converters.convert_to_boolean},
         'remote_ip_prefix': {'allow_post': True, 'allow_put': False,
                              'is_visible': True, 'required_by_policy': True,
                              'validate': {'type:subnet': None}},

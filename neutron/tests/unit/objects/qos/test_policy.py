@@ -13,6 +13,7 @@
 import mock
 
 from neutron.common import exceptions as n_exc
+from neutron.db import models_v2
 from neutron.objects.db import api as db_api
 from neutron.objects.qos import policy
 from neutron.objects.qos import rule
@@ -31,12 +32,17 @@ class QosPolicyObjectTestCase(test_base.BaseObjectIfaceTestCase):
             self.get_random_fields(rule.QosBandwidthLimitRule)
             for _ in range(3)]
 
+        self.db_qos_dscp_rules = [
+            self.get_random_fields(rule.QosDscpMarkingRule)
+            for _ in range(3)]
+
         self.model_map = {
             self._test_class.db_model: self.db_objs,
             self._test_class.rbac_db_model: [],
             self._test_class.port_binding_model: [],
             self._test_class.network_binding_model: [],
-            rule.QosBandwidthLimitRule.db_model: self.db_qos_bandwidth_rules}
+            rule.QosBandwidthLimitRule.db_model: self.db_qos_bandwidth_rules,
+            rule.QosDscpMarkingRule.db_model: self.db_qos_dscp_rules}
 
         self.get_object = mock.patch.object(
             db_api, 'get_object', side_effect=self.fake_get_object).start()
@@ -105,6 +111,14 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
 
     def setUp(self):
         super(QosPolicyDbObjectTestCase, self).setUp()
+        self.db_qos_bandwidth_rules = [
+            self.get_random_fields(rule.QosBandwidthLimitRule)
+            for _ in range(3)]
+
+        self.model_map.update({
+            rule.QosBandwidthLimitRule.db_model: self.db_qos_bandwidth_rules
+        })
+
         self._create_test_network()
         self._create_test_port(self._network)
 
@@ -113,7 +127,7 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         policy_obj.create()
         return policy_obj
 
-    def _create_test_policy_with_rule(self):
+    def _create_test_policy_with_bwrule(self):
         policy_obj = self._create_test_policy()
 
         rule_fields = self.get_random_fields(
@@ -145,6 +159,32 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         obj = self._create_test_policy()
         self.assertRaises(n_exc.NetworkQosBindingNotFound,
                           obj.attach_network, 'non-existent-network')
+
+    def test_attach_network_get_policy_network(self):
+
+        obj = self._create_test_policy()
+        obj.attach_network(self._network['id'])
+
+        networks = obj.get_bound_networks()
+        self.assertEqual(1, len(networks))
+        self.assertEqual(self._network['id'], networks[0])
+
+    def test_attach_and_get_multiple_policy_networks(self):
+
+        net1_id = self._network['id']
+        net2 = db_api.create_object(self.context,
+                                    models_v2.Network,
+                                    {'name': 'test-network2'})
+        net2_id = net2['id']
+
+        obj = self._create_test_policy()
+        obj.attach_network(net1_id)
+        obj.attach_network(net2_id)
+
+        networks = obj.get_bound_networks()
+        self.assertEqual(2, len(networks))
+        self.assertTrue(net1_id in networks)
+        self.assertTrue(net2_id in networks)
 
     def test_attach_port_nonexistent_port(self):
 
@@ -179,6 +219,38 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         policy_obj = policy.QosPolicy.get_port_policy(self.context,
                                                       self._port['id'])
         self.assertEqual(obj, policy_obj)
+
+    def test_attach_and_get_multiple_policy_ports(self):
+
+        port1_id = self._port['id']
+        port2 = db_api.create_object(self.context, models_v2.Port,
+                                     {'tenant_id': 'fake_tenant_id',
+                                     'name': 'test-port2',
+                                     'network_id': self._network['id'],
+                                     'mac_address': 'fake_mac2',
+                                     'admin_state_up': True,
+                                     'status': 'ACTIVE',
+                                     'device_id': 'fake_device',
+                                     'device_owner': 'fake_owner'})
+        port2_id = port2['id']
+
+        obj = self._create_test_policy()
+        obj.attach_port(port1_id)
+        obj.attach_port(port2_id)
+
+        ports = obj.get_bound_ports()
+        self.assertEqual(2, len(ports))
+        self.assertTrue(port1_id in ports)
+        self.assertTrue(port2_id in ports)
+
+    def test_attach_port_get_policy_port(self):
+
+        obj = self._create_test_policy()
+        obj.attach_port(self._port['id'])
+
+        ports = obj.get_bound_ports()
+        self.assertEqual(1, len(ports))
+        self.assertEqual(self._port['id'], ports[0])
 
     def test_detach_port(self):
         obj = self._create_test_policy()
@@ -219,21 +291,22 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
                           policy_obj.detach_network, self._network['id'])
 
     def test_synthetic_rule_fields(self):
-        policy_obj, rule_obj = self._create_test_policy_with_rule()
+        policy_obj, rule_obj = self._create_test_policy_with_bwrule()
         policy_obj = policy.QosPolicy.get_object(self.context,
                                                  id=policy_obj.id)
         self.assertEqual([rule_obj], policy_obj.rules)
 
     def test_get_object_fetches_rules_non_lazily(self):
-        policy_obj, rule_obj = self._create_test_policy_with_rule()
+        policy_obj, rule_obj = self._create_test_policy_with_bwrule()
         policy_obj = policy.QosPolicy.get_object(self.context,
                                                  id=policy_obj.id)
+        self.assertEqual([rule_obj], policy_obj.rules)
 
         primitive = policy_obj.obj_to_primitive()
         self.assertNotEqual([], (primitive['versioned_object.data']['rules']))
 
     def test_to_dict_returns_rules_as_dicts(self):
-        policy_obj, rule_obj = self._create_test_policy_with_rule()
+        policy_obj, rule_obj = self._create_test_policy_with_bwrule()
         policy_obj = policy.QosPolicy.get_object(self.context,
                                                  id=policy_obj.id)
 
@@ -270,7 +343,7 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         obj.delete()
 
     def test_reload_rules_reloads_rules(self):
-        policy_obj, rule_obj = self._create_test_policy_with_rule()
+        policy_obj, rule_obj = self._create_test_policy_with_bwrule()
         self.assertEqual([], policy_obj.rules)
 
         policy_obj.reload_rules()
@@ -285,3 +358,42 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
 
         obj.detach_port(self._port['id'])
         obj.delete()
+
+    @staticmethod
+    def _policy_through_version(obj, version):
+        primitive = obj.obj_to_primitive(target_version=version)
+        return policy.QosPolicy.clean_obj_from_primitive(primitive)
+
+    def _create_test_policy_with_bw_and_dscp(self):
+        policy_obj, rule_obj_band = self._create_test_policy_with_bwrule()
+
+        rule_fields = self.get_random_fields(obj_cls=rule.QosDscpMarkingRule)
+        rule_fields['qos_policy_id'] = policy_obj.id
+
+        rule_obj_dscp = rule.QosDscpMarkingRule(self.context, **rule_fields)
+        rule_obj_dscp.create()
+
+        policy_obj.reload_rules()
+        return policy_obj, rule_obj_band, rule_obj_dscp
+
+    def test_object_version(self):
+        policy_obj, rule_obj_band, rule_obj_dscp = (
+            self._create_test_policy_with_bw_and_dscp())
+
+        policy_obj_v1_1 = self._policy_through_version(policy_obj, '1.1')
+
+        self.assertIn(rule_obj_band, policy_obj_v1_1.rules)
+        self.assertIn(rule_obj_dscp, policy_obj_v1_1.rules)
+        self.assertEqual(policy_obj.VERSION, '1.1')
+
+    #TODO(davidsha) add testing for object version incrementation
+    def test_object_version_degradation_1_1_to_1_0(self):
+        policy_obj, rule_obj_band, rule_obj_dscp = (
+            self._create_test_policy_with_bw_and_dscp())
+
+        policy_obj_v1_0 = self._policy_through_version(policy_obj, '1.0')
+
+        self.assertIn(rule_obj_band, policy_obj_v1_0.rules)
+        self.assertNotIn(rule_obj_dscp, policy_obj_v1_0.rules)
+        #NOTE(mangelajo): we should not check .VERSION, since that's the
+        #                 local version on the class definition

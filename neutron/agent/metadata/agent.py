@@ -16,10 +16,12 @@ import hashlib
 import hmac
 
 import httplib2
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import loopingcall
+from oslo_utils import encodeutils
 import six
 import six.moves.urllib.parse as urlparse
 import webob
@@ -111,7 +113,7 @@ class MetadataProxyHandler(object):
         filters = {}
         if router_id:
             filters['device_id'] = [router_id]
-            filters['device_owner'] = n_const.ROUTER_INTERFACE_OWNERS
+            filters['device_owner'] = constants.ROUTER_INTERFACE_OWNERS
         if ip_address:
             filters['fixed_ips'] = {'ip_address': [ip_address]}
         if networks:
@@ -223,10 +225,8 @@ class MetadataProxyHandler(object):
 
     def _sign_instance_id(self, instance_id):
         secret = self.conf.metadata_proxy_shared_secret
-        if isinstance(secret, six.text_type):
-            secret = secret.encode('utf-8')
-        if isinstance(instance_id, six.text_type):
-            instance_id = instance_id.encode('utf-8')
+        secret = encodeutils.to_utf8(secret)
+        instance_id = encodeutils.to_utf8(instance_id)
         return hmac.new(secret, instance_id, hashlib.sha256).hexdigest()
 
 
@@ -252,7 +252,7 @@ class UnixDomainMetadataProxy(object):
                 'log_agent_heartbeats': cfg.CONF.AGENT.log_agent_heartbeats,
             },
             'start_flag': True,
-            'agent_type': n_const.AGENT_TYPE_METADATA}
+            'agent_type': constants.AGENT_TYPE_METADATA}
         report_interval = cfg.CONF.AGENT.report_interval
         if report_interval:
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(

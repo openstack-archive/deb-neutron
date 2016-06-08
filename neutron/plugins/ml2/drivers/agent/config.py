@@ -16,6 +16,7 @@
 
 from oslo_config import cfg
 
+from neutron._i18n import _
 from neutron.agent.common import config
 
 agent_opts = [
@@ -42,7 +43,7 @@ agent_opts = [
                        "added to any ports that have port security disabled. "
                        "For LinuxBridge, this requires ebtables. For OVS, it "
                        "requires a version that supports matching ARP "
-                       "headers. This option will be removed in Newton so "
+                       "headers. This option will be removed in Ocata so "
                        "the only way to disable protection will be via the "
                        "port security extension."))
 ]

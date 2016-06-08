@@ -17,6 +17,7 @@ import functools
 
 import mock
 import netaddr
+from neutron_lib import constants as l3_constants
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import uuidutils
@@ -30,7 +31,7 @@ from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.common import config as common_config
-from neutron.common import constants as l3_constants
+from neutron.common import constants as n_const
 from neutron.common import utils as common_utils
 from neutron.tests.common import l3_test_common
 from neutron.tests.common import net_helpers
@@ -218,7 +219,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
         router = self.manage_router(self.agent, router_info)
 
         # Add multiple-IPv6-prefix internal router port
-        slaac = l3_constants.IPV6_SLAAC
+        slaac = n_const.IPV6_SLAAC
         slaac_mode = {'ra_mode': slaac, 'address_mode': slaac}
         subnet_modes = [slaac_mode] * 2
         self._add_internal_interface_by_subnet(router.router,
@@ -260,6 +261,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
             self.assertTrue(self.floating_ips_configured(router))
             self._assert_snat_chains(router)
             self._assert_floating_ip_chains(router)
+            self._assert_iptables_rules_converged(router)
             self._assert_extra_routes(router)
             ip_versions = [4, 6] if (ip_version == 6 or dual_stack) else [4]
             self._assert_onlink_subnet_routes(router, ip_versions)
@@ -418,6 +420,12 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
     def _assert_floating_ip_chains(self, router):
         self.assertFalse(router.iptables_manager.is_chain_empty(
             'nat', 'float-snat'))
+
+    def _assert_iptables_rules_converged(self, router):
+        # if your code is failing on this line, it means you are not generating
+        # your iptables rules in the same format that iptables-save returns
+        # them. run iptables-save to see the format they should be in
+        self.assertFalse(router.iptables_manager.apply())
 
     def _assert_metadata_chains(self, router):
         metadata_port_filter = lambda rule: (

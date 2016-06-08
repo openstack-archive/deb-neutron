@@ -26,9 +26,22 @@ from neutron.tests import tools
 # NOTE: The hashes in this list should only be changed if they come with a
 # corresponding version bump in the affected objects.
 object_data = {
-    'QosBandwidthLimitRule': '1.0-4e44a8f5c2895ab1278399f87b40a13d',
-    'QosRuleType': '1.0-d0df298d49eeffab91af18d1a4cf7eaf',
-    'QosPolicy': '1.0-721fa60ea8f0e8f15d456d6e917dfe59',
+    'AddressScope': '1.0-681cb915f973c92350fe2c797dec2ea4',
+    'DNSNameServer': '1.0-bf87a85327e2d812d1666ede99d9918b',
+    'ExtraDhcpOpt': '1.0-632f689cbeb36328995a7aed1d0a78d3',
+    'IPAllocationPool': '1.0-371016a6480ed0b4299319cb46d9215d',
+    'PortSecurity': '1.0-cf5b382a0112080ec4e0f23f697c7ab2',
+    'AllowedAddressPair': '1.0-9f9186b6f952fbf31d257b0458b852c0',
+    'QosBandwidthLimitRule': '1.1-4e44a8f5c2895ab1278399f87b40a13d',
+    'QosDscpMarkingRule': '1.1-0313c6554b34fd10c753cb63d638256c',
+    'QosRuleType': '1.1-8a53fef4c6a43839d477a85b787d22ce',
+    'QosPolicy': '1.1-721fa60ea8f0e8f15d456d6e917dfe59',
+    'Route': '1.0-a9883a63b416126f9e345523ec09483b',
+    'Subnet': '1.0-12618b7d5dc7a69e2a05e9d6b15e9382',
+    'SubnetPool': '1.0-320598830183ee739cbc9f32ebc26bba',
+    'SubnetPoolPrefix': '1.0-13c15144135eb869faa4a76dc3ee3b6c',
+    'SubPort': '1.0-72c8471068db1f0491b5480fe49b52bb',
+    'Trunk': '1.0-758286a52466d7a52b74331f43b07a84',
 }
 
 

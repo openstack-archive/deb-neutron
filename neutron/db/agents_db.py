@@ -16,6 +16,8 @@
 import datetime
 
 from eventlet import greenthread
+from neutron_lib.api import converters
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
@@ -31,12 +33,17 @@ from sqlalchemy import sql
 from neutron._i18n import _, _LE, _LI, _LW
 from neutron.api.rpc.callbacks import version_manager
 from neutron.api.v2 import attributes
-from neutron.common import constants
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
+from neutron.common import constants as n_const
 from neutron import context
+from neutron.db import api as db_api
 from neutron.db import model_base
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import availability_zone as az_ext
 from neutron import manager
+from neutron.services.segments import db as segments_db
 
 LOG = logging.getLogger(__name__)
 
@@ -216,15 +223,18 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
     def get_configuration_dict(self, agent_db):
         return self._get_dict(agent_db, 'configurations')
 
-    def _get_dict(self, agent_db, dict_name):
+    def _get_dict(self, agent_db, dict_name, ignore_missing=False):
+        json_value = None
         try:
-            conf = jsonutils.loads(getattr(agent_db, dict_name))
+            json_value = getattr(agent_db, dict_name)
+            conf = jsonutils.loads(json_value)
         except Exception:
-            msg = _LW('Dictionary %(dict_name)s for agent %(agent_type)s on '
-                      'host %(host)s is invalid.')
-            LOG.warning(msg, {'dict_name': dict_name,
-                              'agent_type': agent_db.agent_type,
-                              'host': agent_db.host})
+            if json_value or not ignore_missing:
+                msg = _LW('Dictionary %(dict_name)s for agent %(agent_type)s '
+                          'on host %(host)s is invalid.')
+                LOG.warning(msg, {'dict_name': dict_name,
+                                  'agent_type': agent_db.agent_type,
+                                  'host': agent_db.host})
             conf = {}
         return conf
 
@@ -245,13 +255,16 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                    if k not in ['alive', 'configurations'])
         res['alive'] = not self.is_agent_down(res['heartbeat_timestamp'])
         res['configurations'] = self._get_dict(agent, 'configurations')
-        res['resource_versions'] = self._get_dict(agent, 'resource_versions')
+        res['resource_versions'] = self._get_dict(agent, 'resource_versions',
+                                                  ignore_missing=True)
         res['availability_zone'] = agent['availability_zone']
         return self._fields(res, fields)
 
     def delete_agent(self, context, id):
+        agent = self._get_agent(context, id)
+        registry.notify(resources.AGENT, events.BEFORE_DELETE, self,
+                        context=context, agent=agent)
         with context.session.begin(subtransactions=True):
-            agent = self._get_agent(context, id)
             context.session.delete(agent)
 
     def update_agent(self, context, id, agent):
@@ -271,7 +284,7 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                                       filters=filters, fields=fields)
         alive = filters and filters.get('alive', None)
         if alive:
-            alive = attributes.convert_to_boolean(alive[0])
+            alive = converters.convert_to_boolean(alive[0])
             agents = [agent for agent in agents if agent['alive'] == alive]
         return agents
 
@@ -312,6 +325,18 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
         agent = self._get_agent(context, id)
         return self._make_agent_dict(agent, fields)
 
+    def filter_hosts_with_network_access(
+            self, context, network_id, candidate_hosts):
+        """Filter hosts with access to network_id.
+
+        This method returns a subset of candidate_hosts with the ones with
+        network access to network_id.
+
+        A plugin can overload this method to define its own host network_id
+        based filter.
+        """
+        return candidate_hosts
+
     def _log_heartbeat(self, state, agent_db, agent_conf):
         if agent_conf.get('log_agent_heartbeats'):
             delta = timeutils.utcnow() - agent_db.heartbeat_timestamp
@@ -328,7 +353,7 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
         Returns agent status from server point of view: alive, new or revived.
         It could be used by agent to do some sync with the server if needed.
         """
-        status = constants.AGENT_ALIVE
+        status = n_const.AGENT_ALIVE
         with context.session.begin(subtransactions=True):
             res_keys = ['agent_type', 'binary', 'host', 'topic']
             res = dict((k, agent_state[k]) for k in res_keys)
@@ -336,15 +361,24 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                 res['availability_zone'] = agent_state['availability_zone']
             configurations_dict = agent_state.get('configurations', {})
             res['configurations'] = jsonutils.dumps(configurations_dict)
-            resource_versions_dict = agent_state.get('resource_versions', {})
-            res['resource_versions'] = jsonutils.dumps(resource_versions_dict)
+            resource_versions_dict = agent_state.get('resource_versions')
+            if resource_versions_dict:
+                res['resource_versions'] = jsonutils.dumps(
+                    resource_versions_dict)
             res['load'] = self._get_agent_load(agent_state)
             current_time = timeutils.utcnow()
             try:
                 agent_db = self._get_agent_by_type_and_host(
                     context, agent_state['agent_type'], agent_state['host'])
                 if not agent_db.is_active:
-                    status = constants.AGENT_REVIVED
+                    status = n_const.AGENT_REVIVED
+                    if 'resource_versions' not in agent_state:
+                        # updating agent_state with resource_versions taken
+                        # from db so that
+                        # _update_local_agent_resource_versions() will call
+                        # version_manager and bring it up to date
+                        agent_state['resource_versions'] = self._get_dict(
+                            agent_db, 'resource_versions', ignore_missing=True)
                 res['heartbeat_timestamp'] = current_time
                 if agent_state.get('start_flag'):
                     res['started_at'] = current_time
@@ -361,8 +395,10 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                 greenthread.sleep(0)
                 context.session.add(agent_db)
                 self._log_heartbeat(agent_state, agent_db, configurations_dict)
-                status = constants.AGENT_NEW
+                status = n_const.AGENT_NEW
             greenthread.sleep(0)
+            segments_db.update_segment_host_mapping_for_agent(
+                context, agent_state['host'], self, agent_state)
         return status
 
     def create_or_update_agent(self, context, agent):
@@ -421,7 +457,7 @@ class AgentExtRpcCallback(object):
     """
 
     target = oslo_messaging.Target(version='1.1',
-                                   namespace=constants.RPC_NAMESPACE_STATE)
+                                   namespace=n_const.RPC_NAMESPACE_STATE)
     START_TIME = timeutils.utcnow()
 
     def __init__(self, plugin=None):
@@ -434,6 +470,7 @@ class AgentExtRpcCallback(object):
         # Initialize RPC api directed to other neutron-servers
         self.server_versions_rpc = resources_rpc.ResourcesPushToServersRpcApi()
 
+    @db_api.retry_db_errors
     def report_state(self, context, **kwargs):
         """Report state from agent to server.
 
@@ -458,7 +495,10 @@ class AgentExtRpcCallback(object):
         return agent_status
 
     def _update_local_agent_resource_versions(self, context, agent_state):
-        resource_versions_dict = agent_state.get('resource_versions', {})
+        resource_versions_dict = agent_state.get('resource_versions')
+        if not resource_versions_dict:
+            return
+
         version_manager.update_versions(
             version_manager.AgentConsumer(agent_type=agent_state['agent_type'],
                                           host=agent_state['host']),

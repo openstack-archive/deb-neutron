@@ -15,12 +15,14 @@
 
 import abc
 
+from neutron_lib import constants
+from neutron_lib import exceptions
+import six
+
 from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import base
 from neutron.api.v2 import resource
-from neutron.common import constants
-from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.extensions import agent
 from neutron import manager
@@ -134,6 +136,7 @@ class NetworkNotHostedByDhcpAgent(exceptions.Conflict):
                 " by the DHCP agent %(agent_id)s.")
 
 
+@six.add_metaclass(abc.ABCMeta)
 class DhcpAgentSchedulerPluginBase(object):
     """REST API to operate the DHCP agent scheduler.
 

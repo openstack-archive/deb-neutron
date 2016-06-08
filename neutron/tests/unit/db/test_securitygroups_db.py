@@ -12,6 +12,7 @@
 # limitations under the License.
 
 import mock
+from neutron_lib import constants
 import sqlalchemy
 import testtools
 
@@ -19,7 +20,6 @@ from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants
 from neutron import context
 from neutron.db import common_db_mixin
 from neutron.db import securitygroups_db
@@ -90,6 +90,48 @@ class SecurityGroupDbMixinTestCase(testlib_api.SqlTestCase):
                 securitygroup.SecurityGroupConflict):
                 self.mixin.create_security_group_rule(
                     self.ctx, mock.MagicMock())
+
+    def test__check_for_duplicate_rules_in_db_does_not_drop_protocol(self):
+        with mock.patch.object(self.mixin, 'get_security_group_rules',
+                               return_value=[mock.Mock()]):
+            context = mock.Mock()
+            rule_dict = {
+                'security_group_rule': {'protocol': None,
+                                        'tenant_id': 'fake',
+                                        'security_group_id': 'fake',
+                                        'direction': 'fake'}
+            }
+            self.mixin._check_for_duplicate_rules_in_db(context, rule_dict)
+        self.assertIn('protocol', rule_dict['security_group_rule'])
+
+    def test__check_for_duplicate_rules_ignores_rule_id(self):
+        rules = [{'security_group_rule': {'protocol': 'tcp', 'id': 'fake1'}},
+                 {'security_group_rule': {'protocol': 'tcp', 'id': 'fake2'}}]
+
+        # NOTE(arosen): the name of this exception is a little misleading
+        # in this case as this test, tests that the id fields are dropped
+        # while being compared. This is in the case if a plugin specifies
+        # the rule ids themselves.
+        self.assertRaises(securitygroup.DuplicateSecurityGroupRuleInPost,
+            self.mixin._check_for_duplicate_rules,
+            context, rules)
+
+    def test__check_for_duplicate_rules_in_db_ignores_rule_id(self):
+        db_rules = {'protocol': 'tcp', 'id': 'fake', 'tenant_id': 'fake',
+                    'direction': 'ingress', 'security_group_id': 'fake'}
+        with mock.patch.object(self.mixin, 'get_security_group_rules',
+                               return_value=[db_rules]):
+            context = mock.Mock()
+            rule_dict = {
+                'security_group_rule': {'protocol': 'tcp',
+                                        'id': 'fake2',
+                                        'tenant_id': 'fake',
+                                        'security_group_id': 'fake',
+                                        'direction': 'ingress'}
+            }
+            self.assertRaises(securitygroup.SecurityGroupRuleExists,
+                self.mixin._check_for_duplicate_rules_in_db,
+                context, rule_dict)
 
     def test_delete_security_group_rule_in_use(self):
         with mock.patch.object(registry, "notify") as mock_notify:
@@ -235,3 +277,29 @@ class SecurityGroupDbMixinTestCase(testlib_api.SqlTestCase):
             mock_notify.assert_has_calls([mock.call('security_group_rule',
                 'precommit_delete', mock.ANY, context=mock.ANY,
                 security_group_rule_id=mock.ANY)])
+
+    def test_get_ip_proto_name_and_num(self):
+        protocols = [constants.PROTO_NAME_UDP, str(constants.PROTO_NUM_TCP),
+                     'blah', '111']
+        protocol_names_nums = (
+            [[constants.PROTO_NAME_UDP, str(constants.PROTO_NUM_UDP)],
+             [constants.PROTO_NAME_TCP, str(constants.PROTO_NUM_TCP)],
+             ['blah', 'blah'], ['111', '111']])
+
+        for i, protocol in enumerate(protocols):
+            self.assertEqual(protocol_names_nums[i],
+                             self.mixin._get_ip_proto_name_and_num(protocol))
+
+    def test__validate_port_range_for_icmp_exception(self):
+        states = [(1, 256, securitygroup.SecurityGroupInvalidIcmpValue),
+                  (None, 6, securitygroup.SecurityGroupMissingIcmpType),
+                  (300, 1, securitygroup.SecurityGroupInvalidIcmpValue)]
+        for protocol in (constants.PROTO_NAME_ICMP,
+                         constants.PROTO_NAME_IPV6_ICMP,
+                         constants.PROTO_NAME_IPV6_ICMP_LEGACY):
+            for pmin, pmax, exception in states:
+                self.assertRaises(exception,
+                    self.mixin._validate_port_range,
+                    {'port_range_min': pmin,
+                     'port_range_max': pmax,
+                     'protocol': protocol})

@@ -14,10 +14,10 @@
 # limitations under the License.
 
 import mock
+from neutron_lib import constants
 from oslo_config import cfg
 import testtools
 
-from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2 import config  # noqa
@@ -61,10 +61,10 @@ class SriovNicSwitchMechanismBaseTestCase(base.AgentMechanismBaseTestCase):
     AGENT_TYPE = constants.AGENT_TYPE_NIC_SWITCH
     VLAN_SEGMENTS = base.AgentMechanismVlanTestCase.VLAN_SEGMENTS
 
-    GOOD_MAPPINGS = {'fake_physical_network': 'fake_device'}
+    GOOD_MAPPINGS = {'fake_physical_network': ['fake_device']}
     GOOD_CONFIGS = {'device_mappings': GOOD_MAPPINGS}
 
-    BAD_MAPPINGS = {'wrong_physical_network': 'wrong_device'}
+    BAD_MAPPINGS = {'wrong_physical_network': ['wrong_device']}
     BAD_CONFIGS = {'device_mappings': BAD_MAPPINGS}
 
     AGENTS = [{'alive': True,
@@ -91,15 +91,15 @@ class SriovSwitchMechGenericTestCase(SriovNicSwitchMechanismBaseTestCase,
         """Validate the check_segment call."""
         segment = {'api.NETWORK_TYPE': ""}
         segment[api.NETWORK_TYPE] = p_const.TYPE_VLAN
-        self.assertTrue(self.driver.check_segment(segment))
+        self.assertTrue(self.driver.check_segment_for_agent(segment))
         # Validate a network type not currently supported
         segment[api.NETWORK_TYPE] = p_const.TYPE_GRE
-        self.assertFalse(self.driver.check_segment(segment))
+        self.assertFalse(self.driver.check_segment_for_agent(segment))
 
     def test_check_segment_allows_supported_network_types(self):
-        for network_type in self.driver.supported_network_types:
+        for network_type in self.driver.get_allowed_network_types(agent=None):
             segment = {api.NETWORK_TYPE: network_type}
-            self.assertTrue(self.driver.check_segment(segment))
+            self.assertTrue(self.driver.check_segment_for_agent(segment))
 
 
 class SriovMechVlanTestCase(SriovNicSwitchMechanismBaseTestCase,

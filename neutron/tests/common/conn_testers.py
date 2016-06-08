@@ -15,12 +15,12 @@
 import functools
 
 import fixtures
-from neutron_lib import constants as n_consts
+from neutron_lib import constants
 from oslo_utils import uuidutils
 
 from neutron.agent import firewall
 from neutron.agent.linux import ip_lib
-from neutron.common import constants
+from neutron.common import constants as n_consts
 from neutron.tests.common import machine_fixtures
 from neutron.tests.common import net_helpers
 
@@ -29,8 +29,8 @@ from neutron.tests.common import net_helpers
 # sufficient for correct scenarios but not too high because of negative
 # tests.
 ICMP_VERSION_TIMEOUTS = {
-    n_consts.IP_VERSION_4: 1,
-    n_consts.IP_VERSION_6: 2,
+    constants.IP_VERSION_4: 1,
+    constants.IP_VERSION_6: 2,
 }
 
 
@@ -61,7 +61,7 @@ class ConnectionTester(fixtures.Fixture):
     UDP = net_helpers.NetcatTester.UDP
     TCP = net_helpers.NetcatTester.TCP
     ICMP = constants.PROTO_NAME_ICMP
-    ARP = constants.ETHERTYPE_NAME_ARP
+    ARP = n_consts.ETHERTYPE_NAME_ARP
     INGRESS = firewall.INGRESS_DIRECTION
     EGRESS = firewall.EGRESS_DIRECTION
 
@@ -123,6 +123,9 @@ class ConnectionTester(fixtures.Fixture):
     @property
     def peer_ip_address(self):
         return self._peer.ip
+
+    def set_vm_default_gateway(self, default_gw):
+        self._vm.set_default_gateway(default_gw)
 
     def flush_arp_tables(self):
         """Flush arptables in all used namespaces"""
@@ -202,7 +205,13 @@ class ConnectionTester(fixtures.Fixture):
         nc_tester = self._nc_testers.get(nc_params)
         if nc_tester:
             if nc_tester.is_established:
-                nc_tester.test_connectivity()
+                try:
+                    nc_tester.test_connectivity()
+                except RuntimeError:
+                    raise ConnectionTesterException(
+                        "Established %s connection with protocol %s, source "
+                        "port %s and destination port %s can no longer "
+                        "communicate")
             else:
                 nc_tester.stop_processes()
                 raise ConnectionTesterException(
@@ -296,6 +305,17 @@ class ConnectionTester(fixtures.Fixture):
         pinger = self._get_pinger(direction)
         return pinger.received
 
+    def assert_net_unreachable(self, direction, destination):
+        src_namespace, dst_address = self._get_namespace_and_address(
+            direction)
+        pinger = net_helpers.Pinger(src_namespace, destination, count=5)
+        pinger.start()
+        pinger.wait()
+        if not pinger.destination_unreachable:
+            raise ConnectionTesterException(
+                'No Host Destination Unreachable packets were received when '
+                'sending icmp packets to %s' % destination)
+
 
 class OVSConnectionTester(ConnectionTester):
     """Tester with OVS bridge in the middle
@@ -337,6 +357,11 @@ class OVSConnectionTester(ConnectionTester):
 
     def set_tag(self, port_name, tag):
         self.bridge.set_db_attribute('Port', port_name, 'tag', tag)
+        other_config = self.bridge.db_get_val(
+            'Port', port_name, 'other_config')
+        other_config['tag'] = tag
+        self.bridge.set_db_attribute(
+            'Port', port_name, 'other_config', other_config)
 
     def set_vm_tag(self, tag):
         self.set_tag(self._vm.port.name, tag)

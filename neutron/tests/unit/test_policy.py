@@ -16,6 +16,8 @@
 """Test of Policy Engine For Neutron"""
 
 import mock
+from neutron_lib import constants as const
+from neutron_lib import exceptions
 from oslo_db import exception as db_exc
 from oslo_policy import fixture as op_fixture
 from oslo_policy import policy as oslo_policy
@@ -24,8 +26,8 @@ from oslo_utils import importutils
 
 import neutron
 from neutron.api.v2 import attributes
-from neutron.common import constants as const
-from neutron.common import exceptions
+from neutron.common import constants as n_const
+from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron import manager
 from neutron import policy
@@ -357,7 +359,7 @@ class NeutronPolicyTestCase(base.BaseTestCase):
         self._test_advsvc_action_on_attr('get', 'port', 'shared', False)
 
     def test_advsvc_update_port_works(self):
-        kwargs = {const.ATTRIBUTES_TO_UPDATE: ['shared']}
+        kwargs = {n_const.ATTRIBUTES_TO_UPDATE: ['shared']}
         self._test_advsvc_action_on_attr('update', 'port', 'shared', True,
                                          **kwargs)
 
@@ -414,11 +416,11 @@ class NeutronPolicyTestCase(base.BaseTestCase):
         self._test_enforce_adminonly_attribute('create_network')
 
     def test_enforce_adminonly_attribute_update(self):
-        kwargs = {const.ATTRIBUTES_TO_UPDATE: ['shared']}
+        kwargs = {n_const.ATTRIBUTES_TO_UPDATE: ['shared']}
         self._test_enforce_adminonly_attribute('update_network', **kwargs)
 
     def test_reset_adminonly_attr_to_default_fails(self):
-        kwargs = {const.ATTRIBUTES_TO_UPDATE: ['shared']}
+        kwargs = {n_const.ATTRIBUTES_TO_UPDATE: ['shared']}
         self._test_nonadmin_action_on_attr('update', 'shared', False,
                                            oslo_policy.PolicyNotAuthorized,
                                            **kwargs)
@@ -568,7 +570,7 @@ class NeutronPolicyTestCase(base.BaseTestCase):
     def test_tenant_id_check_no_target_field_raises(self):
         # Try and add a bad rule
         self.assertRaises(
-            exceptions.PolicyInitError,
+            n_exc.PolicyInitError,
             oslo_policy.Rules.from_dict,
             {'test_policy': 'tenant_id:(wrong_stuff)'})
 
@@ -578,7 +580,7 @@ class NeutronPolicyTestCase(base.BaseTestCase):
         action = "create_network"
         target = {'tenant_id': 'fake'}
         self.fakepolicyinit()
-        self.assertRaises(exceptions.PolicyCheckError,
+        self.assertRaises(n_exc.PolicyCheckError,
                           policy.enforce,
                           self.context, action, target)
 

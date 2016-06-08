@@ -21,23 +21,21 @@ import pwd
 import shlex
 import socket
 import struct
-import tempfile
 import threading
 
-import debtcollector
 import eventlet
 from eventlet.green import subprocess
 from eventlet import greenthread
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_rootwrap import client
+from oslo_utils import encodeutils
 from oslo_utils import excutils
-import six
 from six.moves import http_client as httplib
 
 from neutron._i18n import _, _LE
 from neutron.agent.common import config
-from neutron.common import constants
 from neutron.common import utils
 from neutron import wsgi
 
@@ -106,11 +104,10 @@ def execute(cmd, process_input=None, addl_env=None,
             check_exit_code=True, return_stderr=False, log_fail_as_error=True,
             extra_ok_codes=None, run_as_root=False):
     try:
-        if (process_input is None or
-            isinstance(process_input, six.binary_type)):
-            _process_input = process_input
+        if process_input is not None:
+            _process_input = encodeutils.to_utf8(process_input)
         else:
-            _process_input = process_input.encode('utf-8')
+            _process_input = None
         if run_as_root and cfg.CONF.AGENT.root_helper_daemon:
             returncode, _stdout, _stderr = (
                 execute_rootwrap_daemon(cmd, process_input, addl_env))
@@ -155,29 +152,10 @@ def get_interface_mac(interface):
     MAC_END = 24
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dev = interface[:constants.DEVICE_NAME_MAX_LEN]
-    if isinstance(dev, six.text_type):
-        dev = dev.encode('utf-8')
+    dev = encodeutils.to_utf8(dev)
     info = fcntl.ioctl(s.fileno(), 0x8927, struct.pack('256s', dev))
     return ''.join(['%02x:' % ord(char)
                     for char in info[MAC_START:MAC_END]])[:-1]
-
-
-@debtcollector.removals.remove(message="Redundant in Mitaka release.")
-def replace_file(file_name, data, file_mode=0o644):
-    """Replaces the contents of file_name with data in a safe manner.
-
-    First write to a temp file and then rename. Since POSIX renames are
-    atomic, the file is unlikely to be corrupted by competing writes.
-
-    We create the tempfile on the same device to ensure that it can be renamed.
-    """
-
-    base_dir = os.path.dirname(os.path.abspath(file_name))
-    tmp_file = tempfile.NamedTemporaryFile('w+', dir=base_dir, delete=False)
-    tmp_file.write(data)
-    tmp_file.close()
-    os.chmod(tmp_file.name, file_mode)
-    os.rename(tmp_file.name, file_name)
 
 
 def find_child_pids(pid):
@@ -237,15 +215,16 @@ def remove_conf_files(cfg_root, uuid):
         os.unlink(file_path)
 
 
-def get_root_helper_child_pid(pid, run_as_root=False):
+def get_root_helper_child_pid(pid, expected_cmd, run_as_root=False):
     """
-    Get the lowest child pid in the process hierarchy
+    Get the first non root_helper child pid in the process hierarchy.
 
     If root helper was used, two or more processes would be created:
 
      - a root helper process (e.g. sudo myscript)
      - possibly a rootwrap script (e.g. neutron-rootwrap)
      - a child process (e.g. myscript)
+     - possibly its child processes
 
     Killing the root helper process will leave the child process
     running, re-parented to init, so the only way to ensure that both
@@ -253,18 +232,17 @@ def get_root_helper_child_pid(pid, run_as_root=False):
     """
     pid = str(pid)
     if run_as_root:
-        try:
-            pid = find_child_pids(pid)[0]
-        except IndexError:
-            # Process is already dead
-            return None
         while True:
             try:
                 # We shouldn't have more than one child per process
                 # so keep getting the children of the first one
                 pid = find_child_pids(pid)[0]
             except IndexError:
-                # Last process in the tree, return it
+                return  # We never found the child pid with expected_cmd
+
+            # If we've found a pid with no root helper, return it.
+            # If we continue, we can find transient children.
+            if pid_invoked_with_cmdline(pid, expected_cmd):
                 break
     return pid
 
@@ -392,7 +370,7 @@ class UnixDomainWSGIServer(wsgi.Server):
         self._socket = None
         self._launcher = None
         self._server = None
-        super(UnixDomainWSGIServer, self).__init__(name)
+        super(UnixDomainWSGIServer, self).__init__(name, disable_ssl=True)
 
     def start(self, application, file_socket, workers, backlog, mode=None):
         self._socket = eventlet.listen(file_socket,

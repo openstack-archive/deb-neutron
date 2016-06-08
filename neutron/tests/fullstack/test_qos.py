@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib import constants
 from oslo_utils import uuidutils
 import testscenarios
 
@@ -19,7 +20,6 @@ from neutron.agent.common import ovs_lib
 from neutron.agent.linux import bridge_lib
 from neutron.agent.linux import tc_lib
 from neutron.agent.linux import utils
-from neutron.common import constants
 from neutron.services.qos import qos_consts
 from neutron.tests.fullstack import base
 from neutron.tests.fullstack.resources import environment
@@ -55,7 +55,7 @@ def _wait_for_rule_applied_linuxbridge_agent(vm, limit, burst):
         namespace=vm.host.host_namespace
     )
     utils.wait_until_true(
-        lambda: tc.get_bw_limits() == (limit, burst))
+        lambda: tc.get_filters_bw_limits() == (limit, burst))
 
 
 def _wait_for_rule_applied(vm, limit, burst):
@@ -118,7 +118,6 @@ class TestQoSWithL2Agent(base.BaseFullStackTestCase):
 
     def test_qos_policy_rule_lifecycle(self):
         new_limit = BANDWIDTH_LIMIT + 100
-        new_burst = BANDWIDTH_BURST + 50
 
         self.tenant_id = uuidutils.generate_uuid()
         self.network = self.safe_client.create_network(self.tenant_id,
@@ -141,10 +140,15 @@ class TestQoSWithL2Agent(base.BaseFullStackTestCase):
         self.client.delete_bandwidth_limit_rule(rule['id'], qos_policy_id)
         _wait_for_rule_removed(vm)
 
-        # Create new rule
+        # Create new rule with no given burst value, in such case ovs and lb
+        # agent should apply burst value as
+        # bandwidth_limit * qos_consts.DEFAULT_BURST_RATE
+        new_expected_burst = int(
+            new_limit * qos_consts.DEFAULT_BURST_RATE
+        )
         new_rule = self.safe_client.create_bandwidth_limit_rule(
-            self.tenant_id, qos_policy_id, new_limit, new_burst)
-        _wait_for_rule_applied(vm, new_limit, new_burst)
+            self.tenant_id, qos_policy_id, new_limit)
+        _wait_for_rule_applied(vm, new_limit, new_expected_burst)
 
         # Update qos policy rule id
         self.client.update_bandwidth_limit_rule(
@@ -163,8 +167,16 @@ class TestQoSWithL2Agent(base.BaseFullStackTestCase):
 class TestQoSWithL2Population(base.BaseFullStackTestCase):
 
     def setUp(self):
+        # We limit this test to using the openvswitch mech driver, because DSCP
+        # is presently not implemented for Linux Bridge.  The 'rule_types' API
+        # call only returns rule types that are supported by all configured
+        # mech drivers.  So in a fullstack scenario, where both the OVS and the
+        # Linux Bridge mech drivers are configured, the DSCP rule type will be
+        # unavailable since it is not implemented in Linux Bridge.
+        mech_driver = 'openvswitch'
         host_desc = []  # No need to register agents for this test case
-        env_desc = environment.EnvironmentDescription(qos=True, l2_pop=True)
+        env_desc = environment.EnvironmentDescription(qos=True, l2_pop=True,
+                                                      mech_drivers=mech_driver)
         env = environment.Environment(env_desc, host_desc)
         super(TestQoSWithL2Population, self).setUp(env)
 

@@ -15,12 +15,13 @@
 
 import mock
 import netaddr
+from neutron_lib import constants
+from neutron_lib import exceptions as n_exc
 
-from neutron.api.v2 import attributes
-from neutron.common import constants
-from neutron.common import exceptions as n_exc
+from neutron.common import constants as n_const
 from neutron import context
 from neutron.db import api as ndb_api
+from neutron.ipam.drivers.neutrondb_ipam import db_models
 from neutron.ipam.drivers.neutrondb_ipam import driver
 from neutron.ipam import exceptions as ipam_exc
 from neutron.ipam import requests as ipam_req
@@ -44,18 +45,18 @@ class TestNeutronDbIpamMixin(object):
         return (created_network, created_network['id'])
 
     def _create_subnet(self, plugin, ctx, network_id, cidr, ip_version=4,
-                       v6_address_mode=attributes.ATTR_NOT_SPECIFIED,
-                       allocation_pools=attributes.ATTR_NOT_SPECIFIED):
+                       v6_address_mode=constants.ATTR_NOT_SPECIFIED,
+                       allocation_pools=constants.ATTR_NOT_SPECIFIED):
         subnet = {'subnet': {'name': 'sub',
                              'cidr': cidr,
                              'ip_version': ip_version,
-                             'gateway_ip': attributes.ATTR_NOT_SPECIFIED,
+                             'gateway_ip': constants.ATTR_NOT_SPECIFIED,
                              'allocation_pools': allocation_pools,
                              'enable_dhcp': True,
-                             'dns_nameservers': attributes.ATTR_NOT_SPECIFIED,
-                             'host_routes': attributes.ATTR_NOT_SPECIFIED,
+                             'dns_nameservers': constants.ATTR_NOT_SPECIFIED,
+                             'host_routes': constants.ATTR_NOT_SPECIFIED,
                              'ipv6_address_mode': v6_address_mode,
-                             'ipv6_ra_mode': attributes.ATTR_NOT_SPECIFIED,
+                             'ipv6_ra_mode': constants.ATTR_NOT_SPECIFIED,
                              'network_id': network_id,
                              'tenant_id': self._tenant_id}}
         return plugin.create_subnet(ctx, subnet)
@@ -212,14 +213,14 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
     """
 
     def _create_and_allocate_ipam_subnet(
-        self, cidr, allocation_pools=attributes.ATTR_NOT_SPECIFIED,
+        self, cidr, allocation_pools=constants.ATTR_NOT_SPECIFIED,
         ip_version=4, v6_auto_address=False, tenant_id=None):
-        v6_address_mode = attributes.ATTR_NOT_SPECIFIED
+        v6_address_mode = constants.ATTR_NOT_SPECIFIED
         if v6_auto_address:
             # set ip version to 6 regardless of what's been passed to the
             # method
             ip_version = 6
-            v6_address_mode = constants.IPV6_SLAAC
+            v6_address_mode = n_const.IPV6_SLAAC
         subnet = self._create_subnet(
             self.plugin, self.ctx, self.net_id, cidr,
             ip_version=ip_version,
@@ -355,20 +356,16 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
         return ipam_subnet.allocate(address_request)
 
     def test_allocate_any_v4_address_succeeds(self):
-        ip_address = self._allocate_address(
-            '10.0.0.0/24', 4, ipam_req.AnyAddressRequest)
-        # As the DB IPAM driver allocation logic is strictly sequential, we can
-        # expect this test to allocate the .2 address as .1 is used by default
-        # as subnet gateway
-        self.assertEqual('10.0.0.2', ip_address)
+        self._test_allocate_any_address_succeeds('10.0.0.0/24', 4)
 
     def test_allocate_any_v6_address_succeeds(self):
+        self._test_allocate_any_address_succeeds('fde3:abcd:4321:1::/64', 6)
+
+    def _test_allocate_any_address_succeeds(self, subnet_cidr, ip_version):
         ip_address = self._allocate_address(
-            'fde3:abcd:4321:1::/64', 6, ipam_req.AnyAddressRequest)
-        # As the DB IPAM driver allocation logic is strictly sequential, we can
-        # expect this test to allocate the .2 address as .1 is used by default
-        # as subnet gateway
-        self.assertEqual('fde3:abcd:4321:1::2', ip_address)
+            subnet_cidr, ip_version, ipam_req.AnyAddressRequest)
+        self.assertIn(netaddr.IPAddress(ip_address),
+                      netaddr.IPSet(netaddr.IPNetwork(subnet_cidr)))
 
     def test_allocate_specific_v4_address_succeeds(self):
         ip_address = self._allocate_address(
@@ -460,3 +457,43 @@ class TestNeutronDbIpamSubnet(testlib_api.SqlTestCase,
             ipam_subnet._allocate_specific_ip(self.ctx.session, ip)
 
         self.assertRaises(ipam_exc.IPAllocationFailed, go)
+
+    def test_update_allocation_pools_with_no_pool_change(self):
+        cidr = '10.0.0.0/24'
+        ipam_subnet = self._create_and_allocate_ipam_subnet(
+            cidr)[0]
+        ipam_subnet.subnet_manager.delete_allocation_pools = mock.Mock()
+        ipam_subnet.create_allocation_pools = mock.Mock()
+        alloc_pools = [netaddr.IPRange('10.0.0.2', '10.0.0.254')]
+        # Make sure allocation pools recreation does not happen in case of
+        # unchanged allocation pools
+        ipam_subnet.update_allocation_pools(alloc_pools, cidr)
+        self.assertFalse(
+            ipam_subnet.subnet_manager.delete_allocation_pools.called)
+        self.assertFalse(ipam_subnet.create_allocation_pools.called)
+
+    def _test__no_pool_changes(self, new_pools):
+        id = 'some-id'
+        ipam_subnet = driver.NeutronDbSubnet(id, self.ctx)
+        pools = [db_models.IpamAllocationPool(ipam_subnet_id=id,
+                                              first_ip='192.168.10.20',
+                                              last_ip='192.168.10.41'),
+                 db_models.IpamAllocationPool(ipam_subnet_id=id,
+                                              first_ip='192.168.10.50',
+                                              last_ip='192.168.10.60')]
+
+        ipam_subnet.subnet_manager.list_pools = mock.Mock(return_value=pools)
+        return ipam_subnet._no_pool_changes(self.ctx.session, new_pools)
+
+    def test__no_pool_changes_negative(self):
+        pool_list = [[netaddr.IPRange('192.168.10.2', '192.168.10.254')],
+                     [netaddr.IPRange('192.168.10.20', '192.168.10.41')],
+                     [netaddr.IPRange('192.168.10.20', '192.168.10.41'),
+                      netaddr.IPRange('192.168.10.51', '192.168.10.60')]]
+        for pools in pool_list:
+            self.assertFalse(self._test__no_pool_changes(pools))
+
+    def test__no_pool_changes_positive(self):
+        pools = [netaddr.IPRange('192.168.10.20', '192.168.10.41'),
+                 netaddr.IPRange('192.168.10.50', '192.168.10.60')]
+        self.assertTrue(self._test__no_pool_changes(pools))

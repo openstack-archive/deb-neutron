@@ -16,9 +16,10 @@
 import os
 import re
 
-import debtcollector
 import eventlet
 import netaddr
+from neutron_lib import constants
+from neutron_lib import exceptions
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -26,8 +27,7 @@ import six
 
 from neutron._i18n import _, _LE
 from neutron.agent.common import utils
-from neutron.common import constants
-from neutron.common import exceptions
+from neutron.common import exceptions as n_exc
 
 LOG = logging.getLogger(__name__)
 
@@ -40,7 +40,6 @@ OPTS = [
 
 LOOPBACK_DEVNAME = 'lo'
 
-IP_NETNS_PATH = '/var/run/netns'
 SYS_NET_PATH = '/sys/class/net'
 DEFAULT_GW_PATTERN = re.compile(r"via (\S+)")
 METRIC_PATTERN = re.compile(r"metric (\S+)")
@@ -240,16 +239,13 @@ class IPWrapper(SubProcessBase):
         if port and len(port) == 2:
             cmd.extend(['port', port[0], port[1]])
         elif port:
-            raise exceptions.NetworkVxlanPortRangeError(vxlan_range=port)
+            raise n_exc.NetworkVxlanPortRangeError(vxlan_range=port)
         self._as_root([], 'link', cmd)
         return (IPDevice(name, namespace=self.namespace))
 
     @classmethod
     def get_namespaces(cls):
-        if not cfg.CONF.AGENT.use_helper_for_ns_read:
-            return os.listdir(IP_NETNS_PATH)
-
-        output = cls._execute([], 'netns', ['list'], run_as_root=True)
+        output = cls._execute([], 'netns', ('list',))
         return [l.split()[0] for l in output.splitlines()]
 
 
@@ -568,12 +564,12 @@ class IpLinkCommand(IpDeviceCommandBase):
 class IpAddrCommand(IpDeviceCommandBase):
     COMMAND = 'addr'
 
-    def add(self, cidr, scope='global'):
+    def add(self, cidr, scope='global', add_broadcast=True):
         net = netaddr.IPNetwork(cidr)
         args = ['add', cidr,
                 'scope', scope,
                 'dev', self.name]
-        if net.version == 4:
+        if add_broadcast and net.version == 4:
             args += ['brd', str(net[-1])]
         self._as_root([net.version], tuple(args))
 
@@ -700,7 +696,7 @@ class IpRouteCommand(IpDeviceCommandBase):
             with excutils.save_and_reraise_exception() as ctx:
                 if "Cannot find device" in str(rte):
                     ctx.reraise = False
-                    raise exceptions.DeviceNotFoundError(device_name=self.name)
+                    raise n_exc.DeviceNotFoundError(device_name=self.name)
 
     def delete_gateway(self, gateway, table=None):
         ip_version = get_ip_version(gateway)
@@ -780,58 +776,6 @@ class IpRouteCommand(IpDeviceCommandBase):
                 retval.update(metric=int(metric.group(1)))
 
         return retval
-
-    @debtcollector.removals.remove(message="Will be removed in the N cycle.")
-    def pullup_route(self, interface_name, ip_version):
-        """Ensures that the route entry for the interface is before all
-        others on the same subnet.
-        """
-        options = [ip_version]
-        device_list = []
-        device_route_list_lines = self._run(options,
-                                            ('list',
-                                             'proto', 'kernel',
-                                             'dev', interface_name)
-                                            ).split('\n')
-        for device_route_line in device_route_list_lines:
-            try:
-                subnet = device_route_line.split()[0]
-            except Exception:
-                continue
-            subnet_route_list_lines = self._run(options,
-                                                ('list',
-                                                 'proto', 'kernel',
-                                                 'match', subnet)
-                                                ).split('\n')
-            for subnet_route_line in subnet_route_list_lines:
-                i = iter(subnet_route_line.split())
-                while(next(i) != 'dev'):
-                    pass
-                device = next(i)
-                try:
-                    while(next(i) != 'src'):
-                        pass
-                    src = next(i)
-                except Exception:
-                    src = ''
-                if device != interface_name:
-                    device_list.append((device, src))
-                else:
-                    break
-
-            for (device, src) in device_list:
-                self._as_root(options, ('del', subnet, 'dev', device))
-                if (src != ''):
-                    self._as_root(options,
-                                  ('append', subnet,
-                                   'proto', 'kernel',
-                                   'src', src,
-                                   'dev', device))
-                else:
-                    self._as_root(options,
-                                  ('append', subnet,
-                                   'proto', 'kernel',
-                                   'dev', device))
 
     def add_route(self, cidr, via=None, table=None, **kwargs):
         ip_version = get_ip_version(cidr)
@@ -931,11 +875,9 @@ class IpNetnsCommand(IpCommandBase):
                              log_fail_as_error=log_fail_as_error, **kwargs)
 
     def exists(self, name):
-        if not cfg.CONF.AGENT.use_helper_for_ns_read:
-            return name in os.listdir(IP_NETNS_PATH)
-
         output = self._parent._execute(
-            ['o'], 'netns', ['list'], run_as_root=True)
+            ['o'], 'netns', ['list'],
+            run_as_root=cfg.CONF.AGENT.use_helper_for_ns_read)
         for line in [l.split()[0] for l in output.splitlines()]:
             if name == line:
                 return True

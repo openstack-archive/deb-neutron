@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.api import converters
+from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log
 from oslo_utils import importutils
@@ -23,7 +25,6 @@ from pecan import response
 from neutron._i18n import _
 from neutron.api.v2 import attributes
 from neutron.common import constants
-from neutron.common import exceptions as n_exc
 from neutron.pecan_wsgi.controllers import utils
 from neutron.quota import resource_registry
 
@@ -58,7 +59,7 @@ class QuotasController(utils.NeutronPecanController):
     @utils.expose(generic=True)
     def index(self):
         neutron_context = request.context.get('neutron_context')
-        # FIXME(salv-orlando): There shouldn't be any need to to this eplicit
+        # FIXME(salv-orlando): There shouldn't be any need to do this explicit
         # check. However some behaviours from the "old" extension have
         # been temporarily carried over here
         self._check_admin(neutron_context)
@@ -90,7 +91,7 @@ class QuotaController(utils.NeutronPecanController):
             attr_dict[quota_resource] = {
                 'allow_post': False,
                 'allow_put': True,
-                'convert_to': attributes.convert_to_int,
+                'convert_to': converters.convert_to_int,
                 'validate': {
                     'type:range': [-1, constants.DB_INTEGER_MAX_VALUE]},
                 'is_visible': True}
