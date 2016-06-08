@@ -4,6 +4,7 @@ neutron (2:9.0.0~b1-1) experimental; urgency=medium
   * Fix neutron-metadata server templates.
   * Fixed (build-)depends for this release.
   * Drop Return_oslo_config_Opts_to_config_generator.patch applied upstream.
+  * Added fix-requirements.txt.patch.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 09 Jun 2016 00:59:14 +0200
 
