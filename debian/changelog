@@ -5,6 +5,8 @@ neutron (2:9.0.0~b1-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Drop Return_oslo_config_Opts_to_config_generator.patch applied upstream.
   * Added fix-requirements.txt.patch.
+  * Disable auto_clean as it requires a higher version of setuptools, which
+    isn't in the sbuild host for Jessie.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 09 Jun 2016 00:59:14 +0200
 

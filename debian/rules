@@ -156,7 +156,6 @@ override_dh_install:
 	dh_install --fail-missing -X/usr/etc
 	
 override_dh_auto_clean:
-	dh_auto_clean
 	find . -type f -name "*.pyc" | xargs rm -fr
 	rm -rf build neutron.egg-info
 	rm -f debian/neutron-common.config \
