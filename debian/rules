@@ -79,6 +79,8 @@ override_dh_install:
 	sed -i 's|^[ #\t]*tunnel_id_ranges[ \t]*=.*|tunnel_id_ranges = 1:1000|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
 	sed -i 's|^[ #\t]*enable_security_group[ \t]*=.*|enable_security_group = True|' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
 	sed -i 's|^[ #\t]*enable_ipset[ \t]*=.*|enable_ipset = True |' $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf.ini ml2 extension_drivers port_security,qos
+	
 
 	# ml2_conf_sriov.ini
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-common/etc/neutron/plugins/ml2/ml2_conf_sriov.ini \
@@ -106,7 +108,7 @@ override_dh_install:
 		--namespace oslo.service.wsgi \
 		--namespace keystonemiddleware.auth_token
 	sed -i 's|^[ #\t]*core_plugin[ \t]*=.*|core_plugin = ml2|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
-	sed -i 's|^[ #\t]*service_plugins[ \t]*=.*|service_plugins = router,metering|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
+	sed -i 's|^[ #\t]*service_plugins[ \t]*=.*|service_plugins = router,metering,qos|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*auth_strategy[ \t]*=.*|auth_strategy = keystone|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*allow_overlapping_ips[ \t]*=.*|allow_overlapping_ips = True|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*notify_nova_on_port_status_changes[ \t]*=.*|notify_nova_on_port_status_changes = True |' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
