@@ -3,6 +3,7 @@ neutron (2:8.1.2-1) unstable; urgency=medium
   * New upstream release:
     - Fix FTBFS in Jessie (Closes: #827737).
   * Fix neutron-metadata server templates.
+  * Removed Return_oslo_config_Opts_to_config_generator.patch applied upstream.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 21 Jun 2016 10:30:16 +0200
 
