@@ -50,8 +50,8 @@ class NetworksIpAvailabilityTest(base.BaseAdminNetworkTest):
     """
 
     @classmethod
-    def resource_setup(cls):
-        super(NetworksIpAvailabilityTest, cls).resource_setup()
+    def skip_checks(cls):
+        super(NetworksIpAvailabilityTest, cls).skip_checks()
         if not test.is_extension_enabled('network-ip-availability', 'network'):
             msg = "network-ip-availability extension not enabled."
             raise cls.skipException(msg)
@@ -81,15 +81,18 @@ class NetworksIpAvailabilityTest(base.BaseAdminNetworkTest):
     def _create_subnet(self, network, ip_version):
         if ip_version == lib_constants.IP_VERSION_4:
             cidr = netaddr.IPNetwork('20.0.0.0/24')
-            mask_bits = CONF.network.tenant_network_mask_bits
+            mask_bits = config.safe_get_config_value(
+                'network', 'project_network_mask_bits')
         elif ip_version == lib_constants.IP_VERSION_6:
             cidr = netaddr.IPNetwork('20:db8::/64')
-            mask_bits = CONF.network.tenant_network_v6_mask_bits
+            mask_bits = config.safe_get_config_value(
+                'network', 'project_network_v6_mask_bits')
 
         subnet_cidr = cidr.subnet(mask_bits).next()
         prefix_len = subnet_cidr.prefixlen
         subnet = self.create_subnet(network,
                                     cidr=subnet_cidr,
+                                    enable_dhcp=False,
                                     mask_bits=mask_bits,
                                     ip_version=ip_version)
         return subnet, prefix_len
@@ -106,8 +109,6 @@ def calc_total_ips(prefix, ip_version):
 
 class NetworksIpAvailabilityIPv4Test(NetworksIpAvailabilityTest):
 
-    ip_version = lib_constants.IP_VERSION_4
-
     @test.attr(type='smoke')
     @test.idempotent_id('0f33cc8c-1bf6-47d1-9ce1-010618240599')
     def test_admin_network_availability_before_subnet(self):
@@ -123,7 +124,7 @@ class NetworksIpAvailabilityIPv4Test(NetworksIpAvailabilityTest):
         net_name = data_utils.rand_name('network-')
         network = self.create_network(network_name=net_name)
         self.addCleanup(self.client.delete_network, network['id'])
-        subnet, prefix = self._create_subnet(network, self.ip_version)
+        subnet, prefix = self._create_subnet(network, self._ip_version)
         self.addCleanup(self.client.delete_subnet, subnet['id'])
         body = self.admin_client.list_network_ip_availabilities()
         used_ip = self._get_used_ips(network, body)
@@ -134,7 +135,7 @@ class NetworksIpAvailabilityIPv4Test(NetworksIpAvailabilityTest):
         net_availability = self.admin_client.list_network_ip_availabilities()
         self._assert_total_and_used_ips(
             used_ip + 2,
-            calc_total_ips(prefix, self.ip_version),
+            calc_total_ips(prefix, self._ip_version),
             network, net_availability)
 
     @test.attr(type='smoke')
@@ -143,7 +144,7 @@ class NetworksIpAvailabilityIPv4Test(NetworksIpAvailabilityTest):
         net_name = data_utils.rand_name('network-')
         network = self.create_network(network_name=net_name)
         self.addCleanup(self.client.delete_network, network['id'])
-        subnet, prefix = self._create_subnet(network, self.ip_version)
+        subnet, prefix = self._create_subnet(network, self._ip_version)
         self.addCleanup(self.client.delete_subnet, subnet['id'])
         port = self.client.create_port(network_id=network['id'])
         self.addCleanup(self._cleanUp_port, port['port']['id'])
@@ -165,4 +166,4 @@ class NetworksIpAvailabilityIPv4Test(NetworksIpAvailabilityTest):
 
 class NetworksIpAvailabilityIPv6Test(NetworksIpAvailabilityIPv4Test):
 
-    ip_version = lib_constants.IP_VERSION_6
+    _ip_version = lib_constants.IP_VERSION_6

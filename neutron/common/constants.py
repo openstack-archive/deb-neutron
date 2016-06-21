@@ -23,6 +23,11 @@ from neutron.common import _deprecate
 ROUTER_PORT_OWNERS = lib_constants.ROUTER_INTERFACE_OWNERS_SNAT + \
     (lib_constants.DEVICE_OWNER_ROUTER_GW,)
 
+ROUTER_STATUS_ACTIVE = 'ACTIVE'
+# NOTE(kevinbenton): a BUILD status for routers could be added in the future
+# for agents to indicate when they are wiring up the ports. The following is
+# to indicate when the server is busy building sub-components of a router
+ROUTER_STATUS_ALLOCATING = 'ALLOCATING'
 L3_AGENT_MODE_DVR = 'dvr'
 L3_AGENT_MODE_DVR_SNAT = 'dvr_snat'
 L3_AGENT_MODE_LEGACY = 'legacy'
@@ -127,6 +132,8 @@ IP_PROTOCOL_MAP = {PROTO_NAME_AH: PROTO_NUM_AH,
                    PROTO_NAME_VRRP: PROTO_NUM_VRRP}
 
 IP_PROTOCOL_NAME_ALIASES = {PROTO_NAME_IPV6_ICMP_LEGACY: PROTO_NAME_IPV6_ICMP}
+
+IP_PROTOCOL_NUM_TO_NAME_MAP = {str(v): k for k, v in IP_PROTOCOL_MAP.items()}
 
 # List of ICMPv6 types that should be allowed by default:
 # Multicast Listener Query (130),

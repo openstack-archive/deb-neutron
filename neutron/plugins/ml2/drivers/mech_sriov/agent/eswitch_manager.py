@@ -267,12 +267,11 @@ class ESwitchManager(object):
         @return: set of assigned VFs (mac address, pci slot) pair
         """
         if phys_net:
-            embedded_switch = self.emb_switches_map.get(phys_net, None)
-            if not embedded_switch:
-                return set()
-            eswitch_objects = [embedded_switch]
+            eswitch_objects = self.emb_switches_map.get(phys_net, set())
         else:
-            eswitch_objects = self.emb_switches_map.values()
+            eswitch_objects = set()
+            for eswitch_list in self.emb_switches_map.values():
+                eswitch_objects |= set(eswitch_list)
         assigned_devices = set()
         for embedded_switch in eswitch_objects:
             for device in embedded_switch.get_assigned_devices_info():
@@ -340,13 +339,14 @@ class ESwitchManager(object):
         """
         if exclude_devices is None:
             exclude_devices = {}
-        for phys_net, dev_name in six.iteritems(device_mappings):
-            self._create_emb_switch(phys_net, dev_name,
-                                    exclude_devices.get(dev_name, set()))
+        for phys_net, dev_names in six.iteritems(device_mappings):
+            for dev_name in dev_names:
+                self._create_emb_switch(phys_net, dev_name,
+                                        exclude_devices.get(dev_name, set()))
 
     def _create_emb_switch(self, phys_net, dev_name, exclude_devices):
         embedded_switch = EmbSwitch(phys_net, dev_name, exclude_devices)
-        self.emb_switches_map[phys_net] = embedded_switch
+        self.emb_switches_map.setdefault(phys_net, []).append(embedded_switch)
         for pci_slot in embedded_switch.get_pci_slot_list():
             self.pci_slot_map[pci_slot] = embedded_switch
 

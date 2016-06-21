@@ -124,6 +124,9 @@ class ConnectionTester(fixtures.Fixture):
     def peer_ip_address(self):
         return self._peer.ip
 
+    def set_vm_default_gateway(self, default_gw):
+        self._vm.set_default_gateway(default_gw)
+
     def flush_arp_tables(self):
         """Flush arptables in all used namespaces"""
         for machine in (self._peer, self._vm):
@@ -202,7 +205,13 @@ class ConnectionTester(fixtures.Fixture):
         nc_tester = self._nc_testers.get(nc_params)
         if nc_tester:
             if nc_tester.is_established:
-                nc_tester.test_connectivity()
+                try:
+                    nc_tester.test_connectivity()
+                except RuntimeError:
+                    raise ConnectionTesterException(
+                        "Established %s connection with protocol %s, source "
+                        "port %s and destination port %s can no longer "
+                        "communicate")
             else:
                 nc_tester.stop_processes()
                 raise ConnectionTesterException(
@@ -296,6 +305,17 @@ class ConnectionTester(fixtures.Fixture):
         pinger = self._get_pinger(direction)
         return pinger.received
 
+    def assert_net_unreachable(self, direction, destination):
+        src_namespace, dst_address = self._get_namespace_and_address(
+            direction)
+        pinger = net_helpers.Pinger(src_namespace, destination, count=5)
+        pinger.start()
+        pinger.wait()
+        if not pinger.destination_unreachable:
+            raise ConnectionTesterException(
+                'No Host Destination Unreachable packets were received when '
+                'sending icmp packets to %s' % destination)
+
 
 class OVSConnectionTester(ConnectionTester):
     """Tester with OVS bridge in the middle
@@ -337,6 +357,11 @@ class OVSConnectionTester(ConnectionTester):
 
     def set_tag(self, port_name, tag):
         self.bridge.set_db_attribute('Port', port_name, 'tag', tag)
+        other_config = self.bridge.db_get_val(
+            'Port', port_name, 'other_config')
+        other_config['tag'] = tag
+        self.bridge.set_db_attribute(
+            'Port', port_name, 'other_config', other_config)
 
     def set_vm_tag(self, tag):
         self.set_tag(self._vm.port.name, tag)

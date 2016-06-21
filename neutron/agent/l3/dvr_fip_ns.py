@@ -32,7 +32,7 @@ FIP_2_ROUTER_DEV_PREFIX = 'fpr-'
 ROUTER_2_FIP_DEV_PREFIX = namespaces.ROUTER_2_FIP_DEV_PREFIX
 # Route Table index for FIPs
 FIP_RT_TBL = 16
-FIP_LL_SUBNET = '169.254.30.0/23'
+FIP_LL_SUBNET = '169.254.64.0/18'
 # Rule priority range for FIPs
 FIP_PR_START = 32768
 FIP_PR_END = FIP_PR_START + 40000
@@ -228,11 +228,9 @@ class FipNamespace(namespaces.Namespace):
                     ipd.route.add_route(gw_ip, scope='link')
                 ipd.route.add_gateway(gw_ip)
 
-    def _internal_ns_interface_added(self, ip_cidr,
-                                    interface_name, ns_name):
-        ip_wrapper = ip_lib.IPWrapper(namespace=ns_name)
-        ip_wrapper.netns.execute(['ip', 'addr', 'add',
-                                  ip_cidr, 'dev', interface_name])
+    def _add_cidr_to_device(self, device, ip_cidr):
+        if not device.addr.list(to=ip_cidr):
+            device.addr.add(ip_cidr, add_broadcast=False)
 
     def create_rtr_2_fip_link(self, ri):
         """Create interface between router and Floating IP namespace."""
@@ -245,30 +243,27 @@ class FipNamespace(namespaces.Namespace):
         if ri.rtr_fip_subnet is None:
             ri.rtr_fip_subnet = self.local_subnets.allocate(ri.router_id)
         rtr_2_fip, fip_2_rtr = ri.rtr_fip_subnet.get_pair()
-        ip_wrapper = ip_lib.IPWrapper(namespace=ri.ns_name)
-        device_exists = ip_lib.device_exists(rtr_2_fip_name,
-                                             namespace=ri.ns_name)
-        if not device_exists:
-            int_dev = ip_wrapper.add_veth(rtr_2_fip_name,
-                                          fip_2_rtr_name,
-                                          fip_ns_name)
-            self._internal_ns_interface_added(str(rtr_2_fip),
-                                              rtr_2_fip_name,
-                                              ri.ns_name)
-            self._internal_ns_interface_added(str(fip_2_rtr),
-                                              fip_2_rtr_name,
-                                              fip_ns_name)
+        rtr_2_fip_dev = ip_lib.IPDevice(rtr_2_fip_name, namespace=ri.ns_name)
+        fip_2_rtr_dev = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
+
+        if not rtr_2_fip_dev.exists():
+            ip_wrapper = ip_lib.IPWrapper(namespace=ri.ns_name)
+            rtr_2_fip_dev, fip_2_rtr_dev = ip_wrapper.add_veth(rtr_2_fip_name,
+                                                               fip_2_rtr_name,
+                                                               fip_ns_name)
             mtu = (self.agent_conf.network_device_mtu or
                    ri.get_ex_gw_port().get('mtu'))
             if mtu:
-                int_dev[0].link.set_mtu(mtu)
-                int_dev[1].link.set_mtu(mtu)
-            int_dev[0].link.set_up()
-            int_dev[1].link.set_up()
+                rtr_2_fip_dev.link.set_mtu(mtu)
+                fip_2_rtr_dev.link.set_mtu(mtu)
+            rtr_2_fip_dev.link.set_up()
+            fip_2_rtr_dev.link.set_up()
+
+        self._add_cidr_to_device(rtr_2_fip_dev, str(rtr_2_fip))
+        self._add_cidr_to_device(fip_2_rtr_dev, str(fip_2_rtr))
 
         # add default route for the link local interface
-        device = ip_lib.IPDevice(rtr_2_fip_name, namespace=ri.ns_name)
-        device.route.add_gateway(str(fip_2_rtr.ip), table=FIP_RT_TBL)
+        rtr_2_fip_dev.route.add_gateway(str(fip_2_rtr.ip), table=FIP_RT_TBL)
         #setup the NAT rules and chains
         ri._handle_fip_nat_rules(rtr_2_fip_name)
 

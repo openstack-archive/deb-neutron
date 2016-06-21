@@ -121,7 +121,8 @@ class Port(model_base.HasStandardAttributes, model_base.BASEV2,
     network_id = sa.Column(sa.String(36), sa.ForeignKey("networks.id"),
                            nullable=False)
     fixed_ips = orm.relationship(IPAllocation, backref='port', lazy='joined',
-                                 passive_deletes='all')
+                                 cascade='all, delete-orphan')
+
     mac_address = sa.Column(sa.String(32), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
     status = sa.Column(sa.String(16), nullable=False)
@@ -219,7 +220,7 @@ class Subnet(model_base.HasStandardAttributes, model_base.BASEV2,
     # subnets don't have their own rbac_entries, they just inherit from
     # the network rbac entries
     rbac_entries = orm.relationship(
-        rbac_db_models.NetworkRBAC, lazy='joined',
+        rbac_db_models.NetworkRBAC, lazy='joined', uselist=True,
         foreign_keys='Subnet.network_id',
         primaryjoin='Subnet.network_id==NetworkRBAC.object_id')
 

@@ -15,6 +15,7 @@
 
 import abc
 import collections
+import functools
 import itertools
 import random
 
@@ -86,6 +87,8 @@ class L3Scheduler(object):
             l3_db.Router.id ==
             l3_agentschedulers_db.RouterL3AgentBinding.router_id)
         query = context.session.query(l3_db.Router.id).filter(no_agent_binding)
+        query = query.filter(l3_db.Router.status ==
+                             constants.ROUTER_STATUS_ACTIVE)
         unscheduled_router_ids = [router_id_[0] for router_id_ in query]
         if unscheduled_router_ids:
             return plugin.get_routers(
@@ -101,7 +104,9 @@ class L3Scheduler(object):
         :returns: the list of routers to be scheduled
         """
         if router_ids is not None:
-            routers = plugin.get_routers(context, filters={'id': router_ids})
+            filters = {'id': router_ids,
+                       'status': [constants.ROUTER_STATUS_ACTIVE]}
+            routers = plugin.get_routers(context, filters=filters)
             return self._filter_unscheduled_routers(context, plugin, routers)
         else:
             return self._get_unscheduled_routers(context, plugin)
@@ -255,13 +260,24 @@ class L3Scheduler(object):
             return False
         return True
 
+    def _add_port_from_net(self, plugin, ctxt, router_id, tenant_id, ha_net):
+        """small wrapper function to unpack network id from ha_network"""
+        return plugin.add_ha_port(ctxt, router_id, ha_net.network.id,
+                                  tenant_id)
+
     def create_ha_port_and_bind(self, plugin, context, router_id,
                                 tenant_id, agent):
         """Creates and binds a new HA port for this agent."""
-        ha_network = plugin.get_ha_network(context, tenant_id)
+        ctxt = context.elevated()
+        creator = functools.partial(self._add_port_from_net,
+                                    plugin, ctxt, router_id, tenant_id)
+        dep_getter = functools.partial(plugin.get_ha_network, ctxt, tenant_id)
+        dep_creator = functools.partial(plugin._create_ha_network,
+                                        ctxt, tenant_id)
+        dep_id_attr = 'network_id'
         try:
-            port_binding = plugin.add_ha_port(context.elevated(), router_id,
-                                          ha_network.network.id, tenant_id)
+            port_binding = utils.create_object_with_dependency(
+                creator, dep_getter, dep_creator, dep_id_attr)[0]
             with db_api.autonested_transaction(context.session):
                 port_binding.l3_agent_id = agent['id']
         except db_exc.DBDuplicateEntry:

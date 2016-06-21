@@ -15,6 +15,7 @@
 
 
 import collections
+import itertools
 import socket
 import sys
 import time
@@ -173,6 +174,9 @@ class SriovNicSwitchAgent(object):
             self.agent_state.get('configurations')['devices'] = devices
             self.state_rpc.report_state(self.context,
                                         self.agent_state)
+
+            # we only want to update resource versions on startup
+            self.agent_state.pop('resource_versions', None)
             self.agent_state.pop('start_flag', None)
         except Exception:
             LOG.exception(_LE("Failed reporting state!"))
@@ -408,7 +412,7 @@ class SriovNicAgentConfigParser(object):
         Parse and validate the consistency in both mappings
         """
         self.device_mappings = n_utils.parse_mappings(
-            cfg.CONF.SRIOV_NIC.physical_device_mappings)
+            cfg.CONF.SRIOV_NIC.physical_device_mappings, unique_keys=False)
         self.exclude_devices = config.parse_exclude_devices(
             cfg.CONF.SRIOV_NIC.exclude_devices)
         self._validate()
@@ -419,7 +423,8 @@ class SriovNicAgentConfigParser(object):
         Validate that network_device in excluded_device
         exists in device mappings
         """
-        dev_net_set = set(self.device_mappings.values())
+        dev_net_set = set(itertools.chain.from_iterable(
+                          six.itervalues(self.device_mappings)))
         for dev_name in self.exclude_devices.keys():
             if dev_name not in dev_net_set:
                 raise ValueError(_("Device name %(dev_name)s is missing from "

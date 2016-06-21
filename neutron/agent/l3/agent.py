@@ -204,9 +204,7 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
         # Get the list of service plugins from Neutron Server
         # This is the first place where we contact neutron-server on startup
         # so retry in case its not ready to respond.
-        retry_count = 5
         while True:
-            retry_count = retry_count - 1
             try:
                 self.neutron_service_plugins = (
                     self.plugin_rpc.get_service_plugin_list(self.context))
@@ -223,13 +221,13 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
                 self.neutron_service_plugins = None
             except oslo_messaging.MessagingTimeout as e:
                 with excutils.save_and_reraise_exception() as ctx:
-                    if retry_count > 0:
-                        ctx.reraise = False
-                        LOG.warning(_LW('l3-agent cannot check service '
-                                        'plugins enabled on the neutron '
-                                        'server. Retrying. '
-                                        'Detail message: %s'), e)
-                        continue
+                    ctx.reraise = False
+                    LOG.warning(_LW('l3-agent cannot contact neutron server '
+                                    'to retrieve service plugins enabled. '
+                                    'Check connectivity to neutron server. '
+                                    'Retrying... '
+                                    'Detailed message: %(msg)s.') % {'msg': e})
+                    continue
             break
 
         self.metadata_driver = None
@@ -263,6 +261,12 @@ class L3NATAgent(firewall_l3_agent.FWaaSL3AgentRpcCallback,
             msg = _LE('An interface driver must be specified')
             LOG.error(msg)
             raise SystemExit(1)
+        if self.conf.external_network_bridge:
+            LOG.warning(_LW("Using an 'external_network_bridge' value other "
+                            "than '' is deprecated. Any other values may "
+                            "not be supported in the future. Note that the "
+                            "default value is 'br-ex' so it must be "
+                            "explicitly set to a blank value."))
 
         if self.conf.ipv6_gateway:
             # ipv6_gateway configured. Check for valid v6 link-local address.

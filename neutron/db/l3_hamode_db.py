@@ -257,6 +257,17 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             ha_network = L3HARouterNetwork(tenant_id=tenant_id,
                                            network_id=network_id)
             context.session.add(ha_network)
+        # we need to check if someone else just inserted at exactly the
+        # same time as us because there is no constrain in L3HARouterNetwork
+        # that prevents multiple networks per tenant
+        with context.session.begin(subtransactions=True):
+            items = (context.session.query(L3HARouterNetwork).
+                     filter_by(tenant_id=tenant_id).all())
+            if len(items) > 1:
+                # we need to throw an error so our network is deleted
+                # and the process is started over where the existing
+                # network will be selected.
+                raise db_exc.DBDuplicateEntry(columns=['tenant_id'])
         return ha_network
 
     def _add_ha_network_settings(self, network):
@@ -403,9 +414,11 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             self._core_plugin.delete_port(admin_ctx, port_id,
                                           l3_port_check=False)
 
-    def _notify_ha_interfaces_updated(self, context, router_id):
+    def _notify_ha_interfaces_updated(self, context, router_id,
+                                      schedule_routers=True):
         self.l3_rpc_notifier.routers_updated(
-            context, [router_id], shuffle_agents=True)
+            context, [router_id], shuffle_agents=True,
+            schedule_routers=schedule_routers)
 
     @classmethod
     def _is_ha(cls, router):
@@ -414,28 +427,50 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             ha = cfg.CONF.l3_ha
         return ha
 
+    @n_utils.transaction_guard
+    def _create_ha_interfaces_and_ensure_network(self, context, router_db):
+        """Attach interfaces to a network while tolerating network deletes."""
+        creator = functools.partial(self._create_ha_interfaces,
+                                    context, router_db)
+        dep_getter = functools.partial(self.get_ha_network,
+                                       context, router_db.tenant_id)
+        dep_creator = functools.partial(self._create_ha_network,
+                                        context, router_db.tenant_id)
+        dep_id_attr = 'network_id'
+        return n_utils.create_object_with_dependency(
+            creator, dep_getter, dep_creator, dep_id_attr)
+
     def create_router(self, context, router):
         is_ha = self._is_ha(router['router'])
         router['router']['ha'] = is_ha
+        if is_ha:
+            # we set the allocating status to hide it from the L3 agents
+            # until we have created all of the requisite interfaces/networks
+            router['router']['status'] = constants.ROUTER_STATUS_ALLOCATING
+
         router_dict = super(L3_HA_NAT_db_mixin,
                             self).create_router(context, router)
 
         if is_ha:
             try:
                 router_db = self._get_router(context, router_dict['id'])
-                ha_network = self.get_ha_network(context,
-                                                 router_db.tenant_id)
-                if not ha_network:
-                    ha_network = self._create_ha_network(context,
-                                                         router_db.tenant_id)
+                # the following returns interfaces and the network we only
+                # care about the network
+                ha_network = self._create_ha_interfaces_and_ensure_network(
+                    context, router_db)[1]
 
                 self._set_vr_id(context, router_db, ha_network)
-                self._create_ha_interfaces(context, router_db, ha_network)
-                self._notify_ha_interfaces_updated(context, router_db.id)
+                router_dict['ha_vr_id'] = router_db.extra_attributes.ha_vr_id
+
+                self.schedule_router(context, router_dict['id'])
+                router_dict['status'] = self._update_router_db(
+                    context, router_dict['id'],
+                    {'status': constants.ROUTER_STATUS_ACTIVE})['status']
+                self._notify_ha_interfaces_updated(context, router_db.id,
+                                                   schedule_routers=False)
             except Exception:
                 with excutils.save_and_reraise_exception():
                     self.delete_router(context, router_dict['id'])
-            router_dict['ha_vr_id'] = router_db.extra_attributes.ha_vr_id
         return router_dict
 
     def _update_router_db(self, context, router_id, data):
@@ -470,19 +505,26 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             if requested_ha_state is False:
                 raise l3_ha.HAmodeUpdateOfDvrHaNotSupported()
 
-        with context.session.begin(subtransactions=True):
-            router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
-                context, router_id, data)
-
-            ha_not_changed = (requested_ha_state is None or
-                              requested_ha_state == original_ha_state)
-            if ha_not_changed:
-                return router_db
-
+        ha_changed = (requested_ha_state is not None and
+                      requested_ha_state != original_ha_state)
+        if ha_changed:
             if router_db.admin_state_up:
                 msg = _('Cannot change HA attribute of active routers. Please '
                         'set router admin_state_up to False prior to upgrade.')
                 raise n_exc.BadRequest(resource='router', msg=msg)
+            # set status to ALLOCATING so this router is no longer
+            # provided to agents while its interfaces are being re-configured.
+            # Keep in mind that if we want conversion to be hitless, this
+            # status cannot be used because agents treat hidden routers as
+            # deleted routers.
+            data['status'] = constants.ROUTER_STATUS_ALLOCATING
+
+        with context.session.begin(subtransactions=True):
+            router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
+                context, router_id, data)
+
+            if not ha_changed:
+                return router_db
 
             ha_network = self.get_ha_network(context,
                                              router_db.tenant_id)
@@ -499,16 +541,17 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
         self._unbind_ha_router(context, router_id)
 
         if requested_ha_state:
-            if not ha_network:
-                ha_network = self._create_ha_network(context,
-                                                     router_db.tenant_id)
-
+            ha_network = self._create_ha_interfaces_and_ensure_network(
+                context, router_db)[1]
             self._set_vr_id(context, router_db, ha_network)
-            self._create_ha_interfaces(context, router_db, ha_network)
-            self._notify_ha_interfaces_updated(context, router_db.id)
         else:
             self._delete_ha_interfaces(context, router_db.id)
-            self._notify_ha_interfaces_updated(context, router_db.id)
+
+        self.schedule_router(context, router_id)
+        router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
+            context, router_id, {'status': constants.ROUTER_STATUS_ACTIVE})
+        self._notify_ha_interfaces_updated(context, router_db.id,
+                                           schedule_routers=False)
 
         return router_db
 
@@ -652,9 +695,7 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             if interface:
                 self._populate_mtu_and_subnets_for_ports(context, [interface])
 
-        # we don't want to return HA routers without HA interfaces created yet
-        return [r for r in list(routers_dict.values())
-                if not r.get('ha') or r.get(constants.HA_INTERFACE_KEY)]
+        return list(routers_dict.values())
 
     @log_helpers.log_method_call
     def get_ha_sync_data_for_host(self, context, host, agent,
