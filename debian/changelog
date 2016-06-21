@@ -1,8 +1,10 @@
-neutron (2:8.0.0-3) UNRELEASED; urgency=medium
+neutron (2:8.1.2-1) unstable; urgency=medium
 
+  * New upstream release:
+    - Fix FTBFS in Jessie (Closes: #827737).
   * Fix neutron-metadata server templates.
 
- -- Thomas Goirand <zigo@debian.org>  Mon, 06 Jun 2016 00:26:34 +0200
+ -- Thomas Goirand <zigo@debian.org>  Tue, 21 Jun 2016 10:30:16 +0200
 
 neutron (2:8.0.0-2) unstable; urgency=medium
 
