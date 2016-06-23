@@ -1,6 +1,7 @@
 neutron (2:9.0.0~b1-2) UNRELEASED; urgency=medium
 
   * Activates qos policies by default.
+  * neutron-server loads fwaas_driver.ini if it is present in /etc/neutron.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 17 Jun 2016 14:33:59 +0200
 

@@ -40,6 +40,11 @@ else
 	DESC="${DESC} with ${NEUTRON_PLUGIN_NAME} plugin"
 fi
 
+# If neutron-fwaas-l3-agent is installed, then we want to activate fwaas
+if [ -r /etc/neutron/fwaas_driver.ini ] ; then
+	DAEMON_ARGS="${DAEMON_ARGS} --config-file=/etc/neutron/fwaas_driver.ini"
+fi
+
 ### Neutron folders creation ###
 mkdir -p /var/lib/neutron/tmp
 chown neutron:neutron /var/lib/neutron/tmp
