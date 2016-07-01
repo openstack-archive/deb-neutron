@@ -6,47 +6,23 @@
 ### Guess the plugin name depending on the class of the plugin in /etc/neutron/neutron.conf ###
 neutron_core_plugin_to_plugin_name () {
 	case ${1} in
-	"neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=OpenVSwitch
-	;;
-	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
-		NEUTRON_PLUGIN_NAME=LinuxBridge
-	;;
-	"neutron.plugins.ml2.plugin.Ml2Plugin")
+	"neutron.plugins.ml2.plugin.Ml2Plugin"|"ml2")
 		NEUTRON_PLUGIN_NAME=ml2
 	;;
-	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=RYU
+	"networking_plumgrid.neutron.plugins.plugin:NeutronPluginPLUMgridV2"|"plumgrid")
+		NEUTRON_PLUGIN_NAME=plumgrid
 	;;
-	"neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2")
-		NEUTRON_PLUGIN_NAME=PLUMgrid
+	"midonet.neutron.plugin_v1:MidonetPluginV2"|"midonet")
+		NEUTRON_PLUGIN_NAME=midonet
 	;;
-	"neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2")
-		NEUTRON_PLUGIN_NAME=Brocade
+	"midonet.neutron.plugin_v2:MidonetPluginV2"|"midonet_v2")
+		NEUTRON_PLUGIN_NAME=midonet_v2
 	;;
-	"neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin")
-		NEUTRON_PLUGIN_NAME=Hyper-V
+	"networking_nec.nwa.l2.plugin:NECNWAL2Plugin"|"necnwa")
+		NEUTRON_PLUGIN_NAME=nec
 	;;
-	"neutron.plugins.bigswitch.plugin.NeutronRestProxyV2")
-		NEUTRON_PLUGIN_NAME=BigSwitch
-	;;
-	"neutron.plugins.cisco.network_plugin.PluginV2")
-		NEUTRON_PLUGIN_NAME=Cisco
-	;;
-	"neutron.plugins.nicira.NeutronPlugin.NvpPluginV2")
-		NEUTRON_PLUGIN_NAME=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
-	;;
-	"neutron.plugins.midonet.plugin.MidonetPluginV2")
-		NEUTRON_PLUGIN_NAME=Midonet
-	;;
-	"neutron.plugins.nec.nec_plugin.NECPluginV2")
-		NEUTRON_PLUGIN_NAME=Nec
-	;;
-	"neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2")
-		NEUTRON_PLUGIN_NAME=MetaPlugin
-	;;
-	"neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin")
-		NEUTRON_PLUGIN_NAME=Mellanox
+	"vmware_nsx.plugin:NsxMhPlugin"|"vmware")
+		NEUTRON_PLUGIN_NAME=vmware
 	;;
 	*)
 		NEUTRON_PLUGIN_NAME="other"
@@ -58,101 +34,26 @@ neutron_core_plugin_to_plugin_name () {
 neutron_plugin_ini_path () {
 	PLUG_INI_BASE=/etc/neutron/plugins/
 	case ${1} in
-	"OpenVSwitch")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ml2/openvswitch_agent.ini
-	;;
-	"LinuxBridge")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}linuxbridge/linuxbridge_conf.ini
-	;;
 	"ml2")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ml2/ml2_conf.ini
 	;;
-	"RYU")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}ryu/ryu.ini
-	;;
-	"PLUMgrid")
+	"plumgrid")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}plumgrid/plumgrid.ini
 	;;
-	"Brocade")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}brocade/brocade.ini
+	"midonet")
+		NEUTRON_PLUGIN_CONFIG=/etc/midonet/midonet.ini.v1
 	;;
-	"Hyper-V")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}hyperv/hyperv_neutron_plugin.ini
+	"midonet_v2")
+		NEUTRON_PLUGIN_CONFIG=/etc/midonet/midonet.ini.v2
 	;;
-	"BigSwitch")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}bigswitch/restproxy.ini
-	;;
-	"Cisco")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}cisco/cisco_plugins.ini
-	;;
-	"Nicira")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}nicira/nvp.ini
-	;;
-	"Midonet")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}midonet/midonet.ini
-	;;
-	"Nec")
+	"nec")
 		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}nec/nec.ini
 	;;
-	"MetaPlugin")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}metaplugin/metaplugin.ini
-	;;
-	"Mellanox")
-		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}mlnx/mlnx_conf.ini
+	"vmware")
+		NEUTRON_PLUGIN_CONFIG=${PLUG_INI_BASE}nsx/nsx.ini
 	;;
 	*)
 		NEUTRON_PLUGIN_CONFIG=""
-	;;
-	esac
-}
-
-### Translates the core_plugin directive value from neutron.conf into the plugin name ###
-neutron_core_plugin_to_plugin_name () {
-	case ${1} in
-	"neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=OpenVSwitch
-	;;
-	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
-		NEUTRON_PLUGIN_NAME=LinuxBridge
-	;;
-	"neutron.plugins.ml2.plugin.Ml2Plugin")
-		NEUTRON_PLUGIN_NAME=ml2
-	;;
-	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=RYU
-	;;
-	"neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2")
-		NEUTRON_PLUGIN_NAME=PLUMgrid
-	;;
-	"neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2")
-		NEUTRON_PLUGIN_NAME=Brocade
-	;;
-	"neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin")
-		NEUTRON_PLUGIN_NAME=Hyper-V
-	;;
-	"neutron.plugins.bigswitch.plugin.NeutronRestProxyV2")
-		NEUTRON_PLUGIN_NAME=BigSwitch
-	;;
-	"neutron.plugins.cisco.network_plugin.PluginV2")
-		NEUTRON_PLUGIN_NAME=Cisco
-	;;
-	"neutron.plugins.nicira.NeutronPlugin.NvpPluginV2")
-		NEUTRON_PLUGIN_NAME=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
-	;;
-	"neutron.plugins.midonet.plugin.MidonetPluginV2")
-		NEUTRON_PLUGIN_NAME=Midonet
-	;;
-	"neutron.plugins.nec.nec_plugin.NECPluginV2")
-		NEUTRON_PLUGIN_NAME=Nec
-	;;
-	"neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2")
-		NEUTRON_PLUGIN_NAME=MetaPlugin
-	;;
-	"neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin")
-		NEUTRON_PLUGIN_NAME=Mellanox
-	;;
-	*)
-		NEUTRON_PLUGIN_NAME="other"
 	;;
 	esac
 }

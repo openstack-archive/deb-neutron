@@ -33,8 +33,8 @@ _Description: Authentication server password:
 
 Template: neutron/plugin-select
 Type: select
-__Choices: OpenVSwitch, LinuxBridge, ml2, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, MetaPlugin, BigSwitch, Cisco, PLUMgrid
-Choices-C: OpenVSwitch, LinuxBridge, ml2, Brocade, Nicira, Midonet, NEC, Mellanox, Hyper-V, RYU, MetaPlugin, BigSwitch, Cisco, PLUMgrid
+__Choices: ml2, plumgrid, midonet, midonet_v2, nec, vmware, other
+Choices-C: ml2, plumgrid, midonet, midonet_v2, nec, vmware, other
 Default: ml2
 _Description: Neutron plugin:
  Neutron uses a plugin architecture to manage networking. When starting the

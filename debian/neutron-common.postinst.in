@@ -9,47 +9,23 @@ OVS_CONF=/etc/neutron/plugins/ml2/openvswitch_agent.ini
 
 neutron_core_plugin_class () {
 	case ${1} in
-	"OpenVSwitch")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2
+	"OpenVSwitch"|"ml2"|"LinuxBridge"|"neutron.plugins.ml2.plugin.Ml2Plugin")
+		NEUTRON_PLUGIN_CLASS=ml2
 	;;
-	"ml2")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.ml2.plugin.Ml2Plugin
+	"networking_plumgrid.neutron.plugins.plugin:NeutronPluginPLUMgridV2"|"plumgrid")
+		NEUTRON_PLUGIN_NAME=plumgrid
 	;;
-	"LinuxBridge")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2
+	"midonet.neutron.plugin_v1:MidonetPluginV2"|"midonet")
+		NEUTRON_PLUGIN_NAME=midonet
 	;;
-	"RYU")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2
+	"midonet.neutron.plugin_v2:MidonetPluginV2"|"midonet_v2")
+		NEUTRON_PLUGIN_NAME=midonet_v2
 	;;
-	"PLUMgrid")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2
+	"networking_nec.nwa.l2.plugin:NECNWAL2Plugin"|"necnwa")
+		NEUTRON_PLUGIN_NAME=nec
 	;;
-	"Brocade")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2
-	;;
-	"Hyper-V")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin
-	;;
-	"BigSwitch")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.bigswitch.plugin.NeutronRestProxyV2
-	;;
-	"Cisco")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.cisco.network_plugin.PluginV2
-	;;
-	"Nicira")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
-	;;
-	"Midonet")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.midonet.plugin.MidonetPluginV2
-	;;
-	"Nec")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.nec.nec_plugin.NECPluginV2
-	;;
-	"MetaPlugin")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2
-	;;
-	"Mellanox")
-		NEUTRON_PLUGIN_CLASS=neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin
+	"vmware_nsx.plugin:NsxMhPlugin"|"vmware")
+		NEUTRON_PLUGIN_NAME=vmware
 	;;
 	*)
 		NEUTRON_PLUGIN_CLASS=""
@@ -91,7 +67,9 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	NEUTRON_plugin=${RET}
 	if [ -n "${RET}" ] ; then
 		neutron_core_plugin_class ${NEUTRON_plugin}
-		pkgos_inifile set ${N_CONF} DEFAULT core_plugin ${NEUTRON_PLUGIN_CLASS}
+		if [ -n "${NEUTRON_PLUGIN_CLASS}" ] ; then
+			pkgos_inifile set ${N_CONF} DEFAULT core_plugin ${NEUTRON_PLUGIN_CLASS}
+		fi
 	fi
 
 	# Write the neutron RabbitMQ credentials

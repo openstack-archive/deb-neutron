@@ -9,53 +9,32 @@ OVS_CONF=/etc/neutron/plugins/ml2/openvswitch_agent.ini
 
 # Please remember this function is also in debian/plugin_guess_func
 neutron_core_plugin_to_plugin_name () {
-	case ${1} in
-	"neutron.plugins.openvswitch.ovs_neutron_plugin.OVSNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=OpenVSwitch
-	;;
-	"neutron.plugins.linuxbridge.lb_neutron_plugin.LinuxBridgePluginV2")
-		NEUTRON_PLUGIN_NAME=LinuxBridge
-	;;
-	"neutron.plugins.ml2.plugin.Ml2Plugin")
-		NEUTRON_PLUGIN_NAME=ml2
-	;;
-	"neutron.plugins.ryu.ryu_neutron_plugin.RyuNeutronPluginV2")
-		NEUTRON_PLUGIN_NAME=RYU
-	;;
-	"neutron.plugins.plumgrid.plumgrid_nos_plugin.plumgrid_plugin.NeutronPluginPLUMgridV2")
-		NEUTRON_PLUGIN_NAME=PLUMgrid
-	;;
-	"neutron.plugins.brocade.NeutronPlugin.BrocadePluginV2")
-		NEUTRON_PLUGIN_NAME=Brocade
-	;;
-	"neutron.plugins.hyperv.hyperv_neutron_plugin.HyperVNeutronPlugin")
-		NEUTRON_PLUGIN_NAME=Hyper-V
-	;;
-	"neutron.plugins.bigswitch.plugin.NeutronRestProxyV2")
-		NEUTRON_PLUGIN_NAME=BigSwitch
-	;;
-	"neutron.plugins.cisco.network_plugin.PluginV2")
-		NEUTRON_PLUGIN_NAME=Cisco
-	;;
-	"neutron.plugins.nicira.NeutronPlugin.NvpPluginV2")
-		NEUTRON_PLUGIN_NAME=neutron.plugins.nicira.NeutronPlugin.NvpPluginV2
-	;;
-	"neutron.plugins.midonet.plugin.MidonetPluginV2")
-		NEUTRON_PLUGIN_NAME=Midonet
-	;;
-	"neutron.plugins.nec.nec_plugin.NECPluginV2")
-		NEUTRON_PLUGIN_NAME=Nec
-	;;
-	"neutron.plugins.metaplugin.meta_neutron_plugin.MetaPluginV2")
-		NEUTRON_PLUGIN_NAME=MetaPlugin
-	;;
-	"neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin")
-		NEUTRON_PLUGIN_NAME=Mellanox
-	;;
-	*)
-		NEUTRON_PLUGIN_NAME="other"
-	;;
-	esac
+        case ${1} in
+        "neutron.plugins.ml2.plugin.Ml2Plugin"|"ml2")
+                NEUTRON_PLUGIN_NAME=ml2
+        ;;
+        "networking_plumgrid.neutron.plugins.plugin:NeutronPluginPLUMgridV2"|"plumgrid")
+                NEUTRON_PLUGIN_NAME=plumgrid
+        ;;
+        "midonet.neutron.plugin_v1:MidonetPluginV2"|"modonet")
+                NEUTRON_PLUGIN_NAME=midonet
+        ;;
+        "midonet.neutron.plugin_v2:MidonetPluginV2"|"midonet_v2")
+                NEUTRON_PLUGIN_NAME=midonet_v2
+        ;;
+        "networking_nec.nwa.l2.plugin:NECNWAL2Plugin"|"necnwa")
+                NEUTRON_PLUGIN_NAME=nec
+        ;;
+        "neutron.plugins.mlnx.mlnx_plugin.MellanoxEswitchPlugin")
+                NEUTRON_PLUGIN_NAME=mellanox
+        ;;
+        "vmware_nsx.plugin:NsxMhPlugin"|"vmware")
+                NEUTRON_PLUGIN_NAME=vmware
+        ;;
+        *)
+                NEUTRON_PLUGIN_NAME="other"
+        ;;
+        esac
 }
 
 #PKGOS-INCLUDE#
