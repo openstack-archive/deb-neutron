@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: neutron\n"
 "Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
 "POT-Creation-Date: 2016-06-06 00:25+0200\n"
-"PO-Revision-Date: 2015-05-31 17:30+01:00\n"
+"PO-Revision-Date: 2016-07-09 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -415,26 +415,19 @@ msgstr "Angiv venligst regionen for Novaserveren."
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#, fuzzy
-#| msgid "Nova admin tenant ID:"
 msgid "Nova admin tenant name:"
-msgstr "Tenant-id for Novaadministratoren:"
+msgstr "Tenant-navn for Novaadministratoren:"
 
 #. Type: string
 #. Description
 #: ../neutron-common.templates:17001
-#, fuzzy
-#| msgid ""
-#| "Neutron needs to be able to communicate with Nova through Keystone. "
-#| "Therefore Neutron needs to know the Nova admin tenant ID, username and "
-#| "password."
 msgid ""
 "Neutron needs to be able to communicate with Nova through Keystone. "
 "Therefore Neutron needs to know the Nova admin tenant name, username and "
 "password."
 msgstr ""
 "Neutron skal være i stand til at kommunikere med Nova via Keystone. Derfor "
-"skal Neutron kende til tenant-Id'et for Novaadministratoren, brugernavn og "
+"skal Neutron kende til tenant-navnet for Novaadministratoren, brugernavn og "
 "adgangskode."
 
 #. Type: string
@@ -488,17 +481,14 @@ msgstr ""
 #. Type: boolean
 #. Description
 #: ../neutron-server.templates:2001
-#, fuzzy
-#| msgid ""
-#| "Note that you will need to have an up and running Keystone server on "
-#| "which to connect using the Keystone authentication token."
 msgid ""
 "Note that you will need to have an up and running Keystone server on which "
 "to connect using a known admin project name, admin username and password. "
 "The admin auth token is not used anymore."
 msgstr ""
 "Bemærk at du skal have en fungerende Keystone-server at forbinde til via "
-"Keystones godkendelsessymbol."
+"et kendt administratorprojektnavn, administratorbrugernavn og adgangskode. "
+"Administratorens godkendelsessymbol bruges ikke længere."
 
 #. Type: string
 #. Description
@@ -519,10 +509,8 @@ msgstr ""
 #. Type: string
 #. Description
 #: ../neutron-server.templates:4001
-#, fuzzy
-#| msgid "Neutron administrator username:"
 msgid "Keystone admin name:"
-msgstr "Neutron-administratorbrugernavn:"
+msgstr "Aministratornavn for Keystone:"
 
 #. Type: string
 #. Description
@@ -536,22 +524,20 @@ msgid ""
 "To register the service endpoint, this package needs to know the Admin "
 "login, name, project name, and password to the Keystone server."
 msgstr ""
+"For at registrere tjenesteslutpunkt skal denne pakke kende "
+"administratorlogind, projektnavn og adgangskode til Keystoneserveren."
 
 #. Type: string
 #. Description
 #: ../neutron-server.templates:5001
-#, fuzzy
-#| msgid "Nova admin tenant ID:"
 msgid "Keystone admin project name:"
-msgstr "Tenant-id for Novaadministratoren:"
+msgstr "Projektnavn for Keystoneadministratoren:"
 
 #. Type: password
 #. Description
 #: ../neutron-server.templates:6001
-#, fuzzy
-#| msgid "Nova administrator password:"
 msgid "Keystone admin password:"
-msgstr "Adgangskode for Novaadministratoren:"
+msgstr "Adgangskode for Keystoneadministratoren:"
 
 #. Type: string
 #. Description
@@ -670,15 +656,3 @@ msgstr ""
 "mellem Neutron metadata proxy-agenten og Nova metadata-serveren. Den samme "
 "delte adgangskode skal bruges når pakken nova-common sættes op."
 
-#~ msgid "Auth server username:"
-#~ msgstr "Brugernavn for godkendelsesserver:"
-
-#~ msgid "Keystone authentication token:"
-#~ msgstr "Symbol for Keystone-godkendelse:"
-
-#~ msgid ""
-#~ "To configure its endpoint in Keystone, neutron-server needs the Keystone "
-#~ "auth token."
-#~ msgstr ""
-#~ "For at konfigurere slutpunktet i Keystone, skal neutron-server bruge "
-#~ "Keystones godkendelsessymbol."
