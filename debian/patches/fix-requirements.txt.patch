@@ -3,8 +3,10 @@ Author: Thomas Goirand <zigo@debian.org>
 Forwarded: not-needed
 Last-Update: 2016-06-09
 
---- neutron-9.0.0~b1.orig/requirements.txt
-+++ neutron-9.0.0~b1/requirements.txt
+Index: neutron/requirements.txt
+===================================================================
+--- neutron.orig/requirements.txt
++++ neutron/requirements.txt
 @@ -5,8 +5,7 @@ pbr>=1.6 # Apache-2.0
  
  Paste # MIT
@@ -15,9 +17,9 @@ Last-Update: 2016-06-09
  debtcollector>=1.2.0 # Apache-2.0
  eventlet!=0.18.3,>=0.18.2 # MIT
  pecan>=1.0.0 # BSD
-@@ -43,8 +42,7 @@ oslo.service>=1.10.0 # Apache-2.0
- oslo.utils>=3.5.0 # Apache-2.0
- oslo.versionedobjects!=1.9.0,>=1.5.0 # Apache-2.0
+@@ -44,8 +43,7 @@ oslo.service>=1.10.0 # Apache-2.0
+ oslo.utils>=3.14.0 # Apache-2.0
+ oslo.versionedobjects>=1.9.1 # Apache-2.0
  osprofiler>=1.3.0 # Apache-2.0
 -ovs>=2.5.0;python_version=='2.7' # Apache-2.0
 -ovs>=2.6.0.dev1;python_version>='3.4' # Apache-2.0
