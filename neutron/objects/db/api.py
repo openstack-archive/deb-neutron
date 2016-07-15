@@ -13,22 +13,34 @@
 from neutron_lib import exceptions as n_exc
 from oslo_utils import uuidutils
 
-from neutron.db import common_db_mixin
+from neutron import manager
 
 
 # Common database operation implementations
 def get_object(context, model, **kwargs):
+    # TODO(jlibosva): decompose _model_query from plugin instance
+    plugin = manager.NeutronManager.get_plugin()
     with context.session.begin(subtransactions=True):
-        return (common_db_mixin.model_query(context, model)
-                .filter_by(**kwargs)
-                .first())
+        return plugin._model_query(context, model).filter_by(
+            **kwargs).first()
 
 
-def get_objects(context, model, **kwargs):
+def _kwargs_to_filters(**kwargs):
+    return {k: v if isinstance(v, list) else [v]
+            for k, v in kwargs.items()}
+
+
+def get_objects(context, model, _pager=None, **kwargs):
     with context.session.begin(subtransactions=True):
-        return (common_db_mixin.model_query(context, model)
-                .filter_by(**kwargs)
-                .all())
+        filters = _kwargs_to_filters(**kwargs)
+        # TODO(ihrachys): decompose _get_collection from plugin instance
+        plugin = manager.NeutronManager.get_plugin()
+        return plugin._get_collection(
+            context, model,
+            # TODO(ihrachys): avoid this no-op call per model found
+            lambda obj, fields: obj,
+            filters=filters,
+            **(_pager.to_kwargs(context, model) if _pager else {}))
 
 
 def create_object(context, model, values):
@@ -44,9 +56,9 @@ def _safe_get_object(context, model, **kwargs):
     db_obj = get_object(context, model, **kwargs)
 
     if db_obj is None:
-        key = "".join(['%s:: %s ' % (key, value) for (key, value)
-                       in kwargs.items()])
-        raise n_exc.ObjectNotFound(id=key)
+        key = ", ".join(['%s=%s' % (key, value) for (key, value)
+                         in kwargs.items()])
+        raise n_exc.ObjectNotFound(id="%s(%s)" % (model.__name__, key))
     return db_obj
 
 

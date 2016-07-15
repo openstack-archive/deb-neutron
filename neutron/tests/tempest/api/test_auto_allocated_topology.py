@@ -58,9 +58,10 @@ class TestAutoAllocatedTopology(base.BaseAdminNetworkTest):
             return len([resource['id'] for resource in resources
                         if resource['name'].startswith('auto_allocated_')])
 
-        networks = _count(self.client.list_networks()['networks'])
-        subnets = _count(self.client.list_subnets()['subnets'])
-        routers = _count(self.client.list_routers()['routers'])
+        up = {'admin_state_up': True}
+        networks = _count(self.client.list_networks(**up)['networks'])
+        subnets = _count(self.client.list_subnets(**up)['subnets'])
+        routers = _count(self.client.list_routers(**up)['routers'])
         return networks, subnets, routers
 
     def _add_topology_cleanup(self, client):
@@ -87,6 +88,8 @@ class TestAutoAllocatedTopology(base.BaseAdminNetworkTest):
 
         network_id1 = topology['id']
         self.assertIsNotNone(network_id1)
+        network = self.client.show_network(topology['id'])['network']
+        self.assertTrue(network['admin_state_up'])
         resources_after1 = self._count_topology_resources()
         # One network, two subnets (v4 and v6) and one router
         self.assertEqual((1, self.num_subnetpools, 1), resources_after1)

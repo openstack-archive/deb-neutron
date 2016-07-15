@@ -63,6 +63,7 @@ from neutron.db import provisioning_blocks
 from neutron.db.quota import driver  # noqa
 from neutron.db import securitygroups_db
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
+from neutron.db import segments_db
 from neutron.db import vlantransparent_db
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import availability_zone as az_ext
@@ -164,7 +165,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                            provisioning_blocks.PROVISIONING_COMPLETE)
         self._setup_dhcp()
         self._start_rpc_notifiers()
-        self.add_agent_status_check(self.agent_health_check)
+        self.add_agent_status_check_worker(self.agent_health_check)
+        self.add_workers(self.mechanism_manager.get_workers())
         self._verify_service_plugins_requirements()
         LOG.info(_LI("Modular L2 Plugin initialization complete"))
 
@@ -185,7 +187,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         self.network_scheduler = importutils.import_object(
             cfg.CONF.network_scheduler_driver
         )
-        self.start_periodic_dhcp_agent_status_check()
+        self.add_periodic_dhcp_agent_status_check()
 
     def _verify_service_plugins_requirements(self):
         for service_plugin in cfg.CONF.service_plugins:
@@ -202,7 +204,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                           **kwargs):
         port_id = object_id
         port = db.get_port(context.session, port_id)
-        if not port:
+        if not port or not port.port_binding:
             LOG.debug("Port %s was deleted so its status cannot be updated.",
                       port_id)
             return
@@ -213,6 +215,16 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             LOG.debug("Port %s cannot update to ACTIVE because it "
                       "is not bound.", port_id)
             return
+        else:
+            # port is bound, but we have to check for new provisioning blocks
+            # one last time to detect the case where we were triggered by an
+            # unbound port and the port became bound with new provisioning
+            # blocks before 'get_port' was called above
+            if provisioning_blocks.is_object_blocked(context, port_id,
+                                                     resources.PORT):
+                LOG.debug("Port %s had new provisioning blocks added so it "
+                          "will not transition to active.", port_id)
+                return
         self.update_port_status(context, port_id, const.PORT_STATUS_ACTIVE)
 
     @property
@@ -448,15 +460,15 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 # ml2_port_bindings table, returned as cur_binding
                 # from db.get_locked_port_and_binding() above, is
                 # currently not used for DVR distributed ports, and is
-                # replaced here with the DVRPortBinding instance from
-                # the ml2_dvr_port_bindings table specific to the host
+                # replaced here with the DistributedPortBinding instance from
+                # the ml2_distributed_port_bindings table specific to the host
                 # on which the distributed port is being bound. It
                 # would be possible to optimize this code to avoid
                 # fetching the PortBinding instance in the DVR case,
                 # and even to avoid creating the unused entry in the
                 # ml2_port_bindings table. But the upcoming resolution
                 # for bug 1367391 will eliminate the
-                # ml2_dvr_port_bindings table, use the
+                # ml2_distributed_port_bindings table, use the
                 # ml2_port_bindings table to store non-host-specific
                 # fields for both distributed and non-distributed
                 # ports, and introduce a new ml2_port_binding_hosts
@@ -464,7 +476,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 # in the distributed case. Since the PortBinding
                 # instance will then be needed, it does not make sense
                 # to optimize this code to avoid fetching it.
-                cur_binding = db.get_dvr_port_binding_by_host(
+                cur_binding = db.get_distributed_port_binding_by_host(
                     session, port_id, orig_binding.host)
             cur_context = driver_context.PortContext(
                 self, plugin_context, port, network, cur_binding, None,
@@ -649,11 +661,12 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                     'result': result,
                                     'attributes': attrs})
 
-        except Exception:
+        except Exception as e:
             with excutils.save_and_reraise_exception():
-                LOG.exception(_LE("An exception occurred while creating "
-                                  "the %(resource)s:%(item)s"),
-                              {'resource': resource, 'item': item})
+                utils.attach_exc_details(
+                    e, _LE("An exception occurred while creating "
+                           "the %(resource)s:%(item)s"),
+                    {'resource': resource, 'item': item})
 
         try:
             postcommit_op = getattr(self.mechanism_manager,
@@ -795,10 +808,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 # concurrent port deletion can be performed by
                 # release_dhcp_port caused by concurrent subnet_delete
                 LOG.info(_LI("Port %s was deleted concurrently"), port_id)
-            except Exception:
+            except Exception as e:
                 with excutils.save_and_reraise_exception():
-                    LOG.exception(_LE("Exception auto-deleting port %s"),
-                                  port_id)
+                    utils.attach_exc_details(
+                        e,
+                        _LE("Exception auto-deleting port %s"), port_id)
 
     def _delete_subnets(self, context, subnet_ids):
         for subnet_id in subnet_ids:
@@ -807,10 +821,11 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             except (exc.SubnetNotFound, sa_exc.ObjectDeletedError):
                 LOG.info(_LI("Subnet %s was deleted concurrently"),
                          subnet_id)
-            except Exception:
+            except Exception as e:
                 with excutils.save_and_reraise_exception():
-                    LOG.exception(_LE("Exception auto-deleting subnet %s"),
-                                  subnet_id)
+                    utils.attach_exc_details(
+                        e,
+                        _LE("Exception auto-deleting subnet %s"), subnet_id)
 
     @utils.transaction_guard
     def delete_network(self, context, id):
@@ -958,6 +973,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
 
         LOG.debug("Deleting subnet %s", id)
         session = context.session
+        deallocated = set()
         while True:
             with session.begin(subtransactions=True):
                 record = self._get_subnet(context, id)
@@ -976,43 +992,52 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     qry_allocated = (
                         qry_allocated.filter(models_v2.Port.device_owner.
                         in_(db_base_plugin_v2.AUTO_DELETE_PORT_OWNERS)))
-                allocated = qry_allocated.all()
-                # Delete all the IPAllocation that can be auto-deleted
-                if allocated:
-                    for x in allocated:
-                        session.delete(x)
+                allocated = set(qry_allocated.all())
                 LOG.debug("Ports to auto-deallocate: %s", allocated)
-                # Check if there are more IP allocations, unless
-                # is_auto_address_subnet is True. In that case the check is
-                # unnecessary. This additional check not only would be wasteful
-                # for this class of subnet, but is also error-prone since when
-                # the isolation level is set to READ COMMITTED allocations made
-                # concurrently will be returned by this query
                 if not is_auto_addr_subnet:
-                    alloc = self._subnet_check_ip_allocations(context, id)
-                    if alloc:
-                        user_alloc = self._subnet_get_user_allocation(
-                            context, id)
-                        if user_alloc:
-                            LOG.info(_LI("Found port (%(port_id)s, %(ip)s) "
-                                         "having IP allocation on subnet "
-                                         "%(subnet)s, cannot delete"),
-                                     {'ip': user_alloc.ip_address,
-                                      'port_id': user_alloc.port_id,
-                                      'subnet': id})
-                            raise exc.SubnetInUse(subnet_id=id)
-                        else:
-                            # allocation found and it was DHCP port
-                            # that appeared after autodelete ports were
-                            # removed - need to restart whole operation
-                            raise os_db_exception.RetryRequest(
-                                exc.SubnetInUse(subnet_id=id))
+                    user_alloc = self._subnet_get_user_allocation(
+                        context, id)
+                    if user_alloc:
+                        LOG.info(_LI("Found port (%(port_id)s, %(ip)s) "
+                                     "having IP allocation on subnet "
+                                     "%(subnet)s, cannot delete"),
+                                 {'ip': user_alloc.ip_address,
+                                  'port_id': user_alloc.port_id,
+                                  'subnet': id})
+                        raise exc.SubnetInUse(subnet_id=id)
 
                 db_base_plugin_v2._check_subnet_not_used(context, id)
 
-                # If allocated is None, then all the IPAllocation were
-                # correctly deleted during the previous pass.
-                if not allocated:
+                # SLAAC allocations currently can not be removed using
+                # update_port workflow, and will persist in 'allocated'.
+                # So for now just make sure update_port is called once for
+                # them so MechanismDrivers is aware of the change.
+                # This way SLAAC allocation is deleted by FK on subnet deletion
+                # TODO(pbondar): rework update_port workflow to allow deletion
+                # of SLAAC allocation via update_port.
+                to_deallocate = allocated - deallocated
+
+                # If to_deallocate is blank, then all known IPAllocations
+                # (except SLAAC allocations) were correctly deleted
+                # during the previous pass.
+                # Check if there are more IP allocations, unless
+                # is_auto_address_subnet is True. If transaction isolation
+                # level is set to READ COMMITTED allocations made
+                # concurrently will be returned by this query and transaction
+                # will be restarted. It works for REPEATABLE READ isolation
+                # level too because this query is executed only once during
+                # transaction, and if concurrent allocations are detected
+                # transaction gets restarted. Executing this query second time
+                # in transaction would result in not seeing allocations
+                # committed by concurrent transactions.
+                if not to_deallocate:
+                    if (not is_auto_addr_subnet and
+                            self._subnet_check_ip_allocations(context, id)):
+                        # allocation found and it was DHCP port
+                        # that appeared after autodelete ports were
+                        # removed - need to restart whole operation
+                        raise os_db_exception.RetryRequest(
+                            exc.SubnetInUse(subnet_id=id))
                     network = self.get_network(context, subnet['network_id'])
                     mech_context = driver_context.SubnetContext(self, context,
                                                                 subnet,
@@ -1030,7 +1055,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     LOG.debug("Committing transaction")
                     break
 
-            for a in allocated:
+            for a in to_deallocate:
+                deallocated.add(a)
                 if a.port:
                     # calling update_port() for each allocation to remove the
                     # IP from the port and call the MechanismDrivers
@@ -1040,13 +1066,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                                            for ip in a.port.fixed_ips
                                            if ip.subnet_id != id]}}
                     try:
-                        self.update_port(context, a.port_id, data)
+                        # NOTE Don't inline port_id; needed for PortNotFound.
+                        port_id = a.port_id
+                        self.update_port(context, port_id, data)
                     except exc.PortNotFound:
-                        LOG.debug("Port %s deleted concurrently", a.port_id)
-                    except Exception:
+                        # NOTE Attempting to access a.port_id here is an error.
+                        LOG.debug("Port %s deleted concurrently", port_id)
+                    except Exception as e:
                         with excutils.save_and_reraise_exception():
-                            LOG.exception(_LE("Exception deleting fixed_ip "
-                                              "from port %s"), a.port_id)
+                            utils.attach_exc_details(
+                                e, _LE("Exception deleting fixed_ip from "
+                                       "port %s"), port_id)
 
         try:
             self.mechanism_manager.delete_subnet_postcommit(mech_context)
@@ -1298,16 +1328,17 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             # DVR and non-DVR cases here.
             # TODO(Swami): This code need to be revisited.
             if port_db['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
-                dvr_binding_list = db.get_dvr_port_bindings(session, id)
-                for dvr_binding in dvr_binding_list:
+                dist_binding_list = db.get_distributed_port_bindings(session,
+                                                                     id)
+                for dist_binding in dist_binding_list:
                     levels = db.get_binding_levels(session, id,
-                                                   dvr_binding.host)
-                    dvr_mech_context = driver_context.PortContext(
+                                                   dist_binding.host)
+                    dist_mech_context = driver_context.PortContext(
                         self, context, updated_port, network,
-                        dvr_binding, levels, original_port=original_port)
+                        dist_binding, levels, original_port=original_port)
                     self.mechanism_manager.update_port_precommit(
-                        dvr_mech_context)
-                    bound_mech_contexts.append(dvr_mech_context)
+                        dist_mech_context)
+                    bound_mech_contexts.append(dist_mech_context)
             else:
                 self.mechanism_manager.update_port_precommit(mech_context)
                 self._setup_dhcp_agent_provisioning_component(
@@ -1356,7 +1387,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             need_notify=need_port_update_notify)
         return bound_context.current
 
-    def _process_dvr_port_binding(self, mech_context, context, attrs):
+    def _process_distributed_port_binding(self, mech_context, context, attrs):
         session = mech_context._plugin_context.session
         binding = mech_context._binding
         port = mech_context.current
@@ -1373,7 +1404,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
         binding.host = attrs and attrs.get(portbindings.HOST_ID)
         binding.router_id = attrs and attrs.get('device_id')
 
-    def update_dvr_port_binding(self, context, id, port):
+    def update_distributed_port_binding(self, context, id, port):
         attrs = port[attributes.PORT]
 
         host = attrs and attrs.get(portbindings.HOST_ID)
@@ -1384,7 +1415,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             return
 
         session = context.session
-        binding = db.get_dvr_port_binding_by_host(session, id, host)
+        binding = db.get_distributed_port_binding_by_host(session, id, host)
         device_id = attrs and attrs.get('device_id')
         router_id = binding and binding.get('router_id')
         update_required = (not binding or
@@ -1395,7 +1426,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 with session.begin(subtransactions=True):
                     orig_port = self.get_port(context, id)
                     if not binding:
-                        binding = db.ensure_dvr_port_binding(
+                        binding = db.ensure_distributed_port_binding(
                             session, id, host, router_id=device_id)
                     network = self.get_network(context,
                                                orig_port['network_id'])
@@ -1403,8 +1434,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                     mech_context = driver_context.PortContext(self,
                         context, orig_port, network,
                         binding, levels, original_port=orig_port)
-                    self._process_dvr_port_binding(mech_context, context,
-                                                   attrs)
+                    self._process_distributed_port_binding(
+                        mech_context, context, attrs)
             except (os_db_exception.DBReferenceError, exc.PortNotFound):
                 LOG.debug("DVR Port %s has been deleted concurrently", id)
                 return
@@ -1448,7 +1479,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             bound_mech_contexts = []
             device_owner = port['device_owner']
             if device_owner == const.DEVICE_OWNER_DVR_INTERFACE:
-                bindings = db.get_dvr_port_bindings(context.session, id)
+                bindings = db.get_distributed_port_bindings(context.session,
+                                                            id)
                 for bind in bindings:
                     levels = db.get_binding_levels(context.session, id,
                                                    bind.host)
@@ -1521,7 +1553,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 network = self.get_network(plugin_context, port['network_id'])
 
             if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
-                binding = db.get_dvr_port_binding_by_host(
+                binding = db.get_distributed_port_binding_by_host(
                     session, port['id'], host)
                 if not binding:
                     LOG.error(_LE("Binding info for DVR port %s not found"),
@@ -1584,7 +1616,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 self.mechanism_manager.update_port_precommit(mech_context)
                 updated = True
             elif port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
-                binding = db.get_dvr_port_binding_by_host(
+                binding = db.get_distributed_port_binding_by_host(
                     session, port['id'], host)
                 if not binding:
                     return
@@ -1603,7 +1635,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 original_port = self._make_port_dict(port)
                 network = network or self.get_network(
                     context, original_port['network_id'])
-                port.status = db.generate_dvr_port_status(session, port['id'])
+                port.status = db.generate_distributed_port_status(session,
+                                                                  port['id'])
                 updated_port = self._make_port_dict(port)
                 levels = db.get_binding_levels(session, port_id, host)
                 mech_context = (driver_context.PortContext(
@@ -1625,7 +1658,7 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                             **kwargs)
 
         if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
-            db.delete_dvr_port_binding_if_stale(session, binding)
+            db.delete_distributed_port_binding_if_stale(session, binding)
 
         return port['id']
 
@@ -1637,7 +1670,8 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
             LOG.debug("No Port match for: %s", port_id)
             return
         if port['device_owner'] == const.DEVICE_OWNER_DVR_INTERFACE:
-            bindings = db.get_dvr_port_bindings(context.session, port_id)
+            bindings = db.get_distributed_port_bindings(context.session,
+                                                        port_id)
             for b in bindings:
                 if b.host == host:
                     return port
@@ -1677,12 +1711,10 @@ class Ml2Plugin(db_base_plugin_v2.NeutronDbPluginV2,
                 return port.id
         return device
 
-    def get_workers(self):
-        return self.mechanism_manager.get_workers()
-
     def filter_hosts_with_network_access(
             self, context, network_id, candidate_hosts):
-        segments = db.get_network_segments(context.session, network_id)
+        segments = segments_db.get_network_segments(context.session,
+                                                    network_id)
         return self.mechanism_manager.filter_hosts_with_segment_access(
             context, segments, candidate_hosts, self.get_agents)
 

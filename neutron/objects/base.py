@@ -27,7 +27,10 @@ from neutron.db import model_base
 from neutron.objects.db import api as obj_db_api
 from neutron.objects.extensions import standardattributes
 
+_NO_DB_MODEL = object()
 
+
+#TODO(jlibosva): Move these classes to exceptions module
 class NeutronObjectUpdateForbidden(exceptions.NeutronException):
     message = _("Unable to update the following object fields: %(fields)s")
 
@@ -42,6 +45,10 @@ class NeutronDbObjectDuplicateEntry(exceptions.Conflict):
                                                   fully_qualified=False),
             attributes=db_exception.columns,
             values=db_exception.value)
+
+
+class NeutronDbObjectNotFoundByModel(exceptions.NotFound):
+    message = _("NeutronDbObject not found by model %(model)s.")
 
 
 class NeutronPrimaryKeyMissing(exceptions.BadRequest):
@@ -69,12 +76,55 @@ def get_updatable_fields(cls, fields):
     return fields
 
 
+def get_object_class_by_model(model):
+    for obj_class in obj_base.VersionedObjectRegistry.obj_classes().values():
+        obj_class = obj_class[0]
+        if getattr(obj_class, 'db_model', _NO_DB_MODEL) is model:
+            return obj_class
+    raise NeutronDbObjectNotFoundByModel(model=model.__name__)
+
+
+def register_filter_hook_on_model(model, filter_name):
+    obj_class = get_object_class_by_model(model)
+    obj_class.add_extra_filter_name(filter_name)
+
+
+class Pager(object):
+    '''
+    This class represents a pager object. It is consumed by get_objects to
+    specify sorting and pagination criteria.
+    '''
+    def __init__(self, sorts=None, limit=None, page_reverse=None, marker=None):
+        self.sorts = sorts
+        self.limit = limit
+        self.page_reverse = page_reverse
+        self.marker = marker
+
+    def to_kwargs(self, context, model):
+        res = {
+            attr: getattr(self, attr)
+            for attr in ('sorts', 'limit', 'page_reverse')
+            if getattr(self, attr) is not None
+        }
+        if self.marker and self.limit:
+            res['marker_obj'] = obj_db_api.get_object(
+                context, model, id=self.marker)
+        return res
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+
 @six.add_metaclass(abc.ABCMeta)
 class NeutronObject(obj_base.VersionedObject,
                     obj_base.VersionedObjectDictCompat,
                     obj_base.ComparableVersionedObject):
 
     synthetic_fields = []
+    extra_filter_names = set()
 
     def __init__(self, context=None, **kwargs):
         super(NeutronObject, self).__init__(context, **kwargs)
@@ -116,9 +166,23 @@ class NeutronObject(obj_base.VersionedObject,
         raise NotImplementedError()
 
     @classmethod
+    def add_extra_filter_name(cls, filter_name):
+        """Register filter passed from API layer.
+
+        :param filter_name: Name of the filter passed in the URL
+
+        Filter names are validated in validate_filters() method which by
+        default allows filters based on fields' names.  Extensions can create
+        new filter names.  Such names must be registered to particular object
+        with this method.
+        """
+        cls.extra_filter_names.add(filter_name)
+
+    @classmethod
     def validate_filters(cls, **kwargs):
-        bad_filters = [key for key in kwargs
-                       if key not in cls.fields or cls.is_synthetic(key)]
+        bad_filters = {key for key in kwargs
+                       if key not in cls.fields or cls.is_synthetic(key)}
+        bad_filters.difference_update(cls.extra_filter_names)
         if bad_filters:
             bad_filters = ', '.join(bad_filters)
             msg = _("'%s' is not supported for filtering") % bad_filters
@@ -126,7 +190,7 @@ class NeutronObject(obj_base.VersionedObject,
 
     @classmethod
     @abc.abstractmethod
-    def get_objects(cls, context, **kwargs):
+    def get_objects(cls, context, _pager=None, **kwargs):
         raise NotImplementedError()
 
     def create(self):
@@ -148,9 +212,26 @@ class DeclarativeObject(abc.ABCMeta):
                 cls.fields_no_update += base.primary_keys
         # avoid duplicate entries
         cls.fields_no_update = list(set(cls.fields_no_update))
+
+        # generate unique_keys from the model
+        model = getattr(cls, 'db_model', None)
+        if model and not getattr(cls, 'unique_keys', None):
+            cls.unique_keys = []
+            obj_field_names = set(cls.fields.keys())
+            model_to_obj_translation = {
+                v: k for (k, v) in cls.fields_need_translation.items()}
+
+            for model_unique_key in model_base.get_unique_keys(model):
+                obj_unique_key = [model_to_obj_translation.get(key, key)
+                                  for key in model_unique_key]
+                if obj_field_names.issuperset(obj_unique_key):
+                    cls.unique_keys.append(obj_unique_key)
+
         if (hasattr(cls, 'has_standard_attributes') and
                 cls.has_standard_attributes()):
             standardattributes.add_standard_attributes(cls)
+        # Instantiate extra filters per class
+        cls.extra_filter_names = set()
 
 
 @six.add_metaclass(DeclarativeObject)
@@ -160,6 +241,11 @@ class NeutronDbObject(NeutronObject):
     db_model = None
 
     primary_keys = ['id']
+
+    # 'unique_keys' is a list of unique keys that can be used with get_object
+    # instead of 'primary_keys' (e.g. [['key1'], ['key2a', 'key2b']]).
+    # By default 'unique_keys' will be inherited from the 'db_model'
+    unique_keys = []
 
     # this is a dict to store the association between the foreign key and the
     # corresponding key in the main table, e.g. port extension have 'port_id'
@@ -238,31 +324,61 @@ class NeutronDbObject(NeutronObject):
         obj.from_db_object(db_obj)
         return obj
 
+    def obj_load_attr(self, attrname):
+        """Set None for nullable fields that has unknown value.
+
+        In case model attribute is not present in database, value stored under
+        ``attrname'' field will be unknown. In such cases if the field
+        ``attrname'' is a nullable Field return None
+        """
+        try:
+            is_attr_nullable = self.fields[attrname].nullable
+        except KeyError:
+            return super(NeutronDbObject, self).obj_load_attr(attrname)
+        if is_attr_nullable:
+            self[attrname] = None
+
     @classmethod
     def get_object(cls, context, **kwargs):
         """
-        This method fetches object from DB and convert it to versioned
-        object.
+        Fetch object from DB and convert it to a versioned object.
 
         :param context:
-        :param kwargs: multiple primary keys defined key=value pairs
+        :param kwargs: multiple keys defined by key=value pairs
         :return: single object of NeutronDbObject class
         """
-        missing_keys = set(cls.primary_keys).difference(kwargs.keys())
-        if missing_keys:
+        lookup_keys = set(kwargs.keys())
+        all_keys = itertools.chain([cls.primary_keys], cls.unique_keys)
+        if not any(lookup_keys.issuperset(keys) for keys in all_keys):
+            missing_keys = set(cls.primary_keys).difference(lookup_keys)
             raise NeutronPrimaryKeyMissing(object_class=cls.__class__,
                                            missing_keys=missing_keys)
 
         with db_api.autonested_transaction(context.session):
-            db_obj = obj_db_api.get_object(context, cls.db_model, **kwargs)
+            db_obj = obj_db_api.get_object(
+                context, cls.db_model,
+                **cls.modify_fields_to_db(kwargs)
+            )
             if db_obj:
                 return cls._load_object(context, db_obj)
 
     @classmethod
-    def get_objects(cls, context, **kwargs):
+    def get_objects(cls, context, _pager=None, **kwargs):
+        """
+        Fetch objects from DB and convert them to versioned objects.
+
+        :param context:
+        :param _pager: a Pager object representing advanced sorting/pagination
+                       criteria
+        :param kwargs: multiple keys defined by key=value pairs
+        :return: list of objects of NeutronDbObject class
+        """
         cls.validate_filters(**kwargs)
         with db_api.autonested_transaction(context.session):
-            db_objs = obj_db_api.get_objects(context, cls.db_model, **kwargs)
+            db_objs = obj_db_api.get_objects(
+                context, cls.db_model, _pager=_pager,
+                **cls.modify_fields_to_db(kwargs)
+            )
             return [cls._load_object(context, db_obj) for db_obj in db_objs]
 
     @classmethod
@@ -313,7 +429,7 @@ class NeutronDbObject(NeutronObject):
             if len(objclass.foreign_keys.keys()) > 1:
                 raise NeutronSyntheticFieldMultipleForeignKeys(field=field)
             objs = objclass.get_objects(
-                self._context, **{
+                self.obj_context, **{
                     k: getattr(
                         self, v) for k, v in objclass.foreign_keys.items()})
             if isinstance(self.fields[field], obj_fields.ObjectField):
@@ -324,10 +440,10 @@ class NeutronDbObject(NeutronObject):
 
     def create(self):
         fields = self._get_changed_persistent_fields()
-        with db_api.autonested_transaction(self._context.session):
+        with db_api.autonested_transaction(self.obj_context.session):
             try:
                 db_obj = obj_db_api.create_object(
-                    self._context, self.db_model,
+                    self.obj_context, self.db_model,
                     self.modify_fields_to_db(fields))
             except obj_exc.DBDuplicateEntry as db_exc:
                 raise NeutronDbObjectDuplicateEntry(
@@ -339,7 +455,7 @@ class NeutronDbObject(NeutronObject):
         keys = {}
         for key in self.primary_keys:
             keys[key] = getattr(self, key)
-        return self.modify_fields_to_db(keys)
+        return keys
 
     def update_nonidentifying_fields(self, obj_data, reset_changes=False):
         """Updates non-identifying fields of an object.
@@ -364,13 +480,15 @@ class NeutronDbObject(NeutronObject):
         updates = self._validate_changed_fields(updates)
 
         if updates:
-            with db_api.autonested_transaction(self._context.session):
+            with db_api.autonested_transaction(self.obj_context.session):
                 db_obj = obj_db_api.update_object(
-                    self._context, self.db_model,
+                    self.obj_context, self.db_model,
                     self.modify_fields_to_db(updates),
-                    **self._get_composite_keys())
+                    **self.modify_fields_to_db(
+                        self._get_composite_keys()))
                 self.from_db_object(db_obj)
 
     def delete(self):
-        obj_db_api.delete_object(self._context, self.db_model,
-                                 **self._get_composite_keys())
+        obj_db_api.delete_object(self.obj_context, self.db_model,
+                                 **self.modify_fields_to_db(
+                                     self._get_composite_keys()))

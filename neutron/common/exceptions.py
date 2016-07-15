@@ -21,6 +21,19 @@ from neutron._i18n import _
 from neutron.common import _deprecate
 
 
+class MultipleExceptions(Exception):
+    """Container for multiple exceptions encountered.
+
+    The API layer of Neutron will automatically unpack, translate,
+    filter, and combine the inner exceptions in any exception derived
+    from this class.
+    """
+
+    def __init__(self, exceptions, *args, **kwargs):
+        super(MultipleExceptions, self).__init__(*args, **kwargs)
+        self.inner_exceptions = exceptions
+
+
 class SubnetPoolNotFound(e.NotFound):
     message = _("Subnet pool %(subnetpool_id)s could not be found.")
 
@@ -50,6 +63,11 @@ class PolicyInitError(e.NeutronException):
 
 class PolicyCheckError(e.NeutronException):
     message = _("Failed to check policy %(policy)s because %(reason)s.")
+
+
+class PolicyRemoveAuthorizationError(e.NotAuthorized):
+    message = _("Failed to remove provided policy %(policy_id)s "
+                "because you are not authorized.")
 
 
 class StateInvalid(e.BadRequest):

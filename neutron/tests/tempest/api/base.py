@@ -14,6 +14,7 @@
 #    under the License.
 
 import functools
+import math
 
 import netaddr
 from tempest.lib.common.utils import data_utils
@@ -21,6 +22,7 @@ from tempest.lib import exceptions as lib_exc
 from tempest import test
 
 from neutron.common import constants
+from neutron.common import utils
 from neutron.tests.tempest.api import clients
 from neutron.tests.tempest import config
 from neutron.tests.tempest import exceptions
@@ -323,7 +325,8 @@ class BaseNetworkTest(test.BaseTestCase):
         return interface
 
     @classmethod
-    def create_qos_policy(cls, name, description, shared, tenant_id=None):
+    def create_qos_policy(cls, name, description=None, shared=False,
+                          tenant_id=None):
         """Wrapper utility that returns a test QoS policy."""
         body = cls.admin_client.create_qos_policy(
             name, description, shared, tenant_id)
@@ -426,7 +429,7 @@ class BaseAdminNetworkTest(BaseNetworkTest):
 
     @classmethod
     def get_unused_ip(cls, net_id, ip_version=None):
-        """Get an unused ip address in a allocaion pool of net"""
+        """Get an unused ip address in a allocation pool of net"""
         body = cls.admin_client.list_ports(network_id=net_id)
         ports = body['ports']
         used_ips = []
@@ -488,6 +491,8 @@ class BaseSearchCriteriaTest(BaseNetworkTest):
     # This should be defined by subclasses to reflect resource name to test
     resource = None
 
+    field = 'name'
+
     # NOTE(ihrachys): some names, like those starting with an underscore (_)
     # are sorted differently depending on whether the plugin implements native
     # sorting support, or not. So we avoid any such cases here, sticking to
@@ -499,25 +504,48 @@ class BaseSearchCriteriaTest(BaseNetworkTest):
 
     list_kwargs = {}
 
+    list_as_admin = False
+
+    def assertSameOrder(self, original, actual):
+        # gracefully handle iterators passed
+        original = list(original)
+        actual = list(actual)
+        self.assertEqual(len(original), len(actual))
+        for expected, res in zip(original, actual):
+            self.assertEqual(expected[self.field], res[self.field])
+
+    @utils.classproperty
+    def plural_name(self):
+        return '%ss' % self.resource
+
+    @property
+    def list_client(self):
+        return self.admin_client if self.list_as_admin else self.client
+
     def list_method(self, *args, **kwargs):
-        method = getattr(self.client, 'list_%ss' % self.resource)
+        method = getattr(self.list_client, 'list_%s' % self.plural_name)
         kwargs.update(self.list_kwargs)
         return method(*args, **kwargs)
 
+    def get_bare_url(self, url):
+        base_url = self.client.base_url
+        self.assertTrue(url.startswith(base_url))
+        return url[len(base_url):]
+
     @classmethod
     def _extract_resources(cls, body):
-        return body['%ss' % cls.resource]
+        return body[cls.plural_name]
 
     def _test_list_sorts(self, direction):
         sort_args = {
             'sort_dir': direction,
-            'sort_key': 'name'
+            'sort_key': self.field
         }
         body = self.list_method(**sort_args)
         resources = self._extract_resources(body)
         self.assertNotEmpty(
             resources, "%s list returned is empty" % self.resource)
-        retrieved_names = [res['name'] for res in resources]
+        retrieved_names = [res[self.field] for res in resources]
         expected = sorted(retrieved_names)
         if direction == constants.SORT_DIRECTION_DESC:
             expected = list(reversed(expected))
@@ -550,22 +578,29 @@ class BaseSearchCriteriaTest(BaseNetworkTest):
         resources = self._extract_resources(body)
         self.assertTrue(len(resources) >= len(self.resource_names))
 
-    @_require_pagination
-    @_require_sorting
-    def _test_list_pagination_with_marker(self):
+    def _test_list_pagination_iteratively(self, lister):
         # first, collect all resources for later comparison
         sort_args = {
             'sort_dir': constants.SORT_DIRECTION_ASC,
-            'sort_key': 'name'
+            'sort_key': self.field
         }
         body = self.list_method(**sort_args)
         expected_resources = self._extract_resources(body)
         self.assertNotEmpty(expected_resources)
 
+        resources = lister(
+            len(expected_resources), sort_args
+        )
+
+        # finally, compare that the list retrieved in one go is identical to
+        # the one containing pagination results
+        self.assertSameOrder(expected_resources, resources)
+
+    def _list_all_with_marker(self, niterations, sort_args):
         # paginate resources one by one, using last fetched resource as a
         # marker
         resources = []
-        for i in range(len(expected_resources)):
+        for i in range(niterations):
             pagination_args = sort_args.copy()
             pagination_args['limit'] = 1
             if resources:
@@ -574,8 +609,121 @@ class BaseSearchCriteriaTest(BaseNetworkTest):
             resources_ = self._extract_resources(body)
             self.assertEqual(1, len(resources_))
             resources.extend(resources_)
+        return resources
 
-        # finally, compare that the list retrieved in one go is identical to
-        # the one containing pagination results
-        for expected, res in zip(expected_resources, resources):
-            self.assertEqual(expected['name'], res['name'])
+    @_require_pagination
+    @_require_sorting
+    def _test_list_pagination_with_marker(self):
+        self._test_list_pagination_iteratively(self._list_all_with_marker)
+
+    def _list_all_with_hrefs(self, niterations, sort_args):
+        # paginate resources one by one, using next href links
+        resources = []
+        prev_links = {}
+
+        for i in range(niterations):
+            if prev_links:
+                uri = self.get_bare_url(prev_links['next'])
+            else:
+                sort_args.update(self.list_kwargs)
+                uri = self.list_client.build_uri(
+                    self.plural_name, limit=1, **sort_args)
+            prev_links, body = self.list_client.get_uri_with_links(
+                self.plural_name, uri
+            )
+            resources_ = self._extract_resources(body)
+            self.assertEqual(1, len(resources_))
+            resources.extend(resources_)
+
+        # The last element is empty and does not contain 'next' link
+        uri = self.get_bare_url(prev_links['next'])
+        prev_links, body = self.client.get_uri_with_links(
+            self.plural_name, uri
+        )
+        self.assertNotIn('next', prev_links)
+
+        # Now walk backwards and compare results
+        resources2 = []
+        for i in range(niterations):
+            uri = self.get_bare_url(prev_links['previous'])
+            prev_links, body = self.list_client.get_uri_with_links(
+                self.plural_name, uri
+            )
+            resources_ = self._extract_resources(body)
+            self.assertEqual(1, len(resources_))
+            resources2.extend(resources_)
+
+        self.assertSameOrder(resources, reversed(resources2))
+
+        return resources
+
+    @_require_pagination
+    @_require_sorting
+    def _test_list_pagination_with_href_links(self):
+        self._test_list_pagination_iteratively(self._list_all_with_hrefs)
+
+    @_require_pagination
+    @_require_sorting
+    def _test_list_pagination_page_reverse_with_href_links(
+            self, direction=constants.SORT_DIRECTION_ASC):
+        pagination_args = {
+            'sort_dir': direction,
+            'sort_key': self.field,
+        }
+        body = self.list_method(**pagination_args)
+        expected_resources = self._extract_resources(body)
+
+        page_size = 2
+        pagination_args['limit'] = page_size
+
+        prev_links = {}
+        resources = []
+        num_resources = len(expected_resources)
+        niterations = int(math.ceil(float(num_resources) / page_size))
+        for i in range(niterations):
+            if prev_links:
+                uri = self.get_bare_url(prev_links['previous'])
+            else:
+                pagination_args.update(self.list_kwargs)
+                uri = self.list_client.build_uri(
+                    self.plural_name, page_reverse=True, **pagination_args)
+            prev_links, body = self.list_client.get_uri_with_links(
+                self.plural_name, uri
+            )
+            resources_ = self._extract_resources(body)
+            self.assertTrue(page_size >= len(resources_))
+            resources.extend(reversed(resources_))
+
+        self.assertSameOrder(expected_resources, reversed(resources))
+
+    @_require_pagination
+    @_require_sorting
+    def _test_list_pagination_page_reverse_asc(self):
+        self._test_list_pagination_page_reverse(
+            direction=constants.SORT_DIRECTION_ASC)
+
+    @_require_pagination
+    @_require_sorting
+    def _test_list_pagination_page_reverse_desc(self):
+        self._test_list_pagination_page_reverse(
+            direction=constants.SORT_DIRECTION_DESC)
+
+    def _test_list_pagination_page_reverse(self, direction):
+        pagination_args = {
+            'sort_dir': direction,
+            'sort_key': self.field,
+            'limit': 3,
+        }
+        body = self.list_method(**pagination_args)
+        expected_resources = self._extract_resources(body)
+
+        pagination_args['limit'] -= 1
+        pagination_args['marker'] = expected_resources[-1]['id']
+        pagination_args['page_reverse'] = True
+        body = self.list_method(**pagination_args)
+
+        self.assertSameOrder(
+            # the last entry is not included in 2nd result when used as a
+            # marker
+            expected_resources[:-1],
+            self._extract_resources(body))

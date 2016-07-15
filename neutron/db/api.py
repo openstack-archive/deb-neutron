@@ -15,32 +15,76 @@
 
 import contextlib
 
-import debtcollector
-from neutron_lib import exceptions as n_exc
+from debtcollector import moves
 from oslo_config import cfg
 from oslo_db import api as oslo_db_api
 from oslo_db import exception as db_exc
 from oslo_db.sqlalchemy import enginefacade
 from oslo_utils import excutils
-from oslo_utils import uuidutils
 import osprofiler.sqlalchemy
+import six
 import sqlalchemy
+from sqlalchemy.orm import exc
 
+from neutron.common import exceptions
 from neutron.common import profiler  # noqa
-from neutron.db import common_db_mixin
 
 context_manager = enginefacade.transaction_context()
+context_manager.configure(sqlite_fk=True)
 
-
-_FACADE = None
+_PROFILER_INITIALIZED = False
 
 MAX_RETRIES = 10
-is_deadlock = lambda e: isinstance(e, db_exc.DBDeadlock)
+
+
+def is_retriable(e):
+    if _is_nested_instance(e, (db_exc.DBDeadlock, exc.StaleDataError,
+                               db_exc.DBDuplicateEntry, db_exc.RetryRequest)):
+        return True
+    # looking savepoints mangled by deadlocks. see bug/1590298 for details.
+    return _is_nested_instance(e, db_exc.DBError) and '1305' in str(e)
+
+is_deadlock = moves.moved_function(is_retriable, 'is_deadlock', __name__,
+                                   message='use "is_retriable" instead',
+                                   version='newton', removal_version='ocata')
 retry_db_errors = oslo_db_api.wrap_db_retry(
     max_retries=MAX_RETRIES,
-    retry_on_request=True,
-    exception_checker=is_deadlock
+    retry_interval=0.1,
+    inc_retry_interval=True,
+    exception_checker=is_retriable
 )
+
+
+def reraise_as_retryrequest(f):
+    """Packs retriable exceptions into a RetryRequest."""
+
+    @six.wraps(f)
+    def wrapped(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            with excutils.save_and_reraise_exception() as ctx:
+                if is_retriable(e):
+                    ctx.reraise = False
+                    raise db_exc.RetryRequest(e)
+    return wrapped
+
+
+def _is_nested_instance(e, etypes):
+    """Check if exception or its inner excepts are an instance of etypes."""
+    return (isinstance(e, etypes) or
+            isinstance(e, exceptions.MultipleExceptions) and
+            any(_is_nested_instance(i, etypes) for i in e.inner_exceptions))
+
+
+# TODO(akamyshnikova) this code should be in oslo.db
+def _set_profiler():
+    global _PROFILER_INITIALIZED
+    if (not _PROFILER_INITIALIZED and cfg.CONF.profiler.enabled and
+            cfg.CONF.profiler.trace_sqlalchemy):
+        _PROFILER_INITIALIZED = True
+        osprofiler.sqlalchemy.add_tracing(
+            sqlalchemy, context_manager.get_legacy_facade().get_engine(), "db")
 
 
 @contextlib.contextmanager
@@ -49,44 +93,34 @@ def exc_to_retry(exceptions):
         yield
     except Exception as e:
         with excutils.save_and_reraise_exception() as ctx:
-            if isinstance(e, exceptions):
+            if _is_nested_instance(e, exceptions):
                 ctx.reraise = False
                 raise db_exc.RetryRequest(e)
 
 
-def _create_facade_lazily():
-    global _FACADE
-
-    if _FACADE is None:
-        context_manager.configure(sqlite_fk=True, **cfg.CONF.database)
-        _FACADE = context_manager._factory.get_legacy_facade()
-
-        if cfg.CONF.profiler.enabled and cfg.CONF.profiler.trace_sqlalchemy:
-            osprofiler.sqlalchemy.add_tracing(sqlalchemy,
-                                              _FACADE.get_engine(),
-                                              "db")
-
-    return _FACADE
-
-
+#TODO(akamyshnikova): when all places in the code, which use sessions/
+# connections will be updated, this won't be needed
 def get_engine():
     """Helper method to grab engine."""
-    facade = _create_facade_lazily()
-    return facade.get_engine()
+    _set_profiler()
+    return context_manager.get_legacy_facade().get_engine()
 
 
 def dispose():
-    # Don't need to do anything if an enginefacade hasn't been created
-    if _FACADE is not None:
+    # TODO(akamyshnikova): Use context_manager.dispose_pool() when it is
+    #                      available in oslo.db
+    if context_manager._factory._started:
         get_engine().pool.dispose()
 
 
+#TODO(akamyshnikova): when all places in the code, which use sessions/
+# connections will be updated, this won't be needed
 def get_session(autocommit=True, expire_on_commit=False, use_slave=False):
     """Helper method to grab session."""
-    facade = _create_facade_lazily()
-    return facade.get_session(autocommit=autocommit,
-                              expire_on_commit=expire_on_commit,
-                              use_slave=use_slave)
+    _set_profiler()
+    return context_manager.get_legacy_facade().get_session(
+        autocommit=autocommit, expire_on_commit=expire_on_commit,
+        use_slave=use_slave)
 
 
 @contextlib.contextmanager
@@ -98,62 +132,3 @@ def autonested_transaction(sess):
         session_context = sess.begin(subtransactions=True)
     with session_context as tx:
         yield tx
-
-
-# Common database operation implementations
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def get_object(context, model, **kwargs):
-    with context.session.begin(subtransactions=True):
-        return (common_db_mixin.model_query(context, model)
-                .filter_by(**kwargs)
-                .first())
-
-
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def get_objects(context, model, **kwargs):
-    with context.session.begin(subtransactions=True):
-        return (common_db_mixin.model_query(context, model)
-                .filter_by(**kwargs)
-                .all())
-
-
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def create_object(context, model, values):
-    with context.session.begin(subtransactions=True):
-        if 'id' not in values and hasattr(model, 'id'):
-            values['id'] = uuidutils.generate_uuid()
-        db_obj = model(**values)
-        context.session.add(db_obj)
-    return db_obj.__dict__
-
-
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def _safe_get_object(context, model, id, key='id'):
-    db_obj = get_object(context, model, **{key: id})
-    if db_obj is None:
-        raise n_exc.ObjectNotFound(id=id)
-    return db_obj
-
-
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def update_object(context, model, id, values, key=None):
-    with context.session.begin(subtransactions=True):
-        kwargs = {}
-        if key:
-            kwargs['key'] = key
-        db_obj = _safe_get_object(context, model, id,
-                                  **kwargs)
-        db_obj.update(values)
-        db_obj.save(session=context.session)
-    return db_obj.__dict__
-
-
-@debtcollector.removals.remove(message="This will be removed in the N cycle.")
-def delete_object(context, model, id, key=None):
-    with context.session.begin(subtransactions=True):
-        kwargs = {}
-        if key:
-            kwargs['key'] = key
-        db_obj = _safe_get_object(context, model, id,
-                                  **kwargs)
-        context.session.delete(db_obj)

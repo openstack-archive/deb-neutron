@@ -43,7 +43,6 @@ from neutron.db import model_base
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import availability_zone as az_ext
 from neutron import manager
-from neutron.services.segments import db as segments_db
 
 LOG = logging.getLogger(__name__)
 
@@ -179,11 +178,6 @@ class AgentAvailabilityZoneMixin(az_ext.AvailabilityZonePluginBase):
 
 class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
     """Mixin class to add agent extension to db_base_plugin_v2."""
-
-    def __init__(self, *args, **kwargs):
-        version_manager.set_consumer_versions_callback(
-            self._get_agents_resource_versions)
-        super(AgentDbMixin, self).__init__(*args, **kwargs)
 
     def _get_agent(self, context, id):
         try:
@@ -385,6 +379,7 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                 greenthread.sleep(0)
                 self._log_heartbeat(agent_state, agent_db, configurations_dict)
                 agent_db.update(res)
+                event_type = events.AFTER_UPDATE
             except ext_agent.AgentNotFoundByTypeHost:
                 greenthread.sleep(0)
                 res['created_at'] = current_time
@@ -394,11 +389,14 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                 agent_db = Agent(**res)
                 greenthread.sleep(0)
                 context.session.add(agent_db)
+                event_type = events.AFTER_CREATE
                 self._log_heartbeat(agent_state, agent_db, configurations_dict)
                 status = n_const.AGENT_NEW
             greenthread.sleep(0)
-            segments_db.update_segment_host_mapping_for_agent(
-                context, agent_state['host'], self, agent_state)
+
+        registry.notify(resources.AGENT, event_type, self, context=context,
+                        host=agent_state['host'], plugin=self,
+                        agent=agent_state)
         return status
 
     def create_or_update_agent(self, context, agent):
@@ -425,14 +423,15 @@ class AgentDbMixin(ext_agent.AgentPluginBase, AgentAvailabilityZoneMixin):
                                     filters={'admin_state_up': [True]})
         return filter(self.is_agent_considered_for_versions, up_agents)
 
-    def _get_agents_resource_versions(self, tracker):
+    def get_agents_resource_versions(self, tracker):
         """Get the known agent resource versions and update the tracker.
 
-        Receives a version_manager.ResourceConsumerTracker instance and it's
-        expected to look up in to the database and update every agent resource
-        versions.
+        This function looks up into the database and updates every agent
+        resource versions.
         This method is called from version_manager when the cached information
         has passed TTL.
+
+        :param tracker: receives a version_manager.ResourceConsumerTracker
         """
         for agent in self._get_agents_considered_for_versions():
             resource_versions = agent.get('resource_versions', {})

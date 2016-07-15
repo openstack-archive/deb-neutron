@@ -6,8 +6,13 @@ source $LIBDIR/l2_agent_sriovnicswitch
 source $LIBDIR/ml2
 source $LIBDIR/qos
 source $LIBDIR/ovs
+source $LIBDIR/trunk
 
 Q_BUILD_OVS_FROM_GIT=$(trueorfalse False Q_BUILD_OVS_FROM_GIT)
+
+if [ -f $LIBDIR/${Q_AGENT}_agent ]; then
+    source $LIBDIR/${Q_AGENT}_agent
+fi
 
 if [[ "$1" == "stack" ]]; then
     case "$2" in
@@ -17,6 +22,9 @@ if [[ "$1" == "stack" ]]; then
             fi
             if is_service_enabled q-qos; then
                 configure_qos
+            fi
+            if is_service_enabled q-trunk; then
+                configure_trunk_extension
             fi
             if [[ "$Q_AGENT" == "openvswitch" ]] && \
                [[ "$Q_BUILD_OVS_FROM_GIT" == "True" ]]; then

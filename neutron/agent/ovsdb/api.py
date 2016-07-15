@@ -30,7 +30,7 @@ interface_map = {
 OPTS = [
     cfg.StrOpt('ovsdb_interface',
                choices=interface_map.keys(),
-               default='vsctl',
+               default='native',
                help=_('The interface for interacting with the OVSDB')),
     cfg.StrOpt('ovsdb_connection',
                default='tcp:127.0.0.1:6640',
@@ -258,6 +258,8 @@ class API(object):
         :type table:      string
         :param conditions:The conditions to satisfy the query
         :type conditions: 3-tuples containing (column, operation, match)
+                          Type of 'match' parameter MUST be identical to column
+                          type
                           Examples:
                               atomic: ('tag', '=', 7)
                               map: ('external_ids' '=', {'iface-id': 'xxx'})

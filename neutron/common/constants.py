@@ -43,7 +43,8 @@ SNAT_ROUTER_INTF_KEY = '_snat_router_interfaces'
 HA_NETWORK_NAME = 'HA network tenant %s'
 HA_SUBNET_NAME = 'HA subnet tenant %s'
 HA_PORT_NAME = 'HA port tenant %s'
-MINIMUM_AGENTS_FOR_HA = 2
+MINIMUM_MINIMUM_AGENTS_FOR_HA = 1
+DEFAULT_MINIMUM_AGENTS_FOR_HA = 2
 HA_ROUTER_STATE_ACTIVE = 'active'
 HA_ROUTER_STATE_STANDBY = 'standby'
 
@@ -130,9 +131,6 @@ VALID_DIRECTIONS = (INGRESS_DIRECTION, EGRESS_DIRECTION)
 VALID_ETHERTYPES = (lib_constants.IPv4, lib_constants.IPv6)
 
 IP_ALLOWED_VERSIONS = [lib_constants.IP_VERSION_4, lib_constants.IP_VERSION_6]
-
-IPV4_MAX_PREFIXLEN = 32
-IPV6_MAX_PREFIXLEN = 128
 
 # Some components communicate using private address ranges, define
 # them all here. These address ranges should not cause any issues

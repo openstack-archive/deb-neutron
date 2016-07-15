@@ -13,19 +13,23 @@
 #    under the License.
 
 import functools
+import netaddr
 
+from neutron_lib import constants
 from oslo_utils import uuidutils
 
 from neutron.agent.l3 import agent as l3_agent
 from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
-from neutron.agent.linux import utils
 from neutron.common import utils as common_utils
 from neutron.tests.common.exclusive_resources import ip_network
 from neutron.tests.common import machine_fixtures
 from neutron.tests.fullstack import base
 from neutron.tests.fullstack.resources import environment
 from neutron.tests.fullstack.resources import machine
+from neutron.tests.unit import testlib_api
+
+load_tests = testlib_api.module_load_tests
 
 
 class TestL3Agent(base.BaseFullStackTestCase):
@@ -45,21 +49,26 @@ class TestL3Agent(base.BaseFullStackTestCase):
         def is_port_status_active():
             port = self.client.show_port(port_id)
             return port['port']['status'] == 'ACTIVE'
-        utils.wait_until_true(lambda: is_port_status_active(), sleep=1)
+        common_utils.wait_until_true(lambda: is_port_status_active(), sleep=1)
 
-    def _create_net_subnet_and_vm(self, tenant_id, cidr, host, router):
+    def _create_net_subnet_and_vm(self, tenant_id, subnet_cidrs, host, router):
         network = self.safe_client.create_network(tenant_id)
-        subnet = self.safe_client.create_subnet(
-            tenant_id, network['id'], cidr, enable_dhcp=False)
+        for cidr in subnet_cidrs:
+            # For IPv6 subnets, enable_dhcp should be set to true.
+            enable_dhcp = (netaddr.IPNetwork(cidr).version ==
+                constants.IP_VERSION_6)
+            subnet = self.safe_client.create_subnet(
+                tenant_id, network['id'], cidr, enable_dhcp=enable_dhcp)
+
+            router_interface_info = self.safe_client.add_router_interface(
+                router['id'], subnet['id'])
+            self.block_until_port_status_active(
+                router_interface_info['port_id'])
 
         vm = self.useFixture(
             machine.FakeFullstackMachine(
                 host, network['id'], tenant_id, self.safe_client))
         vm.block_until_boot()
-
-        router_interface_info = self.safe_client.add_router_interface(
-            router['id'], subnet['id'])
-        self.block_until_port_status_active(router_interface_info['port_id'])
         return vm
 
 
@@ -80,7 +89,7 @@ class TestLegacyL3Agent(TestL3Agent):
 
     def _assert_namespace_exists(self, ns_name):
         ip = ip_lib.IPWrapper(ns_name)
-        utils.wait_until_true(lambda: ip.netns.exists(ns_name))
+        common_utils.wait_until_true(lambda: ip.netns.exists(ns_name))
 
     def test_namespace_exists(self):
         tenant_id = uuidutils.generate_uuid()
@@ -101,13 +110,15 @@ class TestLegacyL3Agent(TestL3Agent):
         router = self.safe_client.create_router(tenant_id)
 
         vm1 = self._create_net_subnet_and_vm(
-            tenant_id, '20.0.0.0/24',
+            tenant_id, ['20.0.0.0/24', '2001:db8:aaaa::/64'],
             self.environment.hosts[0], router)
         vm2 = self._create_net_subnet_and_vm(
-            tenant_id, '21.0.0.0/24',
+            tenant_id, ['21.0.0.0/24', '2001:db8:bbbb::/64'],
             self.environment.hosts[1], router)
 
         vm1.block_until_ping(vm2.ip)
+        # Verify ping6 from vm2 to vm1 IPv6 Address
+        vm2.block_until_ping(vm1.ipv6)
 
     def test_snat_and_floatingip(self):
         # This function creates external network and boots an extrenal vm
@@ -125,7 +136,7 @@ class TestLegacyL3Agent(TestL3Agent):
         router = self.safe_client.create_router(tenant_id,
                                                 external_network=ext_net['id'])
         vm = self._create_net_subnet_and_vm(
-            tenant_id, '20.0.0.0/24',
+            tenant_id, ['20.0.0.0/24'],
             self.environment.hosts[1], router)
 
         # ping external vm to test snat
@@ -164,7 +175,7 @@ class TestHAL3Agent(base.BaseFullStackTestCase):
         self.assertEqual(2, len(agents['agents']),
                          'HA router must be scheduled to both nodes')
 
-        utils.wait_until_true(
+        common_utils.wait_until_true(
             functools.partial(
                 self._is_ha_router_active_on_one_agent,
                 router['id']),

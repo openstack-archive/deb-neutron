@@ -14,9 +14,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+
 from oslo_config import cfg
 
 from neutron._i18n import _
+
 
 DHCP_AGENT_OPTS = [
     cfg.IntOpt('resync_interval', default=5,
@@ -78,9 +80,9 @@ DNSMASQ_OPTS = [
                help=_('Override the default dnsmasq settings '
                       'with this file.')),
     cfg.ListOpt('dnsmasq_dns_servers',
+                default=[],
                 help=_('Comma-separated list of the DNS servers which will be '
-                       'used as forwarders.'),
-                deprecated_name='dnsmasq_dns_server'),
+                       'used as forwarders.')),
     cfg.StrOpt('dnsmasq_base_log_dir',
                help=_("Base log dir for dnsmasq logging. "
                       "The log contains DHCP and DNS log information and "
@@ -100,3 +102,9 @@ DNSMASQ_OPTS = [
     cfg.BoolOpt('dhcp_broadcast_reply', default=False,
                 help=_("Use broadcast in DHCP replies.")),
 ]
+
+
+def register_agent_dhcp_opts(cfg=cfg.CONF):
+    cfg.register_opts(DHCP_AGENT_OPTS)
+    cfg.register_opts(DHCP_OPTS)
+    cfg.register_opts(DNSMASQ_OPTS)

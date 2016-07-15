@@ -27,6 +27,7 @@ from neutron._i18n import _, _LE, _LW
 from neutron.common import ipv6_utils
 from neutron.db import ipam_backend_mixin
 from neutron.db import models_v2
+from neutron.extensions import portbindings
 from neutron.ipam import driver
 from neutron.ipam import exceptions as ipam_exc
 from neutron.ipam import requests as ipam_req
@@ -188,8 +189,9 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         a subnet_id then allocate an IP address accordingly.
         """
         p = port['port']
-        subnets = self._ipam_get_subnets(
-            context, network_id=p['network_id'], segment_id=None)
+        subnets = self._ipam_get_subnets(context,
+                                         network_id=p['network_id'],
+                                         host=p.get(portbindings.HOST_ID))
 
         v4, v6_stateful, v6_stateless = self._classify_subnets(
             context, subnets)
@@ -261,7 +263,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         self._validate_max_ips_per_port(fixed_ip_list, device_owner)
         return fixed_ip_list
 
-    def _update_ips_for_port(self, context, port,
+    def _update_ips_for_port(self, context, port, host,
                              original_ips, new_ips, mac):
         """Add or remove IPs from the port. IPAM version"""
         added = []
@@ -269,7 +271,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         changes = self._get_changed_ips_for_port(
             context, original_ips, new_ips, port['device_owner'])
         subnets = self._ipam_get_subnets(
-            context, network_id=port['network_id'], segment_id=None)
+            context, network_id=port['network_id'], host=host)
         # Check if the IP's to add are OK
         to_add = self._test_fixed_ips_for_port(
             context, port['network_id'], changes.add,
@@ -299,7 +301,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                                                  last_ip=last_ip)
             context.session.add(ip_pool)
 
-    def update_port_with_ips(self, context, db_port, new_port, new_mac):
+    def update_port_with_ips(self, context, host, db_port, new_port, new_mac):
         changes = self.Changes(add=[], original=[], remove=[])
 
         if 'fixed_ips' in new_port:
@@ -307,19 +309,25 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                                             process_extensions=False)
             changes = self._update_ips_for_port(context,
                                                 db_port,
+                                                host,
                                                 original["fixed_ips"],
                                                 new_port['fixed_ips'],
                                                 new_mac)
         try:
+            # Expire the fixed_ips of db_port in current transaction, because
+            # it will be changed in the following operation and the latest
+            # data is expected.
+            context.session.expire(db_port, ['fixed_ips'])
+
             # Check if the IPs need to be updated
             network_id = db_port['network_id']
+            for ip in changes.remove:
+                self._delete_ip_allocation(context, network_id,
+                                           ip['subnet_id'], ip['ip_address'])
             for ip in changes.add:
                 self._store_ip_allocation(
                     context, ip['ip_address'], network_id,
                     ip['subnet_id'], db_port.id)
-            for ip in changes.remove:
-                self._delete_ip_allocation(context, network_id,
-                                           ip['subnet_id'], ip['ip_address'])
             self._update_db_port(context, db_port, new_port, network_id,
                                  new_mac)
         except Exception:
@@ -419,7 +427,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         subnetpool = None
 
         if subnetpool_id and not subnetpool_id == constants.IPV6_PD_POOL_ID:
-            subnetpool = self._get_subnetpool(context, subnetpool_id)
+            subnetpool = self._get_subnetpool(context, id=subnetpool_id)
             self._validate_ip_version_with_subnetpool(subnet, subnetpool)
 
         # gateway_ip and allocation pools should be validated or generated
@@ -458,5 +466,7 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
             with excutils.save_and_reraise_exception():
                 LOG.debug("An exception occurred during subnet creation. "
                           "Reverting subnet allocation.")
-                self.delete_subnet(context, subnet_request.subnet_id)
+                self._safe_rollback(self.delete_subnet,
+                                    context,
+                                    subnet_request.subnet_id)
         return subnet, ipam_subnet

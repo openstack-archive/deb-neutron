@@ -277,6 +277,10 @@ class DhcpAgent(manager.Manager):
                 if self.call_driver('enable', network):
                     dhcp_network_enabled = True
                     self.cache.put(network)
+                    # After enabling dhcp for network, mark all existing
+                    # ports as ready. So that the status of ports which are
+                    # created before enabling dhcp can be updated.
+                    self.dhcp_ready_ports |= {p.id for p in network.ports}
                 break
 
         if enable_metadata and dhcp_network_enabled:
@@ -322,8 +326,8 @@ class DhcpAgent(manager.Manager):
             return
         # NOTE(kevinbenton): we don't exclude dhcp disabled subnets because
         # they still change the indexes used for tags
-        old_cidrs = [s.cidr for s in network.subnets]
-        new_cidrs = [s.cidr for s in old_network.subnets]
+        old_cidrs = [s.cidr for s in old_network.subnets]
+        new_cidrs = [s.cidr for s in network.subnets]
         if old_cidrs == new_cidrs:
             self.call_driver('reload_allocations', network)
             self.cache.put(network)

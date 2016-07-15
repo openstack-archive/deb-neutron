@@ -14,14 +14,8 @@
 
 import eventlet
 import mock
-import unittest2
-
-try:
-    from ovs.db import idl
-    from ovs import poller
-except ImportError:
-    raise unittest2.SkipTest(
-        "Skip test since ovs requirement for PY3 doesn't support yet.")
+from ovs.db import idl
+from ovs import poller
 
 from neutron.agent.ovsdb.native import connection
 from neutron.agent.ovsdb.native import idlutils
@@ -42,7 +36,8 @@ class TestOVSNativeConnection(base.BaseTestCase):
         gsh.return_value = helper = mock.Mock()
         self.connection = connection.Connection(
             mock.Mock(), mock.Mock(), mock.Mock())
-        with mock.patch.object(poller, 'Poller') as poller_mock:
+        with mock.patch.object(poller, 'Poller') as poller_mock,\
+                mock.patch('threading.Thread'):
             poller_mock.return_value.block.side_effect = eventlet.sleep
             self.connection.start(table_name_list=table_name_list)
         reg_all_called = table_name_list is None

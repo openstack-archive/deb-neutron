@@ -14,7 +14,6 @@
 #    under the License.
 
 import netaddr
-from oslo_log import log
 from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import fields as obj_fields
 
@@ -22,8 +21,6 @@ from neutron.db import api as db_api
 from neutron.db import models_v2 as models
 from neutron.objects import base
 from neutron.objects import common_types
-
-LOG = log.getLogger(__name__)
 
 
 @obj_base.VersionedObjectRegistry.register
@@ -35,7 +32,7 @@ class SubnetPool(base.NeutronDbObject):
 
     fields = {
         'id': obj_fields.UUIDField(),
-        'tenant_id': obj_fields.UUIDField(nullable=True),
+        'tenant_id': obj_fields.StringField(nullable=True),
         'name': obj_fields.StringField(nullable=True),
         'ip_version': common_types.IPVersionEnumField(),
         'default_prefixlen': common_types.IPNetworkPrefixLenField(),
@@ -63,12 +60,13 @@ class SubnetPool(base.NeutronDbObject):
             ]
         return fields
 
-    def modify_fields_to_db(self, fields):
-        result = super(SubnetPool, self).modify_fields_to_db(fields)
+    @classmethod
+    def modify_fields_to_db(cls, fields):
+        result = super(SubnetPool, cls).modify_fields_to_db(fields)
         if 'prefixes' in result:
             result['prefixes'] = [
                 models.SubnetPoolPrefix(cidr=str(prefix),
-                                        subnetpool_id=self.id)
+                                        subnetpool_id=result['id'])
                 for prefix in result['prefixes']
             ]
         return result
@@ -77,7 +75,7 @@ class SubnetPool(base.NeutronDbObject):
         prefixes = [
             obj.cidr
             for obj in SubnetPoolPrefix.get_objects(
-                self._context,
+                self.obj_context,
                 subnetpool_id=self.id)
         ]
         setattr(self, 'prefixes', prefixes)
@@ -109,28 +107,28 @@ class SubnetPool(base.NeutronDbObject):
     # TODO(ihrachys): Consider extending base to trigger registered methods
     def create(self):
         synthetic_changes = self._get_changed_synthetic_fields()
-        with db_api.autonested_transaction(self._context.session):
+        with db_api.autonested_transaction(self.obj_context.session):
             super(SubnetPool, self).create()
             if 'prefixes' in synthetic_changes:
                 for prefix in self.prefixes:
                     prefix = SubnetPoolPrefix(
-                        self._context, subnetpool_id=self.id, cidr=prefix)
+                        self.obj_context, subnetpool_id=self.id, cidr=prefix)
                     prefix.create()
             self.reload_prefixes()
 
     # TODO(ihrachys): Consider extending base to trigger registered methods
     def update(self):
-        with db_api.autonested_transaction(self._context.session):
+        with db_api.autonested_transaction(self.obj_context.session):
             synthetic_changes = self._get_changed_synthetic_fields()
             super(SubnetPool, self).update()
             if synthetic_changes:
                 if 'prefixes' in synthetic_changes:
                     old = SubnetPoolPrefix.get_objects(
-                        self._context, subnetpool_id=self.id)
+                        self.obj_context, subnetpool_id=self.id)
                     for prefix in old:
                         prefix.delete()
                     for prefix in self.prefixes:
-                        prefix_obj = SubnetPoolPrefix(self._context,
+                        prefix_obj = SubnetPoolPrefix(self.obj_context,
                                                       subnetpool_id=self.id,
                                                       cidr=prefix)
                         prefix_obj.create()
@@ -152,8 +150,9 @@ class SubnetPoolPrefix(base.NeutronDbObject):
 
     # TODO(ihrachys): get rid of it once we switch the db model to using CIDR
     # custom type
-    def modify_fields_to_db(self, fields):
-        result = super(SubnetPoolPrefix, self).modify_fields_to_db(fields)
+    @classmethod
+    def modify_fields_to_db(cls, fields):
+        result = super(SubnetPoolPrefix, cls).modify_fields_to_db(fields)
         if 'cidr' in result:
             result['cidr'] = str(result['cidr'])
         return result

@@ -261,7 +261,7 @@ class OvsAgentSchedulerTestCaseBase(test_l3.L3NatTestCaseMixin,
         self.patched_l3_notify = self.l3_notify_p.start()
         self.l3_periodic_p = mock.patch('neutron.db.l3_agentschedulers_db.'
                                         'L3AgentSchedulerDbMixin.'
-                                        'start_periodic_l3_agent_status_check')
+                                        'add_periodic_l3_agent_status_check')
         self.patched_l3_periodic = self.l3_periodic_p.start()
         self.dhcp_notify_p = mock.patch(
             'neutron.extensions.dhcpagentscheduler.notify')
@@ -927,23 +927,6 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
         self.assertEqual(2, num_hostb_routers)
         self.assertEqual(0, num_hosta_routers)
 
-    def test_router_auto_schedule_with_candidates(self):
-        with self.router() as router1, self.router() as router2:
-            l3_rpc_cb = l3_rpc.L3RpcCallback()
-            agent = helpers.register_l3_agent(
-                host=L3_HOSTA, router_id=router1['router']['id'])
-            l3_rpc_cb.get_router_ids(self.adminContext, host=L3_HOSTA)
-            hosta_routers = self._list_routers_hosted_by_l3_agent(agent.id)
-            num_hosta_routers = len(hosta_routers['routers'])
-            l3_agents_1 = self._list_l3_agents_hosting_router(
-                router1['router']['id'])
-            l3_agents_2 = self._list_l3_agents_hosting_router(
-                router2['router']['id'])
-        # L3 agent will host only the compatible router.
-        self.assertEqual(1, num_hosta_routers)
-        self.assertEqual(1, len(l3_agents_1['agents']))
-        self.assertEqual(0, len(l3_agents_2['agents']))
-
     def test_rpc_sync_routers(self):
         l3_rpc_cb = l3_rpc.L3RpcCallback()
         self._register_agent_states()
@@ -983,75 +966,41 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
             self.assertIn(router_ids[0], [r['id'] for r in ret_a])
             self.assertIn(router_ids[2], [r['id'] for r in ret_a])
 
-    def test_router_auto_schedule_for_specified_routers(self):
-
-        def _sync_router_with_ids(router_ids, exp_synced, exp_hosted, host_id):
-            ret_a = l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA,
-                                           router_ids=router_ids)
-            self.assertEqual(exp_synced, len(ret_a))
-            for r in router_ids:
-                self.assertIn(r, [r['id'] for r in ret_a])
-            host_routers = self._list_routers_hosted_by_l3_agent(host_id)
-            num_host_routers = len(host_routers['routers'])
-            self.assertEqual(exp_hosted, num_host_routers)
-
+    def test_sync_router(self):
         l3_rpc_cb = l3_rpc.L3RpcCallback()
         self._register_agent_states()
         hosta_id = self._get_agent_id(constants.AGENT_TYPE_L3, L3_HOSTA)
 
-        with self.router() as v1,\
-                self.router() as v2,\
-                self.router() as v3,\
-                self.router() as v4:
-            routers = (v1, v2, v3, v4)
-            router_ids = [r['router']['id'] for r in routers]
-            # Sync router1 (router1 is scheduled)
-            _sync_router_with_ids([router_ids[0]], 1, 1, hosta_id)
-            # Sync router1 only (no router is scheduled)
-            _sync_router_with_ids([router_ids[0]], 1, 1, hosta_id)
-            # Schedule router2
-            _sync_router_with_ids([router_ids[1]], 1, 2, hosta_id)
-            # Sync router2 and router4 (router4 is scheduled)
-            _sync_router_with_ids([router_ids[1], router_ids[3]],
-                                  2, 3, hosta_id)
-            # Sync all routers (router3 is scheduled)
-            _sync_router_with_ids(router_ids, 4, 4, hosta_id)
+        with self.router() as r1:
+            ret_a = l3_rpc_cb.sync_routers(self.adminContext, host=L3_HOSTA,
+                                           router_ids=[r1['router']['id']])
+            # Not return router to agent if the router is not bound to it.
+            self.assertEqual([], ret_a)
+            host_routers = self._list_routers_hosted_by_l3_agent(hosta_id)
+            # No router will be auto scheduled.
+            self.assertEqual(0, len(host_routers['routers']))
 
-    def test_router_schedule_with_candidates(self):
-        with self.router() as router1,\
-                self.router() as router2,\
-                self.subnet() as subnet1,\
-                self.subnet(cidr='10.0.3.0/24') as subnet2:
-            agent = helpers.register_l3_agent(
-                host=L3_HOSTA, router_id=router1['router']['id'])
-            self._router_interface_action('add',
-                                          router1['router']['id'],
-                                          subnet1['subnet']['id'],
-                                          None)
-            self._router_interface_action('add',
-                                          router2['router']['id'],
-                                          subnet2['subnet']['id'],
-                                          None)
-            hosta_routers = self._list_routers_hosted_by_l3_agent(agent.id)
-            num_hosta_routers = len(hosta_routers['routers'])
-            l3_agents_1 = self._list_l3_agents_hosting_router(
-                router1['router']['id'])
-            l3_agents_2 = self._list_l3_agents_hosting_router(
-                router2['router']['id'])
-            # safe cleanup
-            self._router_interface_action('remove',
-                                          router1['router']['id'],
-                                          subnet1['subnet']['id'],
-                                          None)
-            self._router_interface_action('remove',
-                                          router2['router']['id'],
-                                          subnet2['subnet']['id'],
-                                          None)
+    def test_sync_dvr_router(self):
+        l3_rpc_cb = l3_rpc.L3RpcCallback()
+        dvr_agents = self._register_dvr_agents()
 
-        # L3 agent will host only the compatible router.
-        self.assertEqual(1, num_hosta_routers)
-        self.assertEqual(1, len(l3_agents_1['agents']))
-        self.assertEqual(0, len(l3_agents_2['agents']))
+        with self.router() as r1, \
+                mock.patch.object(self.l3plugin, 'get_subnet_ids_on_router',
+                                  return_value=['fake_subnet_id']), \
+                mock.patch.object(self.l3plugin,
+                                  '_check_dvr_serviceable_ports_on_host',
+                                  return_value=True):
+            for l3_agent in dvr_agents:
+                host = l3_agent['host']
+                ret_a = l3_rpc_cb.sync_routers(self.adminContext, host=host,
+                                               router_ids=[r1['router']['id']])
+                router_ids = [r['id'] for r in ret_a]
+                # Return router to agent if there is dvr service port in agent.
+                self.assertIn(r1['router']['id'], router_ids)
+                host_routers = self._list_routers_hosted_by_l3_agent(
+                    l3_agent['id'])
+                # No router will be auto scheduled.
+                self.assertEqual(0, len(host_routers['routers']))
 
     def test_router_without_l3_agents(self):
         with self.subnet() as s:
@@ -1464,17 +1413,16 @@ class OvsDhcpAgentNotifierTestCase(test_agent.AgentDBTestMixIn,
             self.assertIn(expected, self.dhcp_notifier_cast.call_args_list)
 
     def _is_schedule_network_called(self, device_id):
+        dhcp_notifier_schedule = mock.patch(
+            'neutron.api.rpc.agentnotifiers.dhcp_rpc_agent_api.'
+            'DhcpAgentNotifyAPI._schedule_network').start()
         plugin = manager.NeutronManager.get_plugin()
-        notifier = plugin.agent_notifiers[constants.AGENT_TYPE_DHCP]
         with self.subnet() as subnet,\
+                self.port(subnet=subnet, device_id=device_id),\
                 mock.patch.object(plugin,
                                   'get_dhcp_agents_hosting_networks',
-                                  return_value=[]),\
-                mock.patch.object(notifier,
-                                  '_schedule_network',
-                                  return_value=[]) as mock_sched:
-            with self.port(subnet=subnet, device_id=device_id):
-                return mock_sched.called
+                                  return_value=[]):
+                    return dhcp_notifier_schedule.call_count > 1
 
     def test_reserved_dhcp_port_creation(self):
         device_id = n_const.DEVICE_ID_RESERVED_DHCP_PORT

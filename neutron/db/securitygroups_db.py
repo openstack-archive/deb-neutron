@@ -15,7 +15,6 @@
 import netaddr
 from neutron_lib.api import validators
 from neutron_lib import constants
-from oslo_db import exception as db_exc
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 import sqlalchemy as sa
@@ -548,7 +547,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
         include_if_present = ['protocol', 'port_range_max', 'port_range_min',
                               'ethertype', 'remote_ip_prefix',
-                              'remote_group_id', 'description']
+                              'remote_group_id']
         for key in include_if_present:
             value = sgr.get(key)
             if value:
@@ -583,7 +582,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         # Check in database if rule exists
         filters = self._make_security_group_rule_filter_dict(
             security_group_rule)
-        keys = security_group_rule['security_group_rule'].keys()
+        rule_dict = security_group_rule['security_group_rule'].copy()
+        rule_dict.pop('description', None)
+        keys = rule_dict.keys()
         fields = list(keys) + ['id']
         db_rules = self.get_security_group_rules(context, filters,
                                                  fields=fields)
@@ -596,7 +597,6 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         # is changed which cannot be because other methods are already
         # relying on this behavior. Therefore, we do the filtering
         # below to check for these corner cases.
-        rule_dict = security_group_rule['security_group_rule'].copy()
         rule_dict.pop('id', None)
         sg_protocol = rule_dict.pop('protocol', None)
         for db_rule in db_rules:
@@ -719,27 +719,14 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             default_group = query.filter_by(tenant_id=tenant_id).one()
             return default_group['security_group_id']
         except exc.NoResultFound:
-            return self._create_default_security_group(context, tenant_id)
-
-    def _create_default_security_group(self, context, tenant_id):
-        security_group = {
-            'security_group':
-                {'name': 'default',
-                 'tenant_id': tenant_id,
-                 'description': _('Default security group')}
-        }
-        try:
-            security_group = self.create_security_group(
-                context, security_group, default_sg=True)
-            return security_group['id']
-        except db_exc.DBDuplicateEntry as ex:
-            # default security group was created concurrently
-            LOG.debug("Duplicate default security group %s was "
-                      "not created", ex.value)
-            # raise a retry request to restart the whole process since
-            # we could be in a REPEATABLE READ isolation level and won't
-            # be able to see the SG group in this transaction.
-            raise db_exc.RetryRequest(ex)
+            security_group = {
+                'security_group':
+                    {'name': 'default',
+                     'tenant_id': tenant_id,
+                     'description': _('Default security group')}
+            }
+            return self.create_security_group(
+                context, security_group, default_sg=True)['id']
 
     def _get_security_groups_on_port(self, context, port):
         """Check that all security groups on port belong to tenant.

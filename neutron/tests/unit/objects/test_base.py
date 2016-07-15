@@ -12,6 +12,7 @@
 
 import collections
 import copy
+import itertools
 import random
 
 import mock
@@ -22,10 +23,13 @@ from oslo_utils import uuidutils
 from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import fields as obj_fields
 from oslo_versionedobjects import fixture
+import testtools
 
 from neutron.common import constants
 from neutron.common import utils as common_utils
 from neutron import context
+from neutron.db import db_base_plugin_v2
+from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.objects import base
 from neutron.objects import common_types
@@ -38,7 +42,7 @@ from neutron.tests import tools
 SQLALCHEMY_COMMIT = 'sqlalchemy.engine.Connection._commit_impl'
 OBJECTS_BASE_OBJ_FROM_PRIMITIVE = ('oslo_versionedobjects.base.'
                                    'VersionedObject.obj_from_primitive')
-TIMESTAMP_FIELDS = ['created_at', 'updated_at']
+TIMESTAMP_FIELDS = ['created_at', 'updated_at', 'revision_number']
 
 
 class FakeModel(object):
@@ -140,6 +144,28 @@ class FakeNeutronObjectCompositePrimaryKey(base.NeutronDbObject):
         'field1': obj_fields.StringField(),
         'obj_field': obj_fields.ListOfObjectsField(
             'FakeWeirdKeySmallNeutronObject')
+    }
+
+    synthetic_fields = ['obj_field']
+
+
+@obj_base.VersionedObjectRegistry.register_if(False)
+class FakeNeutronObjectUniqueKey(base.NeutronDbObject):
+    # Version 1.0: Initial version
+    VERSION = '1.0'
+
+    db_model = FakeModel
+
+    primary_keys = ['id', 'id2']
+    unique_keys = [['unique_key'], ['id2']]
+
+    fields = {
+        'id': obj_fields.UUIDField(),
+        'id2': obj_fields.UUIDField(),
+        'unique_key': obj_fields.StringField(),
+        'field1': obj_fields.StringField(),
+        'obj_field': obj_fields.ObjectField('FakeSmallNeutronObject',
+                                            nullable=True)
     }
 
     synthetic_fields = ['obj_field']
@@ -273,8 +299,13 @@ class _BaseObjectTestCase(object):
 
     _test_class = FakeNeutronObject
 
+    CORE_PLUGIN = 'neutron.db.db_base_plugin_v2.NeutronDbPluginV2'
+
     def setUp(self):
         super(_BaseObjectTestCase, self).setUp()
+        # TODO(ihrachys): revisit plugin setup once we decouple
+        # neutron.objects.db.api from core plugin instance
+        self.setup_coreplugin(self.CORE_PLUGIN)
         self.context = context.get_admin_context()
         self.db_objs = list(self.get_random_fields() for _ in range(3))
         self.db_obj = self.db_objs[0]
@@ -305,16 +336,17 @@ class _BaseObjectTestCase(object):
             if field not in obj_cls.synthetic_fields:
                 generator = FIELD_TYPE_VALUE_GENERATOR_MAP[type(field_obj)]
                 fields[field] = get_value(generator, ip_version)
-        obj = obj_cls(None, **fields)
-        return obj.modify_fields_to_db(fields)
+        return obj_cls.modify_fields_to_db(fields)
 
     @classmethod
-    def generate_object_keys(cls, obj_cls):
+    def generate_object_keys(cls, obj_cls, field_names=None):
+        if field_names is None:
+            field_names = obj_cls.primary_keys
         keys = {}
-        for field, field_obj in obj_cls.fields.items():
-            if field in obj_cls.primary_keys:
-                generator = FIELD_TYPE_VALUE_GENERATOR_MAP[type(field_obj)]
-                keys[field] = generator()
+        for field in field_names:
+            field_obj = obj_cls.fields[field]
+            generator = FIELD_TYPE_VALUE_GENERATOR_MAP[type(field_obj)]
+            keys[field] = generator()
         return keys
 
     def get_updatable_fields(self, fields):
@@ -334,6 +366,7 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
         super(BaseObjectIfaceTestCase, self).setUp()
         self.model_map = collections.defaultdict(list)
         self.model_map[self._test_class.db_model] = self.db_objs
+        self.pager_map = collections.defaultdict(lambda: None)
 
     def test_get_object(self):
         with mock.patch.object(obj_db_api, 'get_object',
@@ -345,7 +378,8 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
                 self.assertTrue(self._is_test_class(obj))
                 self.assertEqual(self.obj_fields[0], get_obj_db_fields(obj))
                 get_object_mock.assert_called_once_with(
-                    self.context, self._test_class.db_model, **obj_keys)
+                    self.context, self._test_class.db_model,
+                    **self._test_class.modify_fields_to_db(obj_keys))
 
     def test_get_object_missing_object(self):
         with mock.patch.object(obj_db_api, 'get_object', return_value=None):
@@ -354,11 +388,37 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
             self.assertIsNone(obj)
 
     def test_get_object_missing_primary_key(self):
-        obj_keys = self.generate_object_keys(self._test_class)
-        obj_keys.popitem()
+        non_unique_fields = (set(self._test_class.fields.keys()) -
+                             set(self._test_class.primary_keys) -
+                             set(itertools.chain.from_iterable(
+                                 self._test_class.unique_keys)))
+        obj_keys = self.generate_object_keys(self._test_class,
+                                             non_unique_fields)
         self.assertRaises(base.NeutronPrimaryKeyMissing,
                           self._test_class.get_object,
                           self.context, **obj_keys)
+
+    def test_get_object_unique_key(self):
+        if not self._test_class.unique_keys:
+            self.skipTest('No unique keys found in test class %r' %
+                          self._test_class)
+
+        for unique_keys in self._test_class.unique_keys:
+            with mock.patch.object(obj_db_api, 'get_object',
+                                   return_value=self.db_obj) \
+                    as get_object_mock:
+                with mock.patch.object(obj_db_api, 'get_objects',
+                                       side_effect=self.fake_get_objects):
+                    obj_keys = self.generate_object_keys(self._test_class,
+                                                         unique_keys)
+                    obj = self._test_class.get_object(self.context,
+                                                      **obj_keys)
+                    self.assertTrue(self._is_test_class(obj))
+                    self.assertEqual(self.obj_fields[0],
+                                     get_obj_db_fields(obj))
+                    get_object_mock.assert_called_once_with(
+                        self.context, self._test_class.db_model,
+                        **self._test_class.modify_fields_to_db(obj_keys))
 
     def _get_synthetic_fields_get_objects_calls(self, db_objs):
         mock_calls = []
@@ -371,6 +431,7 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
                     mock_calls.append(
                         mock.call(
                             self.context, obj_class.db_model,
+                            _pager=self.pager_map[obj_class.obj_name()],
                             **{k: db_obj[v]
                             for k, v in obj_class.foreign_keys.items()}))
         return mock_calls
@@ -381,7 +442,10 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
                 side_effect=self.fake_get_objects) as get_objects_mock:
             objs = self._test_class.get_objects(self.context)
             self._validate_objects(self.db_objs, objs)
-        mock_calls = [mock.call(self.context, self._test_class.db_model)]
+        mock_calls = [
+            mock.call(self.context, self._test_class.db_model,
+                      _pager=self.pager_map[self._test_class.obj_name()])
+        ]
         mock_calls.extend(self._get_synthetic_fields_get_objects_calls(
             self.db_objs))
         get_objects_mock.assert_has_calls(mock_calls)
@@ -394,9 +458,13 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
             objs = self._test_class.get_objects(self.context,
                                                 **self.valid_field_filter)
             self._validate_objects(self.db_objs, objs)
-
-        mock_calls = [mock.call(self.context, self._test_class.db_model,
-                      **self.valid_field_filter)]
+        mock_calls = [
+            mock.call(
+                self.context, self._test_class.db_model,
+                _pager=self.pager_map[self._test_class.obj_name()],
+                **self._test_class.modify_fields_to_db(self.valid_field_filter)
+            )
+        ]
         mock_calls.extend(self._get_synthetic_fields_get_objects_calls(
             [self.db_obj]))
         get_objects_mock.assert_has_calls(mock_calls)
@@ -510,7 +578,8 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
 
     @mock.patch.object(obj_db_api, 'update_object')
     def test_update_changes(self, update_mock):
-        fields_to_update = self.get_updatable_fields(self.db_obj)
+        fields_to_update = self.get_updatable_fields(
+            self._test_class.modify_fields_from_db(self.db_obj))
         if not fields_to_update:
             self.skipTest('No updatable fields found in test class %r' %
                           self._test_class)
@@ -523,13 +592,15 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
                 obj = self._test_class(self.context, **self.obj_fields[0])
                 # get new values and fix keys
                 update_mock.return_value = self.db_objs[1].copy()
-                for key, value in obj._get_composite_keys().items():
+                fixed_keys = self._test_class.modify_fields_to_db(
+                    obj._get_composite_keys())
+                for key, value in fixed_keys.items():
                     update_mock.return_value[key] = value
                 obj.update()
                 update_mock.assert_called_once_with(
                     self.context, self._test_class.db_model,
-                    fields_to_update,
-                    **obj._get_composite_keys())
+                    self._test_class.modify_fields_to_db(fields_to_update),
+                    **fixed_keys)
 
     @mock.patch.object(base.NeutronDbObject,
                        '_get_changed_persistent_fields',
@@ -571,7 +642,7 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
         self._check_equal(obj, self.obj_fields[0])
         delete_mock.assert_called_once_with(
             self.context, self._test_class.db_model,
-            **obj._get_composite_keys())
+            **self._test_class.modify_fields_to_db(obj._get_composite_keys()))
 
     @mock.patch(OBJECTS_BASE_OBJ_FROM_PRIMITIVE)
     def test_clean_obj_from_primitive(self, get_prim_m):
@@ -628,6 +699,13 @@ class BaseObjectIfaceTestCase(_BaseObjectTestCase, test_base.BaseTestCase):
                 dict_ = obj.to_dict()
                 self.assertEqual(child_dict, dict_[field])
 
+    def test_get_objects_pager_is_passed_through(self):
+        with mock.patch.object(obj_db_api, 'get_objects') as get_objects:
+            pager = base.Pager()
+            self._test_class.get_objects(self.context, _pager=pager)
+            get_objects.assert_called_once_with(
+                mock.ANY, self._test_class.db_model, _pager=pager)
+
 
 class BaseDbObjectNonStandardPrimaryKeyTestCase(BaseObjectIfaceTestCase):
 
@@ -637,6 +715,42 @@ class BaseDbObjectNonStandardPrimaryKeyTestCase(BaseObjectIfaceTestCase):
 class BaseDbObjectCompositePrimaryKeyTestCase(BaseObjectIfaceTestCase):
 
     _test_class = FakeNeutronObjectCompositePrimaryKey
+
+
+class BaseDbObjectUniqueKeysTestCase(BaseObjectIfaceTestCase):
+
+    _test_class = FakeNeutronObjectUniqueKey
+
+
+class UniqueKeysTestCase(test_base.BaseTestCase):
+
+    def test_class_creation(self):
+        m_get_unique_keys = mock.patch.object(model_base, 'get_unique_keys')
+        with m_get_unique_keys as get_unique_keys:
+            get_unique_keys.return_value = [['field1'],
+                                            ['field2', 'db_field3']]
+
+            @obj_base.VersionedObjectRegistry.register_if(False)
+            class UniqueKeysTestObject(base.NeutronDbObject):
+                # Version 1.0: Initial version
+                VERSION = '1.0'
+
+                db_model = FakeModel
+
+                primary_keys = ['id']
+
+                fields = {
+                    'id': obj_fields.UUIDField(),
+                    'field1': obj_fields.UUIDField(),
+                    'field2': obj_fields.UUIDField(),
+                    'field3': obj_fields.UUIDField(),
+                }
+
+                fields_need_translation = {'field3': 'db_field3'}
+        expected = {('field1',), ('field2', 'field3')}
+        observed = {tuple(sorted(key))
+                    for key in UniqueKeysTestObject.unique_keys}
+        self.assertEqual(expected, observed)
 
 
 class BaseDbObjectCompositePrimaryKeyWithIdTestCase(BaseObjectIfaceTestCase):
@@ -661,6 +775,9 @@ class BaseDbObjectMultipleForeignKeysTestCase(_BaseObjectTestCase,
 
 
 class BaseDbObjectTestCase(_BaseObjectTestCase):
+    def setUp(self):
+        super(BaseDbObjectTestCase, self).setUp()
+        self.useFixture(tools.CommonDbMixinHooksFixture())
 
     def _create_test_network(self):
         # TODO(ihrachys): replace with network.create() once we get an object
@@ -684,18 +801,33 @@ class BaseDbObjectTestCase(_BaseObjectTestCase):
         self._subnet = subnet.Subnet(self.context, **test_subnet)
         self._subnet.create()
 
-    def _create_test_port(self, network):
+    def _create_port(self, **port_attrs):
+        if not hasattr(self, '_mac_address_generator'):
+            self._mac_address_generator = (":".join(["%02x" % i] * 6)
+                                           for i in itertools.count())
+
+        if not hasattr(self, '_port_name_generator'):
+            self._port_name_generator = ("test-port%d" % i
+                                         for i in itertools.count(1))
+
+        attrs = {'tenant_id': 'fake_tenant_id',
+                 'admin_state_up': True,
+                 'status': 'ACTIVE',
+                 'device_id': 'fake_device',
+                 'device_owner': 'fake_owner'}
+        attrs.update(port_attrs)
+
+        if 'name' not in attrs:
+            attrs['name'] = next(self._port_name_generator)
+        if 'mac_address' not in attrs:
+            attrs['mac_address'] = next(self._mac_address_generator)
+
         # TODO(ihrachys): replace with port.create() once we get an object
         # implementation for ports
-        self._port = obj_db_api.create_object(self.context, models_v2.Port,
-                                              {'tenant_id': 'fake_tenant_id',
-                                               'name': 'test-port1',
-                                               'network_id': network['id'],
-                                               'mac_address': 'fake_mac',
-                                               'admin_state_up': True,
-                                               'status': 'ACTIVE',
-                                               'device_id': 'fake_device',
-                                               'device_owner': 'fake_owner'})
+        return obj_db_api.create_object(self.context, models_v2.Port, attrs)
+
+    def _create_test_port(self, network):
+        self._port = self._create_port(network_id=network['id'])
 
     def _make_object(self, fields):
         return self._test_class(
@@ -787,3 +919,71 @@ class BaseDbObjectTestCase(_BaseObjectTestCase):
         obj = self._test_class.get_object(self.context,
                                           **obj._get_composite_keys())
         self.assertEqual(2, mock_commit.call_count)
+
+    def test_get_objects_supports_extra_filtername(self):
+        self.filtered_args = None
+
+        def foo_filter(query, filters):
+            self.filtered_args = filters
+            return query
+
+        self.obj_registry.register(self._test_class)
+        db_base_plugin_v2.NeutronDbPluginV2.register_model_query_hook(
+            self._test_class.db_model,
+            'foo_filter',
+            None,
+            None,
+            foo_filter)
+        base.register_filter_hook_on_model(self._test_class.db_model, 'foo')
+
+        self._test_class.get_objects(self.context, foo=42)
+        self.assertEqual({'foo': [42]}, self.filtered_args)
+
+
+class UniqueObjectBase(test_base.BaseTestCase):
+    def setUp(self):
+        super(UniqueObjectBase, self).setUp()
+        obj_registry = self.useFixture(
+            fixture.VersionedObjectRegistryFixture())
+        self.db_model = FakeModel
+
+        class RegisteredObject(base.NeutronDbObject):
+            db_model = self.db_model
+
+        self.registered_object = RegisteredObject
+        obj_registry.register(self.registered_object)
+
+
+class GetObjectClassByModelTestCase(UniqueObjectBase):
+    def setUp(self):
+        super(GetObjectClassByModelTestCase, self).setUp()
+        self.not_registered_object = FakeSmallNeutronObject
+
+    def test_object_found_by_model(self):
+        found_obj = base.get_object_class_by_model(
+            self.registered_object.db_model)
+        self.assertIs(self.registered_object, found_obj)
+
+    def test_not_registed_object_raises_exception(self):
+        with testtools.ExpectedException(base.NeutronDbObjectNotFoundByModel):
+            base.get_object_class_by_model(self.not_registered_object.db_model)
+
+
+class RegisterFilterHookOnModelTestCase(UniqueObjectBase):
+    def test_filtername_is_added(self):
+        filter_name = 'foo'
+        self.assertNotIn(
+            filter_name, self.registered_object.extra_filter_names)
+        base.register_filter_hook_on_model(
+            FakeNeutronObject.db_model, filter_name)
+        self.assertIn(filter_name, self.registered_object.extra_filter_names)
+
+
+class PagerTestCase(test_base.BaseTestCase):
+    def test_comparison(self):
+        pager = base.Pager(sorts=[('order', True)])
+        pager2 = base.Pager(sorts=[('order', True)])
+        self.assertEqual(pager, pager2)
+
+        pager3 = base.Pager()
+        self.assertNotEqual(pager, pager3)

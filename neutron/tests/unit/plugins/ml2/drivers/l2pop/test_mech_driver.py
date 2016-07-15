@@ -920,9 +920,11 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
 
         with mock.patch.object(l2pop_db, 'get_agent_ip',
                                side_effect=agent_ip_side_effect),\
-                mock.patch.object(l2pop_db, 'get_nondvr_active_network_ports',
+                mock.patch.object(l2pop_db,
+                                  'get_nondistributed_active_network_ports',
                                   return_value=fdb_network_ports),\
-                mock.patch.object(l2pop_db, 'get_dvr_active_network_ports',
+                mock.patch.object(l2pop_db,
+                                  'get_distributed_active_network_ports',
                                   return_value=tunnel_network_ports):
             session = mock.Mock()
             agent = mock.Mock()
@@ -982,7 +984,8 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
         original_port = port.copy()
         original_port['mac_address'] = u'12:34:56:78:4b:0f'
 
-        with mock.patch.object(driver_context.db, 'get_network_segments'):
+        with mock.patch.object(driver_context.segments_db,
+                               'get_network_segments'):
             ctx = driver_context.PortContext(mock.Mock(),
                                              mock.Mock(),
                                              port,

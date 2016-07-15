@@ -17,9 +17,7 @@ import collections
 import copy
 
 import netaddr
-from neutron_lib import constants
 from neutron_lib import exceptions
-from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_policy import policy as oslo_policy
 from oslo_utils import excutils
@@ -28,9 +26,10 @@ import webob.exc
 
 from neutron._i18n import _, _LE, _LI
 from neutron.api import api_common
-from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.v2 import attributes
 from neutron.api.v2 import resource as wsgi_resource
+from neutron.callbacks import events
+from neutron.callbacks import registry
 from neutron.common import constants as n_const
 from neutron.common import exceptions as n_exc
 from neutron.common import rpc as n_rpc
@@ -68,6 +67,10 @@ class Controller(object):
     def resource(self):
         return self._resource
 
+    @property
+    def attr_info(self):
+        return self._attr_info
+
     def __init__(self, plugin, collection, resource, attr_info,
                  allow_bulk=False, member_actions=None, parent=None,
                  allow_pagination=False, allow_sorting=False):
@@ -86,15 +89,6 @@ class Controller(object):
         self._policy_attrs = [name for (name, info) in self._attr_info.items()
                               if info.get('required_by_policy')]
         self._notifier = n_rpc.get_notifier('network')
-        # use plugin's dhcp notifier, if this is already instantiated
-        agent_notifiers = getattr(plugin, 'agent_notifiers', {})
-        self._dhcp_agent_notifier = (
-            agent_notifiers.get(constants.AGENT_TYPE_DHCP) or
-            dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
-        )
-        if cfg.CONF.notify_nova_on_port_data_changes:
-            from neutron.notifiers import nova
-            self._nova_notifier = nova.Notifier()
         self._member_actions = member_actions
         self._primary_key = self._get_primary_key()
         if self._allow_pagination and self._native_pagination:
@@ -329,19 +323,6 @@ class Controller(object):
                            pluralized=self._collection)
         return obj
 
-    def _send_dhcp_notification(self, context, data, methodname):
-        if cfg.CONF.dhcp_agent_notification:
-            if self._collection in data:
-                for body in data[self._collection]:
-                    item = {self._resource: body}
-                    self._dhcp_agent_notifier.notify(context, item, methodname)
-            else:
-                self._dhcp_agent_notifier.notify(context, data, methodname)
-
-    def _send_nova_notification(self, action, orig, returned):
-        if hasattr(self, '_nova_notifier'):
-            self._nova_notifier.send_network_change(action, orig, returned)
-
     @db_api.retry_db_errors
     def index(self, request, **kwargs):
         """Returns a list of the requested entity."""
@@ -481,9 +462,11 @@ class Controller(object):
             self._notifier.info(request.context,
                                 notifier_method,
                                 create_result)
-            self._send_dhcp_notification(request.context,
-                                         create_result,
-                                         notifier_method)
+            registry.notify(self._resource, events.BEFORE_RESPONSE, self,
+                            context=request.context, data=create_result,
+                            method_name=notifier_method,
+                            collection=self._collection,
+                            action=action, original={})
             return create_result
 
         def do_create(body, bulk=False, emulated=False):
@@ -529,8 +512,6 @@ class Controller(object):
                 return notify({self._collection: objs})
             else:
                 obj = do_create(body)
-                self._send_nova_notification(action, {},
-                                             {self._resource: obj})
                 return notify({self._resource: self._view(request.context,
                                                           obj)})
 
@@ -573,10 +554,10 @@ class Controller(object):
                             notifier_method,
                             {self._resource + '_id': id})
         result = {self._resource: self._view(request.context, obj)}
-        self._send_nova_notification(action, {}, result)
-        self._send_dhcp_notification(request.context,
-                                     result,
-                                     notifier_method)
+        registry.notify(self._resource, events.BEFORE_RESPONSE, self,
+                        context=request.context, data=result,
+                        method_name=notifier_method, action=action,
+                        original={})
 
     def update(self, request, id, body=None, **kwargs):
         """Updates the specified entity's attributes."""
@@ -645,10 +626,10 @@ class Controller(object):
         result = {self._resource: self._view(request.context, obj)}
         notifier_method = self._resource + '.update.end'
         self._notifier.info(request.context, notifier_method, result)
-        self._send_dhcp_notification(request.context,
-                                     result,
-                                     notifier_method)
-        self._send_nova_notification(action, orig_object_copy, result)
+        registry.notify(self._resource, events.BEFORE_RESPONSE, self,
+                        context=request.context, data=result,
+                        method_name=notifier_method, action=action,
+                        original=orig_object_copy)
         return result
 
     @staticmethod

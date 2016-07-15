@@ -60,6 +60,18 @@ class DhcpAgentNotifyAPI(object):
                            resources.ROUTER_INTERFACE, events.AFTER_CREATE)
         registry.subscribe(self._after_router_interface_deleted,
                            resources.ROUTER_INTERFACE, events.AFTER_DELETE)
+        # register callbacks for events pertaining resources affecting DHCP
+        callback_resources = (
+            resources.NETWORK,
+            resources.NETWORKS,
+            resources.PORT,
+            resources.PORTS,
+            resources.SUBNET,
+            resources.SUBNETS,
+        )
+        for resource in callback_resources:
+            registry.subscribe(self._send_dhcp_notification,
+                               resource, events.BEFORE_RESPONSE)
 
     @property
     def plugin(self):
@@ -137,9 +149,17 @@ class DhcpAgentNotifyAPI(object):
         elif cast_required:
             admin_ctx = (context if context.is_admin else context.elevated())
             network = self.plugin.get_network(admin_ctx, network_id)
-            agents = self.plugin.get_dhcp_agents_hosting_networks(
-                context, [network_id])
+            if 'subnet' in payload and payload['subnet'].get('segment_id'):
+                # if segment_id exists then the segment service plugin
+                # must be loaded
+                nm = manager.NeutronManager
+                segment_plugin = nm.get_service_plugins()['segments']
+                segment = segment_plugin.get_segment(
+                    context, payload['subnet']['segment_id'])
+                network['candidate_hosts'] = segment['hosts']
 
+            agents = self.plugin.get_dhcp_agents_hosting_networks(
+                context, [network_id], hosts=network.get('candidate_hosts'))
             # schedule the network first, if needed
             schedule_required = (
                 method == 'subnet_create_end' or
@@ -191,6 +211,17 @@ class DhcpAgentNotifyAPI(object):
         self._notify_agents(kwargs['context'], 'port_delete_end',
                             {'port_id': kwargs['port']['id']},
                             kwargs['port']['network_id'])
+
+    def _send_dhcp_notification(self, resource, event, trigger, context=None,
+                                data=None, method_name=None, collection=None,
+                                **kwargs):
+        if cfg.CONF.dhcp_agent_notification:
+            if collection and collection in data:
+                for body in data[collection]:
+                    item = {resource: body}
+                    self.notify(context, item, method_name)
+            else:
+                self.notify(context, data, method_name)
 
     def notify(self, context, data, method_name):
         # data is {'key' : 'value'} with only one key

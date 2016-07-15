@@ -74,6 +74,10 @@ class TunnelTest(object):
 
     def setUp(self):
         super(TunnelTest, self).setUp()
+        conn_patcher = mock.patch(
+            'neutron.agent.ovsdb.native.connection.Connection.start')
+        conn_patcher.start()
+        self.addCleanup(conn_patcher.stop)
         cfg.CONF.set_default('firewall_driver',
                              'neutron.agent.firewall.NoopFirewallDriver',
                              group='SECURITYGROUP')
@@ -245,7 +249,8 @@ class TunnelTest(object):
             mock.call.add_patch_port('patch-tun', 'patch-int'),
         ]
         self.mock_int_bridge_expected += [
-            mock.call.get_vif_ports(),
+            mock.call.get_vif_ports((ovs_lib.INVALID_OFPORT,
+                                     ovs_lib.UNASSIGNED_OFPORT)),
             mock.call.get_ports_attributes(
                 'Port', columns=['name', 'other_config', 'tag'], ports=[])
         ]
@@ -692,7 +697,8 @@ class TunnelTestUseVethInterco(TunnelTest):
             mock.call.add_patch_port('patch-tun', 'patch-int')
         ]
         self.mock_int_bridge_expected += [
-            mock.call.get_vif_ports(),
+            mock.call.get_vif_ports((ovs_lib.INVALID_OFPORT,
+                                     ovs_lib.UNASSIGNED_OFPORT)),
             mock.call.get_ports_attributes(
                 'Port', columns=['name', 'other_config', 'tag'], ports=[])
         ]

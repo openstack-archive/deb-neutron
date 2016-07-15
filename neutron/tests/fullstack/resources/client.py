@@ -13,8 +13,10 @@
 #    under the License.
 #
 import functools
+import netaddr
 
 import fixtures
+from neutron_lib import constants
 from neutronclient.common import exceptions
 
 from neutron.extensions import portbindings
@@ -68,14 +70,19 @@ class ClientFixture(fixtures.Fixture):
         return self._create_resource(resource_type, spec)
 
     def create_subnet(self, tenant_id, network_id,
-                      cidr, gateway_ip=None, ip_version=4,
-                      name=None, enable_dhcp=True):
+                      cidr, gateway_ip=None, name=None, enable_dhcp=True,
+                      ipv6_address_mode='slaac', ipv6_ra_mode='slaac'):
         resource_type = 'subnet'
 
         name = name or base.get_rand_name(prefix=resource_type)
+        ip_version = netaddr.IPNetwork(cidr).version
         spec = {'tenant_id': tenant_id, 'network_id': network_id, 'name': name,
-                'cidr': cidr, 'ip_version': ip_version,
-                'enable_dhcp': enable_dhcp}
+                'cidr': cidr, 'enable_dhcp': enable_dhcp,
+                'ip_version': ip_version}
+        if ip_version == constants.IP_VERSION_6:
+            spec['ipv6_address_mode'] = ipv6_address_mode
+            spec['ipv6_ra_mode'] = ipv6_ra_mode
+
         if gateway_ip:
             spec['gateway_ip'] = gateway_ip
 
@@ -149,3 +156,17 @@ class ClientFixture(fixtures.Fixture):
                         qos_policy_id)
 
         return rule['bandwidth_limit_rule']
+
+    def create_dscp_marking_rule(self, tenant_id, qos_policy_id, dscp_mark=0):
+        rule = {'tenant_id': tenant_id}
+        if dscp_mark:
+            rule['dscp_mark'] = dscp_mark
+        rule = self.client.create_dscp_marking_rule(
+            policy=qos_policy_id,
+            body={'dscp_marking_rule': rule})
+
+        self.addCleanup(_safe_method(self.client.delete_dscp_marking_rule),
+                        rule['dscp_marking_rule']['id'],
+                        qos_policy_id)
+
+        return rule['dscp_marking_rule']

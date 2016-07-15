@@ -17,11 +17,11 @@ import netaddr
 
 from designateclient import exceptions as d_exc
 from designateclient.v2 import client as d_client
-from keystoneclient.auth.identity.generic import password
-from keystoneclient.auth import token_endpoint
-from keystoneclient import session
+from keystoneauth1.identity.generic import password
+from keystoneauth1 import session
+from keystoneauth1 import token_endpoint
+from neutron_lib import constants
 from oslo_config import cfg
-from oslo_log import log
 
 from neutron._i18n import _
 from neutron.extensions import dns
@@ -32,7 +32,6 @@ IPV4_PTR_ZONE_PREFIX_MAX_SIZE = 24
 IPV6_PTR_ZONE_PREFIX_MIN_SIZE = 4
 IPV6_PTR_ZONE_PREFIX_MAX_SIZE = 124
 
-LOG = log.getLogger(__name__)
 _SESSION = None
 
 designate_opts = [
@@ -54,6 +53,11 @@ designate_opts = [
     cfg.StrOpt('admin_auth_url',
                help=_('Authorization URL for connecting to designate in admin '
                       'context')),
+    cfg.BoolOpt('insecure', default=False,
+                help=_('Skip cert validation for SSL based admin_auth_url')),
+    cfg.StrOpt('ca_cert',
+               help=_('CA certificate file to use to verify '
+                      'connecting clients')),
     cfg.BoolOpt('allow_reverse_dns_lookup', default=True,
                 help=_('Allow the creation of PTR records')),
     cfg.IntOpt('ipv4_ptr_zone_prefix_size', default=24,
@@ -82,7 +86,11 @@ def get_clients(context):
     global _SESSION
 
     if not _SESSION:
-        _SESSION = session.Session()
+        if CONF.designate.insecure:
+            verify = False
+        else:
+            verify = CONF.designate.ca_cert or True
+        _SESSION = session.Session(verify=verify)
 
     auth = token_endpoint.Token(CONF.designate.url, context.auth_token)
     client = d_client.Client(session=_SESSION, auth=auth)
@@ -175,8 +183,10 @@ class Designate(driver.ExternalDNSService):
 
     def _get_bytes_or_nybles_to_skip(self, in_addr_name):
         if 'in-addr.arpa' in in_addr_name:
-            return int((32 - CONF.designate.ipv4_ptr_zone_prefix_size) / 8)
-        return int((128 - CONF.designate.ipv6_ptr_zone_prefix_size) / 4)
+            return int((constants.IPv4_BITS -
+                        CONF.designate.ipv4_ptr_zone_prefix_size) / 8)
+        return int((constants.IPv6_BITS -
+                    CONF.designate.ipv6_ptr_zone_prefix_size) / 4)
 
     def delete_record_set(self, context, dns_domain, dns_name, records):
         designate, designate_admin = get_clients(context)

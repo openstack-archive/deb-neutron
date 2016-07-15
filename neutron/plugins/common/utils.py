@@ -27,6 +27,9 @@ import webob.exc
 
 from neutron._i18n import _, _LI
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import exceptions as n_exc
 from neutron.plugins.common import constants as p_const
 
@@ -80,13 +83,18 @@ def verify_tunnel_range(tunnel_range, tunnel_type):
                     "than start of tunnel range"))
 
 
+def raise_invalid_tag(vlan_str, vlan_range):
+    """Raise an exception for invalid tag."""
+    raise n_exc.NetworkVlanRangeError(
+        vlan_range=vlan_range,
+        error=_("%s is not a valid VLAN tag") % vlan_str)
+
+
 def verify_vlan_range(vlan_range):
     """Raise an exception for invalid tags or malformed range."""
     for vlan_tag in vlan_range:
         if not is_valid_vlan_tag(vlan_tag):
-            raise n_exc.NetworkVlanRangeError(
-                vlan_range=vlan_range,
-                error=_("%s is not a valid VLAN tag") % vlan_tag)
+            raise_invalid_tag(str(vlan_tag), vlan_range)
     if vlan_range[1] < vlan_range[0]:
         raise n_exc.NetworkVlanRangeError(
             vlan_range=vlan_range,
@@ -97,13 +105,25 @@ def parse_network_vlan_range(network_vlan_range):
     """Interpret a string as network[:vlan_begin:vlan_end]."""
     entry = network_vlan_range.strip()
     if ':' in entry:
-        try:
-            network, vlan_min, vlan_max = entry.split(':')
-            vlan_range = (int(vlan_min), int(vlan_max))
-        except ValueError as ex:
-            raise n_exc.NetworkVlanRangeError(vlan_range=entry, error=ex)
+        if entry.count(':') != 2:
+            raise n_exc.NetworkVlanRangeError(
+                vlan_range=entry,
+                error=_("Need exactly two values for VLAN range"))
+        network, vlan_min, vlan_max = entry.split(':')
         if not network:
             raise n_exc.PhysicalNetworkNameError()
+
+        try:
+            vlan_min = int(vlan_min)
+        except ValueError:
+            raise_invalid_tag(vlan_min, entry)
+
+        try:
+            vlan_max = int(vlan_max)
+        except ValueError:
+            raise_invalid_tag(vlan_max, entry)
+
+        vlan_range = (vlan_min, vlan_max)
         verify_vlan_range(vlan_range)
         return network, vlan_range
     else:
@@ -143,15 +163,28 @@ def _fixup_res_dict(context, attr_name, res_dict, check_allow_post=True):
     return res_dict
 
 
-def create_network(core_plugin, context, net):
+def create_network(core_plugin, context, net, check_allow_post=True):
     net_data = _fixup_res_dict(context, attributes.NETWORKS,
-                               net.get('network', {}))
+                               net.get('network', {}),
+                               check_allow_post=check_allow_post)
     return core_plugin.create_network(context, {'network': net_data})
 
 
-def create_subnet(core_plugin, context, subnet):
+def update_network(core_plugin, context, network_id, net_data):
+    network = core_plugin.update_network(
+        context, network_id, {resources.NETWORK: net_data})
+    # bundle the plugin API update with any other action required to
+    # reflect a state change on the network, e.g. DHCP notifications
+    registry.notify(resources.NETWORK, events.BEFORE_RESPONSE, core_plugin,
+                    context=context, data={resources.NETWORK: network},
+                    method_name='network.update.end')
+    return network
+
+
+def create_subnet(core_plugin, context, subnet, check_allow_post=True):
     subnet_data = _fixup_res_dict(context, attributes.SUBNETS,
-                                  subnet.get('subnet', {}))
+                                  subnet.get('subnet', {}),
+                                  check_allow_post=check_allow_post)
     return core_plugin.create_subnet(context, {'subnet': subnet_data})
 
 

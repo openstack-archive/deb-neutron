@@ -17,12 +17,13 @@ import datetime
 import random
 import time
 
+import debtcollector
 from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
+import oslo_messaging
 from oslo_service import loopingcall
 from oslo_utils import timeutils
-import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
@@ -32,9 +33,11 @@ from neutron.common import utils
 from neutron import context as ncontext
 from neutron.db import agents_db
 from neutron.db.availability_zone import network as network_az
-from neutron.db import model_base
+from neutron.db import model_base  # noqa
+from neutron.db.network_dhcp_agent_binding import models as ndab_model
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import dhcpagentscheduler
+from neutron import worker as neutron_worker
 
 
 LOG = logging.getLogger(__name__)
@@ -69,17 +72,36 @@ AGENTS_SCHEDULER_OPTS = [
 cfg.CONF.register_opts(AGENTS_SCHEDULER_OPTS)
 
 
-class NetworkDhcpAgentBinding(model_base.BASEV2):
-    """Represents binding between neutron networks and DHCP agents."""
+class AgentStatusCheckWorker(neutron_worker.NeutronWorker):
 
-    network_id = sa.Column(sa.String(36),
-                           sa.ForeignKey("networks.id", ondelete='CASCADE'),
-                           primary_key=True)
-    dhcp_agent = orm.relation(agents_db.Agent)
-    dhcp_agent_id = sa.Column(sa.String(36),
-                              sa.ForeignKey("agents.id",
-                                            ondelete='CASCADE'),
-                              primary_key=True)
+    def __init__(self, check_func, interval, initial_delay):
+        super(AgentStatusCheckWorker, self).__init__(worker_process_count=0)
+
+        self._check_func = check_func
+        self._loop = None
+        self._interval = interval
+        self._initial_delay = initial_delay
+
+    def start(self):
+        super(AgentStatusCheckWorker, self).start()
+        if self._loop is None:
+            self._loop = loopingcall.FixedIntervalLoopingCall(self._check_func)
+            self._loop.start(interval=self._interval,
+                             initial_delay=self._initial_delay)
+
+    def wait(self):
+        if self._loop is not None:
+            self._loop.wait()
+
+    def stop(self):
+        if self._loop is not None:
+            self._loop.stop()
+
+    def reset(self):
+        if self._loop is not None:
+            self.stop()
+            self.wait()
+            self.start()
 
 
 class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
@@ -120,6 +142,22 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
                                          original_agent['host'])
         return result
 
+    def add_agent_status_check_worker(self, function):
+        # TODO(enikanorov): make interval configurable rather than computed
+        interval = max(cfg.CONF.agent_down_time // 2, 1)
+        # add random initial delay to allow agents to check in after the
+        # neutron server first starts. random to offset multiple servers
+        initial_delay = random.randint(interval, interval * 2)
+
+        check_worker = AgentStatusCheckWorker(function, interval,
+                                              initial_delay)
+
+        self.add_worker(check_worker)
+
+    @debtcollector.removals.remove(
+        message="This will be removed in the O cycle. "
+                "Please use 'add_agent_status_check_worker' instead."
+    )
     def add_agent_status_check(self, function):
         loop = loopingcall.FixedIntervalLoopingCall(function)
         # TODO(enikanorov): make interval configurable rather than computed
@@ -157,6 +195,63 @@ class AgentSchedulerDbMixin(agents_db.AgentDbMixin):
             seconds=agent_dead_limit)
         return cutoff
 
+    def reschedule_resources_from_down_agents(self, agent_type,
+                                              get_down_bindings,
+                                              agent_id_attr,
+                                              resource_id_attr,
+                                              resource_name,
+                                              reschedule_resource,
+                                              rescheduling_failed):
+        """Reschedule resources from down neutron agents
+        if admin state is up.
+        """
+        agent_dead_limit = self.agent_dead_limit_seconds()
+        self.wait_down_agents(agent_type, agent_dead_limit)
+
+        context = ncontext.get_admin_context()
+        try:
+            down_bindings = get_down_bindings(context, agent_dead_limit)
+
+            agents_back_online = set()
+            for binding in down_bindings:
+                binding_agent_id = getattr(binding, agent_id_attr)
+                binding_resource_id = getattr(binding, resource_id_attr)
+                if binding_agent_id in agents_back_online:
+                    continue
+                else:
+                    # we need new context to make sure we use different DB
+                    # transaction - otherwise we may fetch same agent record
+                    # each time due to REPEATABLE_READ isolation level
+                    context = ncontext.get_admin_context()
+                    agent = self._get_agent(context, binding_agent_id)
+                    if agent.is_active:
+                        agents_back_online.add(binding_agent_id)
+                        continue
+
+                LOG.warning(_LW(
+                    "Rescheduling %(resource_name)s %(resource)s from agent "
+                    "%(agent)s because the agent did not report to the server "
+                    "in the last %(dead_time)s seconds."),
+                    {'resource_name': resource_name,
+                     'resource': binding_resource_id,
+                     'agent': binding_agent_id,
+                     'dead_time': agent_dead_limit})
+                try:
+                    reschedule_resource(context, binding_resource_id)
+                except (rescheduling_failed, oslo_messaging.RemoteError):
+                    # Catch individual rescheduling errors here
+                    # so one broken one doesn't stop the iteration.
+                    LOG.exception(_LE("Failed to reschedule %(resource_name)s "
+                                      "%(resource)s"),
+                                  {'resource_name': resource_name,
+                                   'resource': binding_resource_id})
+        except Exception:
+            # we want to be thorough and catch whatever is raised
+            # to avoid loop abortion
+            LOG.exception(_LE("Exception encountered during %(resource_name)s "
+                              "rescheduling."),
+                          {'resource_name': resource_name})
+
 
 class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                                 .DhcpAgentSchedulerPluginBase,
@@ -166,6 +261,10 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
 
     network_scheduler = None
 
+    @debtcollector.removals.remove(
+        message="This will be removed in the O cycle. "
+                "Please use 'add_periodic_dhcp_agent_status_check' instead."
+    )
     def start_periodic_dhcp_agent_status_check(self):
         if not cfg.CONF.allow_automatic_dhcp_failover:
             LOG.info(_LI("Skipping periodic DHCP agent status check because "
@@ -173,6 +272,16 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
             return
 
         self.add_agent_status_check(self.remove_networks_from_down_agents)
+
+    def add_periodic_dhcp_agent_status_check(self):
+        if not cfg.CONF.allow_automatic_dhcp_failover:
+            LOG.info(_LI("Skipping periodic DHCP agent status check because "
+                         "automatic network rescheduling is disabled."))
+            return
+
+        self.add_agent_status_check_worker(
+            self.remove_networks_from_down_agents
+        )
 
     def is_eligible_agent(self, context, active, agent):
         # eligible agent is active or starting up
@@ -189,7 +298,8 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
         """
         agent_dead_limit = datetime.timedelta(
             seconds=self.agent_dead_limit_seconds())
-        network_count = (context.session.query(NetworkDhcpAgentBinding).
+        network_count = (context.session.query(ndab_model.
+                                               NetworkDhcpAgentBinding).
                          filter_by(dhcp_agent_id=agent['id']).count())
         # amount of networks assigned to agent affect amount of time we give
         # it so startup. Tests show that it's more or less sage to assume
@@ -271,7 +381,7 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
         context = ncontext.get_admin_context()
         try:
             down_bindings = (
-                context.session.query(NetworkDhcpAgentBinding).
+                context.session.query(ndab_model.NetworkDhcpAgentBinding).
                 join(agents_db.Agent).
                 filter(agents_db.Agent.heartbeat_timestamp < cutoff,
                        agents_db.Agent.admin_state_up))
@@ -328,19 +438,19 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                               "rescheduling"))
 
     def get_dhcp_agents_hosting_networks(
-            self, context, network_ids, active=None, admin_state_up=None):
+            self, context, network_ids, active=None, admin_state_up=None,
+            hosts=None):
         if not network_ids:
             return []
-        query = context.session.query(NetworkDhcpAgentBinding)
+        query = context.session.query(ndab_model.NetworkDhcpAgentBinding)
         query = query.options(orm.contains_eager(
-                              NetworkDhcpAgentBinding.dhcp_agent))
-        query = query.join(NetworkDhcpAgentBinding.dhcp_agent)
-        if len(network_ids) == 1:
+                              ndab_model.NetworkDhcpAgentBinding.dhcp_agent))
+        query = query.join(ndab_model.NetworkDhcpAgentBinding.dhcp_agent)
+        if network_ids:
             query = query.filter(
-                NetworkDhcpAgentBinding.network_id == network_ids[0])
-        elif network_ids:
-            query = query.filter(
-                NetworkDhcpAgentBinding.network_id in network_ids)
+                ndab_model.NetworkDhcpAgentBinding.network_id.in_(network_ids))
+        if hosts:
+            query = query.filter(agents_db.Agent.host.in_(hosts))
         if admin_state_up is not None:
             query = query.filter(agents_db.Agent.admin_state_up ==
                                  admin_state_up)
@@ -363,7 +473,7 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                 if id == dhcp_agent.id:
                     raise dhcpagentscheduler.NetworkHostedByDHCPAgent(
                         network_id=network_id, agent_id=id)
-            binding = NetworkDhcpAgentBinding()
+            binding = ndab_model.NetworkDhcpAgentBinding()
             binding.dhcp_agent_id = id
             binding.network_id = network_id
             context.session.add(binding)
@@ -376,10 +486,10 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                                        notify=True):
         agent = self._get_agent(context, id)
         try:
-            query = context.session.query(NetworkDhcpAgentBinding)
+            query = context.session.query(ndab_model.NetworkDhcpAgentBinding)
             binding = query.filter(
-                NetworkDhcpAgentBinding.network_id == network_id,
-                NetworkDhcpAgentBinding.dhcp_agent_id == id).one()
+                ndab_model.NetworkDhcpAgentBinding.network_id == network_id,
+                ndab_model.NetworkDhcpAgentBinding.dhcp_agent_id == id).one()
         except exc.NoResultFound:
             raise dhcpagentscheduler.NetworkNotHostedByDhcpAgent(
                 network_id=network_id, agent_id=id)
@@ -406,8 +516,10 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                 context, network_id, agent.host)
 
     def list_networks_on_dhcp_agent(self, context, id):
-        query = context.session.query(NetworkDhcpAgentBinding.network_id)
-        query = query.filter(NetworkDhcpAgentBinding.dhcp_agent_id == id)
+        query = context.session.query(
+            ndab_model.NetworkDhcpAgentBinding.network_id)
+        query = query.filter(
+            ndab_model.NetworkDhcpAgentBinding.dhcp_agent_id == id)
 
         net_ids = [item[0] for item in query]
         if net_ids:
@@ -428,8 +540,10 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
 
         if not services_available(agent.admin_state_up):
             return []
-        query = context.session.query(NetworkDhcpAgentBinding.network_id)
-        query = query.filter(NetworkDhcpAgentBinding.dhcp_agent_id == agent.id)
+        query = context.session.query(
+            ndab_model.NetworkDhcpAgentBinding.network_id)
+        query = query.filter(
+            ndab_model.NetworkDhcpAgentBinding.dhcp_agent_id == agent.id)
 
         net_ids = [item[0] for item in query]
         if net_ids:

@@ -15,9 +15,9 @@
 
 
 import collections
-import heapq
 
 from neutron_lib import constants
+from operator import itemgetter
 from oslo_config import cfg
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
@@ -25,8 +25,8 @@ from sqlalchemy import sql
 
 from neutron._i18n import _LI, _LW
 from neutron.db import agents_db
-from neutron.db import agentschedulers_db
 from neutron.db import api as db_api
+from neutron.db.network_dhcp_agent_binding import models as ndab_model
 from neutron.extensions import availability_zone as az_ext
 from neutron.scheduler import base_resource_filter
 from neutron.scheduler import base_scheduler
@@ -104,11 +104,27 @@ class AZAwareWeightScheduler(WeightScheduler):
            If the network has multiple AZs, agents are scheduled as
            follows:
            - select AZ with least agents scheduled for the network
-             (nondeterministic for AZs with same amount of agents scheduled)
+           - for AZs with same amount of scheduled agents, the AZ which
+             contains least weight agent will be used first
            - choose agent in the AZ with WeightScheduler
         """
+        # The dict to record the agents in each AZ, the record will be sorted
+        # according to the weight of agent. So that the agent with less weight
+        # will be used first.
         hostable_az_agents = collections.defaultdict(list)
-        num_az_agents = {}
+        # The dict to record the number of agents in each AZ. When the number
+        # of agents in each AZ is the same and num_agents_needed is less than
+        # the number of AZs, we want to select agents with less weight.
+        # Use an OrderedDict here, so that the AZ with least weight agent
+        # will be recorded first in the case described above. And, as a result,
+        # the agent with least weight will be used first.
+        num_az_agents = collections.OrderedDict()
+        # resource_hostable_agents should be a list with agents in the order of
+        # their weight.
+        resource_hostable_agents = (
+            super(AZAwareWeightScheduler, self).select(
+                plugin, context, resource_hostable_agents,
+                resource_hosted_agents, len(resource_hostable_agents)))
         for agent in resource_hostable_agents:
             az_agent = agent['availability_zone']
             hostable_az_agents[az_agent].append(agent)
@@ -121,17 +137,19 @@ class AZAwareWeightScheduler(WeightScheduler):
             if az_agent in num_az_agents:
                 num_az_agents[az_agent] += 1
 
-        num_az_q = [(value, key) for key, value in num_az_agents.items()]
-        heapq.heapify(num_az_q)
         chosen_agents = []
         while num_agents_needed > 0:
-            num, select_az = heapq.heappop(num_az_q)
-            select_agent = super(AZAwareWeightScheduler, self).select(
-                plugin, context, hostable_az_agents[select_az], [], 1)
-            chosen_agents.append(select_agent[0])
-            hostable_az_agents[select_az].remove(select_agent[0])
-            if hostable_az_agents[select_az]:
-                heapq.heappush(num_az_q, (num + 1, select_az))
+            # 'min' will stably output the first min value in the list.
+            select_az = min(num_az_agents.items(), key=itemgetter(1))[0]
+            # Select the agent in AZ with least weight.
+            select_agent = hostable_az_agents[select_az][0]
+            chosen_agents.append(select_agent)
+            # Update the AZ-agents records.
+            del hostable_az_agents[select_az][0]
+            if not hostable_az_agents[select_az]:
+                del num_az_agents[select_az]
+            else:
+                num_az_agents[select_az] += 1
             num_agents_needed -= 1
         return chosen_agents
 
@@ -146,7 +164,7 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
             # saving agent_id to use it after rollback to avoid
             # DetachedInstanceError
             agent_id = agent.id
-            binding = agentschedulers_db.NetworkDhcpAgentBinding()
+            binding = ndab_model.NetworkDhcpAgentBinding()
             binding.dhcp_agent_id = agent_id
             binding.network_id = network_id
             try:
@@ -181,6 +199,18 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
                     'hosted_agents': agents_dict['hosted_agents']}
         return agents_dict
 
+    def _filter_agents_with_network_access(self, hostable_agents, plugin,
+                                           context, network):
+        if 'candidate_hosts' in network:
+            hostable_dhcp_hosts = network['candidate_hosts']
+        else:
+            hostable_dhcp_hosts = plugin.filter_hosts_with_network_access(
+                context, network['id'],
+                [agent['host'] for agent in hostable_agents])
+        reachable_agents = [agent for agent in hostable_agents
+                            if agent['host'] in hostable_dhcp_hosts]
+        return reachable_agents
+
     def _get_dhcp_agents_hosting_network(self, plugin, context, network):
         """Return dhcp agents hosting the given network or None if a given
            network is already hosted by enough number of agents.
@@ -190,7 +220,7 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
         # subnets whose enable_dhcp is false
         with context.session.begin(subtransactions=True):
             network_hosted_agents = plugin.get_dhcp_agents_hosting_networks(
-                context, [network['id']])
+                context, [network['id']], hosts=network.get('candidate_hosts'))
             if len(network_hosted_agents) >= agents_per_network:
                 LOG.debug('Network %s is already hosted by enough agents.',
                           network['id'])
@@ -235,11 +265,8 @@ class DhcpFilter(base_resource_filter.BaseResourceFilter):
                 context, True, agent)
         ]
 
-        hostable_dhcp_hosts = plugin.filter_hosts_with_network_access(
-            context, network['id'],
-            [agent['host'] for agent in hostable_dhcp_agents])
-        hostable_dhcp_agents = [agent for agent in hostable_dhcp_agents
-                                if agent['host'] in hostable_dhcp_hosts]
+        hostable_dhcp_agents = self._filter_agents_with_network_access(
+            hostable_dhcp_agents, plugin, context, network)
 
         if not hostable_dhcp_agents:
             return {'n_agents': 0, 'hostable_agents': [],

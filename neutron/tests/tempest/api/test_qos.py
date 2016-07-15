@@ -75,6 +75,24 @@ class QosTestJSON(base.BaseAdminNetworkTest):
         self.assertTrue(retrieved_policy['shared'])
         self.assertEqual([], retrieved_policy['rules'])
 
+    @test.idempotent_id('ee263db4-009a-4641-83e5-d0e83506ba4c')
+    def test_shared_policy_update(self):
+        policy = self.create_qos_policy(name='test-policy',
+                                        description='',
+                                        shared=True)
+
+        self.admin_client.update_qos_policy(policy['id'],
+                                            description='test policy desc2')
+        retrieved_policy = self.admin_client.show_qos_policy(policy['id'])
+        retrieved_policy = retrieved_policy['policy']
+        self.assertTrue(retrieved_policy['shared'])
+
+        self.admin_client.update_qos_policy(policy['id'],
+                                            shared=False)
+        retrieved_policy = self.admin_client.show_qos_policy(policy['id'])
+        retrieved_policy = retrieved_policy['policy']
+        self.assertFalse(retrieved_policy['shared'])
+
     @test.idempotent_id('1cb42653-54bd-4a9a-b888-c55e18199201')
     def test_delete_policy(self):
         policy = self.admin_client.create_qos_policy(
@@ -106,7 +124,7 @@ class QosTestJSON(base.BaseAdminNetworkTest):
         # In theory, we could make the test conditional on which ml2 drivers
         # are enabled in gate (or more specifically, on which supported qos
         # rules are claimed by core plugin), but that option doesn't seem to be
-        # available thru tempest.lib framework
+        # available through tempest.lib framework
         expected_rule_types = []
         expected_rule_details = ['type']
 
@@ -286,6 +304,16 @@ class QosTestJSON(base.BaseAdminNetworkTest):
 
         with testtools.ExpectedException(exceptions.NotFound):
             self.admin_client.show_qos_policy(policy['id'])
+
+    @test.idempotent_id('fb384bde-a973-41c3-a542-6f77a092155f')
+    def test_get_policy_that_is_shared(self):
+        policy = self.create_qos_policy(
+            name='test-policy-shared',
+            description='shared policy',
+            shared=True,
+            tenant_id=self.admin_client.tenant_id)
+        obtained_policy = self.client.show_qos_policy(policy['id'])['policy']
+        self.assertEqual(obtained_policy, policy)
 
 
 class QosBandwidthLimitRuleTestJSON(base.BaseAdminNetworkTest):
@@ -521,7 +549,7 @@ class RbacSharedQosPoliciesTest(base.BaseAdminNetworkTest):
         self.admin_client.delete_rbac_policy(wildcard_rbac['id'])
         self.client.list_rbac_policies(id=client_rbac['id'])
 
-    @test.idempotent_id('328b1f70-d424-11e5-a57f-54ee756c66df')
+    @test.idempotent_id('1997b00c-0c75-4e43-8ce2-999f9fa555ee')
     def test_net_bound_shared_policy_wildcard_and_tenant_id_wild_remains(self):
         client_rbac, wildcard_rbac = self._create_net_bound_qos_rbacs()
         # remove client_rbac policy the wildcard share should remain
@@ -683,7 +711,7 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
     def resource_setup(cls):
         super(QosDscpMarkingRuleTestJSON, cls).resource_setup()
 
-    @test.idempotent_id('8a59b00b-3e9c-4787-92f8-93a5cdf5e378')
+    @test.idempotent_id('f5cbaceb-5829-497c-9c60-ad70969e9a08')
     def test_rule_create(self):
         policy = self.create_qos_policy(name='test-policy',
                                         description='test policy',
@@ -709,10 +737,10 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
         policy_rules = retrieved_policy['policy']['rules']
         self.assertEqual(1, len(policy_rules))
         self.assertEqual(rule['id'], policy_rules[0]['id'])
-        self.assertEqual(qos_consts.RULE_TYPE_DSCP_MARK,
+        self.assertEqual(qos_consts.RULE_TYPE_DSCP_MARKING,
                          policy_rules[0]['type'])
 
-    @test.idempotent_id('8a59b00b-ab01-4787-92f8-93a5cdf5e378')
+    @test.idempotent_id('08553ffe-030f-4037-b486-7e0b8fb9385a')
     def test_rule_create_fail_for_the_same_type(self):
         policy = self.create_qos_policy(name='test-policy',
                                         description='test policy',
@@ -725,7 +753,7 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
                           policy_id=policy['id'],
                           dscp_mark=self.VALID_DSCP_MARK2)
 
-    @test.idempotent_id('149a6988-2568-47d2-931e-2dbc858943b3')
+    @test.idempotent_id('76f632e5-3175-4408-9a32-3625e599c8a2')
     def test_rule_update(self):
         policy = self.create_qos_policy(name='test-policy',
                                         description='test policy',
@@ -741,7 +769,7 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
         retrieved_policy = retrieved_policy['dscp_marking_rule']
         self.assertEqual(self.VALID_DSCP_MARK2, retrieved_policy['dscp_mark'])
 
-    @test.idempotent_id('67ee6efd-7b33-4a68-927d-275b4f8ba958')
+    @test.idempotent_id('74f81904-c35f-48a3-adae-1f5424cb3c18')
     def test_rule_delete(self):
         policy = self.create_qos_policy(name='test-policy',
                                         description='test policy',
@@ -759,14 +787,14 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
                           self.admin_client.show_dscp_marking_rule,
                           policy['id'], rule['id'])
 
-    @test.idempotent_id('f211222c-5808-46cb-a961-983bbab6b852')
+    @test.idempotent_id('9cb8ef5c-96fc-4978-9ee0-e3b02bab628a')
     def test_rule_create_rule_nonexistent_policy(self):
         self.assertRaises(
             exceptions.NotFound,
             self.admin_client.create_dscp_marking_rule,
             'policy', self.VALID_DSCP_MARK1)
 
-    @test.idempotent_id('a4a2e7ad-786f-4927-a85a-e545a93bd274')
+    @test.idempotent_id('bf6002ea-29de-486f-b65d-08aea6d4c4e2')
     def test_rule_create_forbidden_for_regular_tenants(self):
         self.assertRaises(
             exceptions.Forbidden,
@@ -783,7 +811,7 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
             self.admin_client.create_dscp_marking_rule,
             policy['id'], 58)
 
-    @test.idempotent_id('ce0bd0c2-54d9-4e29-85f1-cfb36ac3ebe2')
+    @test.idempotent_id('c565131d-4c80-4231-b0f3-9ae2be4de129')
     def test_get_rules_by_policy(self):
         policy1 = self.create_qos_policy(name='test-policy1',
                                          description='test policy1',
@@ -803,3 +831,58 @@ class QosDscpMarkingRuleTestJSON(base.BaseAdminNetworkTest):
         rules_ids = [r['id'] for r in rules]
         self.assertIn(rule1['id'], rules_ids)
         self.assertNotIn(rule2['id'], rules_ids)
+
+
+class QosSearchCriteriaTest(base.BaseSearchCriteriaTest,
+                            base.BaseAdminNetworkTest):
+
+    resource = 'policy'
+    plural_name = 'policies'
+
+    # Use unique description to isolate the tests from other QoS tests
+    list_kwargs = {'description': 'search-criteria-test'}
+    list_as_admin = True
+
+    @classmethod
+    @test.requires_ext(extension="qos", service="network")
+    def resource_setup(cls):
+        super(QosSearchCriteriaTest, cls).resource_setup()
+        for name in cls.resource_names:
+            cls.create_qos_policy(
+                name=name, description='search-criteria-test')
+
+    @test.idempotent_id('55fc0103-fdc1-4d34-ab62-c579bb739a91')
+    def test_list_sorts_asc(self):
+        self._test_list_sorts_asc()
+
+    @test.idempotent_id('13e08ac3-bfed-426b-892a-b3b158560c23')
+    def test_list_sorts_desc(self):
+        self._test_list_sorts_desc()
+
+    @test.idempotent_id('719e61cc-e33c-4918-aa4d-1a791e6e0e86')
+    def test_list_pagination(self):
+        self._test_list_pagination()
+
+    @test.idempotent_id('3bd8fb58-c0f8-4954-87fb-f286e1eb096a')
+    def test_list_pagination_with_marker(self):
+        self._test_list_pagination_with_marker()
+
+    @test.idempotent_id('3bad0747-8082-46e9-be4d-c428a842db41')
+    def test_list_pagination_with_href_links(self):
+        self._test_list_pagination_with_href_links()
+
+    @test.idempotent_id('d6a8bacd-d5e8-4ef3-bc55-23ca6998d208')
+    def test_list_pagination_page_reverse_asc(self):
+        self._test_list_pagination_page_reverse_asc()
+
+    @test.idempotent_id('0b9aecdc-2b27-421b-b104-53d24e905ae8')
+    def test_list_pagination_page_reverse_desc(self):
+        self._test_list_pagination_page_reverse_desc()
+
+    @test.idempotent_id('1a3dc257-dafd-4870-8c71-639ae7ddc6ea')
+    def test_list_pagination_page_reverse_with_href_links(self):
+        self._test_list_pagination_page_reverse_with_href_links()
+
+    @test.idempotent_id('40e09b53-4eb8-4526-9181-d438c8005a20')
+    def test_list_no_pagination_limit_0(self):
+        self._test_list_no_pagination_limit_0()

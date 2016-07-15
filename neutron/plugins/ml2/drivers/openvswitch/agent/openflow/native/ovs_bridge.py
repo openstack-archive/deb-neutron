@@ -42,33 +42,31 @@ class OVSAgentBridge(ofswitch.OpenFlowSwitchMixin,
         A convenient method for openflow message composers.
         """
         while True:
-            dpid_int = self._cached_dpid
-            if dpid_int is None:
+            if self._cached_dpid is None:
                 dpid_str = self.get_datapath_id()
                 LOG.info(_LI("Bridge %(br_name)s has datapath-ID %(dpid)s"),
                          {"br_name": self.br_name, "dpid": dpid_str})
-                dpid_int = int(dpid_str, 16)
+                self._cached_dpid = int(dpid_str, 16)
             try:
-                dp = self._get_dp_by_dpid(dpid_int)
+                dp = self._get_dp_by_dpid(self._cached_dpid)
+                return dp, dp.ofproto, dp.ofproto_parser
             except RuntimeError:
                 with excutils.save_and_reraise_exception() as ctx:
-                    self._cached_dpid = None
                     # Retry if dpid has been changed.
                     # NOTE(yamamoto): Open vSwitch change its dpid on
                     # some events.
                     # REVISIT(yamamoto): Consider to set dpid statically.
+                    old_dpid_str = format(self._cached_dpid, '0x')
                     new_dpid_str = self.get_datapath_id()
-                    if new_dpid_str != dpid_str:
+                    if new_dpid_str != old_dpid_str:
                         LOG.info(_LI("Bridge %(br_name)s changed its "
                                      "datapath-ID from %(old)s to %(new)s"), {
                             "br_name": self.br_name,
-                            "old": dpid_str,
+                            "old": old_dpid_str,
                             "new": new_dpid_str,
                         })
                         ctx.reraise = False
-            else:
-                self._cached_dpid = dpid_int
-                return dp, dp.ofproto, dp.ofproto_parser
+                    self._cached_dpid = int(new_dpid_str, 16)
 
     def setup_controllers(self, conf):
         controllers = [
@@ -79,6 +77,22 @@ class OVSAgentBridge(ofswitch.OpenFlowSwitchMixin,
         ]
         self.set_protocols(ovs_consts.OPENFLOW13)
         self.set_controller(controllers)
+
+        # NOTE(ivc): Force "out-of-band" controller connection mode (see
+        # "In-Band Control" [1]).
+        #
+        # By default openvswitch uses "in-band" controller connection mode
+        # which adds hidden OpenFlow rules (only visible by issuing ovs-appctl
+        # bridge/dump-flows <br>) and leads to a network loop on br-tun. As of
+        # now the OF controller is hosted locally with OVS which fits the
+        # "out-of-band" mode. If the remote OF controller is ever to be
+        # supported by openvswitch agent in the future, "In-Band Control" [1]
+        # should be taken into consideration for physical bridge only, but
+        # br-int and br-tun must be configured with the "out-of-band"
+        # controller connection mode.
+        #
+        # [1] https://github.com/openvswitch/ovs/blob/master/DESIGN.md
+        self.set_controllers_connection_mode("out-of-band")
 
     def drop_port(self, in_port):
         self.install_drop(priority=2, in_port=in_port)

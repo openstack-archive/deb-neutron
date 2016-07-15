@@ -13,6 +13,7 @@
 #    under the License.
 
 import mock
+from oslo_db import exception as db_exc
 
 from neutron.callbacks import events
 from neutron.callbacks import exceptions
@@ -33,6 +34,10 @@ callback_id_2 = manager._get_id(callback_2)
 
 def callback_raise(*args, **kwargs):
     raise Exception()
+
+
+def callback_raise_retriable(*args, **kwargs):
+    raise db_exc.DBDeadlock()
 
 
 class CallBacksManagerTestCase(base.BaseTestCase):
@@ -77,6 +82,13 @@ class CallBacksManagerTestCase(base.BaseTestCase):
         self.assertEqual(
             2,
             len(self.manager._callbacks[resources.PORT][events.BEFORE_CREATE]))
+
+    def test_unsubscribe_during_iteration(self):
+        unsub = lambda r, e, *a, **k: self.manager.unsubscribe(unsub, r, e)
+        self.manager.subscribe(unsub, resources.PORT,
+                               events.BEFORE_CREATE)
+        self.manager.notify(resources.PORT, events.BEFORE_CREATE, mock.ANY)
+        self.assertNotIn(unsub, self.manager._index)
 
     def test_unsubscribe(self):
         self.manager.subscribe(
@@ -165,6 +177,12 @@ class CallBacksManagerTestCase(base.BaseTestCase):
         e = self.assertRaises(exceptions.CallbackFailure, self.manager.notify,
                               resources.PORT, events.BEFORE_CREATE, self)
         self.assertIsInstance(e.errors[0], exceptions.NotificationError)
+
+    def test_notify_handle_retriable_exception(self):
+        self.manager.subscribe(
+            callback_raise_retriable, resources.PORT, events.BEFORE_CREATE)
+        self.assertRaises(db_exc.RetryRequest, self.manager.notify,
+                          resources.PORT, events.BEFORE_CREATE, self)
 
     def test_notify_called_once_with_no_failures(self):
         with mock.patch.object(self.manager, '_notify_loop') as n:

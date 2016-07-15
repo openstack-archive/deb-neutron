@@ -87,24 +87,25 @@ def when(index, *args, **kwargs):
 
 class NeutronPecanController(object):
 
-    def __init__(self, collection, resource, plugin=None):
+    def __init__(self, collection, resource, plugin=None, resource_info=None):
         # Ensure dashes are always replaced with underscores
         self.collection = collection and collection.replace('-', '_')
         self.resource = resource and resource.replace('-', '_')
-        self._resource_info = api_attributes.get_collection_info(
-            self.collection)
+        self._resource_info = resource_info
         self._plugin = plugin
         # Controllers for some resources that are not mapped to anything in
         # RESOURCE_ATTRIBUTE_MAP will not have anything in _resource_info
-        if self._resource_info:
+        if self.resource_info:
             self._mandatory_fields = set([field for (field, data) in
-                                          self._resource_info.items() if
+                                          self.resource_info.items() if
                                           data.get('required_by_policy')])
         else:
             self._mandatory_fields = set()
 
-    def _build_field_list(self, request_fields):
-        return set(request_fields) | self._mandatory_fields
+    def build_field_list(self, request_fields):
+        if request_fields:
+            return set(request_fields) | self._mandatory_fields
+        return []
 
     @property
     def plugin(self):
@@ -112,6 +113,13 @@ class NeutronPecanController(object):
             self._plugin = manager.NeutronManager.get_plugin_for_resource(
                 self.resource)
         return self._plugin
+
+    @property
+    def resource_info(self):
+        if not self._resource_info:
+            self._resource_info = api_attributes.get_collection_info(
+                self.collection)
+        return self._resource_info
 
 
 class ShimRequest(object):

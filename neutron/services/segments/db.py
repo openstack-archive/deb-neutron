@@ -19,22 +19,20 @@ import functools
 
 from neutron_lib import constants
 from oslo_log import helpers as log_helpers
-from oslo_log import log as logging
 from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
-from neutron._i18n import _LI
-from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.db import common_db_mixin
 from neutron.db import model_base
 from neutron.db import segments_db as db
 from neutron.extensions import segment as extension
+from neutron import manager
 from neutron.services.segments import exceptions
-
-
-LOG = logging.getLogger(__name__)
 
 
 class SegmentHostMapping(model_base.BASEV2):
@@ -58,15 +56,6 @@ class SegmentHostMapping(model_base.BASEV2):
                                                cascade='delete'))
 
 
-def _extend_subnet_dict_binding(plugin, subnet_res, subnet_db):
-    subnet_res['segment_id'] = subnet_db.get('segment_id')
-
-
-# Register dict extend functions for subnets
-common_db_mixin.CommonDbMixin.register_dict_extend_funcs(
-    attributes.SUBNETS, [_extend_subnet_dict_binding])
-
-
 class SegmentDbMixin(common_db_mixin.CommonDbMixin):
     """Mixin class to add segment."""
 
@@ -75,7 +64,9 @@ class SegmentDbMixin(common_db_mixin.CommonDbMixin):
                'network_id': segment_db['network_id'],
                db.PHYSICAL_NETWORK: segment_db[db.PHYSICAL_NETWORK],
                db.NETWORK_TYPE: segment_db[db.NETWORK_TYPE],
-               db.SEGMENTATION_ID: segment_db[db.SEGMENTATION_ID]}
+               db.SEGMENTATION_ID: segment_db[db.SEGMENTATION_ID],
+               'hosts': [mapping.host for mapping in
+                         segment_db.segment_host_mapping]}
         return self._fields(res, fields)
 
     def _get_segment(self, context, segment_id):
@@ -106,6 +97,8 @@ class SegmentDbMixin(common_db_mixin.CommonDbMixin):
                     db.SEGMENTATION_ID: segmentation_id}
             new_segment = db.NetworkSegment(**args)
             context.session.add(new_segment)
+            registry.notify(resources.SEGMENT, events.PRECOMMIT_CREATE, self,
+                            context=context, segment=new_segment)
 
         return self._make_segment_dict(new_segment)
 
@@ -166,7 +159,7 @@ def update_segment_host_mapping(context, host, current_segment_ids):
                                                    host=host))
         stale_segment_ids = previous_segment_ids - current_segment_ids
         if stale_segment_ids:
-            context.session.query(SegmentHostMapping).filter(
+            segments_host_query.filter(
                 SegmentHostMapping.segment_id.in_(
                     stale_segment_ids)).delete(synchronize_session=False)
 
@@ -182,12 +175,26 @@ def _get_phys_nets(agent):
 reported_hosts = set()
 
 
-def update_segment_host_mapping_for_agent(context, host, plugin, agent):
+def get_segments_with_phys_nets(context, phys_nets):
+    """Get segments from physical networks.
+
+    L2 providers usually have information of hostname and physical networks.
+    They could use this method to get related segments and then update
+    SegmentHostMapping.
+    """
+    if not phys_nets:
+        return []
+
+    with context.session.begin(subtransactions=True):
+        segments = context.session.query(db.NetworkSegment).filter(
+            db.NetworkSegment.physical_network.in_(phys_nets))
+        return segments
+
+
+def _update_segment_host_mapping_for_agent(resource, event, trigger,
+                                           context, host, plugin, agent):
     check_segment_for_agent = getattr(plugin, 'check_segment_for_agent', None)
     if not check_segment_for_agent:
-        LOG.info(_LI("Core plug-in does not implement "
-                     "'check_segment_for_agent'. It is not possible to "
-                     "build a hosts segments mapping"))
         return
     phys_nets = _get_phys_nets(agent)
     if not phys_nets:
@@ -196,10 +203,39 @@ def update_segment_host_mapping_for_agent(context, host, plugin, agent):
     if host in reported_hosts and not start_flag:
         return
     reported_hosts.add(host)
-    with context.session.begin(subtransactions=True):
-        segments = context.session.query(db.NetworkSegment).filter(
-            db.NetworkSegment.physical_network.in_(phys_nets))
-        current_segment_ids = {
-            segment['id'] for segment in segments
-            if check_segment_for_agent(segment, agent)}
-        update_segment_host_mapping(context, host, current_segment_ids)
+    segments = get_segments_with_phys_nets(context, phys_nets)
+    current_segment_ids = {
+        segment['id'] for segment in segments
+        if check_segment_for_agent(segment, agent)}
+    update_segment_host_mapping(context, host, current_segment_ids)
+
+
+def _add_segment_host_mapping_for_segment(resource, event, trigger,
+                                          context, segment):
+    if not segment.physical_network:
+        return
+    cp = manager.NeutronManager.get_plugin()
+    check_segment_for_agent = getattr(cp, 'check_segment_for_agent', None)
+    if not hasattr(cp, 'get_agents') or not check_segment_for_agent:
+        # not an agent-supporting plugin
+        registry.unsubscribe(_add_segment_host_mapping_for_segment,
+                             resources.SEGMENT, events.PRECOMMIT_CREATE)
+        return
+    hosts = {agent['host'] for agent in cp.get_agents(context)
+             if check_segment_for_agent(segment, agent)}
+    for host in hosts:
+        context.session.add(SegmentHostMapping(segment_id=segment.id,
+                                               host=host))
+
+
+def subscribe():
+    registry.subscribe(_update_segment_host_mapping_for_agent,
+                       resources.AGENT,
+                       events.AFTER_CREATE)
+    registry.subscribe(_update_segment_host_mapping_for_agent,
+                       resources.AGENT,
+                       events.AFTER_UPDATE)
+    registry.subscribe(_add_segment_host_mapping_for_segment,
+                       resources.SEGMENT, events.PRECOMMIT_CREATE)
+
+subscribe()

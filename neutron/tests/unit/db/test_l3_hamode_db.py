@@ -29,6 +29,7 @@ from neutron.db import agents_db
 from neutron.db import common_db_mixin
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_hamode_db
+from neutron.extensions import external_net
 from neutron.extensions import l3
 from neutron.extensions import l3_ext_ha_mode
 from neutron.extensions import portbindings
@@ -120,6 +121,10 @@ class L3HATestCase(L3HATestFramework):
         self.assertRaises(
             l3_ext_ha_mode.HAMinimumAgentsNumberNotValid,
             self.plugin._check_num_agents_per_router)
+
+    def test_verify_configuration_min_l3_agents_per_router_eq_one(self):
+        cfg.CONF.set_override('min_l3_agents_per_router', 1)
+        self.plugin._check_num_agents_per_router()
 
     def test_verify_configuration_max_l3_agents_below_min_l3_agents(self):
         cfg.CONF.set_override('max_l3_agents_per_router', 3)
@@ -914,11 +919,12 @@ class L3HATestCase(L3HATestFramework):
 class L3HAModeDbTestCase(L3HATestFramework):
 
     def _create_network(self, plugin, ctx, name='net',
-                        tenant_id='tenant1'):
+                        tenant_id='tenant1', external=False):
         network = {'network': {'name': name,
                                'shared': False,
                                'admin_state_up': True,
-                               'tenant_id': tenant_id}}
+                               'tenant_id': tenant_id,
+                               external_net.EXTERNAL: external}}
         return plugin.create_network(ctx, network)['id']
 
     def _create_subnet(self, plugin, ctx, network_id, cidr='10.0.0.0/8',
@@ -983,6 +989,49 @@ class L3HAModeDbTestCase(L3HATestFramework):
         self.plugin._update_router_port_bindings(
             self.admin_ctx, {router['id']: 'active'}, self.agent2['host'])
         port = self._get_first_interface(router['id'])
+        self.assertEqual(self.agent2['host'], port[portbindings.HOST_ID])
+
+    def test_ensure_host_set_on_ports_dvr_ha_binds_to_active(self):
+        agent3 = helpers.register_l3_agent('host_3',
+                                           n_const.L3_AGENT_MODE_DVR_SNAT)
+        ext_net = self._create_network(self.core_plugin, self.admin_ctx,
+                                       external=True)
+        int_net = self._create_network(self.core_plugin, self.admin_ctx)
+        subnet = self._create_subnet(self.core_plugin, self.admin_ctx,
+                                     int_net)
+        interface_info = {'subnet_id': subnet['id']}
+        router = self._create_router(ha=True, distributed=True)
+        self.plugin._update_router_gw_info(self.admin_ctx, router['id'],
+                                           {'network_id': ext_net})
+        self.plugin.add_router_interface(self.admin_ctx,
+                                         router['id'],
+                                         interface_info)
+        bindings = self.plugin.get_ha_router_port_bindings(
+            self.admin_ctx, router_ids=[router['id']],
+            host=self.agent2['host'])
+        self.plugin._set_router_states(self.admin_ctx, bindings,
+                                       {router['id']: 'active'})
+        callback = l3_rpc.L3RpcCallback()
+        callback._l3plugin = self.plugin
+        # Get router with interfaces
+        router = self.plugin._get_dvr_sync_data(self.admin_ctx,
+                                                self.agent2['host'],
+                                                self.agent2, [router['id']])[0]
+
+        callback._ensure_host_set_on_ports(self.admin_ctx, agent3['host'],
+                                           [router])
+        device_filter = {'device_id': [router['id']],
+                         'device_owner':
+                             [constants.DEVICE_OWNER_ROUTER_SNAT]
+                         }
+        port = self.core_plugin.get_ports(self.admin_ctx,
+                                          filters=device_filter)[0]
+        self.assertNotEqual(agent3['host'], port[portbindings.HOST_ID])
+
+        callback._ensure_host_set_on_ports(self.admin_ctx,
+                                           self.agent2['host'], [router])
+        port = self.core_plugin.get_ports(self.admin_ctx,
+                                          filters=device_filter)[0]
         self.assertEqual(self.agent2['host'], port[portbindings.HOST_ID])
 
     def test_ensure_host_set_on_ports_binds_correctly(self):

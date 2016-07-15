@@ -15,23 +15,15 @@ import copy
 import pprint
 import time
 
-from neutron_lib import constants
 from oslo_log import log as logging
 from oslo_utils import importutils
 
 from neutron.api.rpc.callbacks import exceptions
+from neutron import manager
 
 LOG = logging.getLogger(__name__)
 
 VERSIONS_TTL = 60
-
-# This is the list of agents that started using this rpc push/pull mechanism
-# for versioned objects, but at that time stable/liberty, they were not
-# reporting versions, so we need to assume they need QosPolicy 1.0
-#TODO(mangelajo): Remove this logic in Newton, since those agents will be
-#                 already reporting From N to O
-NON_REPORTING_AGENT_TYPES = [constants.AGENT_TYPE_OVS,
-                             constants.AGENT_TYPE_NIC_SWITCH]
 
 
 # NOTE(mangelajo): if we import this globally we end up with a (very
@@ -43,17 +35,24 @@ def _import_resources():
     return importutils.import_module('neutron.api.rpc.callbacks.resources')
 
 
+def _import_agents_db():
+    return importutils.import_module('neutron.db.agents_db')
+
+
 AgentConsumer = collections.namedtuple('AgentConsumer', ['agent_type',
                                                          'host'])
 AgentConsumer.__repr__ = lambda self: '%s@%s' % self
 
 
 class ResourceConsumerTracker(object):
-    """Class to be provided back by consumer_versions_callback.
+    """Class passed down to collect consumer's resource versions.
 
     This class is responsible for fetching the local versions of
-    resources, and letting the callback register every consumer's
+    resources, and letting the called function register every consumer's
     resource version.
+
+    This class is passed down to the plugin get_agents_resource_versions
+    currently, as the only expected consumers are agents so far.
 
     Later on, this class can also be used to recalculate, for each
     resource type, the collection of versions that are local or
@@ -119,7 +118,16 @@ class ResourceConsumerTracker(object):
                        'consumer': consumer})
 
     def set_versions(self, consumer, versions):
-        """Set or update an specific consumer resource types."""
+        """Set or update an specific consumer resource types.
+
+        :param consumer: should be an AgentConsumer object, with agent_type
+                         and host set. This acts as the unique ID for the
+                         agent.
+        :param versions: should be a dictionary in the following format:
+                               {'QosPolicy': '1.1',
+                                'SecurityGroup': '1.0',
+                                'Port': '1.0'}
+        """
         for resource_type, resource_version in versions.items():
             self._set_version(consumer, resource_type,
                              resource_version)
@@ -140,14 +148,6 @@ class ResourceConsumerTracker(object):
 
     def _handle_no_set_versions(self, consumer):
         """Handle consumers reporting no versions."""
-        if isinstance(consumer, AgentConsumer):
-            if consumer.agent_type in NON_REPORTING_AGENT_TYPES:
-                resources = _import_resources()
-                self._versions_by_consumer[consumer] = {
-                    resources.QOS_POLICY: '1.0'}
-                self._versions[resources.QOS_POLICY].add('1.0')
-                return
-
         if self._versions_by_consumer[consumer]:
             self._needs_recalculation = True
         self._versions_by_consumer[consumer] = {}
@@ -190,27 +190,30 @@ class CachedResourceConsumerTracker(object):
     """This class takes care of the caching logic of versions."""
 
     def __init__(self):
-        self._consumer_versions_callback = None
         # This is TTL expiration time, 0 means it will be expired at start
         self._expires_at = 0
         self._versions = ResourceConsumerTracker()
 
     def _update_consumer_versions(self):
-        if self._consumer_versions_callback:
-            new_tracker = ResourceConsumerTracker()
-            self._consumer_versions_callback(new_tracker)
-            self._versions = new_tracker
-            self._versions.report()
+        new_tracker = ResourceConsumerTracker()
+        neutron_plugin = manager.NeutronManager.get_plugin()
+        agents_db = _import_agents_db()
+        # If you use RPC callbacks, your plugin needs to implement
+        # AgentsDbMixin so that we know which resource versions your
+        # agents consume via RPC, please note that rpc_callbacks are
+        # only designed to work with agents currently.
+        if isinstance(neutron_plugin, agents_db.AgentDbMixin):
+            neutron_plugin.get_agents_resource_versions(new_tracker)
         else:
-            raise exceptions.VersionsCallbackNotFound()
+            raise exceptions.NoAgentDbMixinImplemented()
+
+        self._versions = new_tracker
+        self._versions.report()
 
     def _check_expiration(self):
         if time.time() > self._expires_at:
             self._update_consumer_versions()
             self._expires_at = time.time() + VERSIONS_TTL
-
-    def set_consumer_versions_callback(self, callback):
-        self._consumer_versions_callback = callback
 
     def get_resource_versions(self, resource_type):
         self._check_expiration()
@@ -232,21 +235,6 @@ def _get_cached_tracker():
     if not _cached_version_tracker:
         _cached_version_tracker = CachedResourceConsumerTracker()
     return _cached_version_tracker
-
-
-def set_consumer_versions_callback(callback):
-    """Register a callback to retrieve the system consumer versions.
-
-    Specific consumer logic has been decoupled from this, so we could reuse
-    in other places.
-
-    The callback will receive a ResourceConsumerTracker object,
-    and the ResourceConsumerTracker methods must be used to provide
-    each consumer versions. Consumer ids can be obtained from this
-    module via the next functions:
-        * get_agent_consumer_id
-    """
-    _get_cached_tracker().set_consumer_versions_callback(callback)
 
 
 def get_resource_versions(resource_type):

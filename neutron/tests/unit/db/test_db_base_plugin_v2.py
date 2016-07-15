@@ -15,14 +15,18 @@
 
 import contextlib
 import copy
+import functools
 import itertools
 
+import eventlet
 import mock
 import netaddr
 from neutron_lib import constants
 from neutron_lib import exceptions as lib_exc
+from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_utils import importutils
+from oslo_utils import uuidutils
 import six
 from sqlalchemy import event
 from sqlalchemy import orm
@@ -45,7 +49,6 @@ from neutron import context
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_common
 from neutron.db import ipam_backend_mixin
-from neutron.db import ipam_non_pluggable_backend as non_ipam
 from neutron.db import l3_db
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sgdb
@@ -59,6 +62,8 @@ DB_PLUGIN_KLASS = 'neutron.db.db_base_plugin_v2.NeutronDbPluginV2'
 
 DEVICE_OWNER_COMPUTE = constants.DEVICE_OWNER_COMPUTE_PREFIX + 'fake'
 DEVICE_OWNER_NOT_COMPUTE = constants.DEVICE_OWNER_DHCP
+
+TEST_TENANT_ID = '46f70361-ba71-4bd0-9769-3573fd227c4b'
 
 
 def optional_ctx(obj, fallback, **kwargs):
@@ -105,7 +110,7 @@ class NeutronDbPluginV2TestCase(testlib_api.WebTestCase):
         # Save the attributes map in case the plugin will alter it
         # loading extensions
         self.useFixture(tools.AttributeMapMemento())
-        self._tenant_id = 'test-tenant'
+        self._tenant_id = TEST_TENANT_ID
 
         if not plugin:
             plugin = DB_PLUGIN_KLASS
@@ -1408,6 +1413,19 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                 for fixed_ip in updated_fixed_ips:
                     self.assertIn(fixed_ip, result['port']['fixed_ips'])
 
+    def test_dhcp_port_ips_prefer_next_available_ip(self):
+        # test to check that DHCP ports get the first available IP in the
+        # allocation range
+        with self.subnet() as subnet:
+            port_ips = []
+            for _ in range(10):
+                with self.port(device_owner=constants.DEVICE_OWNER_DHCP,
+                               subnet=subnet) as port:
+                    port_ips.append(port['port']['fixed_ips'][0]['ip_address'])
+        first_ip = netaddr.IPAddress(port_ips[0])
+        expected = [str(first_ip + i) for i in range(10)]
+        self.assertEqual(expected, port_ips)
+
     def test_update_port_mac_ip(self):
         with self.subnet() as subnet:
             updated_fixed_ips = [{'subnet_id': subnet['subnet']['id'],
@@ -1683,6 +1701,20 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             mac = port['port']['mac_address']
             self.assertTrue(mac.startswith("12:34:56:78"))
 
+    def test_duplicate_mac_generation(self):
+        # simulate duplicate mac generation to make sure DBDuplicate is retried
+        responses = ['12:34:56:78:00:00', '12:34:56:78:00:00',
+                     '12:34:56:78:00:01']
+        with mock.patch('neutron.common.utils.get_random_mac',
+                        side_effect=responses) as grand_mac:
+            with self.subnet() as s:
+                with self.port(subnet=s) as p1, self.port(subnet=s) as p2:
+                    self.assertEqual('12:34:56:78:00:00',
+                                     p1['port']['mac_address'])
+                    self.assertEqual('12:34:56:78:00:01',
+                                     p2['port']['mac_address'])
+                    self.assertEqual(3, grand_mac.call_count)
+
     def test_bad_mac_format(self):
         cfg.CONF.set_override('base_mac', "bad_mac")
         try:
@@ -1691,24 +1723,16 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             return
         self.fail("No exception for illegal base_mac format")
 
-    def test_mac_exhaustion(self):
-        # rather than actually consuming all MAC (would take a LONG time)
-        # we try to allocate an already allocated mac address
-        cfg.CONF.set_override('mac_generation_retries', 3)
-
-        res = self._create_network(fmt=self.fmt, name='net1',
-                                   admin_state_up=True)
-        network = self.deserialize(self.fmt, res)
-        net_id = network['network']['id']
-
-        error = lib_exc.MacAddressInUse(net_id=net_id, mac='00:11:22:33:44:55')
-        with mock.patch.object(
-                neutron.db.db_base_plugin_v2.NeutronDbPluginV2,
-                '_create_port_with_mac', side_effect=error) as create_mock:
-            res = self._create_port(self.fmt, net_id=net_id)
-            self.assertEqual(webob.exc.HTTPServiceUnavailable.code,
-                             res.status_int)
-            self.assertEqual(3, create_mock.call_count)
+    def test_is_mac_in_use(self):
+        ctx = context.get_admin_context()
+        with self.port() as port:
+            net_id = port['port']['network_id']
+            mac = port['port']['mac_address']
+            self.assertTrue(self.plugin._is_mac_in_use(ctx, net_id, mac))
+            mac2 = '00:22:00:44:00:66'  # other mac, same network
+            self.assertFalse(self.plugin._is_mac_in_use(ctx, net_id, mac2))
+            net_id2 = port['port']['id']  # other net uuid, same mac
+            self.assertFalse(self.plugin._is_mac_in_use(ctx, net_id2, mac))
 
     def test_requested_duplicate_ip(self):
         with self.subnet() as subnet:
@@ -1916,10 +1940,7 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             self.assertEqual(webob.exc.HTTPClientError.code,
                              res.status_int)
 
-    @mock.patch.object(non_ipam.IpamNonPluggableBackend,
-                       '_allocate_specific_ip')
-    def test_requested_fixed_ip_address_v6_slaac_router_iface(
-            self, alloc_specific_ip):
+    def test_requested_fixed_ip_address_v6_slaac_router_iface(self):
         with self.subnet(gateway_ip='fe80::1',
                          cidr='fe80::/64',
                          ip_version=6,
@@ -1934,7 +1955,6 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
             self.assertEqual(len(port['port']['fixed_ips']), 1)
             self.assertEqual(port['port']['fixed_ips'][0]['ip_address'],
                              'fe80::1')
-            self.assertFalse(alloc_specific_ip.called)
 
     def test_requested_subnet_id_v6_slaac(self):
         with self.subnet(gateway_ip='fe80::1',
@@ -6083,6 +6103,100 @@ class DbModelTestCase(testlib_api.SqlTestCase):
             # we want to make sure that the attr resource was removed
             self._get_neutron_attr(ctx, attr_id)
 
+    def test_staledata_error_on_concurrent_object_update_network(self):
+        ctx = context.get_admin_context()
+        network = self._make_network(ctx)
+        self._test_staledata_error_on_concurrent_object_update(
+            models_v2.Network, network['id'])
+
+    def test_staledata_error_on_concurrent_object_update_port(self):
+        ctx = context.get_admin_context()
+        network = self._make_network(ctx)
+        port = self._make_port(ctx, network.id)
+        self._test_staledata_error_on_concurrent_object_update(
+            models_v2.Port, port['id'])
+
+    def test_staledata_error_on_concurrent_object_update_subnet(self):
+        ctx = context.get_admin_context()
+        network = self._make_network(ctx)
+        subnet = self._make_subnet(ctx, network.id)
+        self._test_staledata_error_on_concurrent_object_update(
+            models_v2.Subnet, subnet['id'])
+
+    def test_staledata_error_on_concurrent_object_update_subnetpool(self):
+        ctx = context.get_admin_context()
+        subnetpool = self._make_subnetpool(ctx)
+        self._test_staledata_error_on_concurrent_object_update(
+            models_v2.SubnetPool, subnetpool['id'])
+
+    def test_staledata_error_on_concurrent_object_update_router(self):
+        ctx = context.get_admin_context()
+        router = self._make_router(ctx)
+        self._test_staledata_error_on_concurrent_object_update(
+            l3_db.Router, router['id'])
+
+    def test_staledata_error_on_concurrent_object_update_floatingip(self):
+        ctx = context.get_admin_context()
+        network = self._make_network(ctx)
+        port = self._make_port(ctx, network.id)
+        flip = self._make_floating_ip(ctx, port.id)
+        self._test_staledata_error_on_concurrent_object_update(
+            l3_db.FloatingIP, flip['id'])
+
+    def test_staledata_error_on_concurrent_object_update_sg(self):
+        ctx = context.get_admin_context()
+        sg, rule = self._make_security_group_and_rule(ctx)
+        self._test_staledata_error_on_concurrent_object_update(
+            sgdb.SecurityGroup, sg['id'])
+        self._test_staledata_error_on_concurrent_object_update(
+            sgdb.SecurityGroupRule, rule['id'])
+
+    def _test_staledata_error_on_concurrent_object_update(self, model, dbid):
+        """Test revision compare and swap update breaking on concurrent update.
+
+        In this test we start an update of the name on a model in an eventlet
+        coroutine where it will be blocked before it can commit the results.
+        Then while it is blocked, we will update the description of the model
+        in the foregound and ensure that this results in the coroutine
+        receiving a StaleDataError as expected.
+        """
+        lock = functools.partial(lockutils.lock, uuidutils.generate_uuid())
+        self._blocked_on_lock = False
+
+        def _lock_blocked_name_update():
+            ctx = context.get_admin_context()
+            with ctx.session.begin():
+                thing = ctx.session.query(model).filter_by(id=dbid).one()
+                thing.bump_revision()
+                thing.name = 'newname'
+                self._blocked_on_lock = True
+                with lock():
+                    return thing
+
+        with lock():
+            coro = eventlet.spawn(_lock_blocked_name_update)
+            # wait for the coroutine to get blocked on the lock before
+            # we proceed to update the record underneath it
+            while not self._blocked_on_lock:
+                eventlet.sleep(0)
+            ctx = context.get_admin_context()
+            with ctx.session.begin():
+                thing = ctx.session.query(model).filter_by(id=dbid).one()
+                thing.bump_revision()
+                thing.description = 'a description'
+            revision_after_build = thing.revision_number
+
+        with testtools.ExpectedException(orm.exc.StaleDataError):
+            # the coroutine should have encountered a stale data error because
+            # the status update thread would have bumped the revision number
+            # while it was waiting to commit
+            coro.wait()
+        # another attempt should work fine
+        thing = _lock_blocked_name_update()
+        self.assertEqual('a description', thing.description)
+        self.assertEqual('newname', thing.name)
+        self.assertGreater(thing.revision_number, revision_after_build)
+
     def test_standardattr_removed_on_subnet_delete(self):
         ctx = context.get_admin_context()
         network = self._make_network(ctx)
@@ -6155,14 +6269,14 @@ class NeutronDbPluginV2AsMixinTestCase(NeutronDbPluginV2TestCase,
         self.net_data = {'network': {'id': 'fake-id',
                                      'name': 'net1',
                                      'admin_state_up': True,
-                                     'tenant_id': 'test-tenant',
+                                     'tenant_id': TEST_TENANT_ID,
                                      'shared': False}}
 
     def test_create_network_with_default_status(self):
         net = self.plugin.create_network(self.context, self.net_data)
         default_net_create_status = 'ACTIVE'
         expected = [('id', 'fake-id'), ('name', 'net1'),
-                    ('admin_state_up', True), ('tenant_id', 'test-tenant'),
+                    ('admin_state_up', True), ('tenant_id', TEST_TENANT_ID),
                     ('shared', False), ('status', default_net_create_status)]
         for k, v in expected:
             self.assertEqual(net[k], v)
@@ -6200,7 +6314,7 @@ class NeutronDbPluginV2AsMixinTestCase(NeutronDbPluginV2TestCase,
 class TestNetworks(testlib_api.SqlTestCase):
     def setUp(self):
         super(TestNetworks, self).setUp()
-        self._tenant_id = 'test-tenant'
+        self._tenant_id = TEST_TENANT_ID
 
         # Update the plugin
         self.setup_coreplugin(DB_PLUGIN_KLASS)

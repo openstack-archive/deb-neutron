@@ -23,10 +23,10 @@ from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.db import dns_db
 from neutron.db import models_v2
+from neutron.db import segments_db
 from neutron.extensions import dns
 from neutron import manager
 from neutron.plugins.common import utils as plugin_utils
-from neutron.plugins.ml2 import db
 from neutron.plugins.ml2 import driver_api as api
 from neutron.services.externaldns import driver
 
@@ -187,7 +187,8 @@ class DNSExtensionDriverML2(DNSExtensionDriver):
             return True
         if network['router:external']:
             return True
-        segments = db.get_network_segments(context.session, network['id'])
+        segments = segments_db.get_network_segments(context.session,
+                                                    network['id'])
         if len(segments) > 1:
             return False
         provider_net = segments[0]
@@ -247,10 +248,10 @@ def _send_data_to_external_dns_service(context, dns_driver, dns_domain,
     except (dns.DNSDomainNotFound, dns.DuplicateRecordSet) as e:
         LOG.exception(_LE("Error publishing port data in external DNS "
                           "service. Name: '%(name)s'. Domain: '%(domain)s'. "
-                          "DNS service driver message '%(message)s'")
-                      % {"name": dns_name,
-                         "domain": dns_domain,
-                         "message": e.msg})
+                          "DNS service driver message '%(message)s'"),
+                      {"name": dns_name,
+                       "domain": dns_domain,
+                       "message": e.msg})
 
 
 def _remove_data_from_external_dns_service(context, dns_driver, dns_domain,
@@ -261,11 +262,11 @@ def _remove_data_from_external_dns_service(context, dns_driver, dns_domain,
         LOG.exception(_LE("Error deleting port data from external DNS "
                           "service. Name: '%(name)s'. Domain: '%(domain)s'. "
                           "IP addresses '%(ips)s'. DNS service driver message "
-                          "'%(message)s'")
-                      % {"name": dns_name,
-                         "domain": dns_domain,
-                         "message": e.msg,
-                         "ips": ', '.join(records)})
+                          "'%(message)s'"),
+                      {"name": dns_name,
+                       "domain": dns_domain,
+                       "message": e.msg,
+                       "ips": ', '.join(records)})
 
 
 def _update_port_in_external_dns_service(resource, event, trigger, **kwargs):

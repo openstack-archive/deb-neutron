@@ -40,6 +40,7 @@ from neutron.db import db_base_plugin_v2 as base_plugin
 from neutron.db import l3_db
 from neutron.db import models_v2
 from neutron.db import provisioning_blocks
+from neutron.db import segments_db
 from neutron.extensions import availability_zone as az_ext
 from neutron.extensions import external_net
 from neutron.extensions import multiprovidernet as mpnet
@@ -53,6 +54,7 @@ from neutron.plugins.ml2 import db as ml2_db
 from neutron.plugins.ml2 import driver_api
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2.drivers import type_vlan
+from neutron.plugins.ml2 import managers
 from neutron.plugins.ml2 import models
 from neutron.plugins.ml2 import plugin as ml2_plugin
 from neutron.services.qos import qos_consts
@@ -457,6 +459,12 @@ class TestMl2SubnetsV2(test_plugin.TestSubnetsV2,
                     req = self.new_delete_request('subnets', subnet_id)
                     res = req.get_response(self.api)
                     self.assertEqual(204, res.status_int)
+                    # Validate chat check is called twice, i.e. after the
+                    # first check transaction gets restarted.
+                    calls = [mock.call(mock.ANY, subnet_id),
+                             mock.call(mock.ANY, subnet_id)]
+                    plugin._subnet_check_ip_allocations.assert_has_calls = (
+                        calls)
 
 
 class TestMl2DbOperationBounds(test_plugin.DbOperationBoundMixin,
@@ -504,9 +512,36 @@ class TestMl2DbOperationBoundsTenant(TestMl2DbOperationBounds):
 
 class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
 
+    def test__port_provisioned_with_blocks(self):
+        plugin = manager.NeutronManager.get_plugin()
+        ups = mock.patch.object(plugin, 'update_port_status').start()
+        with self.port() as port:
+            mock.patch('neutron.plugins.ml2.plugin.db.get_port').start()
+            provisioning_blocks.add_provisioning_component(
+                self.context, port['port']['id'], 'port', 'DHCP')
+            plugin._port_provisioned('port', 'evt', 'trigger',
+                                     self.context, port['port']['id'])
+        self.assertFalse(ups.called)
+
+    def test__port_provisioned_no_binding(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with self.network() as net:
+            net_id = net['network']['id']
+        port_id = 'fake_id'
+        port_db = models_v2.Port(
+            id=port_id, tenant_id='tenant', network_id=net_id,
+            mac_address='08:00:01:02:03:04', admin_state_up=True,
+            status='ACTIVE', device_id='vm_id',
+            device_owner=DEVICE_OWNER_COMPUTE
+        )
+        with self.context.session.begin():
+            self.context.session.add(port_db)
+        self.assertIsNone(plugin._port_provisioned('port', 'evt', 'trigger',
+                                                   self.context, port_id))
+
     def test_create_router_port_and_fail_create_postcommit(self):
 
-        with mock.patch.object(mech_test.TestMechanismDriver,
+        with mock.patch.object(managers.MechanismManager,
                                'create_port_postcommit',
                                side_effect=ml2_exc.MechanismDriverError(
                                    method='create_port_postcommit')):
@@ -1279,9 +1314,9 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
             self.assertTrue(update_mock.mock_calls)
             self.assertEqual('test', binding.host)
 
-    def test_process_dvr_port_binding_update_router_id(self):
+    def test_process_distributed_port_binding_update_router_id(self):
         host_id = 'host'
-        binding = models.DVRPortBinding(
+        binding = models.DistributedPortBinding(
                             port_id='port_id',
                             host=host_id,
                             router_id='old_router_id',
@@ -1295,16 +1330,17 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
         new_router_id = 'new_router'
         attrs = {'device_id': new_router_id, portbindings.HOST_ID: host_id}
         with mock.patch.object(plugin, '_update_port_dict_binding'):
-            with mock.patch.object(ml2_db, 'get_network_segments',
+            with mock.patch.object(segments_db, 'get_network_segments',
                                    return_value=[]):
                 mech_context = driver_context.PortContext(
                     self, context, mock_port, mock_network, binding, None)
-                plugin._process_dvr_port_binding(mech_context, context, attrs)
+                plugin._process_distributed_port_binding(mech_context,
+                                                         context, attrs)
                 self.assertEqual(new_router_id,
                                  mech_context._binding.router_id)
                 self.assertEqual(host_id, mech_context._binding.host)
 
-    def test_update_dvr_port_binding_on_concurrent_port_delete(self):
+    def test_update_distributed_port_binding_on_concurrent_port_delete(self):
         plugin = manager.NeutronManager.get_plugin()
         with self.port() as port:
             port = {
@@ -1312,20 +1348,21 @@ class TestMl2PortBinding(Ml2PluginV2TestCase,
                 portbindings.HOST_ID: 'foo_host',
             }
             with mock.patch.object(plugin, 'get_port', new=plugin.delete_port):
-                res = plugin.update_dvr_port_binding(
+                res = plugin.update_distributed_port_binding(
                     self.context, 'foo_port_id', {'port': port})
         self.assertIsNone(res)
 
-    def test_update_dvr_port_binding_on_non_existent_port(self):
+    def test_update_distributed_port_binding_on_non_existent_port(self):
         plugin = manager.NeutronManager.get_plugin()
         port = {
             'id': 'foo_port_id',
             portbindings.HOST_ID: 'foo_host',
         }
-        with mock.patch.object(ml2_db, 'ensure_dvr_port_binding') as mock_dvr:
-            plugin.update_dvr_port_binding(
+        with mock.patch.object(
+            ml2_db, 'ensure_distributed_port_binding') as mock_dist:
+            plugin.update_distributed_port_binding(
                 self.context, 'foo_port_id', {'port': port})
-        self.assertFalse(mock_dvr.called)
+        self.assertFalse(mock_dist.called)
 
 
 class TestMl2PortBindingNoSG(TestMl2PortBinding):
@@ -1360,9 +1397,8 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
         network_id = network['network']['id']
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment)
-        dynamic_segment = ml2_db.get_dynamic_segment(self.context.session,
-                                                     network_id,
-                                                     'physnet1')
+        dynamic_segment = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet1')
         self.assertEqual('vlan', dynamic_segment[driver_api.NETWORK_TYPE])
         self.assertEqual('physnet1',
                          dynamic_segment[driver_api.PHYSICAL_NETWORK])
@@ -1372,9 +1408,8 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
                     driver_api.PHYSICAL_NETWORK: 'physnet3'}
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment2)
-        dynamic_segment = ml2_db.get_dynamic_segment(self.context.session,
-                                                     network_id,
-                                                     segmentation_id='1234')
+        dynamic_segment = segments_db.get_dynamic_segment(
+            self.context.session, network_id, segmentation_id='1234')
         self.assertEqual('vlan', dynamic_segment[driver_api.NETWORK_TYPE])
         self.assertEqual('physnet3',
                          dynamic_segment[driver_api.PHYSICAL_NETWORK])
@@ -1391,26 +1426,23 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
         network_id = network['network']['id']
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment)
-        dynamic_segment = ml2_db.get_dynamic_segment(self.context.session,
-                                                     network_id,
-                                                     'physnet1')
+        dynamic_segment = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet1')
         self.assertEqual('vlan', dynamic_segment[driver_api.NETWORK_TYPE])
         self.assertEqual('physnet1',
                          dynamic_segment[driver_api.PHYSICAL_NETWORK])
         dynamic_segmentation_id = dynamic_segment[driver_api.SEGMENTATION_ID]
         self.assertTrue(dynamic_segmentation_id > 0)
-        dynamic_segment1 = ml2_db.get_dynamic_segment(self.context.session,
-                                                      network_id,
-                                                      'physnet1')
+        dynamic_segment1 = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet1')
         dynamic_segment1_id = dynamic_segment1[driver_api.SEGMENTATION_ID]
         self.assertEqual(dynamic_segmentation_id, dynamic_segment1_id)
         segment2 = {driver_api.NETWORK_TYPE: 'vlan',
                     driver_api.PHYSICAL_NETWORK: 'physnet2'}
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment2)
-        dynamic_segment2 = ml2_db.get_dynamic_segment(self.context.session,
-                                                      network_id,
-                                                      'physnet2')
+        dynamic_segment2 = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet2')
         dynamic_segmentation2_id = dynamic_segment2[driver_api.SEGMENTATION_ID]
         self.assertNotEqual(dynamic_segmentation_id, dynamic_segmentation2_id)
 
@@ -1425,9 +1457,8 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
         network_id = network['network']['id']
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment)
-        dynamic_segment = ml2_db.get_dynamic_segment(self.context.session,
-                                                     network_id,
-                                                     'physnet1')
+        dynamic_segment = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet1')
         self.assertEqual('vlan', dynamic_segment[driver_api.NETWORK_TYPE])
         self.assertEqual('physnet1',
                          dynamic_segment[driver_api.PHYSICAL_NETWORK])
@@ -1435,7 +1466,7 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
         self.assertTrue(dynamic_segmentation_id > 0)
         self.driver.type_manager.release_dynamic_segment(
             self.context.session, dynamic_segment[driver_api.ID])
-        self.assertIsNone(ml2_db.get_dynamic_segment(
+        self.assertIsNone(segments_db.get_dynamic_segment(
             self.context.session, network_id, 'physnet1'))
 
     def test_create_network_provider(self):
@@ -1563,9 +1594,8 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
                    driver_api.PHYSICAL_NETWORK: 'physnet2'}
         self.driver.type_manager.allocate_dynamic_segment(
             self.context.session, network_id, segment)
-        dynamic_segment = ml2_db.get_dynamic_segment(self.context.session,
-                                                     network_id,
-                                                     'physnet2')
+        dynamic_segment = segments_db.get_dynamic_segment(
+            self.context.session, network_id, 'physnet2')
         self.assertEqual('vlan', dynamic_segment[driver_api.NETWORK_TYPE])
         self.assertEqual('physnet2',
                          dynamic_segment[driver_api.PHYSICAL_NETWORK])
@@ -1576,9 +1606,9 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
             req = self.new_delete_request('networks', network_id)
             res = req.get_response(self.api)
             self.assertEqual(2, rs.call_count)
-        self.assertEqual([], ml2_db.get_network_segments(
+        self.assertEqual([], segments_db.get_network_segments(
             self.context.session, network_id))
-        self.assertIsNone(ml2_db.get_dynamic_segment(
+        self.assertIsNone(segments_db.get_dynamic_segment(
             self.context.session, network_id, 'physnet2'))
 
     def test_release_segment_no_type_driver(self):
@@ -1598,7 +1628,7 @@ class TestMultiSegmentNetworks(Ml2PluginV2TestCase):
                    driver_api.PHYSICAL_NETWORK: 'physnet1',
                    driver_api.ID: 1}
         with mock.patch('neutron.plugins.ml2.managers.LOG') as log:
-            with mock.patch('neutron.plugins.ml2.managers.db') as db:
+            with mock.patch('neutron.plugins.ml2.managers.segments_db') as db:
                 db.get_network_segments.return_value = (segment,)
                 self.driver.type_manager.release_network_segments(
                     self.context.session, network_id)
@@ -1956,10 +1986,10 @@ class TestFaultyMechansimDriver(Ml2PluginV2FaultyDriverTestCase):
 
                     self._delete('ports', port['port']['id'])
 
-    def test_update_dvr_router_interface_port(self):
-        """Test validate dvr router interface update succeeds."""
+    def test_update_distributed_router_interface_port(self):
+        """Test validate distributed router interface update succeeds."""
         host_id = 'host'
-        binding = models.DVRPortBinding(
+        binding = models.DistributedPortBinding(
                             port_id='port_id',
                             host=host_id,
                             router_id='old_router_id',
@@ -1973,9 +2003,9 @@ class TestFaultyMechansimDriver(Ml2PluginV2FaultyDriverTestCase):
                 mock.patch.object(
                     mech_test.TestMechanismDriver,
                     'update_port_precommit') as port_pre,\
-                mock.patch.object(ml2_db,
-                                  'get_dvr_port_bindings') as dvr_bindings:
-                dvr_bindings.return_value = [binding]
+                mock.patch.object(
+                    ml2_db, 'get_distributed_port_bindings') as dist_bindings:
+                dist_bindings.return_value = [binding]
                 port_pre.return_value = True
                 with self.network() as network:
                     with self.subnet(network=network) as subnet:
@@ -2000,7 +2030,7 @@ class TestFaultyMechansimDriver(Ml2PluginV2FaultyDriverTestCase):
                         req = self.new_update_request('ports', data, port_id)
                         res = req.get_response(self.api)
                         self.assertEqual(200, res.status_int)
-                        self.assertTrue(dvr_bindings.called)
+                        self.assertTrue(dist_bindings.called)
                         self.assertTrue(port_pre.called)
                         self.assertTrue(port_post.called)
                         port = self._show('ports', port_id)
@@ -2031,8 +2061,12 @@ class TestML2PluggableIPAM(test_ipam.UseIpamMixin, TestMl2SubnetsV2):
 
 
 class TestMl2PluginCreateUpdateDeletePort(base.BaseTestCase):
+
     def setUp(self):
         super(TestMl2PluginCreateUpdateDeletePort, self).setUp()
+        # TODO(ihrachys): revisit plugin setup once we decouple
+        # neutron.objects.db.api from core plugin instance
+        self.setup_coreplugin(PLUGIN_NAME)
         self.context = mock.MagicMock()
         self.notify_p = mock.patch('neutron.callbacks.registry.notify')
         self.notify = self.notify_p.start()

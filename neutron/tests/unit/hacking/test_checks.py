@@ -24,6 +24,9 @@ from neutron.hacking import checks
 from neutron.tests import base
 
 
+CREATE_DUMMY_MATCH_OBJECT = re.compile('a')
+
+
 class HackingTestCase(base.BaseTestCase):
 
     def assertLinePasses(self, func, line):
@@ -165,29 +168,6 @@ class HackingTestCase(base.BaseTestCase):
         self.assertLineFails(f, "d.iteritems()")
         self.assertLinePasses(f, "six.iteritems(d)")
 
-    def test_asserttrue(self):
-        fail_code1 = """
-               test_bool = True
-               self.assertEqual(True, test_bool)
-               """
-        fail_code2 = """
-               test_bool = True
-               self.assertEqual(test_bool, True)
-               """
-        pass_code = """
-               test_bool = True
-               self.assertTrue(test_bool)
-               """
-        self.assertEqual(
-            1, len(list(checks.check_asserttrue(fail_code1,
-                                            "neutron/tests/test_assert.py"))))
-        self.assertEqual(
-            1, len(list(checks.check_asserttrue(fail_code2,
-                                            "neutron/tests/test_assert.py"))))
-        self.assertEqual(
-            0, len(list(checks.check_asserttrue(pass_code,
-                                            "neutron/tests/test_assert.py"))))
-
     def test_no_mutable_default_args(self):
         self.assertEqual(1, len(list(checks.no_mutable_default_args(
             " def fake_suds_context(calls={}):"))))
@@ -201,28 +181,55 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(0, len(list(checks.no_mutable_default_args(
             "defined, undefined = [], {}"))))
 
-    def test_assertfalse(self):
-        fail_code1 = """
+    def test_asserttruefalse(self):
+        true_fail_code1 = """
+               test_bool = True
+               self.assertEqual(True, test_bool)
+               """
+        true_fail_code2 = """
+               test_bool = True
+               self.assertEqual(test_bool, True)
+               """
+        true_pass_code = """
+               test_bool = True
+               self.assertTrue(test_bool)
+               """
+        false_fail_code1 = """
                test_bool = False
                self.assertEqual(False, test_bool)
                """
-        fail_code2 = """
+        false_fail_code2 = """
                test_bool = False
                self.assertEqual(test_bool, False)
                """
-        pass_code = """
+        false_pass_code = """
                test_bool = False
                self.assertFalse(test_bool)
                """
         self.assertEqual(
-            1, len(list(checks.check_assertfalse(fail_code1,
-                                            "neutron/tests/test_assert.py"))))
+            1, len(list(
+                checks.check_asserttruefalse(true_fail_code1,
+                                             "neutron/tests/test_assert.py"))))
         self.assertEqual(
-            1, len(list(checks.check_assertfalse(fail_code2,
-                                            "neutron/tests/test_assert.py"))))
+            1, len(list(
+                checks.check_asserttruefalse(true_fail_code2,
+                                             "neutron/tests/test_assert.py"))))
         self.assertEqual(
-            0, len(list(checks.check_assertfalse(pass_code,
-                                            "neutron/tests/test_assert.py"))))
+            0, len(list(
+                checks.check_asserttruefalse(true_pass_code,
+                                             "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            1, len(list(
+                checks.check_asserttruefalse(false_fail_code1,
+                                             "neutron/tests/test_assert.py"))))
+        self.assertEqual(
+            1, len(list(
+                checks.check_asserttruefalse(false_fail_code2,
+                                             "neutron/tests/test_assert.py"))))
+        self.assertFalse(
+            list(
+                checks.check_asserttruefalse(false_pass_code,
+                                            "neutron/tests/test_assert.py")))
 
     def test_assertempty(self):
         fail_code = """
@@ -281,6 +288,51 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_assertequal_for_httpcode(pass_code,
                                         "neutron/tests/test_assert.py"))))
+
+    def test_unittest_imports(self):
+        f = checks.check_unittest_imports
+
+        self.assertLinePasses(f, 'from unittest2')
+        self.assertLinePasses(f, 'import unittest2')
+        self.assertLinePasses(f, 'from unitest2 import case')
+        self.assertLinePasses(f, 'unittest2.TestSuite')
+
+        self.assertLineFails(f, 'from unittest import case')
+        self.assertLineFails(f, 'from unittest.TestSuite')
+        self.assertLineFails(f, 'import unittest')
+
+    def test_check_delayed_string_interpolation(self):
+        dummy_noqa = CREATE_DUMMY_MATCH_OBJECT.search('a')
+
+        # In 'logical_line', Contents of strings replaced with
+        # "xxx" of same length.
+        fail_code1 = 'LOG.error(_LE("xxxxxxxxxxxxxxx") % value)'
+        fail_code2 = "LOG.warning(msg % 'xxxxx')"
+
+        self.assertEqual(
+            1, len(list(checks.check_delayed_string_interpolation(fail_code1,
+                                        "neutron/common/rpc.py", None))))
+        self.assertEqual(
+            1, len(list(checks.check_delayed_string_interpolation(fail_code2,
+                                        "neutron/common/rpc.py", None))))
+
+        pass_code1 = 'LOG.error(_LE("xxxxxxxxxxxxxxxxxx"), value)'
+        pass_code2 = "LOG.warning(msg, 'xxxxx')"
+        self.assertEqual(
+            0, len(list(checks.check_delayed_string_interpolation(pass_code1,
+                                        "neutron/common/rpc.py", None))))
+        self.assertEqual(
+            0, len(list(checks.check_delayed_string_interpolation(pass_code2,
+                                        "neutron/common/rpc.py", None))))
+        # check a file in neutron/tests
+        self.assertEqual(
+            0, len(list(checks.check_delayed_string_interpolation(fail_code1,
+                                        "neutron/tests/test_assert.py",
+                                        None))))
+        # check code including 'noqa'
+        self.assertEqual(
+            0, len(list(checks.check_delayed_string_interpolation(fail_code1,
+                                        "neutron/common/rpc.py", dummy_noqa))))
 
 # The following is borrowed from hacking/tests/test_doctest.py.
 # Tests defined in docstring is easier to understand

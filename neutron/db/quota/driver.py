@@ -151,7 +151,7 @@ class DbQuotaDriver(object):
         return dict((k, v) for k, v in quotas.items())
 
     def _handle_expired_reservations(self, context, tenant_id):
-        LOG.debug("Deleting expired reservations for tenant:%s" % tenant_id)
+        LOG.debug("Deleting expired reservations for tenant:%s", tenant_id)
         # Delete expired reservations (we don't want them to accrue
         # in the database)
         quota_api.remove_expired_reservations(
@@ -161,7 +161,7 @@ class DbQuotaDriver(object):
                                retry_interval=0.1,
                                inc_retry_interval=True,
                                retry_on_request=True,
-                               exception_checker=db_api.is_deadlock)
+                               exception_checker=db_api.is_retriable)
     def make_reservation(self, context, tenant_id, resources, deltas, plugin):
         # Lock current reservation table
         # NOTE(salv-orlando): This routine uses DB write locks.
@@ -186,8 +186,8 @@ class DbQuotaDriver(object):
                                        current_limits.items() if limit < 0])
             # Do not even bother counting resources and calculating headroom
             # for resources with unlimited quota
-            LOG.debug(("Resources %s have unlimited quota limit. It is not "
-                       "required to calculated headroom "),
+            LOG.debug("Resources %s have unlimited quota limit. It is not "
+                      "required to calculate headroom ",
                       ",".join(unlimited_resources))
             requested_resources = (set(requested_resources) -
                                    unlimited_resources)

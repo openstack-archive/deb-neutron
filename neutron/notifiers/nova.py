@@ -15,6 +15,7 @@
 
 from keystoneauth1 import loading as ks_loading
 from neutron_lib import constants
+from neutron_lib import exceptions as exc
 from novaclient import client as nova_client
 from novaclient import exceptions as nova_exceptions
 from oslo_config import cfg
@@ -23,6 +24,9 @@ from oslo_utils import uuidutils
 from sqlalchemy.orm import attributes as sql_attr
 
 from neutron._i18n import _LE, _LI, _LW
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron import context
 from neutron import manager
 from neutron.notifiers import batch_notifier
@@ -68,6 +72,15 @@ class Notifier(object):
         self.batch_notifier = batch_notifier.BatchNotifier(
             cfg.CONF.send_events_interval, self.send_events)
 
+        # register callbacks for events pertaining resources affecting Nova
+        callback_resources = (
+            resources.FLOATING_IP,
+            resources.PORT,
+        )
+        for resource in callback_resources:
+            registry.subscribe(self._send_nova_notification,
+                               resource, events.BEFORE_RESPONSE)
+
     def _is_compute_port(self, port):
         try:
             if (port['device_id'] and uuidutils.is_uuid_like(port['device_id'])
@@ -95,6 +108,11 @@ class Notifier(object):
         if not hasattr(self, '_plugin_ref'):
             self._plugin_ref = manager.NeutronManager.get_plugin()
         return self._plugin_ref
+
+    def _send_nova_notification(self, resource, event, trigger,
+                                action=None, original=None, data=None,
+                                **kwargs):
+        self.send_network_change(action, original, data)
 
     def send_network_change(self, action, original_obj,
                             returned_obj):
@@ -141,7 +159,12 @@ class Notifier(object):
                 return
 
             ctx = context.get_admin_context()
-            port = self._plugin.get_port(ctx, port_id)
+            try:
+                port = self._plugin.get_port(ctx, port_id)
+            except exc.PortNotFound:
+                LOG.debug("Port %s was deleted, no need to send any "
+                          "notification", port_id)
+                return
 
         if port and self._is_compute_port(port):
             if action == 'delete_port':

@@ -16,47 +16,41 @@
 from neutron_lib import constants
 from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
-from oslo_db.sqlalchemy import session
 import testtools
 
 from neutron import context
 from neutron.db import db_base_plugin_v2 as base_plugin
-from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.ipam.drivers.neutrondb_ipam import db_models as ipam_models
-from neutron.tests import base
-from neutron.tests.common import base as common_base
+from neutron.tests.unit import testlib_api
 
 
-def get_admin_test_context(db_url):
-    """
-    get_admin_test_context is used to provide a test context. A new session is
-    created using the db url specified
-    """
-    ctx = context.Context(user_id=None,
-                          tenant_id=None,
-                          is_admin=True,
-                          overwrite=False)
-    facade = session.EngineFacade(db_url, mysql_sql_mode='STRICT_ALL_TABLES')
-    ctx._session = facade.get_session(autocommit=False, expire_on_commit=True)
-    return ctx
+# required in order for testresources to optimize same-backend
+# tests together
+load_tests = testlib_api.module_load_tests
+# FIXME(zzzeek): needs to be provided by oslo.db, current version
+# is not working
+# load_tests = test_base.optimize_db_test_loader(__file__)
 
 
-class IpamTestCase(object):
+class IpamTestCase(testlib_api.SqlTestCase):
     """
     Base class for tests that aim to test ip allocation.
     """
+    use_pluggable_ipam = False
 
-    def configure_test(self, use_pluggable_ipam=False):
-        model_base.BASEV2.metadata.create_all(self.engine)
+    def setUp(self):
+        super(IpamTestCase, self).setUp()
         cfg.CONF.set_override('notify_nova_on_port_status_changes', False)
-        if use_pluggable_ipam:
+        if self.use_pluggable_ipam:
             self._turn_on_pluggable_ipam()
         else:
             self._turn_off_pluggable_ipam()
         self.plugin = base_plugin.NeutronDbPluginV2()
-        self.cxt = get_admin_test_context(self.engine.url)
-        self.addCleanup(self.cxt._session.close)
+        self.cxt = context.Context(user_id=None,
+                                   tenant_id=None,
+                                   is_admin=True,
+                                   overwrite=False)
         self.tenant_id = 'test_tenant'
         self.network_id = 'test_net_id'
         self.subnet_id = 'test_sub_id'
@@ -147,104 +141,36 @@ class IpamTestCase(object):
                               'ip_address': fixed_ip[0].get('ip_address'),
                               'subnet_id': self.subnet_id,
                               'network_id': self.network_id}]
-        ip_avail_ranges_expected = [{'first_ip': '10.10.10.2',
-                                     'last_ip': '10.10.10.2'},
-                                    {'first_ip': '10.10.10.4',
-                                     'last_ip': '10.10.10.6'}]
         ip_alloc_pool_expected = [{'first_ip': '10.10.10.2',
                                    'last_ip': '10.10.10.6',
                                    'subnet_id': self.subnet_id}]
         self.assert_ip_alloc_matches(ip_alloc_expected)
         self.assert_ip_alloc_pool_matches(ip_alloc_pool_expected)
-        self.assert_ip_avail_range_matches(
-            ip_avail_ranges_expected)
-
-    def test_allocate_first_available_ip(self):
-        self._create_port(self.port_id)
-        ip_alloc_expected = [{'port_id': self.port_id,
-                              'ip_address': '10.10.10.2',
-                              'subnet_id': self.subnet_id,
-                              'network_id': self.network_id}]
-        ip_avail_ranges_expected = [{'first_ip': '10.10.10.3',
-                                     'last_ip': '10.10.10.6'}]
-        ip_alloc_pool_expected = [{'first_ip': '10.10.10.2',
-                                   'last_ip': '10.10.10.6',
-                                   'subnet_id': self.subnet_id}]
-        self.assert_ip_alloc_matches(ip_alloc_expected)
-        self.assert_ip_alloc_pool_matches(ip_alloc_pool_expected)
-        self.assert_ip_avail_range_matches(
-            ip_avail_ranges_expected)
 
     def test_allocate_ip_exausted_pool(self):
         # available from .2 up to .6 -> 5
         for i in range(1, 6):
             self._create_port(self.port_id + str(i))
 
-        ip_avail_ranges_expected = []
         ip_alloc_pool_expected = [{'first_ip': '10.10.10.2',
                                    'last_ip': '10.10.10.6',
                                    'subnet_id': self.subnet_id}]
         self.assert_ip_alloc_pool_matches(ip_alloc_pool_expected)
-        self.assert_ip_avail_range_matches(
-            ip_avail_ranges_expected)
-        # Create another port
         with testtools.ExpectedException(n_exc.IpAddressGenerationFailure):
             self._create_port(self.port_id)
 
-    def test_rebuild_availability_range(self):
-        for i in range(1, 6):
-            self._create_port(self.port_id + str(i))
 
-        ip_avail_ranges_expected = []
-        ip_alloc_pool_expected = [{'first_ip': '10.10.10.2',
-                                   'last_ip': '10.10.10.6',
-                                   'subnet_id': self.subnet_id}]
-        self.assert_ip_alloc_pool_matches(ip_alloc_pool_expected)
-        self.assert_ip_avail_range_matches(
-            ip_avail_ranges_expected)
-        # Delete some ports, this will free the first two IPs
-        for i in range(1, 3):
-            self.plugin.delete_port(self.cxt, self.port_id + str(i))
-        # Create another port, this will trigger the rebuilding of the
-        # availability ranges
-        self._create_port(self.port_id)
-        ip_avail_ranges_expected = [{'first_ip': '10.10.10.3',
-                                     'last_ip': '10.10.10.3'}]
-
-        ip_alloc = self.cxt.session.query(models_v2.IPAllocation).all()
-        self.assertEqual(4, len(ip_alloc))
-        self.assert_ip_alloc_pool_matches(ip_alloc_pool_expected)
-        self.assert_ip_avail_range_matches(
-            ip_avail_ranges_expected)
+class TestIpamMySql(testlib_api.MySQLTestCaseMixin, IpamTestCase):
+    pass
 
 
-class TestIpamMySql(common_base.MySQLTestCase, base.BaseTestCase,
-                    IpamTestCase):
-
-    def setUp(self):
-        super(TestIpamMySql, self).setUp()
-        self.configure_test()
+class TestIpamPsql(testlib_api.PostgreSQLTestCaseMixin, IpamTestCase):
+    pass
 
 
-class TestIpamPsql(common_base.PostgreSQLTestCase,
-                   base.BaseTestCase, IpamTestCase):
-
-    def setUp(self):
-        super(TestIpamPsql, self).setUp()
-        self.configure_test()
+class TestPluggableIpamMySql(testlib_api.MySQLTestCaseMixin, IpamTestCase):
+    use_pluggable_ipam = True
 
 
-class TestPluggableIpamMySql(common_base.MySQLTestCase,
-                             base.BaseTestCase, IpamTestCase):
-
-    def setUp(self):
-        super(TestPluggableIpamMySql, self).setUp()
-        self.configure_test(use_pluggable_ipam=True)
-
-
-class TestPluggableIpamPsql(common_base.PostgreSQLTestCase,
-                            base.BaseTestCase, IpamTestCase):
-
-    def setUp(self):
-        super(TestPluggableIpamPsql, self).setUp()
-        self.configure_test(use_pluggable_ipam=True)
+class TestPluggableIpamPsql(testlib_api.PostgreSQLTestCaseMixin, IpamTestCase):
+    use_pluggable_ipam = True

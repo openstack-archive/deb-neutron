@@ -15,16 +15,16 @@
 
 
 import os
-import unittest
 
 from pecan import set_config
 from pecan.testing import load_test_app
+import unittest2
 
 
 __all__ = ['FunctionalTest']
 
 
-class FunctionalTest(unittest.TestCase):
+class FunctionalTest(unittest2.TestCase):
     """
     Used for functional tests where you need to test your
     literal application and its integration with the framework.

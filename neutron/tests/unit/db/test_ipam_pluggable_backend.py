@@ -75,6 +75,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             'driver': mock.Mock(),
             'subnet': mock.Mock(),
             'subnets': mock.Mock(),
+            'port': {'device_owner': 'compute:None'},
             'subnet_request': ipam_req.SpecificSubnetRequest(
                 self.tenant_id,
                 self.subnet_id,
@@ -195,7 +196,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             ips[0]['ip_address'] = ip
 
         allocated_ips = mocks['ipam']._ipam_allocate_ips(
-            mock.ANY, mocks['driver'], mock.ANY, ips)
+            mock.ANY, mocks['driver'], mocks['port'], ips)
 
         mocks['driver'].get_allocator.assert_called_once_with([subnet])
 
@@ -262,7 +263,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             subnet_id, auto_ip='172.23.128.94')
 
         mocks['ipam']._ipam_allocate_ips(
-            mock.ANY, mocks['driver'], mock.ANY, ips)
+            mock.ANY, mocks['driver'], mocks['port'], ips)
         get_calls = [mock.call([data[ip][1]]) for ip in data]
         mocks['driver'].get_allocator.assert_has_calls(
             get_calls, any_order=True)
@@ -292,7 +293,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
                           mocks['ipam']._ipam_allocate_ips,
                           mock.ANY,
                           mocks['driver'],
-                          mock.ANY,
+                          mocks['port'],
                           ips)
 
         # get_subnet should be called only for the first two networks
@@ -384,9 +385,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
             net = self.deserialize(self.fmt, res)
             self.assertEqual(0, len(net['network']['subnets']))
 
-    @mock.patch('neutron.ipam.driver.Pool')
-    def test_ipam_subnet_deallocated_if_create_fails(self, pool_mock):
-        mocks = self._prepare_mocks_with_pool_mock(pool_mock)
+    def _test_rollback_on_subnet_creation(self, pool_mock, driver_mocks):
         cidr = '10.0.2.0/24'
         with mock.patch.object(
                 ipam_backend_mixin.IpamBackendMixin, '_save_subnet',
@@ -395,13 +394,28 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
                                 cidr, expected_res_status=500)
             pool_mock.get_instance.assert_any_call(None, mock.ANY)
             self.assertEqual(2, pool_mock.get_instance.call_count)
-            self.assertTrue(mocks['driver'].allocate_subnet.called)
-            request = mocks['driver'].allocate_subnet.call_args[0][0]
+            self.assertTrue(driver_mocks['driver'].allocate_subnet.called)
+            request = driver_mocks['driver'].allocate_subnet.call_args[0][0]
             self.assertIsInstance(request, ipam_req.SpecificSubnetRequest)
             self.assertEqual(netaddr.IPNetwork(cidr), request.subnet_cidr)
             # Verify remove ipam subnet was called
-            mocks['driver'].remove_subnet.assert_called_once_with(
+            driver_mocks['driver'].remove_subnet.assert_called_once_with(
                 self.subnet_id)
+
+    @mock.patch('neutron.ipam.driver.Pool')
+    def test_ipam_subnet_deallocated_if_create_fails(self, pool_mock):
+        driver_mocks = self._prepare_mocks_with_pool_mock(pool_mock)
+        self._test_rollback_on_subnet_creation(pool_mock, driver_mocks)
+
+    @mock.patch('neutron.ipam.driver.Pool')
+    def test_ipam_subnet_create_and_rollback_fails(self, pool_mock):
+        driver_mocks = self._prepare_mocks_with_pool_mock(pool_mock)
+        # remove_subnet is called on rollback stage and n_exc.NotFound
+        # typically produces 404 error. Validate that exception from
+        # rollback stage is silenced and main exception (ValueError in this
+        # case) is reraised. So resulting http status should be 500.
+        driver_mocks['driver'].remove_subnet.side_effect = n_exc.NotFound
+        self._test_rollback_on_subnet_creation(pool_mock, driver_mocks)
 
     @mock.patch('neutron.ipam.driver.Pool')
     def test_update_subnet_over_ipam(self, pool_mock):
@@ -617,11 +631,11 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
         port_dict = {'device_owner': uuidutils.generate_uuid(),
                      'network_id': uuidutils.generate_uuid()}
 
-        mocks['ipam']._update_ips_for_port(context, port_dict,
+        mocks['ipam']._update_ips_for_port(context, port_dict, None,
                                            original_ips, new_ips, mac)
         mocks['driver'].get_address_request_factory.assert_called_once_with()
         mocks['ipam']._ipam_get_subnets.assert_called_once_with(
-            context, network_id=port_dict['network_id'], segment_id=None)
+            context, network_id=port_dict['network_id'], host=None)
         # Validate port_dict is passed into address_factory
         address_factory.get_request.assert_called_once_with(context,
                                                             port_dict,
@@ -739,6 +753,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
                        'subnet_id': 'some-id'}],
             remove=[{'ip_address': '192.168.1.10',
                      'subnet_id': 'some-id'}])
+        mocks['ipam']._delete_ip_allocation = mock.Mock()
         mocks['ipam']._make_port_dict = mock.Mock(return_value=old_port)
         mocks['ipam']._update_ips_for_port = mock.Mock(return_value=changes)
         mocks['ipam']._update_db_port = mock.Mock(
@@ -752,6 +767,7 @@ class TestDbBasePluginIpam(test_db_base.NeutronDbPluginV2TestCase):
         self.assertRaises(db_exc.DBDeadlock,
                           mocks['ipam'].update_port_with_ips,
                           context,
+                          None,
                           db_port,
                           new_port,
                           mock.Mock())

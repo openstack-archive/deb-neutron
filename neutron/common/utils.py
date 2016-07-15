@@ -33,6 +33,7 @@ import tempfile
 import time
 import uuid
 
+import eventlet
 from eventlet.green import subprocess
 import netaddr
 from neutron_lib import constants as n_const
@@ -42,7 +43,6 @@ from oslo_db import exception as db_exc
 from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import importutils
-from oslo_utils import reflection
 import six
 from stevedore import driver
 
@@ -56,68 +56,6 @@ SYNCHRONIZED_PREFIX = 'neutron-'
 MAX_UINT16 = 0xffff
 
 synchronized = lockutils.synchronized_with_prefix(SYNCHRONIZED_PREFIX)
-
-
-class cache_method_results(object):
-    """This decorator is intended for object methods only."""
-
-    def __init__(self, func):
-        self.func = func
-        functools.update_wrapper(self, func)
-        self._first_call = True
-        self._not_cached = object()
-
-    def _get_from_cache(self, target_self, *args, **kwargs):
-        target_self_cls_name = reflection.get_class_name(target_self,
-                                                         fully_qualified=False)
-        func_name = "%(module)s.%(class)s.%(func_name)s" % {
-            'module': target_self.__module__,
-            'class': target_self_cls_name,
-            'func_name': self.func.__name__,
-        }
-        key = (func_name,) + args
-        if kwargs:
-            key += dict2tuple(kwargs)
-        try:
-            item = target_self._cache.get(key, self._not_cached)
-        except TypeError:
-            LOG.debug("Method %(func_name)s cannot be cached due to "
-                      "unhashable parameters: args: %(args)s, kwargs: "
-                      "%(kwargs)s",
-                      {'func_name': func_name,
-                       'args': args,
-                       'kwargs': kwargs})
-            return self.func(target_self, *args, **kwargs)
-
-        if item is self._not_cached:
-            item = self.func(target_self, *args, **kwargs)
-            target_self._cache.set(key, item, None)
-
-        return item
-
-    def __call__(self, target_self, *args, **kwargs):
-        target_self_cls_name = reflection.get_class_name(target_self,
-                                                         fully_qualified=False)
-        if not hasattr(target_self, '_cache'):
-            raise NotImplementedError(
-                _("Instance of class %(module)s.%(class)s must contain _cache "
-                  "attribute") % {
-                    'module': target_self.__module__,
-                    'class': target_self_cls_name})
-        if not target_self._cache:
-            if self._first_call:
-                LOG.debug("Instance of class %(module)s.%(class)s doesn't "
-                          "contain attribute _cache therefore results "
-                          "cannot be cached for %(func_name)s.",
-                          {'module': target_self.__module__,
-                           'class': target_self_cls_name,
-                           'func_name': self.func.__name__})
-                self._first_call = False
-            return self.func(target_self, *args, **kwargs)
-        return self._get_from_cache(target_self, *args, **kwargs)
-
-    def __get__(self, obj, objtype):
-        return functools.partial(self.__call__, obj)
 
 
 def ensure_dir(dir_path):
@@ -315,6 +253,21 @@ def get_other_dvr_serviced_device_owners():
     return [n_const.DEVICE_OWNER_LOADBALANCER,
             n_const.DEVICE_OWNER_LOADBALANCERV2,
             n_const.DEVICE_OWNER_DHCP]
+
+
+def get_dvr_allowed_address_pair_device_owners():
+    """Return device_owner names for allowed_addr_pair ports serviced by DVR
+
+    This just returns the device owners that are used by the
+    allowed_address_pair ports. Right now only the device_owners shown
+    below are used by the allowed_address_pair ports.
+    Later if other device owners are used for allowed_address_pairs those
+    device_owners should be added to the list below.
+    """
+    # TODO(Swami): Convert these methods to constants.
+    # Add the constants variable to the neutron-lib
+    return [n_const.DEVICE_OWNER_LOADBALANCER,
+            n_const.DEVICE_OWNER_LOADBALANCERV2]
 
 
 def is_dvr_serviced(device_owner):
@@ -575,11 +528,11 @@ def create_object_with_dependency(creator, dep_getter, dep_creator,
     dep_id_attr be used to determine if the dependency changed during object
     creation.
 
-    dep_getter should return None if the dependency does not exist
+    dep_getter should return None if the dependency does not exist.
 
     dep_creator can raise a DBDuplicateEntry to indicate that a concurrent
-    create of the dependency occured and the process will restart to get the
-    concurrently created one
+    create of the dependency occurred and the process will restart to get the
+    concurrently created one.
 
     This function will return both the created object and the dependency it
     used/created.
@@ -649,6 +602,22 @@ def transaction_guard(f):
     return inner
 
 
+def wait_until_true(predicate, timeout=60, sleep=1, exception=None):
+    """
+    Wait until callable predicate is evaluated as True
+
+    :param predicate: Callable deciding whether waiting should continue.
+    Best practice is to instantiate predicate with functools.partial()
+    :param timeout: Timeout in seconds how long should function wait.
+    :param sleep: Polling interval for results in seconds.
+    :param exception: Exception class for eventlet.Timeout.
+    (see doc for eventlet.Timeout for more information)
+    """
+    with eventlet.timeout.Timeout(timeout, exception):
+        while not predicate():
+            eventlet.sleep(sleep)
+
+
 class _AuthenticBase(object):
     def __init__(self, addr, **kwargs):
         super(_AuthenticBase, self).__init__(addr, **kwargs)
@@ -683,3 +652,30 @@ class AuthenticIPNetwork(_AuthenticBase, netaddr.IPNetwork):
     This is useful when we want to make sure that we retain the format passed
     by a user through API.
     '''
+
+
+class classproperty(object):
+    def __init__(self, f):
+        self.func = f
+
+    def __get__(self, obj, owner):
+        return self.func(owner)
+
+
+_NO_ARGS_MARKER = object()
+
+
+def attach_exc_details(e, msg, args=_NO_ARGS_MARKER):
+    e._error_context_msg = msg
+    e._error_context_args = args
+
+
+def extract_exc_details(e):
+    for attr in ('_error_context_msg', '_error_context_args'):
+        if not hasattr(e, attr):
+            return _LE('No details.')
+    details = e._error_context_msg
+    args = e._error_context_args
+    if args is _NO_ARGS_MARKER:
+        return details
+    return details % args

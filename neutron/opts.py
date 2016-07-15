@@ -19,7 +19,6 @@ from oslo_config import cfg
 
 import neutron.agent.common.config
 import neutron.agent.common.ovs_lib
-import neutron.agent.dhcp.config
 import neutron.agent.l2.extensions.manager
 import neutron.agent.l3.config
 import neutron.agent.l3.ha
@@ -29,6 +28,8 @@ import neutron.agent.linux.ra
 import neutron.agent.metadata.config
 import neutron.agent.ovsdb.api
 import neutron.agent.securitygroups_rpc
+import neutron.common.cache_utils
+import neutron.conf.agent.dhcp
 import neutron.conf.quota
 import neutron.conf.service
 import neutron.db.agents_db
@@ -43,7 +44,6 @@ import neutron.db.migration.cli
 import neutron.extensions.allowedaddresspairs
 import neutron.extensions.l3
 import neutron.extensions.securitygroup
-import neutron.openstack.common.cache.cache
 import neutron.plugins.ml2.config
 import neutron.plugins.ml2.drivers.agent.config
 import neutron.plugins.ml2.drivers.linuxbridge.agent.common.config
@@ -157,7 +157,11 @@ def list_base_agent_opts():
              neutron.agent.common.config.INTERFACE_DRIVER_OPTS,
              neutron.agent.common.ovs_lib.OPTS)
          ),
-        ('AGENT', neutron.agent.common.config.AGENT_STATE_OPTS)
+        ('AGENT',
+         itertools.chain(
+             neutron.agent.common.config.AGENT_STATE_OPTS,
+             neutron.agent.common.config.AVAILABILITY_ZONE_OPTS)
+         )
     ]
 
 
@@ -165,9 +169,9 @@ def list_dhcp_agent_opts():
     return [
         ('DEFAULT',
          itertools.chain(
-             neutron.agent.dhcp.config.DHCP_AGENT_OPTS,
-             neutron.agent.dhcp.config.DHCP_OPTS,
-             neutron.agent.dhcp.config.DNSMASQ_OPTS)
+             neutron.conf.agent.dhcp.DHCP_AGENT_OPTS,
+             neutron.conf.agent.dhcp.DHCP_OPTS,
+             neutron.conf.agent.dhcp.DNSMASQ_OPTS)
          )
     ]
 
@@ -218,7 +222,7 @@ def list_metadata_agent_opts():
              neutron.agent.metadata.config.SHARED_OPTS,
              neutron.agent.metadata.config.METADATA_PROXY_HANDLER_OPTS,
              neutron.agent.metadata.config.UNIX_DOMAIN_METADATA_PROXY_OPTS,
-             neutron.openstack.common.cache.cache._get_oslo_configs())
+             neutron.common.cache_utils.cache_opts)
          ),
         ('AGENT', neutron.agent.common.config.AGENT_STATE_OPTS)
     ]

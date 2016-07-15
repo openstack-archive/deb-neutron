@@ -14,11 +14,9 @@
 
 import functools
 
-import eventlet
-import testtools
-
 from neutron.agent.linux import async_process
 from neutron.agent.linux import utils
+from neutron.common import utils as common_utils
 from neutron.tests.functional.agent.linux import test_async_process
 from neutron.tests.functional import base as functional_base
 
@@ -35,13 +33,6 @@ class TestPIDHelpers(test_async_process.AsyncProcessTestFramework):
         self.assertTrue(utils.pid_invoked_with_cmdline(pid, cmd))
         self.assertEqual([], utils.get_cmdline_from_pid(-1))
 
-    def test_wait_until_true_predicate_succeeds(self):
-        utils.wait_until_true(lambda: True)
-
-    def test_wait_until_true_predicate_fails(self):
-        with testtools.ExpectedException(eventlet.timeout.Timeout):
-            utils.wait_until_true(lambda: False, 2)
-
 
 class TestGetRootHelperChildPid(functional_base.BaseSudoTestCase):
     def _addcleanup_sleep_process(self, parent_pid):
@@ -56,7 +47,7 @@ class TestGetRootHelperChildPid(functional_base.BaseSudoTestCase):
     def test_get_root_helper_child_pid_returns_first_child(self):
         """Test that the first child, not lowest child pid is returned.
 
-        Test creates following proccess tree:
+        Test creates following process tree:
           sudo +
                |
                +--rootwrap +
@@ -83,7 +74,7 @@ class TestGetRootHelperChildPid(functional_base.BaseSudoTestCase):
         # don't want to use proc.start(block=True) as that uses
         # get_root_helper_child_pid (The method under test) internally.
         sudo_pid = proc._process.pid
-        utils.wait_until_true(
+        common_utils.wait_until_true(
             functools.partial(
                 wait_for_sleep_is_spawned,
                 sudo_pid),

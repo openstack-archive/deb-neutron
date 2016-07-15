@@ -65,7 +65,7 @@ class QosPolicyObjectTestCase(test_base.BaseObjectIfaceTestCase):
             objs = self._test_class.get_objects(self.context)
         context_mock.assert_called_once_with()
         self.get_objects.assert_any_call(
-            admin_context, self._test_class.db_model)
+            admin_context, self._test_class.db_model, _pager=None)
         self._validate_objects(self.db_objs, objs)
 
     def test_get_objects_valid_fields(self):
@@ -85,7 +85,7 @@ class QosPolicyObjectTestCase(test_base.BaseObjectIfaceTestCase):
                     **self.valid_field_filter)
                 context_mock.assert_called_once_with()
             get_objects_mock.assert_any_call(
-                admin_context, self._test_class.db_model,
+                admin_context, self._test_class.db_model, _pager=None,
                 **self.valid_field_filter)
         self._validate_objects([self.db_obj], objs)
 
@@ -384,10 +384,10 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
 
         self.assertIn(rule_obj_band, policy_obj_v1_1.rules)
         self.assertIn(rule_obj_dscp, policy_obj_v1_1.rules)
-        self.assertEqual(policy_obj.VERSION, '1.1')
 
-    #TODO(davidsha) add testing for object version incrementation
     def test_object_version_degradation_1_1_to_1_0(self):
+        #NOTE(mangelajo): we should not check .VERSION, since that's the
+        #                 local version on the class definition
         policy_obj, rule_obj_band, rule_obj_dscp = (
             self._create_test_policy_with_bw_and_dscp())
 
@@ -395,5 +395,22 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
 
         self.assertIn(rule_obj_band, policy_obj_v1_0.rules)
         self.assertNotIn(rule_obj_dscp, policy_obj_v1_0.rules)
-        #NOTE(mangelajo): we should not check .VERSION, since that's the
-        #                 local version on the class definition
+
+    def test_filter_by_shared(self):
+        policy_obj = policy.QosPolicy(
+            self.context, name='shared-policy', shared=True)
+        policy_obj.create()
+
+        policy_obj = policy.QosPolicy(
+            self.context, name='private-policy', shared=False)
+        policy_obj.create()
+
+        shared_policies = policy.QosPolicy.get_objects(
+            self.context, shared=True)
+        self.assertEqual(1, len(shared_policies))
+        self.assertEqual('shared-policy', shared_policies[0].name)
+
+        private_policies = policy.QosPolicy.get_objects(
+            self.context, shared=False)
+        self.assertEqual(1, len(private_policies))
+        self.assertEqual('private-policy', private_policies[0].name)

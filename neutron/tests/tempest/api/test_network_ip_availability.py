@@ -86,7 +86,7 @@ class NetworksIpAvailabilityTest(base.BaseAdminNetworkTest):
             mask_bits = config.safe_get_config_value(
                 'network', 'project_network_v6_mask_bits')
 
-        subnet_cidr = cidr.subnet(mask_bits).next()
+        subnet_cidr = next(cidr.subnet(mask_bits))
         prefix_len = subnet_cidr.prefixlen
         subnet = self.create_subnet(network,
                                     cidr=subnet_cidr,
@@ -99,9 +99,11 @@ class NetworksIpAvailabilityTest(base.BaseAdminNetworkTest):
 def calc_total_ips(prefix, ip_version):
     # will calculate total ips after removing reserved.
     if ip_version == lib_constants.IP_VERSION_4:
-        total_ips = 2 ** (32 - prefix) - DEFAULT_IP4_RESERVED
+        total_ips = 2 ** (lib_constants.IPv4_BITS
+                          - prefix) - DEFAULT_IP4_RESERVED
     elif ip_version == lib_constants.IP_VERSION_6:
-        total_ips = 2 ** (128 - prefix) - DEFAULT_IP6_RESERVED
+        total_ips = 2 ** (lib_constants.IPv6_BITS
+                          - prefix) - DEFAULT_IP6_RESERVED
     return total_ips
 
 

@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import functools
 import itertools
 
 import netaddr
@@ -37,6 +38,7 @@ from neutron.common import constants as n_const
 from neutron.common import ipv6_utils
 from neutron.common import rpc as n_rpc
 from neutron.common import utils
+from neutron.db import common_db_mixin
 from neutron.db import l3_agentschedulers_db as l3_agt
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -146,6 +148,15 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         DEVICE_OWNER_FLOATINGIP
     )
 
+    _dns_integration = None
+
+    @property
+    def _is_dns_integration_supported(self):
+        if self._dns_integration is None:
+            self._dns_integration = utils.is_extension_supported(
+                self._core_plugin, 'dns-integration')
+        return self._dns_integration
+
     @property
     def _core_plugin(self):
         return manager.NeutronManager.get_plugin()
@@ -207,28 +218,37 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             # pre-generate id so it will be available when
             # configuring external gw port
             status = router.get('status', n_const.ROUTER_STATUS_ACTIVE)
-            router_db = Router(id=(router.get('id') or
-                                   uuidutils.generate_uuid()),
-                               tenant_id=tenant_id,
+            router.setdefault('id', uuidutils.generate_uuid())
+            router['tenant_id'] = tenant_id
+            router_db = Router(id=router['id'],
+                               tenant_id=router['tenant_id'],
                                name=router['name'],
                                admin_state_up=router['admin_state_up'],
                                status=status,
                                description=router.get('description'))
             context.session.add(router_db)
+            registry.notify(resources.ROUTER, events.PRECOMMIT_CREATE,
+                            self, context=context, router=router,
+                            router_id=router['id'], router_db=router_db)
             return router_db
+
+    def _update_gw_for_create_router(self, context, gw_info, router_id):
+        if gw_info:
+            router_db = self._get_router(context, router_id)
+            self._update_router_gw_info(context, router_id,
+                                        gw_info, router=router_db)
 
     def create_router(self, context, router):
         r = router['router']
         gw_info = r.pop(EXTERNAL_GW_INFO, None)
-        router_db = self._create_router_db(context, r, r['tenant_id'])
-        try:
-            if gw_info:
-                self._update_router_gw_info(context, router_db['id'],
-                                            gw_info, router=router_db)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                LOG.debug("Could not update gateway info, deleting router.")
-                self.delete_router(context, router_db.id)
+        create = functools.partial(self._create_router_db, context, r,
+                                   r['tenant_id'])
+        delete = functools.partial(self.delete_router, context)
+        update_gw = functools.partial(self._update_gw_for_create_router,
+                                      context, gw_info)
+        router_db, _unused = common_db_mixin.safe_creation(context, create,
+                                                           delete, update_gw,
+                                                           transaction=False)
 
         return self._make_router_dict(router_db)
 
@@ -236,8 +256,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         """Update the DB object."""
         with context.session.begin(subtransactions=True):
             router_db = self._get_router(context, router_id)
+            old_router = self._make_router_dict(router_db)
             if data:
                 router_db.update(data)
+            registry.notify(resources.ROUTER, events.PRECOMMIT_UPDATE,
+                            self, context=context, router_id=router_id,
+                            router=data, router_db=router_db,
+                            old_router=old_router)
             return router_db
 
     def update_router(self, context, id, router):
@@ -512,6 +537,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                           rp.port.id,
                                           l3_port_check=False)
         with context.session.begin(subtransactions=True):
+            registry.notify(resources.ROUTER, events.PRECOMMIT_DELETE,
+                            self, context=context, router_id=id)
             context.session.delete(router)
 
     def get_router(self, context, id, fields=None):
@@ -766,7 +793,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         subnet_cidr = netaddr.IPNetwork(subnet['cidr'])
         fip_qry = context.session.query(FloatingIP)
         try:
-            kwargs = {'context': context, 'subnet_id': subnet_id}
+            kwargs = {'context': context, 'router_id': router_id,
+                      'subnet_id': subnet_id}
             registry.notify(
                 resources.ROUTER_INTERFACE,
                 events.BEFORE_DELETE, self, **kwargs)
@@ -914,6 +942,23 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                      'which has no gateway_ip') % internal_subnet_id)
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
 
+        return self.get_router_for_floatingip(context,
+            internal_port, subnet, external_network_id)
+
+    # NOTE(yamamoto): This method is an override point for plugins
+    # inheriting this class.  Do not optimize this out.
+    def get_router_for_floatingip(self, context, internal_port,
+                                  internal_subnet, external_network_id):
+        """Find a router to handle the floating-ip association.
+
+        :param internal_port: The port for the fixed-ip.
+        :param internal_subnet: The subnet for the fixed-ip.
+        :param external_network_id: The external network for floating-ip.
+
+        :raises: ExternalGatewayForFloatingIPNotFound if no suitable router
+        is found.
+        """
+
         # Find routers(with router_id and interface address) that
         # connect given internal subnet and the external network.
         # Among them, if the router's interface address matches
@@ -925,13 +970,15 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             models_v2.Port, models_v2.IPAllocation).filter(
             models_v2.Port.network_id == internal_port['network_id'],
             RouterPort.port_type.in_(l3_constants.ROUTER_INTERFACE_OWNERS),
-            models_v2.IPAllocation.subnet_id == internal_subnet_id
+            models_v2.IPAllocation.subnet_id == internal_subnet['id']
         ).join(gw_port, gw_port.device_id == RouterPort.router_id).filter(
-            gw_port.network_id == external_network_id).distinct()
+            gw_port.network_id == external_network_id,
+            gw_port.device_owner == l3_constants.DEVICE_OWNER_ROUTER_GW
+        ).distinct()
 
         first_router_id = None
         for router_id, interface_ip in routerport_qry:
-            if interface_ip == subnet['gateway_ip']:
+            if interface_ip == internal_subnet['gateway_ip']:
                 return router_id
             if not first_router_id:
                 first_router_id = router_id
@@ -939,7 +986,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             return first_router_id
 
         raise l3.ExternalGatewayForFloatingIPNotFound(
-            subnet_id=internal_subnet_id,
+            subnet_id=internal_subnet['id'],
             external_network_id=external_network_id,
             port_id=internal_port['id'])
 
@@ -977,7 +1024,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                     data = {'floatingip_id': fip['id'],
                             'internal_ip': internal_ip_address}
                     msg = (_('Floating IP %(floatingip_id)s is associated '
-                             'with non-IPv4 address %s(internal_ip)s and '
+                             'with non-IPv4 address %(internal_ip)s and '
                              'therefore cannot be bound.') % data)
                 else:
                     msg = (_('Cannot create floating IP and bind it to %s, '
@@ -1104,8 +1151,6 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             msg = _("Network %s does not contain any IPv4 subnet") % f_net_id
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
 
-        dns_integration = utils.is_extension_supported(self._core_plugin,
-                                                       'dns-integration')
         with context.session.begin(subtransactions=True):
             # This external port is never exposed to the tenant.
             # it is used purely for internal system and admin use when
@@ -1154,11 +1199,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             context.session.add(floatingip_db)
             floatingip_dict = self._make_floatingip_dict(
                 floatingip_db, process_extensions=False)
-            if dns_integration:
+            if self._is_dns_integration_supported:
                 dns_data = self._process_dns_floatingip_create_precommit(
                     context, floatingip_dict, fip)
 
-        if dns_integration:
+        if self._is_dns_integration_supported:
             self._process_dns_floatingip_create_postcommit(context,
                                                            floatingip_dict,
                                                            dns_data)
@@ -1172,8 +1217,6 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
     def _update_floatingip(self, context, id, floatingip):
         fip = floatingip['floatingip']
-        dns_integration = utils.is_extension_supported(self._core_plugin,
-                                                       'dns-integration')
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
             old_floatingip = self._make_floatingip_dict(floatingip_db)
@@ -1184,10 +1227,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                    self._core_plugin.get_port(
                                        context.elevated(), fip_port_id))
             floatingip_dict = self._make_floatingip_dict(floatingip_db)
-            if dns_integration:
+            if self._is_dns_integration_supported:
                 dns_data = self._process_dns_floatingip_update_precommit(
                     context, floatingip_dict)
-        if dns_integration:
+        if self._is_dns_integration_supported:
             self._process_dns_floatingip_update_postcommit(context,
                                                            floatingip_dict,
                                                            dns_data)
