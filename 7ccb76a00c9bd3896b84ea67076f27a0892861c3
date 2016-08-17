@@ -1,0 +1,16 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: pritesh <pritesh@romana.io>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Andrey Epifanov <aepifanov@mirantis.com>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 17 Oct 2014 09:37:49 +0000
+Reviewed-on: https://review.openstack.org/128947
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/juno

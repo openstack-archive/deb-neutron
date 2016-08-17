@@ -1,0 +1,15 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+1: Liping Mao <limao@cisco.com>
+Code-Review+1: Wei Wang <wangwei@unitedstack.com>
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: Cedric Brandily <zzelle@gmail.com>
+Code-Review+2: Aaron Rosen <aaronorosen@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 May 2015 16:53:21 +0000
+Reviewed-on: https://review.openstack.org/181158
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

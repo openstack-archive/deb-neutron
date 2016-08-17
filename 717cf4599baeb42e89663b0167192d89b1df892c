@@ -1,0 +1,13 @@
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+2: Aaron Rosen <aaronorosen@gmail.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 May 2015 16:01:53 +0000
+Reviewed-on: https://review.openstack.org/186597
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

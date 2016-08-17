@@ -1,0 +1,14 @@
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Numan Siddique <nusiddiq@redhat.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Assaf Muller <amuller@redhat.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 13 May 2015 20:13:46 +0000
+Reviewed-on: https://review.openstack.org/179392
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

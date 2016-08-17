@@ -1,0 +1,11 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 01 Jun 2015 14:53:53 +0000
+Reviewed-on: https://review.openstack.org/182963
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

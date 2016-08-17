@@ -1,0 +1,14 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Dave Walker <email@daviey.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Code-Review+2: Adam Gandelman <adamg@ubuntu.com>
+Workflow+1: Adam Gandelman <adamg@ubuntu.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 23 Nov 2014 03:00:19 +0000
+Reviewed-on: https://review.openstack.org/135508
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/juno

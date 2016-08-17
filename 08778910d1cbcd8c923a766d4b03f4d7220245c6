@@ -1,0 +1,19 @@
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Verified+1: Metaplugin CI <metaplugintest@gmail.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: IBM SDN-VE CI <ibmsdnve@us.ibm.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Elena Ezhova <eezhova@mirantis.com>
+Code-Review+1: Dave Walker <email@daviey.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Code-Review+2: Aaron Rosen <aaronorosen@gmail.com>
+Workflow+1: Aaron Rosen <aaronorosen@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 11 Nov 2014 03:31:35 +0000
+Reviewed-on: https://review.openstack.org/132759
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/juno

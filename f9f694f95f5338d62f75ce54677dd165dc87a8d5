@@ -1,0 +1,17 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+1: John Kasperski <jckasper@linux.vnet.ibm.com>
+Code-Review+1: Li Ma <skywalker.nick@gmail.com>
+Code-Review+1: Romil Gupta <romilgupta19@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Adam Gandelman <adamg@ubuntu.com>
+Code-Review+2: Aaron Rosen <aaronorosen@gmail.com>
+Workflow+1: Aaron Rosen <aaronorosen@gmail.com>
+Code-Review+1: Dave Walker <email@daviey.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Nov 2014 00:16:22 +0000
+Reviewed-on: https://review.openstack.org/130105
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/juno

@@ -1,0 +1,13 @@
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Russell Bryant <rbryant@redhat.com>
+Code-Review+1: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Dave Walker <email@daviey.com>
+Workflow+1: Dave Walker <email@daviey.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 09 Jun 2015 17:55:06 +0000
+Reviewed-on: https://review.openstack.org/188658
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

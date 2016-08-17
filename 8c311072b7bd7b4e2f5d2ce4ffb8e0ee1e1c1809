@@ -1,0 +1,17 @@
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Ryan Tidwell <rktidwell85@gmail.com>
+Code-Review+1: Paul Michali <pc@michali.net>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: dane-fichter <dane.fichter@jhuapl.edu>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 01 Jun 2015 14:49:48 +0000
+Reviewed-on: https://review.openstack.org/177466
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo

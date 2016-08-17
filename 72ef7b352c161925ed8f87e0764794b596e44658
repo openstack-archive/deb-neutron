@@ -1,0 +1,16 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Verified+1: IBM SDN-VE CI <ibmsdnve@us.ibm.com>
+Code-Review+1: Rudrajit Tapadar <rudrajit.tapadar@gmail.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Paul Michali <pc@michali.net>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 30 Oct 2014 00:08:52 +0000
+Reviewed-on: https://review.openstack.org/130617
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/juno

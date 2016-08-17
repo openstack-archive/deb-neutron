@@ -1,0 +1,17 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Liping Mao <limao@cisco.com>
+Code-Review+1: stephen-ma <stephen.ma@hpe.com>
+Code-Review+1: Sridhar Gaddam <sgaddam@redhat.com>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 19 May 2015 15:40:36 +0000
+Reviewed-on: https://review.openstack.org/183795
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/kilo
