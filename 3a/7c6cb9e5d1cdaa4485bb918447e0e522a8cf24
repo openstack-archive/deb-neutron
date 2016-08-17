@@ -1,0 +1,14 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Swaminathan Vasudevan <swaminathan.vasudevan@hpe.com>
+Code-Review+1: Nate Johnston <openstacknate@gmail.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Aman Kumar <aman.kumar3@hpe.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 10 Aug 2016 15:08:05 +0000
+Reviewed-on: https://review.openstack.org/353024
+Project: openstack/deb-neutron
+Branch: refs/heads/master

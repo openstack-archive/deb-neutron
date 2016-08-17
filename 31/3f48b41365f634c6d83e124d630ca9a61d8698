@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 23 Jul 2016 00:54:07 +0000
+Reviewed-on: https://review.openstack.org/331009
+Project: openstack/deb-neutron
+Branch: refs/heads/master

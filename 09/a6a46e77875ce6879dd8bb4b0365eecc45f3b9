@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Brian Stajkowski <brian.stajkowski@rackspace.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 14 Jul 2016 23:24:58 +0000
+Reviewed-on: https://review.openstack.org/328542
+Project: openstack/deb-neutron
+Branch: refs/heads/master

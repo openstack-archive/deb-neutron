@@ -1,0 +1,18 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Paul Carver <pcarver@att.com>
+Code-Review+1: Petri Kemppainen <petri.kemppainen@nokia.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+1: Ryan Moats <rmoats@us.ibm.com>
+Code-Review+1: Alejandro Siller Rivas <alejandro.rivas@ericsson.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+1: Vinod Kumar Yadav <vinod.kumar.v.yadav@ericsson.com>
+Code-Review+1: Shashank gupta <shashank.gupta@ericsson.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 25 Jul 2016 07:44:30 +0000
+Reviewed-on: https://review.openstack.org/295651
+Project: openstack/deb-neutron
+Branch: refs/heads/master

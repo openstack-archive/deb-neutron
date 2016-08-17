@@ -1,0 +1,11 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Ryan Moats <rmoats@us.ibm.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 Jul 2016 05:29:54 +0000
+Reviewed-on: https://review.openstack.org/292607
+Project: openstack/deb-neutron
+Branch: refs/heads/master

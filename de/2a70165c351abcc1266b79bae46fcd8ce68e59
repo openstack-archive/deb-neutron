@@ -1,0 +1,13 @@
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+1: John Belamaric <jbelamaric@infoblox.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: John Davidge <john.davidge@rackspace.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 01 Aug 2016 20:10:37 +0000
+Reviewed-on: https://review.openstack.org/345498
+Project: openstack/deb-neutron
+Branch: refs/heads/master

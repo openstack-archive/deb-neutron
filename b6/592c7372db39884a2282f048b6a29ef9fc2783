@@ -1,0 +1,14 @@
+Verified+1: HP Networking CI <hpnopenstackci@hp.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Andreas Scheuring <andreas.scheuring@de.ibm.com>
+Code-Review+1: Moshe Levi <moshele@mellanox.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 14 Jul 2016 22:01:23 +0000
+Reviewed-on: https://review.openstack.org/338252
+Project: openstack/deb-neutron
+Branch: refs/heads/master

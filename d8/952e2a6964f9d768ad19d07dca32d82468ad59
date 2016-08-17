@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Assaf Muller <amuller@redhat.com>
+Workflow+1: Assaf Muller <amuller@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 01 Aug 2016 23:56:29 +0000
+Reviewed-on: https://review.openstack.org/346493
+Project: openstack/deb-neutron
+Branch: refs/heads/master

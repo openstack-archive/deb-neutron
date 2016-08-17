@@ -1,0 +1,12 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Aman Kumar <aman.kumar3@hpe.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 18 Jul 2016 10:25:47 +0000
+Reviewed-on: https://review.openstack.org/332661
+Project: openstack/deb-neutron
+Branch: refs/heads/master

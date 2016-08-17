@@ -1,0 +1,12 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 09 Aug 2016 23:06:07 +0000
+Reviewed-on: https://review.openstack.org/294378
+Project: openstack/deb-neutron
+Branch: refs/heads/master

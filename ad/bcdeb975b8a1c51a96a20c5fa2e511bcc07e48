@@ -1,0 +1,13 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Ilya Chukhnakov <ichukhnakov@mirantis.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 19 Jul 2016 00:07:53 +0000
+Reviewed-on: https://review.openstack.org/343248
+Project: openstack/deb-neutron
+Branch: refs/heads/master

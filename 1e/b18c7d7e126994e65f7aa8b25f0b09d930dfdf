@@ -1,0 +1,14 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Workflow+1: Henry Gessau <HenryG@gessau.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 30 Jul 2016 07:15:42 +0000
+Reviewed-on: https://review.openstack.org/297527
+Project: openstack/deb-neutron
+Branch: refs/heads/master

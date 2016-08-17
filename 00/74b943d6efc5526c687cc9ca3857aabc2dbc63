@@ -1,0 +1,11 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Swaminathan Vasudevan <swaminathan.vasudevan@hpe.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 20 Jul 2016 17:46:25 +0000
+Reviewed-on: https://review.openstack.org/274571
+Project: openstack/deb-neutron
+Branch: refs/heads/master

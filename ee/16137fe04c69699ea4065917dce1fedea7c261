@@ -1,0 +1,12 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review-1: garyk <gkotton@vmware.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 14 Jul 2016 02:36:51 +0000
+Reviewed-on: https://review.openstack.org/339198
+Project: openstack/deb-neutron
+Branch: refs/heads/master

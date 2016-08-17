@@ -1,0 +1,14 @@
+Verified+1: HP Networking CI <hpnopenstackci@hp.com>
+Code-Review+1: Nam Nguyen Hoai <namnh@vn.fujitsu.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Aman Kumar <aman.kumar3@hpe.com>
+Code-Review+1: Ilya Chukhnakov <ichukhnakov@mirantis.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 20 Jul 2016 12:10:21 +0000
+Reviewed-on: https://review.openstack.org/333809
+Project: openstack/deb-neutron
+Branch: refs/heads/master
