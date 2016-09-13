@@ -1,0 +1,10 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 18:33:46 +0000
+Reviewed-on: https://review.openstack.org/359999
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

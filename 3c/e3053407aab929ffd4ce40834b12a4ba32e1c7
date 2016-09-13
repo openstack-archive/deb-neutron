@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review-1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 17:53:36 +0000
+Reviewed-on: https://review.openstack.org/323794
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

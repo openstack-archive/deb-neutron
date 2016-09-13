@@ -1,0 +1,11 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 08 Jul 2016 22:40:46 +0000
+Reviewed-on: https://review.openstack.org/337806
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

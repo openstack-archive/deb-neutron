@@ -1,0 +1,10 @@
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Sep 2016 16:59:30 +0000
+Reviewed-on: https://review.openstack.org/355562
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

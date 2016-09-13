@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Andreas Scheuring <andreas.scheuring@de.ibm.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 Jul 2016 10:18:22 +0000
+Reviewed-on: https://review.openstack.org/327996
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

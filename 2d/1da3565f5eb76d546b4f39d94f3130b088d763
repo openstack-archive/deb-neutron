@@ -1,0 +1,13 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+1: Erik Colnick <erik.colnick@hpe.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Sep 2016 16:56:41 +0000
+Reviewed-on: https://review.openstack.org/366407
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

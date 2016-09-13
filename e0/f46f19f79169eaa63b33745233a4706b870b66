@@ -1,0 +1,13 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 03 Aug 2016 20:09:20 +0000
+Reviewed-on: https://review.openstack.org/349214
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka

@@ -1,0 +1,15 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: afazekas <afazekas@redhat.com>
+Code-Review+1: Szilard Cserey <szilard.cserey@gmail.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 03 Jul 2016 07:47:12 +0000
+Reviewed-on: https://review.openstack.org/322196
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka
