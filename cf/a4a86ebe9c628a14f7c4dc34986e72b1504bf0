@@ -1,0 +1,15 @@
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: IBM SDN-VE CI <ibmsdnve@us.ibm.com>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 29 Oct 2014 19:53:53 +0000
+Reviewed-on: https://review.openstack.org/123471
+Project: openstack/deb-neutron
+Branch: refs/heads/feature/lbaasv2

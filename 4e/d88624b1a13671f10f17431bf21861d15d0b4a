@@ -1,0 +1,12 @@
+Code-Review+2: mark mcclain <mark@mcclain.xyz>
+Workflow+1: mark mcclain <mark@mcclain.xyz>
+Verified+1: OpenContrail CI
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+1: Trinath Somanchi <trinath.somanchi@freescale.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 23 Sep 2014 08:02:20 +0000
+Reviewed-on: https://review.openstack.org/123262
+Project: openstack/deb-neutron
+Branch: refs/heads/feature/lbaasv2

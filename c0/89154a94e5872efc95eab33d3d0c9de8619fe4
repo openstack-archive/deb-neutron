@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Verified+1: IBM SDN-VE CI <ibmsdnve@us.ibm.com>
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 24 Oct 2014 22:22:01 +0000
+Reviewed-on: https://review.openstack.org/130864
+Project: openstack/deb-neutron
+Branch: refs/heads/feature/lbaasv2

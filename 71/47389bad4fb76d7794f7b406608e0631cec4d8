@@ -1,0 +1,21 @@
+Verified+1: Metaplugin CI <metaplugintest@gmail.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: OpenContrail CI
+Verified+1: vArmour CI <openstack-ci-test@varmour.com>
+Verified+1: IBM SDN-VE CI <ibmsdnve@us.ibm.com>
+Verified+1: Big Switch CI <openstack-ci@bigswitch.com>
+Code-Review+1: Paul Michali <pc@michali.net>
+Code-Review+1: German Eichberger <german.eichberger@hp.com>
+Code-Review+1: Michael Johnson <johnsomor@gmail.com>
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: Brandon Logan <brandon.logan@rackspace.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Code-Review+1: Shilla Saebi <shilla.saebi@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 25 Nov 2014 02:51:14 +0000
+Reviewed-on: https://review.openstack.org/123485
+Project: openstack/deb-neutron
+Branch: refs/heads/feature/lbaasv2
