@@ -1,0 +1,12 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Henry Gessau <HenryG@gessau.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 27 Aug 2016 03:26:58 +0000
+Reviewed-on: https://review.openstack.org/359464
+Project: openstack/deb-neutron
+Branch: refs/heads/master

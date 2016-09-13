@@ -1,0 +1,11 @@
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Workflow+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 16 Aug 2016 07:02:47 +0000
+Reviewed-on: https://review.openstack.org/350491
+Project: openstack/deb-neutron
+Branch: refs/heads/master

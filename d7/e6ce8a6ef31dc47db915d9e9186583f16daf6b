@@ -1,0 +1,14 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Ankur <ankur.gupta@intel.com>
+Code-Review+1: Shashank Kumar Shankar <shashank.kumar.shankar@intel.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+1: Sindhu Devale <sindhu.devale@intel.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 18:25:47 +0000
+Reviewed-on: https://review.openstack.org/355643
+Project: openstack/deb-neutron
+Branch: refs/heads/master

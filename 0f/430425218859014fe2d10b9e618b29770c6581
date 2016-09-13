@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Trevor McCasland <TM2086@att.com>
+Code-Review+2: Assaf Muller <amuller@redhat.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 31 Aug 2016 10:18:12 +0000
+Reviewed-on: https://review.openstack.org/362468
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,9 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 01 Sep 2016 11:37:43 +0000
+Reviewed-on: https://review.openstack.org/361434
+Project: openstack/deb-neutron
+Branch: refs/heads/master

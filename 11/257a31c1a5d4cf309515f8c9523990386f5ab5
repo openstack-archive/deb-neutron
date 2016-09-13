@@ -1,0 +1,15 @@
+Verified+1: HP Networking CI <hpnopenstackci@hp.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Ronald Bradford <ronald.bradford@gmail.com>
+Code-Review+1: Anastasia Guzikova <aguzikova@mirantis.com>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 26 Aug 2016 22:03:03 +0000
+Reviewed-on: https://review.openstack.org/340206
+Project: openstack/deb-neutron
+Branch: refs/heads/master

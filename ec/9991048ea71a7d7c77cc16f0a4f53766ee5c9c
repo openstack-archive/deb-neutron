@@ -1,0 +1,11 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Workflow+1: Jakub Libosvar <libosvar@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 26 Aug 2016 10:01:38 +0000
+Reviewed-on: https://review.openstack.org/355826
+Project: openstack/deb-neutron
+Branch: refs/heads/master

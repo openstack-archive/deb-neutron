@@ -1,0 +1,11 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Code-Review+1: Ilya Chukhnakov <ichukhnakov@mirantis.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 14 Aug 2016 12:19:41 +0000
+Reviewed-on: https://review.openstack.org/345263
+Project: openstack/deb-neutron
+Branch: refs/heads/master

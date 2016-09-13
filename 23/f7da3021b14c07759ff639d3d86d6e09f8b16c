@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Sridar Kandaswamy <skandasw@cisco.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 31 Aug 2016 20:17:50 +0000
+Reviewed-on: https://review.openstack.org/357503
+Project: openstack/deb-neutron
+Branch: refs/heads/master

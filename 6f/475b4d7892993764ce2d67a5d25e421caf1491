@@ -1,0 +1,12 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+1: Sergey Belous <sbelous@mirantis.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+1: Jakub Libosvar <libosvar@redhat.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Workflow+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 30 Aug 2016 16:06:37 +0000
+Reviewed-on: https://review.openstack.org/362768
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,12 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Ryan Tidwell <ryan.tidwell@hpe.com>
+Code-Review+1: Trinath Somanchi <trinaths.dev@gmail.com>
+Code-Review+2: Rossella Sblendido <rsblendido@suse.com>
+Workflow+1: Rossella Sblendido <rsblendido@suse.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 12 Aug 2016 06:29:10 +0000
+Reviewed-on: https://review.openstack.org/349274
+Project: openstack/deb-neutron
+Branch: refs/heads/master

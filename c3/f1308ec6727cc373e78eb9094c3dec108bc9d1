@@ -1,0 +1,13 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Rawlin Peters <rawlin.peters@hpe.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Swaminathan Vasudevan <swaminathan.vasudevan@hpe.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 31 Aug 2016 16:45:57 +0000
+Reviewed-on: https://review.openstack.org/356134
+Project: openstack/deb-neutron
+Branch: refs/heads/master

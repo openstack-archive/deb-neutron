@@ -1,0 +1,11 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 01 Sep 2016 07:47:30 +0000
+Reviewed-on: https://review.openstack.org/358281
+Project: openstack/deb-neutron
+Branch: refs/heads/master

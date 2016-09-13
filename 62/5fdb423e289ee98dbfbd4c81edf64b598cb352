@@ -1,0 +1,15 @@
+Code-Review+1: Doug Wiegley <dougwig@parkside.io>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Turbo Fredriksson <turbo@bayour.com>
+Code-Review+1: Sergey Belous <sbelous@mirantis.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 26 Aug 2016 05:04:43 +0000
+Reviewed-on: https://review.openstack.org/346221
+Project: openstack/deb-neutron
+Branch: refs/heads/master

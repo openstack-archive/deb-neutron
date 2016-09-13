@@ -1,0 +1,11 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 28 Aug 2016 14:30:35 +0000
+Reviewed-on: https://review.openstack.org/357819
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,15 @@
+Code-Review+1: Petrônio Carlos Bezerra <petroniocg@lsd.ufcg.edu.br>
+Code-Review+1: Inessa Vasilevskaya <ivasilevskaya@mirantis.com>
+Code-Review+1: Ilya Chukhnakov <ichukhnakov@mirantis.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Workflow+1: Henry Gessau <HenryG@gessau.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 29 Aug 2016 07:28:30 +0000
+Reviewed-on: https://review.openstack.org/319788
+Project: openstack/deb-neutron
+Branch: refs/heads/master

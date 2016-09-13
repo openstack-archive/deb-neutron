@@ -1,0 +1,10 @@
+Code-Review+2: Ann Taraday <akamyshnikova@mirantis.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Sep 2016 14:10:00 +0000
+Reviewed-on: https://review.openstack.org/364278
+Project: openstack/deb-neutron
+Branch: refs/heads/master
