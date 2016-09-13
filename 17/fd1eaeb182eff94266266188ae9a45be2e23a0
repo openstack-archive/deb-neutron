@@ -1,0 +1,12 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 09 Jul 2016 01:39:23 +0000
+Reviewed-on: https://review.openstack.org/337807
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

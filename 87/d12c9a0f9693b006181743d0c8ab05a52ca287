@@ -1,0 +1,11 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: venkata anil <anilvenkata@redhat.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 10 Jun 2016 15:06:34 +0000
+Reviewed-on: https://review.openstack.org/326141
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

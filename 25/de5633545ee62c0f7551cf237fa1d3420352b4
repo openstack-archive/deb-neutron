@@ -1,0 +1,13 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: John Belamaric <jbelamaric@infoblox.com>
+Code-Review+1: Pavel Bondar <pbondar@infoblox.com>
+Code-Review+1: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 29 Jul 2016 03:47:39 +0000
+Reviewed-on: https://review.openstack.org/344890
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

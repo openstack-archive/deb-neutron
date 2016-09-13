@@ -1,0 +1,17 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Takashi NATSUME <natsume.takashi@lab.ntt.co.jp>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 11 Jul 2016 17:45:20 +0000
+Reviewed-on: https://review.openstack.org/302259
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

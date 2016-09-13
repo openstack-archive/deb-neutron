@@ -1,0 +1,10 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 19:48:02 +0000
+Reviewed-on: https://review.openstack.org/355322
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

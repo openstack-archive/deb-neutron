@@ -1,0 +1,12 @@
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+1: Shih-Hao Li <shihli@vmware.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 17 Jul 2016 21:06:59 +0000
+Reviewed-on: https://review.openstack.org/321628
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty

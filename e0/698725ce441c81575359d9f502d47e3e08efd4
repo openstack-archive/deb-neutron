@@ -1,0 +1,13 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Pavel Bondar <pbondar@infoblox.com>
+Code-Review+1: John Belamaric <jbelamaric@infoblox.com>
+Code-Review+1: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Sep 2016 17:32:57 +0000
+Reviewed-on: https://review.openstack.org/362196
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/liberty
