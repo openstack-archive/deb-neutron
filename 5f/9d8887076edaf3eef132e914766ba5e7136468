@@ -1,0 +1,11 @@
+Code-Review+1: Ann Taraday <akamyshnikova@mirantis.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 14 Sep 2016 10:28:16 +0000
+Reviewed-on: https://review.openstack.org/367744
+Project: openstack/deb-neutron
+Branch: refs/heads/master
