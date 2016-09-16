@@ -275,10 +275,11 @@ class L3Scheduler(object):
         dep_getter = functools.partial(plugin.get_ha_network, ctxt, tenant_id)
         dep_creator = functools.partial(plugin._create_ha_network,
                                         ctxt, tenant_id)
+        dep_deleter = functools.partial(plugin._delete_ha_network, ctxt)
         dep_id_attr = 'network_id'
         try:
             port_binding = utils.create_object_with_dependency(
-                creator, dep_getter, dep_creator, dep_id_attr)[0]
+                creator, dep_getter, dep_creator, dep_id_attr, dep_deleter)[0]
             with db_api.autonested_transaction(context.session):
                 port_binding.l3_agent_id = agent['id']
         except db_exc.DBDuplicateEntry:
@@ -307,17 +308,19 @@ class L3Scheduler(object):
                                                               agent)
         scheduled = False
         admin_ctx = context.elevated()
-        for router, agents in routers_agents:
-            max_agents_not_reached = (
-                not self.max_ha_agents or agents < self.max_ha_agents)
-            if max_agents_not_reached:
-                if not self._router_has_binding(admin_ctx, router['id'],
-                                                agent.id):
-                    self.create_ha_port_and_bind(plugin, admin_ctx,
-                                                 router['id'],
-                                                 router['tenant_id'],
-                                                 agent)
-                    scheduled = True
+        underscheduled_routers = [router for router, agents in routers_agents
+                                  if (not self.max_ha_agents or
+                                      agents < self.max_ha_agents)]
+        schedulable_routers = self._get_routers_can_schedule(
+            admin_ctx, plugin, underscheduled_routers, agent)
+        for router in schedulable_routers:
+            if not self._router_has_binding(admin_ctx, router['id'],
+                                            agent.id):
+                self.create_ha_port_and_bind(plugin, admin_ctx,
+                                             router['id'],
+                                             router['tenant_id'],
+                                             agent)
+                scheduled = True
 
         return scheduled
 

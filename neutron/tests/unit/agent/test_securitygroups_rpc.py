@@ -20,6 +20,7 @@ import mock
 from neutron_lib import constants as const
 from oslo_config import cfg
 import oslo_messaging
+from oslo_utils import netutils
 from testtools import matchers
 import webob.exc
 
@@ -27,15 +28,12 @@ from neutron.agent import firewall as firewall_base
 from neutron.agent.linux import iptables_manager
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.handlers import securitygroups_rpc
-from neutron.common import constants as n_const
-from neutron.common import ipv6_utils as ipv6
 from neutron.common import rpc as n_rpc
 from neutron import context
 from neutron.db import securitygroups_rpc_base as sg_db_rpc
 from neutron.extensions import allowedaddresspairs as addr_pair
 from neutron.extensions import securitygroup as ext_sg
 from neutron import manager
-from neutron.plugins.ml2.drivers.openvswitch.agent import ovs_neutron_agent
 from neutron.tests import base
 from neutron.tests import tools
 from neutron.tests.unit.extensions import test_securitygroup as test_sg
@@ -580,7 +578,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 security_groups=[sg1_id])
             dhcp_rest = self.deserialize(self.fmt, dhcp_port)
             dhcp_mac = dhcp_rest['port']['mac_address']
-            dhcp_lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+            dhcp_lla_ip = str(netutils.get_ipv6_addr_by_EUI64(
                 const.IPv6_LLA_PREFIX,
                 dhcp_mac))
 
@@ -683,7 +681,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
         with self.network() as n,\
                 self.subnet(n, gateway_ip=fake_gateway,
                             cidr=fake_prefix, ip_version=6,
-                            ipv6_ra_mode=n_const.IPV6_SLAAC
+                            ipv6_ra_mode=const.IPV6_SLAAC
                             ) as subnet_v6,\
                 self.security_group() as sg1:
             sg1_id = sg1['security_group']['id']
@@ -704,7 +702,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 device_owner=const.DEVICE_OWNER_ROUTER_INTF)
             gateway_mac = gateway_res['port']['mac_address']
             gateway_port_id = gateway_res['port']['id']
-            gateway_lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+            gateway_lla_ip = str(netutils.get_ipv6_addr_by_EUI64(
                 const.IPv6_LLA_PREFIX,
                 gateway_mac))
 
@@ -751,7 +749,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
         with self.network() as n,\
                 self.subnet(n, gateway_ip=fake_gateway,
                             cidr=fake_prefix, ip_version=6,
-                            ipv6_ra_mode=n_const.IPV6_SLAAC
+                            ipv6_ra_mode=const.IPV6_SLAAC
                             ) as subnet_v6,\
                 self.security_group() as sg1:
             sg1_id = sg1['security_group']['id']
@@ -772,7 +770,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 device_owner=const.DEVICE_OWNER_ROUTER_INTF)
             gateway_mac = gateway_res['port']['mac_address']
             gateway_port_id = gateway_res['port']['id']
-            gateway_lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+            gateway_lla_ip = str(netutils.get_ipv6_addr_by_EUI64(
                 const.IPv6_LLA_PREFIX,
                 gateway_mac))
             # Create another router interface port
@@ -826,7 +824,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
         with self.network() as n,\
                 self.subnet(n, gateway_ip=fake_gateway,
                             cidr=fake_prefix, ip_version=6,
-                            ipv6_ra_mode=n_const.IPV6_SLAAC
+                            ipv6_ra_mode=const.IPV6_SLAAC
                             ) as subnet_v6,\
                 self.security_group() as sg1:
             sg1_id = sg1['security_group']['id']
@@ -847,7 +845,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
                 device_owner=const.DEVICE_OWNER_DVR_INTERFACE)
             gateway_mac = gateway_res['port']['mac_address']
             gateway_port_id = gateway_res['port']['id']
-            gateway_lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+            gateway_lla_ip = str(netutils.get_ipv6_addr_by_EUI64(
                 const.IPv6_LLA_PREFIX,
                 gateway_mac))
 
@@ -894,7 +892,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
         with self.network() as n,\
                 self.subnet(n, gateway_ip=fake_gateway,
                             cidr=fake_prefix, ip_version=6,
-                            ipv6_ra_mode=n_const.IPV6_SLAAC
+                            ipv6_ra_mode=const.IPV6_SLAAC
                             ) as subnet_v6,\
                 self.security_group() as sg1:
             sg1_id = sg1['security_group']['id']
@@ -942,7 +940,7 @@ class SGServerRpcCallBackTestCase(test_sg.SecurityGroupDBTestCase):
         fake_prefix = FAKE_PREFIX[const.IPv6]
         with self.network() as n,\
                 self.subnet(n, gateway_ip=None, cidr=fake_prefix,
-                            ip_version=6, ipv6_ra_mode=n_const.IPV6_SLAAC
+                            ip_version=6, ipv6_ra_mode=const.IPV6_SLAAC
                             ) as subnet_v6,\
                 self.security_group() as sg1:
             sg1_id = sg1['security_group']['id']
@@ -3121,12 +3119,8 @@ class TestSecurityGroupAgentWithOVSIptables(
                                                     test_rpc_v1_1)
 
     def _init_agent(self, defer_refresh_firewall):
-        fake_map = ovs_neutron_agent.LocalVLANMapping(1, 'network_type',
-                                                      'physical_network', 1)
-        local_vlan_map = {'fakenet': fake_map}
         self.agent = sg_rpc.SecurityGroupAgentRpc(
             context=None, plugin_rpc=self.rpc,
-            local_vlan_map=local_vlan_map,
             defer_refresh_firewall=defer_refresh_firewall)
         self._enforce_order_in_firewall(self.agent.firewall)
 

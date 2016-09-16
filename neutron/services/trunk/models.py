@@ -13,24 +13,37 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.db import model_base
 import sqlalchemy as sa
+from sqlalchemy import sql
 
-from neutron.db import model_base
+from neutron.api.v2 import attributes
 from neutron.db import models_v2
+from neutron.db import standard_attr
+from neutron.services.trunk import constants
 
 
-class Trunk(model_base.HasStandardAttributes, model_base.BASEV2,
-            model_base.HasId, model_base.HasTenant):
+class Trunk(standard_attr.HasStandardAttributes, model_base.BASEV2,
+            model_base.HasId, model_base.HasProject):
 
+    admin_state_up = sa.Column(
+        sa.Boolean(), nullable=False, server_default=sql.true())
+    name = sa.Column(sa.String(attributes.NAME_MAX_LEN))
     port_id = sa.Column(sa.String(36),
                         sa.ForeignKey('ports.id',
                                       ondelete='CASCADE'),
                         nullable=False,
                         unique=True)
+    status = sa.Column(
+        sa.String(16), nullable=False, server_default=constants.ACTIVE_STATUS)
+
     port = sa.orm.relationship(
         models_v2.Port,
         backref=sa.orm.backref('trunk_port', lazy='joined', uselist=False,
                                cascade='delete'))
+
+    sub_ports = sa.orm.relationship(
+        'SubPort', lazy='joined', uselist=True, cascade="all, delete-orphan")
 
 
 class SubPort(model_base.BASEV2):

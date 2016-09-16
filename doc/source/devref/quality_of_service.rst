@@ -138,7 +138,10 @@ From database point of view, following objects are defined in schema:
 * QosPolicy: directly maps to the conceptual policy resource.
 * QosNetworkPolicyBinding, QosPortPolicyBinding: defines attachment between a
   Neutron resource and a QoS policy.
-* QosBandwidthLimitRule: defines the only rule type available at the moment.
+* QosBandwidthLimitRule: defines the rule to limit the maximum egress
+  bandwidth.
+* QosDscpMarkingRule: defines the rule that marks the Differentiated Service
+  bits for egress traffic.
 
 
 All database models are defined under:
@@ -181,6 +184,10 @@ For QoS, new neutron objects were implemented:
   of the IP header, and only certain configurations are valid.  As a result, the list
   of valid DSCP rule types is: 0, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
   34, 36, 38, 40, 46, 48, and 56.
+* QosMinimumBandwidthRule: defines the minimum assured bandwidth rule type,
+  characterized by a min_kbps parameter. This rule has also a direction
+  parameter to set the traffic direction, from the instance point of view. The
+  only direction now implemented is egress.
 
 Those are defined in:
 

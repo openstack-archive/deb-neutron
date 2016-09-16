@@ -61,10 +61,11 @@ class BaseNetworkTest(test.BaseTestCase):
     @classmethod
     def get_client_manager(cls, credential_type=None, roles=None,
                            force_new=None):
-        manager = test.BaseTestCase.get_client_manager(
-                credential_type=credential_type,
-                roles=roles,
-                force_new=force_new)
+        manager = super(BaseNetworkTest, cls).get_client_manager(
+            credential_type=credential_type,
+            roles=roles,
+            force_new=force_new
+        )
         # Neutron uses a different clients manager than the one in the Tempest
         return clients.Manager(manager.credentials)
 
@@ -471,7 +472,7 @@ class BaseAdminNetworkTest(BaseNetworkTest):
 def _require_sorting(f):
     @functools.wraps(f)
     def inner(self, *args, **kwargs):
-        if not CONF.neutron_plugin_options.validate_sorting:
+        if not test.is_extension_enabled("sorting", "network"):
             self.skipTest('Sorting feature is required')
         return f(self, *args, **kwargs)
     return inner
@@ -480,7 +481,7 @@ def _require_sorting(f):
 def _require_pagination(f):
     @functools.wraps(f)
     def inner(self, *args, **kwargs):
-        if not CONF.neutron_plugin_options.validate_pagination:
+        if not test.is_extension_enabled("pagination", "network"):
             self.skipTest('Pagination feature is required')
         return f(self, *args, **kwargs)
     return inner

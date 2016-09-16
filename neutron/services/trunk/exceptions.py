@@ -41,5 +41,39 @@ class ParentPortInUse(n_exc.InUse):
                 "eligible for use as a parent port.")
 
 
+class PortInUseAsTrunkParent(n_exc.InUse):
+    message = _("Port %(port_id)s is currently a parent port "
+                "for trunk %(trunk_id)s.")
+
+
+class PortInUseAsSubPort(n_exc.InUse):
+    message = _("Port %(port_id)s is currently a subport for "
+                "trunk %(trunk_id)s.")
+
+
 class TrunkInUse(n_exc.InUse):
     message = _("Trunk %(trunk_id)s is currently in use.")
+
+
+class TrunkDisabled(n_exc.Conflict):
+    message = _("Trunk %(trunk_id)s is currently disabled.")
+
+
+class TrunkInErrorState(n_exc.Conflict):
+    message = _("Trunk %(trunk_id)s is in error state. Attempt "
+                "to resolve the error condition before proceeding.")
+
+
+class IncompatibleTrunkPluginConfiguration(n_exc.NeutronException):
+    message = _("Cannot load trunk plugin: no compatible core plugin "
+                "configuration is found.")
+
+
+class TrunkPluginDriverConflict(n_exc.Conflict):
+    message = _("A misconfiguration in the environment prevents the "
+                "operation from completing, please, contact the admin.")
+
+
+class SubPortBindingError(n_exc.NeutronException):
+    message = _("Failed to set port binding for port %(port_id)s on trunk "
+                "%(trunk_id)s.")

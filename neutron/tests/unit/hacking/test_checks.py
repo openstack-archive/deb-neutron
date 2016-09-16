@@ -249,10 +249,10 @@ class HackingTestCase(base.BaseTestCase):
                 1, len(list(checks.check_assertempty(fail_code % (ec, ec),
                                             "neutron/tests/test_assert.py"))))
             self.assertEqual(
-                0, len(list(checks.check_assertfalse(pass_code1 % (ec, ec),
+                0, len(list(checks.check_asserttruefalse(pass_code1 % (ec, ec),
                                             "neutron/tests/test_assert.py"))))
             self.assertEqual(
-                0, len(list(checks.check_assertfalse(pass_code2 % ec,
+                0, len(list(checks.check_asserttruefalse(pass_code2 % ec,
                                             "neutron/tests/test_assert.py"))))
 
     def test_assertisinstance(self):
@@ -333,6 +333,11 @@ class HackingTestCase(base.BaseTestCase):
         self.assertEqual(
             0, len(list(checks.check_delayed_string_interpolation(fail_code1,
                                         "neutron/common/rpc.py", dummy_noqa))))
+
+    def test_check_log_warn_deprecated(self):
+        bad = "LOG.warn(_LW('i am zlatan!'))"
+        self.assertEqual(
+            1, len(list(checks.check_log_warn_deprecated(bad, 'f'))))
 
 # The following is borrowed from hacking/tests/test_doctest.py.
 # Tests defined in docstring is easier to understand

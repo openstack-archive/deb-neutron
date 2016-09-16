@@ -25,8 +25,8 @@ from neutron.pecan_wsgi import hooks
 from neutron.pecan_wsgi import startup
 
 CONF = cfg.CONF
-CONF.import_opt('bind_host', 'neutron.common.config')
-CONF.import_opt('bind_port', 'neutron.common.config')
+CONF.import_opt('bind_host', 'neutron.conf.common')
+CONF.import_opt('bind_port', 'neutron.conf.common')
 
 
 def setup_app(*args, **kwargs):
@@ -50,8 +50,8 @@ def setup_app(*args, **kwargs):
         hooks.OwnershipValidationHook(),  # priority 125
         hooks.QuotaEnforcementHook(),  # priority 130
         hooks.NotifierHook(),  # priority 135
+        hooks.QueryParametersHook(),  # priority 139
         hooks.PolicyHook(),  # priority 140
-        hooks.QueryParametersHook(),  # priority 145
     ]
 
     app = pecan.make_app(

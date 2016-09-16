@@ -10,11 +10,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib import constants
 from oslo_log import log as logging
 
 from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
-from neutron.common import constants
 
 LOG = logging.getLogger(__name__)
 SNAT_NS_PREFIX = 'snat-'
@@ -33,6 +33,7 @@ class SnatNamespace(namespaces.Namespace):
     def get_snat_ns_name(cls, router_id):
         return namespaces.build_ns_name(SNAT_NS_PREFIX, router_id)
 
+    @namespaces.check_ns_existence
     def delete(self):
         ns_ip = ip_lib.IPWrapper(namespace=self.name)
         for d in ns_ip.get_devices(exclude_loopback=True):

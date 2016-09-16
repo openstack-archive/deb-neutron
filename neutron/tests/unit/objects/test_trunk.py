@@ -13,14 +13,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import mock
+import itertools
 
+import mock
 from neutron_lib import exceptions as n_exc
 from oslo_db import exception as obj_exc
 from oslo_utils import uuidutils
 
 from neutron.objects.db import api as obj_db_api
 from neutron.objects import trunk as t_obj
+from neutron.services.trunk import constants
 from neutron.services.trunk import exceptions as t_exc
 from neutron.tests.unit.objects import test_base
 from neutron.tests.unit import testlib_api
@@ -85,8 +87,11 @@ class TrunkDbObjectTestCase(test_base.BaseDbObjectTestCase,
         super(TrunkDbObjectTestCase, self).setUp()
 
         self._create_test_network()
+        sub_ports = []
+        for obj in self.db_objs:
+            sub_ports.extend(obj['sub_ports'])
 
-        for obj in self.obj_fields:
+        for obj in itertools.chain(self.obj_fields, sub_ports):
             self._create_port(id=obj['port_id'],
                               network_id=self._network['id'])
 
@@ -97,27 +102,70 @@ class TrunkDbObjectTestCase(test_base.BaseDbObjectTestCase,
         trunk = self._make_object(obj)
         self.assertRaises(n_exc.PortNotFound, trunk.create)
 
-    def test_create_with_sub_ports(self):
+    def _test_create_trunk_with_subports(self, port_id, vids):
         tenant_id = uuidutils.generate_uuid()
+
+        sub_ports = []
+        for vid in vids:
+            port = self._create_port(network_id=self._network['id'])
+            sub_ports.append(t_obj.SubPort(self.context, port_id=port['id'],
+                                           segmentation_type='vlan',
+                                           segmentation_id=vid))
+        trunk = t_obj.Trunk(self.context, port_id=port_id,
+                            sub_ports=sub_ports, tenant_id=tenant_id)
+        trunk.create()
+        self.assertEqual(sub_ports, trunk.sub_ports)
+        return trunk
+
+    def test_create_with_sub_ports(self):
+        trunk = self._test_create_trunk_with_subports(self.db_obj['port_id'],
+                                                      [1, 2])
 
         def _as_tuple(sub_port):
             return (sub_port['port_id'],
                     sub_port['segmentation_type'],
                     sub_port['segmentation_id'])
 
-        sub_ports = []
-        for vid in range(1, 3):
-            port = self._create_port(network_id=self._network['id'])
-            sub_ports.append(t_obj.SubPort(self.context, port_id=port['id'],
-                                           segmentation_type='vlan',
-                                           segmentation_id=vid))
-        expected = set(map(_as_tuple, sub_ports))
-
-        trunk = t_obj.Trunk(self.context, port_id=self.db_obj['port_id'],
-                            sub_ports=sub_ports, tenant_id=tenant_id)
-        trunk.create()
+        expected = {_as_tuple(port) for port in trunk.sub_ports}
 
         sub_ports = t_obj.SubPort.get_objects(self.context, trunk_id=trunk.id)
+        self.assertEqual(expected, {_as_tuple(port) for port in sub_ports})
 
-        self.assertEqual(expected, set(map(_as_tuple, trunk.sub_ports)))
-        self.assertEqual(expected, set(map(_as_tuple, sub_ports)))
+    def test_get_object_includes_correct_subports(self):
+        trunk1_vids = [1, 2, 3]
+        trunk2_vids = [4, 5, 6]
+        port_id1 = self.db_obj['port_id']
+        trunk1 = self._test_create_trunk_with_subports(port_id1, trunk1_vids)
+
+        port_id2 = uuidutils.generate_uuid()
+        self._create_port(id=port_id2,
+                          network_id=self._network['id'])
+        self._test_create_trunk_with_subports(port_id2, trunk2_vids)
+
+        listed_trunk1 = t_obj.Trunk.get_object(
+            self.context,
+            id=trunk1.id,
+            port_id=port_id1
+        )
+        self.assertEqual(
+            set(trunk1_vids),
+            {sp.segmentation_id for sp in listed_trunk1.sub_ports}
+        )
+
+    def test_update_multiple_fields(self):
+        trunk = t_obj.Trunk(context=self.context,
+                            admin_state_up=False,
+                            port_id=self.db_obj['port_id'],
+                            status=constants.DOWN_STATUS)
+        trunk.create()
+        fields = {'admin_state_up': True, 'status': constants.ACTIVE_STATUS}
+        trunk.update(**fields)
+
+        trunk = t_obj.Trunk.get_object(self.context, id=trunk.id)
+        self._assert_trunk_attrs(trunk, **fields)
+
+    def _assert_trunk_attrs(self, trunk, **kwargs):
+        """Check the values passed in kwargs match the values of the trunk"""
+        for k in trunk.fields:
+            if k in kwargs:
+                self.assertEqual(kwargs[k], trunk[k])

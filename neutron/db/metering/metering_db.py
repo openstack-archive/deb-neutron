@@ -13,6 +13,7 @@
 # under the License.
 
 import netaddr
+from neutron_lib.db import model_base
 from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -23,7 +24,6 @@ from neutron.api.v2 import attributes as attr
 from neutron.common import constants
 from neutron.db import common_db_mixin as base_db
 from neutron.db import l3_db
-from neutron.db import model_base
 from neutron.extensions import metering
 
 
@@ -38,7 +38,9 @@ class MeteringLabelRule(model_base.BASEV2, model_base.HasId):
     excluded = sa.Column(sa.Boolean, default=False, server_default=sql.false())
 
 
-class MeteringLabel(model_base.BASEV2, model_base.HasId, model_base.HasTenant):
+class MeteringLabel(model_base.BASEV2,
+                    model_base.HasId,
+                    model_base.HasProject):
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     description = sa.Column(sa.String(attr.LONG_DESCRIPTION_MAX_LEN))
     rules = orm.relationship(MeteringLabelRule, backref="label",

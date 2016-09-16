@@ -65,7 +65,7 @@ class NeutronConfigFixture(ConfigFixture):
                 'lock_path': '$state_path/lock',
                 'api_paste_config': self._generate_api_paste(),
                 'policy_file': self._generate_policy_json(),
-                'core_plugin': 'neutron.plugins.ml2.plugin.Ml2Plugin',
+                'core_plugin': 'ml2',
                 'service_plugins': ','.join(service_plugins),
                 'auth_strategy': 'noauth',
                 'debug': 'True',
@@ -264,8 +264,6 @@ class L3ConfigFixture(ConfigFixture):
     def _prepare_config_with_ovs_agent(self, integration_bridge):
         self.config.update({
             'DEFAULT': {
-                'l3_agent_manager': ('neutron.agent.l3_agent.'
-                                     'L3NATAgentWithStateReport'),
                 'interface_driver': ('neutron.agent.linux.interface.'
                                      'OVSInterfaceDriver'),
                 'ovs_integration_bridge': integration_bridge,

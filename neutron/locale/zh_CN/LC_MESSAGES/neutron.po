@@ -15,9 +15,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 9.0.0.0b2.dev347\n"
+"Project-Id-Version: neutron 9.0.0.0b3.dev409\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-07-03 04:49+0000\n"
+"POT-Creation-Date: 2016-08-18 18:59+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -1255,14 +1255,6 @@ msgstr "类型未启用。"
 msgid "Floating IP %(floatingip_id)s could not be found"
 msgstr "找不到浮动 IP %(floatingip_id)s"
 
-#, python-format
-msgid ""
-"Floating IP %(floatingip_id)s is associated with non-IPv4 address "
-"%s(internal_ip)s and therefore cannot be bound."
-msgstr ""
-"浮动 IP %(floatingip_id)s 与非 IPv4 地址%s(internal_ip)s 相关联，因此无法绑"
-"定。"
-
 msgid "For TCP/UDP protocols, port_range_min must be <= port_range_max"
 msgstr "对于 TCP/UDP 协议，port_range_min 必须小于等于 port_range_max"
 
@@ -1691,9 +1683,6 @@ msgstr ""
 "可通过其创建平面网络的 physical_network 名称的列表。使用缺省值“*”将允许平面网"
 "络使用任意 physical_network 名称。使用空列表将禁用平面网络。"
 
-msgid "Local IP address of the VXLAN endpoints."
-msgstr "VXLAN 端点的本地 IP 地址。"
-
 msgid "Location for Metadata Proxy UNIX domain socket."
 msgstr "元数据代理 UNIX 域套接字的位置。"
 
@@ -1734,14 +1723,6 @@ msgstr ""
 "底层物理网络的 MTU。Neutron 使用此值计算所有虚拟网络组件的 MTU。对于平面网络"
 "和 VLAN 网络，neutron 使用此值而不做修改。对于 VXLAN 之类的覆盖网络，neutron "
 "自动从此值减去覆盖协议开销。缺省为 1500（这是以太网的标准值）。"
-
-msgid ""
-"MTU setting for device. This option will be removed in Newton. Please use "
-"the system-wide segment_mtu setting which the agents will take into account "
-"when wiring VIFs."
-msgstr ""
-"设备的 MTU 设置。此选项将在 Newton 中移除。请使用系统范围的 segment_mtu 设"
-"置，连线 VIF 时，代理程序将考虑这些设置。"
 
 msgid "MTU size of veth interfaces"
 msgstr "veth 接口的 MTU 大小"
@@ -1817,9 +1798,6 @@ msgid ""
 msgstr ""
 "带有 remote_ip_prefix %(remote_ip_prefix)s 的测量标签规则与另一测量标签规则重"
 "叠"
-
-msgid "Method cannot be called within a transaction."
-msgstr "不能在事务中调用方法。"
 
 msgid "Migration from distributed router to centralized is not supported"
 msgstr "不支持从分布式路由器迁移至集中路由器"
@@ -1904,16 +1882,6 @@ msgstr "名称“%s”不能以连字符开头或结尾。"
 
 msgid "Name of Open vSwitch bridge to use"
 msgstr "要使用的已打开 vSwitch 网桥的名称"
-
-msgid ""
-"Name of bridge used for external network traffic. This should be set to an "
-"empty value for the Linux Bridge. When this parameter is set, each L3 agent "
-"can be associated with no more than one external network. This option is "
-"deprecated and will be removed in the M release."
-msgstr ""
-"用于外部网络流量的网桥的名称。对于 Linux 网桥，它应设置为空值。如果设置了此参"
-"数，那么每个 L3 代理程序最多可与一个外部网络相关联。此选项已不推荐使用，将在 "
-"M 发行版中移除。"
 
 msgid ""
 "Name of nova region to use. Useful if keystone manages more than one region."
@@ -2458,12 +2426,6 @@ msgstr ""
 
 msgid "Resource body required"
 msgstr "需要资源主体"
-
-msgid ""
-"Resource name(s) that are supported in quota features. This option is now "
-"deprecated for removal."
-msgstr ""
-"存在配额功能部件中受支持的资源名称。现在，已建议不要使用此选项，会将其除去。"
 
 msgid "Resource not found."
 msgstr "找不到资源。"
@@ -3024,13 +2986,6 @@ msgid ""
 "access."
 msgstr "根据此策略，有一些路由器附加至此网络以用于访问。"
 
-msgid ""
-"This will choose the web framework in which to run the Neutron API server. "
-"'pecan' is a new experiemental rewrite of the API server."
-msgstr ""
-"这将选择要运行 Neutron API 服务器的 Web 框架。“pecan”是 API 服务器的新的试验"
-"性改写。"
-
 msgid "Timeout"
 msgstr "超时"
 
@@ -3552,13 +3507,6 @@ msgid ""
 msgstr ""
 "max_l3_agents_per_router %(max_agents)s 配置参数无效。它必须大于或等于 "
 "min_l3_agents_per_router %(min_agents)s。"
-
-#, python-format
-msgid ""
-"min_l3_agents_per_router config parameter is not valid. It has to be equal "
-"to or more than %s for HA."
-msgstr ""
-"min_l3_agents_per_router 配置参数无效。它必须等于或大于 %s，才能确保 HA。"
 
 msgid "must provide exactly 2 arguments - cidr and MAC"
 msgstr "必须提供正好 2 个自变量：cidr 和 MAC"
