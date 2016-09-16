@@ -1,0 +1,12 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Eric Lei <leiyashuai@inspur.com>
+Code-Review+1: John Schwarz <jschwarz@redhat.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Sep 2016 06:09:37 +0000
+Reviewed-on: https://review.openstack.org/370430
+Project: openstack/deb-neutron
+Branch: refs/heads/master
