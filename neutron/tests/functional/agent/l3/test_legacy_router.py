@@ -13,9 +13,10 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
 
 import mock
-from neutron_lib import constants as l3_constants
+from neutron_lib import constants as lib_constants
 
 from neutron.agent.l3 import namespace_manager
 from neutron.agent.l3 import namespaces
@@ -23,6 +24,7 @@ from neutron.agent.linux import ip_lib
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.tests import base as tests_base
 from neutron.tests.common import machine_fixtures
 from neutron.tests.common import net_helpers
 from neutron.tests.functional.agent.l3 import framework
@@ -78,6 +80,56 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         self._router_lifecycle(enable_ha=False, dual_stack=True,
                                v6_ext_gw_with_sub=False)
 
+    def test_legacy_router_gateway_update_to_none(self):
+        router_info = self.generate_router_info(False)
+        router = self.manage_router(self.agent, router_info)
+        gw_port = router.get_ex_gw_port()
+        interface_name = router.get_external_device_name(gw_port['id'])
+        device = ip_lib.IPDevice(interface_name, namespace=router.ns_name)
+        self.assertIn('gateway', device.route.get_gateway())
+
+        # Make this copy, so that the agent will think there is change in
+        # external gateway port.
+        router.ex_gw_port = copy.deepcopy(router.ex_gw_port)
+        for subnet in gw_port['subnets']:
+            subnet['gateway_ip'] = None
+        router.process(self.agent)
+
+        self.assertIsNone(device.route.get_gateway())
+
+    def _make_bridge(self):
+        bridge = framework.get_ovs_bridge(tests_base.get_rand_name())
+        bridge.create()
+        self.addCleanup(bridge.destroy)
+        return bridge
+
+    def test_external_network_bridge_change(self):
+        bridge1, bridge2 = self._make_bridge(), self._make_bridge()
+        self.agent.conf.set_override('external_network_bridge',
+                                     bridge1.br_name)
+        router_info = self.generate_router_info(False)
+        router = self.manage_router(self.agent, router_info)
+        gw_port = router.router['gw_port']
+        gw_inf_name = router.get_external_device_name(gw_port['id'])
+
+        self.assertIn(gw_inf_name,
+                      [v.port_name for v in bridge1.get_vif_ports()])
+        # changeing the external_network_bridge should have no impact since
+        # the interface exists.
+        self.agent.conf.set_override('external_network_bridge',
+                                     bridge2.br_name)
+        self.manage_router(self.agent, router_info)
+        self.assertIn(gw_inf_name,
+                      [v.port_name for v in bridge1.get_vif_ports()])
+        self.assertNotIn(gw_inf_name,
+                         [v.port_name for v in bridge2.get_vif_ports()])
+        namespaces.Namespace.delete(router.router_namespace)
+        self.manage_router(self.agent, router_info)
+        self.assertIn(gw_inf_name,
+                      [v.port_name for v in bridge2.get_vif_ports()])
+        self.assertNotIn(gw_inf_name,
+                         [v.port_name for v in bridge1.get_vif_ports()])
+
     def test_legacy_router_ns_rebuild(self):
         router_info = self.generate_router_info(False)
         router = self.manage_router(self.agent, router_info)
@@ -85,7 +137,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         gw_inf_name = router.get_external_device_name(gw_port['id'])
         gw_device = ip_lib.IPDevice(gw_inf_name, namespace=router.ns_name)
         router_ports = [gw_device]
-        for i_port in router_info.get(l3_constants.INTERFACE_KEY, []):
+        for i_port in router_info.get(lib_constants.INTERFACE_KEY, []):
             interface_name = router.get_internal_device_name(i_port['id'])
             router_ports.append(
                 ip_lib.IPDevice(interface_name, namespace=router.ns_name))
@@ -213,7 +265,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
                 router_ip)).machines
 
         dst_fip = '19.4.4.10'
-        router.router[l3_constants.FLOATINGIP_KEY] = []
+        router.router[lib_constants.FLOATINGIP_KEY] = []
         self._add_fip(router, dst_fip, fixed_address=dst_machine.ip)
         router.process(self.agent)
 
@@ -228,7 +280,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         src_machine, dst_machine, dst_fip = (
             self._setup_fip_with_fixed_ip_from_same_subnet(enable_snat=True))
         protocol_port = net_helpers.get_free_namespace_port(
-            l3_constants.PROTO_NAME_TCP, dst_machine.namespace)
+            lib_constants.PROTO_NAME_TCP, dst_machine.namespace)
         # client sends to fip
         netcat = net_helpers.NetcatTester(
             src_machine.namespace, dst_machine.namespace,
@@ -252,15 +304,15 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         router_info = self.generate_router_info(enable_ha=False,
                                                 num_internal_ports=2)
         address_scope1 = {
-            str(l3_constants.IP_VERSION_4): internal_address_scope1}
+            str(lib_constants.IP_VERSION_4): internal_address_scope1}
         address_scope2 = {
-            str(l3_constants.IP_VERSION_4): internal_address_scope2}
+            str(lib_constants.IP_VERSION_4): internal_address_scope2}
         if gw_address_scope:
             router_info['gw_port']['address_scopes'] = {
-                str(l3_constants.IP_VERSION_4): gw_address_scope}
-        router_info[l3_constants.INTERFACE_KEY][0]['address_scopes'] = (
+                str(lib_constants.IP_VERSION_4): gw_address_scope}
+        router_info[lib_constants.INTERFACE_KEY][0]['address_scopes'] = (
             address_scope1)
-        router_info[l3_constants.INTERFACE_KEY][1]['address_scopes'] = (
+        router_info[lib_constants.INTERFACE_KEY][1]['address_scopes'] = (
             address_scope2)
 
         router = self.manage_router(self.agent, router_info)
@@ -289,8 +341,8 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
             'scope1', 'scope1')
         # Internal networks that are in the same address scope can connected
         # each other
-        net_helpers.assert_ping(test_machine1.namespace, test_machine2.ip, 5)
-        net_helpers.assert_ping(test_machine2.namespace, test_machine1.ip, 5)
+        net_helpers.assert_ping(test_machine1.namespace, test_machine2.ip)
+        net_helpers.assert_ping(test_machine2.namespace, test_machine1.ip)
 
     def test_connection_from_diff_address_scope(self):
         test_machine1, test_machine2, _ = self._setup_address_scope(
@@ -304,7 +356,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         (machine_same_scope, machine_diff_scope,
             router) = self._setup_address_scope('scope1', 'scope2', 'scope1')
 
-        router.router[l3_constants.FLOATINGIP_KEY] = []
+        router.router[lib_constants.FLOATINGIP_KEY] = []
         fip_same_scope = '19.4.4.10'
         self._add_fip(router, fip_same_scope,
                       fixed_address=machine_same_scope.ip,
@@ -320,8 +372,8 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         src_machine = self.useFixture(
             machine_fixtures.FakeMachine(br_ex, '19.4.4.12/24'))
         # Floating ip should work no matter of address scope
-        net_helpers.assert_ping(src_machine.namespace, fip_same_scope, 5)
-        net_helpers.assert_ping(src_machine.namespace, fip_diff_scope, 5)
+        net_helpers.assert_ping(src_machine.namespace, fip_same_scope)
+        net_helpers.assert_ping(src_machine.namespace, fip_diff_scope)
 
     def test_direct_route_for_address_scope(self):
         (machine_same_scope, machine_diff_scope,
@@ -336,8 +388,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
             machine_fixtures.FakeMachine(br_ex, '19.4.4.12/24', gw_ip))
         # For the internal networks that are in the same address scope as
         # external network, they can directly route to external network
-        net_helpers.assert_ping(
-            src_machine.namespace, machine_same_scope.ip, 5)
+        net_helpers.assert_ping(src_machine.namespace, machine_same_scope.ip)
         # For the internal networks that are not in the same address scope as
         # external networks. SNAT will be used. Direct route will not work
         # here.
@@ -347,7 +398,7 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
         (machine_same_scope, machine_diff_scope,
             router) = self._setup_address_scope('scope1', 'scope2', 'scope1')
 
-        router.router[l3_constants.FLOATINGIP_KEY] = []
+        router.router[lib_constants.FLOATINGIP_KEY] = []
         fip = '19.4.4.11'
         self._add_fip(router, fip,
                       fixed_address=machine_diff_scope.ip,
@@ -356,8 +407,8 @@ class L3AgentTestCase(framework.L3AgentTestFramework):
 
         # For the internal networks that are in the same address scope as
         # external network, they should be able to reach the floating ip
-        net_helpers.assert_ping(machine_same_scope.namespace, fip, 5)
+        net_helpers.assert_ping(machine_same_scope.namespace, fip)
         # For the port with fip, it should be able to reach the internal
         # networks that are in the same address scope as external network
         net_helpers.assert_ping(machine_diff_scope.namespace,
-                                machine_same_scope.ip, 5)
+                                machine_same_scope.ip)

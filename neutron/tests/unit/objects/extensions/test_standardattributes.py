@@ -12,18 +12,19 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.db import model_base
 from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import fields as obj_fields
 import sqlalchemy as sa
 
-from neutron.db import model_base
+from neutron.db import standard_attr
 from neutron.objects import base as objects_base
 from neutron.tests.unit.objects import test_base
 from neutron.tests.unit import testlib_api
 
 
 class FakeDbModelWithStandardAttributes(
-        model_base.HasStandardAttributes, model_base.BASEV2):
+        standard_attr.HasStandardAttributes, model_base.BASEV2):
     id = sa.Column(sa.String(36), primary_key=True, nullable=False)
     item = sa.Column(sa.String(64))
 

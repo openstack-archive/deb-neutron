@@ -439,7 +439,7 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
 
     def add_tap_interface(self, network_id, network_type, physical_network,
                           segmentation_id, tap_device_name, device_owner):
-        """Add tap interface and handle interface missing exeptions."""
+        """Add tap interface and handle interface missing exceptions."""
         try:
             return self._add_tap_interface(network_id, network_type,
                                            physical_network, segmentation_id,
@@ -559,19 +559,30 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
     def remove_interface(self, bridge_name, interface_name):
         bridge_device = bridge_lib.BridgeDevice(bridge_name)
         if bridge_device.exists():
-            if not bridge_lib.is_bridged_interface(interface_name):
+            if not bridge_device.owns_interface(interface_name):
                 return True
             LOG.debug("Removing device %(interface_name)s from bridge "
                       "%(bridge_name)s",
                       {'interface_name': interface_name,
                        'bridge_name': bridge_name})
-            if bridge_device.delif(interface_name):
-                return False
-            LOG.debug("Done removing device %(interface_name)s from bridge "
-                      "%(bridge_name)s",
-                      {'interface_name': interface_name,
-                       'bridge_name': bridge_name})
-            return True
+            try:
+                bridge_device.delif(interface_name)
+                LOG.debug("Done removing device %(interface_name)s from "
+                          "bridge %(bridge_name)s",
+                          {'interface_name': interface_name,
+                           'bridge_name': bridge_name})
+                return True
+            except RuntimeError:
+                with excutils.save_and_reraise_exception() as ctxt:
+                    if not bridge_device.owns_interface(interface_name):
+                        # the exception was likely a side effect of the tap
+                        # being deleted by some other agent during handling
+                        ctxt.reraise = False
+                        LOG.debug("Cannot remove %(interface_name)s from "
+                                  "%(bridge_name)s. It is not on the bridge.",
+                                  {'interface_name': interface_name,
+                                   'bridge_name': bridge_name})
+                        return False
         else:
             LOG.debug("Cannot remove device %(interface_name)s bridge "
                       "%(bridge_name)s does not exist",
@@ -675,10 +686,12 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
         return (agent_ip in entries and mac in entries)
 
     def add_fdb_ip_entry(self, mac, ip, interface):
-        ip_lib.IPDevice(interface).neigh.add(ip, mac)
+        if cfg.CONF.VXLAN.arp_responder:
+            ip_lib.IPDevice(interface).neigh.add(ip, mac)
 
     def remove_fdb_ip_entry(self, mac, ip, interface):
-        ip_lib.IPDevice(interface).neigh.delete(ip, mac)
+        if cfg.CONF.VXLAN.arp_responder:
+            ip_lib.IPDevice(interface).neigh.delete(ip, mac)
 
     def add_fdb_bridge_entry(self, mac, agent_ip, interface, operation="add"):
         utils.execute(['bridge', 'fdb', operation, mac, 'dev', interface,

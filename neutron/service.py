@@ -27,6 +27,9 @@ from oslo_utils import excutils
 from oslo_utils import importutils
 
 from neutron._i18n import _LE, _LI
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import config
 from neutron.common import profiler
 from neutron.common import rpc as n_rpc
@@ -87,6 +90,7 @@ def serve_wsgi(cls):
             LOG.exception(_LE('Unrecoverable error: please check log '
                               'for details.'))
 
+    registry.notify(resources.PROCESS, events.BEFORE_SPAWN, service)
     return service
 
 
@@ -241,7 +245,7 @@ def _start_workers(workers):
             # dispose the whole pool before os.fork, otherwise there will
             # be shared DB connections in child processes which may cause
             # DB errors.
-            session.dispose()
+            session.context_manager.dispose_pool()
 
             for worker in process_workers:
                 worker_launcher.launch_service(worker,
@@ -276,7 +280,7 @@ def start_plugins_workers():
 
 def _get_api_workers():
     workers = cfg.CONF.api_workers
-    if not workers:
+    if workers is None:
         workers = processutils.get_worker_count()
     return workers
 

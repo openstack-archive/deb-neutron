@@ -83,10 +83,11 @@ class QosBandwidthLimitRuleDbObjectTestCase(test_base.BaseDbObjectTestCase,
         super(QosBandwidthLimitRuleDbObjectTestCase, self).setUp()
 
         # Prepare policy to be able to insert a rule
-        generated_qos_policy_id = self.db_obj['qos_policy_id']
-        policy_obj = policy.QosPolicy(self.context,
-                                      id=generated_qos_policy_id)
-        policy_obj.create()
+        for obj in self.db_objs:
+            generated_qos_policy_id = obj['qos_policy_id']
+            policy_obj = policy.QosPolicy(self.context,
+                                          id=generated_qos_policy_id)
+            policy_obj.create()
 
 
 class QosDscpMarkingRuleObjectTestCase(test_base.BaseObjectIfaceTestCase):
@@ -115,7 +116,42 @@ class QosDscpMarkingRuleDbObjectTestCase(test_base.BaseDbObjectTestCase,
     def setUp(self):
         super(QosDscpMarkingRuleDbObjectTestCase, self).setUp()
         # Prepare policy to be able to insert a rule
-        generated_qos_policy_id = self.db_obj['qos_policy_id']
-        policy_obj = policy.QosPolicy(self.context,
-                                      id=generated_qos_policy_id)
-        policy_obj.create()
+        for obj in self.db_objs:
+            generated_qos_policy_id = obj['qos_policy_id']
+            policy_obj = policy.QosPolicy(self.context,
+                                          id=generated_qos_policy_id)
+            policy_obj.create()
+
+
+class QosMinimumBandwidthRuleObjectTestCase(test_base.BaseObjectIfaceTestCase):
+
+    _test_class = rule.QosMinimumBandwidthRule
+
+    def test_min_bw_object_version_degradation(self):
+        min_bw_rule = rule.QosMinimumBandwidthRule()
+
+        for version in ['1.0', '1.1']:
+            self.assertRaises(exception.IncompatibleObjectVersion,
+                              min_bw_rule.obj_to_primitive, version)
+
+    def test_min_bw_object_version(self):
+        min_bw_rule = rule.QosMinimumBandwidthRule()
+
+        prim = min_bw_rule.obj_to_primitive('1.2')
+
+        self.assertTrue(prim)
+
+
+class QosMinimumBandwidthRuleDbObjectTestCase(test_base.BaseDbObjectTestCase,
+                                              testlib_api.SqlTestCase):
+
+    _test_class = rule.QosMinimumBandwidthRule
+
+    def setUp(self):
+        super(QosMinimumBandwidthRuleDbObjectTestCase, self).setUp()
+        # Prepare policy to be able to insert a rule
+        for obj in self.db_objs:
+            generated_qos_policy_id = obj['qos_policy_id']
+            policy_obj = policy.QosPolicy(self.context,
+                                          id=generated_qos_policy_id)
+            policy_obj.create()

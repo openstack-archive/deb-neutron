@@ -15,11 +15,12 @@
 
 import mock
 import netaddr
+from neutron_lib import exceptions
 import testtools
 
 from neutron.agent.common import utils  # noqa
 from neutron.agent.linux import ip_lib
-from neutron.common import exceptions
+from neutron.common import exceptions as n_exc
 from neutron.tests import base
 
 NETNS_SAMPLE = [
@@ -281,7 +282,8 @@ class TestIpWrapper(base.BaseTestCase):
         self.assertTrue(fake_str.split.called)
         self.assertEqual(retval, [ip_lib.IPDevice('lo', namespace='foo')])
 
-    def test_get_namespaces(self):
+    def test_get_namespaces_non_root(self):
+        self.config(group='AGENT', use_helper_for_ns_read=False)
         self.execute.return_value = '\n'.join(NETNS_SAMPLE)
         retval = ip_lib.IPWrapper.get_namespaces()
         self.assertEqual(retval,
@@ -289,9 +291,11 @@ class TestIpWrapper(base.BaseTestCase):
                           'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
                           'cccccccc-cccc-cccc-cccc-cccccccccccc'])
 
-        self.execute.assert_called_once_with([], 'netns', ('list',))
+        self.execute.assert_called_once_with([], 'netns', ('list',),
+                                             run_as_root=False)
 
-    def test_get_namespaces_iproute2_4(self):
+    def test_get_namespaces_iproute2_4_root(self):
+        self.config(group='AGENT', use_helper_for_ns_read=True)
         self.execute.return_value = '\n'.join(NETNS_SAMPLE_IPROUTE2_4)
         retval = ip_lib.IPWrapper.get_namespaces()
         self.assertEqual(retval,
@@ -299,7 +303,8 @@ class TestIpWrapper(base.BaseTestCase):
                           'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
                           'cccccccc-cccc-cccc-cccc-cccccccccccc'])
 
-        self.execute.assert_called_once_with([], 'netns', ('list',))
+        self.execute.assert_called_once_with([], 'netns', ('list',),
+                                             run_as_root=True)
 
     def test_add_tuntap(self):
         ip_lib.IPWrapper().add_tuntap('tap0')
@@ -476,7 +481,7 @@ class TestIpWrapper(base.BaseTestCase):
 
     def test_add_vxlan_invalid_port_length(self):
         wrapper = ip_lib.IPWrapper()
-        self.assertRaises(exceptions.NetworkVxlanPortRangeError,
+        self.assertRaises(n_exc.NetworkVxlanPortRangeError,
                           wrapper.add_vxlan, 'vxlan0', 'vni0', group='group0',
                           dev='dev0', ttl='ttl0', tos='tos0',
                           local='local0', proxy=True,
@@ -965,6 +970,10 @@ class TestIpRouteCommand(TestIPCmdBase):
             self.parent._run = mock.Mock(return_value=test_case['sample'])
             self.assertEqual(self.route_cmd.get_gateway(),
                              test_case['expected'])
+
+    def test_flush_route_table(self):
+        self.route_cmd.flush(self.ip_version, self.table)
+        self._assert_sudo([self.ip_version], ('flush', 'table', self.table))
 
     def test_add_route(self):
         self.route_cmd.add_route(self.cidr, self.ip, self.table)

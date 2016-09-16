@@ -33,7 +33,6 @@ from neutron.common import utils
 from neutron import context as ncontext
 from neutron.db import agents_db
 from neutron.db.availability_zone import network as network_az
-from neutron.db import model_base  # noqa
 from neutron.db.network_dhcp_agent_binding import models as ndab_model
 from neutron.extensions import agent as ext_agent
 from neutron.extensions import dhcpagentscheduler
@@ -390,6 +389,9 @@ class DhcpAgentSchedulerDbMixin(dhcpagentscheduler
                              self._filter_bindings(context, down_bindings)]
             agents = self.get_agents_db(
                 context, {'agent_type': [constants.AGENT_TYPE_DHCP]})
+            if not agents:
+                # No agents configured so nothing to do.
+                return
             active_agents = [agent for agent in agents if
                              self.is_eligible_agent(context, True, agent)]
             if not active_agents:

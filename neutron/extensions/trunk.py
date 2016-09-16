@@ -13,78 +13,30 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
-
 from neutron_lib.api import converters
-from neutron_lib.api import validators
 
-from neutron._i18n import _
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
 
-LOG = logging.getLogger(__name__)
-
-
-# TODO(armax): this validator was introduced in neutron-lib in
-# https://review.openstack.org/#/c/319386/; remove it as soon
-# as there is a new release.
-def validate_subports(data, valid_values=None):
-    if not isinstance(data, list):
-        msg = _("Invalid data format for subports: '%s'") % data
-        LOG.debug(msg)
-        return msg
-
-    subport_ids = set()
-    segmentation_ids = set()
-    for subport in data:
-        if not isinstance(subport, dict):
-            msg = _("Invalid data format for subport: '%s'") % subport
-            LOG.debug(msg)
-            return msg
-
-        # Expect a non duplicated and valid port_id for the subport
-        if 'port_id' not in subport:
-            msg = _("A valid port UUID must be specified")
-            LOG.debug(msg)
-            return msg
-        elif validators.validate_uuid(subport["port_id"]):
-            msg = _("Invalid UUID for subport: '%s'") % subport["port_id"]
-            return msg
-        elif subport["port_id"] in subport_ids:
-            msg = _("Non unique UUID for subport: '%s'") % subport["port_id"]
-            return msg
-        subport_ids.add(subport["port_id"])
-
-        # Validate that both segmentation id and segmentation type are
-        # specified, and that the client does not duplicate segmentation
-        # ids
-        segmentation_id = subport.get("segmentation_id")
-        segmentation_type = subport.get("segmentation_type")
-        if (not segmentation_id or not segmentation_type) and len(subport) > 1:
-            msg = _("Invalid subport details '%s': missing segmentation "
-                    "information. Must specify both segmentation_id and "
-                    "segmentation_type") % subport
-            LOG.debug(msg)
-            return msg
-        if segmentation_id in segmentation_ids:
-            msg = _("Segmentation ID '%(seg_id)s' for '%(subport)s' is not "
-                    "unique") % {"seg_id": segmentation_id,
-                    "subport": subport["port_id"]}
-            LOG.debug(msg)
-            return msg
-        if segmentation_id:
-            segmentation_ids.add(segmentation_id)
-
-
-validators.validators['type:subports'] = validate_subports
-
 
 RESOURCE_ATTRIBUTE_MAP = {
     'trunks': {
+        'admin_state_up': {'allow_post': True, 'allow_put': True,
+                           'default': True,
+                           'convert_to': converters.convert_to_boolean,
+                           'is_visible': True},
         'id': {'allow_post': False, 'allow_put': False,
                'validate': {'type:uuid': None},
                'is_visible': True, 'primary_key': True},
+        'name': {'allow_post': True, 'allow_put': True,
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
+                 'default': '', 'is_visible': True},
+        # TODO(armax): consolidate use of standardattr attributes
+        'description': {'allow_post': True,
+                        'allow_put': True,
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
+                        'default': '', 'is_visible': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
                       'required_by_policy': True,
                       'validate':
@@ -94,12 +46,19 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'required_by_policy': True,
                     'validate': {'type:uuid': None},
                     'is_visible': True},
+        'status': {'allow_post': False, 'allow_put': False,
+                   'is_visible': True},
         'sub_ports': {'allow_post': True, 'allow_put': False,
                       'default': [],
                       'convert_list_to': converters.convert_kvp_list_to_dict,
                       'validate': {'type:subports': None},
                       'enforce_policy': True,
-                      'is_visible': True}
+                      'is_visible': True},
+        # TODO(armax): consolidate use of standardattr attributes
+        'created_at': {'allow_post': False, 'allow_put': False,
+                       'is_visible': True, 'default': None},
+        'updated_at': {'allow_post': False, 'allow_put': False,
+                       'is_visible': True, 'default': None},
     },
 }
 

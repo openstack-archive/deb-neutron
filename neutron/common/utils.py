@@ -22,9 +22,11 @@ import collections
 import decimal
 import errno
 import functools
+import importlib
 import math
 import multiprocessing
 import os
+import os.path
 import random
 import signal
 import socket
@@ -46,6 +48,7 @@ from oslo_utils import importutils
 import six
 from stevedore import driver
 
+import neutron
 from neutron._i18n import _, _LE
 from neutron.db import api as db_api
 
@@ -314,7 +317,7 @@ def is_cidr_host(cidr):
         plain IP addresses specifically to avoid ambiguity.
     """
     if '/' not in str(cidr):
-        raise ValueError("cidr doesn't contain a '/'")
+        raise ValueError(_("cidr doesn't contain a '/'"))
     net = netaddr.IPNetwork(cidr)
     if net.version == 4:
         return net.prefixlen == n_const.IPv4_BITS
@@ -518,7 +521,7 @@ def port_rule_masking(port_min, port_max):
 
 
 def create_object_with_dependency(creator, dep_getter, dep_creator,
-                                  dep_id_attr):
+                                  dep_id_attr, dep_deleter):
     """Creates an object that binds to a dependency while handling races.
 
     creator is a function that expected to take the result of either
@@ -527,6 +530,9 @@ def create_object_with_dependency(creator, dep_getter, dep_creator,
     The result of dep_getter and dep_creator must have an attribute of
     dep_id_attr be used to determine if the dependency changed during object
     creation.
+
+    dep_deleter will be called with a the result of dep_creator if the creator
+    function fails due to a non-dependency reason or the retries are exceeded.
 
     dep_getter should return None if the dependency does not exist.
 
@@ -542,17 +548,16 @@ def create_object_with_dependency(creator, dep_getter, dep_creator,
     process of creating the dependency if one no longer exists. It will
     give up after neutron.db.api.MAX_RETRIES and raise the exception it
     encounters after that.
-
-    TODO(kevinbenton): currently this does not try to delete the dependency
-    it created. This matches the semantics of the HA network logic it is used
-    for but it should be modified to cleanup in the future.
     """
-    result, dependency, dep_id = None, None, None
+    result, dependency, dep_id, made_locally = None, None, None, False
     for attempts in range(1, db_api.MAX_RETRIES + 1):
         # we go to max + 1 here so the exception handlers can raise their
         # errors at the end
         try:
-            dependency = dep_getter() or dep_creator()
+            dependency = dep_getter()
+            if not dependency:
+                dependency = dep_creator()
+                made_locally = True
             dep_id = getattr(dependency, dep_id_attr)
         except db_exc.DBDuplicateEntry:
             # dependency was concurrently created.
@@ -576,6 +581,16 @@ def create_object_with_dependency(creator, dep_getter, dep_creator,
                     if not dependency or dep_id != getattr(dependency,
                                                            dep_id_attr):
                         ctx.reraise = False
+                        continue
+                # we have exceeded retries or have encountered a non-dependency
+                # related failure so we try to clean up the dependency if we
+                # created it before re-raising
+                if made_locally and dependency:
+                    try:
+                        dep_deleter(dependency)
+                    except Exception:
+                        LOG.exception(_LE("Failed cleaning up dependency %s"),
+                                      dep_id)
     return result, dependency
 
 
@@ -595,9 +610,11 @@ def transaction_guard(f):
     """
     @functools.wraps(f)
     def inner(self, context, *args, **kwargs):
-        if context.session.is_active:
-            raise RuntimeError(_("Method cannot be called within a "
-                                 "transaction."))
+        # FIXME(kevinbenton): get rid of all uses of this flag
+        if (context.session.is_active and
+                getattr(context, 'GUARD_TRANSACTION', True)):
+            raise RuntimeError(_("Method %s cannot be called within a "
+                                 "transaction.") % f)
         return f(self, context, *args, **kwargs)
     return inner
 
@@ -679,3 +696,33 @@ def extract_exc_details(e):
     if args is _NO_ARGS_MARKER:
         return details
     return details % args
+
+
+def import_modules_recursively(topdir):
+    '''Import and return all modules below the topdir directory.'''
+    modules = []
+    for root, dirs, files in os.walk(topdir):
+        for file_ in files:
+            if file_[-3:] != '.py':
+                continue
+
+            module = file_[:-3]
+            if module == '__init__':
+                continue
+
+            import_base = root.replace('/', '.')
+
+            # NOTE(ihrachys): in Python3, or when we are not located in the
+            # directory containing neutron code, __file__ is absolute, so we
+            # should truncate it to exclude PYTHONPATH prefix
+            prefixlen = len(os.path.dirname(neutron.__file__))
+            import_base = 'neutron' + import_base[prefixlen:]
+
+            module = '.'.join([import_base, module])
+            if module not in sys.modules:
+                importlib.import_module(module)
+            modules.append(module)
+
+        for dir_ in dirs:
+            modules.extend(import_modules_recursively(dir_))
+    return modules

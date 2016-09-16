@@ -62,7 +62,7 @@ class RootwrapDaemonHelper(object):
 
 
 def addl_env_args(addl_env):
-    """Build arugments for adding additional environment vars with env"""
+    """Build arguments for adding additional environment vars with env"""
 
     # NOTE (twilson) If using rootwrap, an EnvFilter should be set up for the
     # command instead of a CommandFilter.
@@ -202,12 +202,6 @@ def get_value_from_file(filename, converter=None):
                 LOG.error(_LE('Unable to convert value in %s'), filename)
     except IOError:
         LOG.debug('Unable to access %s', filename)
-
-
-def get_value_from_conf_file(cfg_root, uuid, cfg_file, converter=None):
-    """A helper function to read a value from one of a config file."""
-    file_name = get_conf_file_name(cfg_root, uuid, cfg_file)
-    return get_value_from_file(file_name, converter)
 
 
 def remove_conf_files(cfg_root, uuid):

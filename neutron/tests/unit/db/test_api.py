@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
+from neutron_lib import exceptions
+from oslo_config import cfg
 from oslo_db import exception as db_exc
+import osprofiler
+import sqlalchemy
 from sqlalchemy.orm import exc
 import testtools
 
-from neutron.common import exceptions
 from neutron.db import api as db_api
 from neutron.tests import base
 
@@ -69,6 +73,10 @@ class TestDeadLockDecorator(base.BaseTestCase):
         e = exc.StaleDataError()
         self.assertIsNone(self._decorated_function(1, e))
 
+    def test_dbconnection_error_caught(self):
+        e = db_exc.DBConnectionError()
+        self.assertIsNone(self._decorated_function(1, e))
+
     def test_multi_exception_contains_retry(self):
         e = exceptions.MultipleExceptions(
             [ValueError(), db_exc.RetryRequest(TypeError())])
@@ -92,3 +100,16 @@ class TestDeadLockDecorator(base.BaseTestCase):
         e = db_exc.DBError("(pymysql.err.InternalError) (1305, u'SAVEPOINT "
                            "sa_savepoint_1 does not exist')")
         self.assertIsNone(self._decorated_function(1, e))
+
+
+class TestCommonDBfunctions(base.BaseTestCase):
+
+    def test_set_hook(self):
+        with mock.patch.object(osprofiler.sqlalchemy,
+                               'add_tracing') as profiler:
+            cfg.CONF.set_override('enabled', True, group='profiler')
+            cfg.CONF.set_override('trace_sqlalchemy', True, group='profiler')
+            engine_mock = mock.Mock()
+            db_api.set_hook(engine_mock)
+            profiler.assert_called_with(sqlalchemy, engine_mock,
+                                        'neutron.db')

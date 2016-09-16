@@ -32,7 +32,7 @@ class SubPort(base.NeutronDbObject):
     db_model = models.SubPort
 
     primary_keys = ['port_id']
-    foreign_keys = {'trunk_id': 'id'}
+    foreign_keys = {'Trunk': {'trunk_id': 'id'}}
 
     fields = {
         'port_id': obj_fields.UUIDField(),
@@ -87,9 +87,12 @@ class Trunk(base.NeutronDbObject):
     db_model = models.Trunk
 
     fields = {
+        'admin_state_up': obj_fields.BooleanField(),
         'id': obj_fields.UUIDField(),
         'tenant_id': obj_fields.StringField(),
+        'name': obj_fields.StringField(),
         'port_id': obj_fields.UUIDField(),
+        'status': obj_fields.StringField(),
         'sub_ports': obj_fields.ListOfObjectsField(SubPort.__name__),
     }
 
@@ -108,10 +111,13 @@ class Trunk(base.NeutronDbObject):
             except o_db_exc.DBReferenceError:
                 raise n_exc.PortNotFound(port_id=self.port_id)
 
-            for sub_port in sub_ports:
-                sub_port.trunk_id = self.id
-                sub_port.create()
-            self.load_synthetic_db_fields()
+            if sub_ports:
+                for sub_port in sub_ports:
+                    sub_port.trunk_id = self.id
+                    sub_port.create()
+                    self.sub_ports.append(sub_port)
+                self.obj_reset_changes(['sub_ports'])
 
-    # TODO(ivc): add support for 'sub_ports' in 'Trunk.update' for
-    # consistency with 'Trunk.create'
+    def update(self, **kwargs):
+        self.update_fields(kwargs)
+        super(Trunk, self).update()
