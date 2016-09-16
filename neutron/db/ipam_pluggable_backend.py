@@ -74,6 +74,9 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                               ip)
         except Exception:
             with excutils.save_and_reraise_exception():
+                if not ipam_driver.needs_rollback():
+                    return
+
                 LOG.debug("An exception occurred during IP deallocation.")
                 if revert_on_fail and deallocated:
                     LOG.debug("Reverting deallocation")
@@ -124,6 +127,9 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
                                   'subnet_id': subnet_id})
         except Exception:
             with excutils.save_and_reraise_exception():
+                if not ipam_driver.needs_rollback():
+                    return
+
                 LOG.debug("An exception occurred during IP allocation.")
 
                 if revert_on_fail and allocated:
@@ -174,9 +180,12 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         except Exception:
             with excutils.save_and_reraise_exception():
                 if ips:
+                    ipam_driver = driver.Pool.get_instance(None, context)
+                    if not ipam_driver.needs_rollback():
+                        return
+
                     LOG.debug("An exception occurred during port creation. "
                               "Reverting IP allocation")
-                    ipam_driver = driver.Pool.get_instance(None, context)
                     self._safe_rollback(self._ipam_deallocate_ips, context,
                                         ipam_driver, port_copy['port'], ips,
                                         revert_on_fail=False)
@@ -191,7 +200,8 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         p = port['port']
         subnets = self._ipam_get_subnets(context,
                                          network_id=p['network_id'],
-                                         host=p.get(portbindings.HOST_ID))
+                                         host=p.get(portbindings.HOST_ID),
+                                         service_type=p.get('device_owner'))
 
         v4, v6_stateful, v6_stateless = self._classify_subnets(
             context, subnets)
@@ -333,8 +343,11 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
         except Exception:
             with excutils.save_and_reraise_exception():
                 if 'fixed_ips' in new_port:
-                    LOG.debug("An exception occurred during port update.")
                     ipam_driver = driver.Pool.get_instance(None, context)
+                    if not ipam_driver.needs_rollback():
+                        return
+
+                    LOG.debug("An exception occurred during port update.")
                     if changes.add:
                         LOG.debug("Reverting IP allocation.")
                         self._safe_rollback(self._ipam_deallocate_ips,
@@ -464,6 +477,9 @@ class IpamPluggableBackend(ipam_backend_mixin.IpamBackendMixin):
             # IPAM part rolled back in exception handling
             # and subnet part is rolled back by transaction rollback.
             with excutils.save_and_reraise_exception():
+                if not ipam_driver.needs_rollback():
+                    return
+
                 LOG.debug("An exception occurred during subnet creation. "
                           "Reverting subnet allocation.")
                 self._safe_rollback(self.delete_subnet,

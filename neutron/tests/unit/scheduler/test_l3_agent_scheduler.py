@@ -26,7 +26,6 @@ from oslo_utils import timeutils
 from sqlalchemy import orm
 import testscenarios
 
-from neutron.common import constants as n_const
 from neutron import context as n_context
 from neutron.db import agents_db
 from neutron.db import db_base_plugin_v2 as db_v2
@@ -286,18 +285,18 @@ class L3SchedulerBaseMixin(object):
 
     def _register_l3_agents(self, plugin=None):
         self.agent1 = helpers.register_l3_agent(
-            'host_1', n_const.L3_AGENT_MODE_LEGACY)
+            'host_1', constants.L3_AGENT_MODE_LEGACY)
         self.agent_id1 = self.agent1.id
         self.agent2 = helpers.register_l3_agent(
-            'host_2', n_const.L3_AGENT_MODE_LEGACY)
+            'host_2', constants.L3_AGENT_MODE_LEGACY)
         self.agent_id2 = self.agent2.id
 
     def _register_l3_dvr_agents(self):
         self.l3_dvr_agent = helpers.register_l3_agent(
-            HOST_DVR, n_const.L3_AGENT_MODE_DVR)
+            HOST_DVR, constants.L3_AGENT_MODE_DVR)
         self.l3_dvr_agent_id = self.l3_dvr_agent.id
         self.l3_dvr_snat_agent = helpers.register_l3_agent(
-            HOST_DVR_SNAT, n_const.L3_AGENT_MODE_DVR_SNAT)
+            HOST_DVR_SNAT, constants.L3_AGENT_MODE_DVR_SNAT)
         self.l3_dvr_snat_id = self.l3_dvr_snat_agent.id
 
     def _set_l3_agent_admin_state(self, context, agent_id, state=True):
@@ -863,8 +862,7 @@ class L3DvrScheduler(l3_db.L3_NAT_db_mixin,
 class L3DvrSchedulerTestCase(testlib_api.SqlTestCase):
 
     def setUp(self):
-        plugin = 'neutron.plugins.ml2.plugin.Ml2Plugin'
-        self.setup_coreplugin(plugin)
+        self.setup_coreplugin('ml2')
         super(L3DvrSchedulerTestCase, self).setUp()
         self.adminContext = n_context.get_admin_context()
         self.dut = L3DvrScheduler()
@@ -1025,7 +1023,7 @@ class L3DvrSchedulerTestCase(testlib_api.SqlTestCase):
             'context': self.adminContext,
             'original_port': None,
             'port': {
-                'device_owner': 'network:None',
+                'device_owner': constants.DEVICE_OWNER_NETWORK_PREFIX + 'None',
             }
         }
         l3plugin = mock.Mock()
@@ -1374,7 +1372,7 @@ class L3DvrSchedulerTestCase(testlib_api.SqlTestCase):
         dvr_port = {
                 'id': 'dvr_port1',
                 'device_id': 'r1',
-                'device_owner': 'network:router_interface_distributed',
+                'device_owner': constants.DEVICE_OWNER_DVR_INTERFACE,
                 'fixed_ips': []
         }
         r1 = {
@@ -1418,7 +1416,7 @@ class L3HATestCaseMixin(testlib_api.SqlTestCase,
         mock.patch('neutron.common.rpc.get_client').start()
         self.plugin = L3HAPlugin()
 
-        self.setup_coreplugin('neutron.plugins.ml2.plugin.Ml2Plugin')
+        self.setup_coreplugin('ml2')
         cfg.CONF.set_override('service_plugins',
                               ['neutron.services.l3_router.'
                               'l3_router_plugin.L3RouterPlugin'])
@@ -1675,6 +1673,34 @@ class L3HAChanceSchedulerTestCase(L3HATestCaseMixin):
     def test_auto_schedule_all_routers_when_agent_added(self):
         self._auto_schedule_when_agent_added(False)
 
+    def test_auto_schedule_ha_router_when_incompatible_agent_exist(self):
+        handle_internal_only_routers_agent = helpers.register_l3_agent(
+            'host_3', constants.L3_AGENT_MODE_LEGACY, internal_only=False)
+        router = self._create_ha_router()
+
+        self.plugin.auto_schedule_routers(
+            self.adminContext, handle_internal_only_routers_agent.host, [])
+        agents = self.plugin.get_l3_agents_hosting_routers(
+            self.adminContext, [router['id']],
+            admin_state_up=True)
+        agent_ids = [agent['id'] for agent in agents]
+        self.assertEqual(2, len(agents))
+        self.assertNotIn(handle_internal_only_routers_agent.id, agent_ids)
+
+    def test_auto_schedule_ha_router_when_dvr_agent_exist(self):
+        dvr_agent = helpers.register_l3_agent(
+            HOST_DVR, constants.L3_AGENT_MODE_DVR)
+        router = self._create_ha_router()
+
+        self.plugin.auto_schedule_routers(self.adminContext, dvr_agent.host,
+                                          [])
+        agents = self.plugin.get_l3_agents_hosting_routers(
+            self.adminContext, [router['id']],
+            admin_state_up=True)
+        agent_ids = [agent['id'] for agent in agents]
+        self.assertEqual(2, len(agents))
+        self.assertNotIn(dvr_agent.id, agent_ids)
+
     def _auto_schedule_when_agent_added(self, specific_router):
         router = self._create_ha_router()
         agents = self.plugin.get_l3_agents_hosting_routers(
@@ -1821,7 +1847,7 @@ class TestGetL3AgentsWithAgentModeFilter(testlib_api.SqlTestCase,
     def setUp(self):
         super(TestGetL3AgentsWithAgentModeFilter, self).setUp()
         self.plugin = L3HAPlugin()
-        self.setup_coreplugin('neutron.plugins.ml2.plugin.Ml2Plugin')
+        self.setup_coreplugin('ml2')
         self.adminContext = n_context.get_admin_context()
         hosts = ['host_1', 'host_2', 'host_3', 'host_4', 'host_5']
         agent_modes = ['legacy', 'dvr_snat', 'dvr', 'fake_mode', 'legacy']

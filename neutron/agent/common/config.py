@@ -64,6 +64,12 @@ IPTABLES_OPTS = [
                        "generated iptables rules that describe each rule's "
                        "purpose. System must support the iptables comments "
                        "module for addition of comments.")),
+    cfg.BoolOpt('debug_iptables_rules', default=False,
+                help=_("Duplicate every iptables difference calculation to "
+                       "ensure the format being generated matches the format "
+                       "of iptables-save. This option should not be turned "
+                       "on for production systems because it imposes a "
+                       "performance penalty.")),
 ]
 
 PROCESS_MONITOR_OPTS = [
@@ -83,14 +89,14 @@ AVAILABILITY_ZONE_OPTS = [
 ]
 
 EXT_NET_BRIDGE_OPTS = [
-    cfg.StrOpt('external_network_bridge', default='br-ex',
+    cfg.StrOpt('external_network_bridge', default='',
                deprecated_for_removal=True,
                help=_("Name of bridge used for external network "
-                      "traffic. This should be set to an empty value for the "
-                      "Linux Bridge. When this parameter is set, each L3 "
-                      "agent can be associated with no more than one external "
-                      "network. This option is deprecated and will be removed "
-                      "in the M release.")),
+                      "traffic. When this parameter is set, the L3 agent will "
+                      "plug an interface directly into an external bridge "
+                      "which will not allow any wiring by the L2 agent. Using "
+                      "this will result in incorrect port statuses. This "
+                      "option is deprecated and will be removed in Ocata."))
 ]
 
 

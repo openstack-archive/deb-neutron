@@ -185,6 +185,16 @@ def check_vf_management():
     return result
 
 
+def check_vf_extended_management():
+    result = checks.vf_extended_management_supported()
+    if not result:
+        LOG.error(_LE('Check for VF extended management support failed. '
+                      'Please ensure that the version of ip link '
+                      'being used has VF extended support: version '
+                      '"iproute2-ss140804", git tag "v3.16.0"'))
+    return result
+
+
 def check_ovsdb_native():
     cfg.CONF.set_override('ovsdb_interface', 'native', group='OVS')
     result = checks.ovsdb_native_supported()
@@ -200,7 +210,7 @@ def check_ovs_conntrack():
                       'failed. OVS/CT firewall will not work. A newer '
                       'version of OVS (2.5+) and linux kernel (4.3+) are '
                       'required. See '
-                      'https://github.com/openvswitch/ovs/blob/master/FAQ.md'
+                      'https://github.com/openvswitch/ovs/blob/master/FAQ.md '
                       'for more information.'))
     return result
 
@@ -228,6 +238,24 @@ def check_ip6tables():
                       'is installed.'))
     return result
 
+
+def check_dhcp_release6():
+    result = checks.dhcp_release6_supported()
+    if not result:
+        LOG.error(_LE('No dhcp_release6 tool detected. The installed version '
+                      'of dnsmasq does not support releasing IPv6 leases. '
+                      'Please update to at least version %s if you need this '
+                      'feature. If you do not use IPv6 stateful subnets you '
+                      'can continue to use this version of dnsmasq, as '
+                      'other IPv6 address assignment mechanisms besides '
+                      'stateful DHCPv6 should continue to work without '
+                      'the dhcp_release6 utility. '
+                      'Current version of dnsmasq is ok if other checks '
+                      'pass.'),
+                  checks.get_dnsmasq_version_with_dhcp_release6())
+    return result
+
+
 # Define CLI opts to test specific features, with a callback for the test
 OPTS = [
     BoolOptCallback('ovs_vxlan', check_ovs_vxlan, default=False,
@@ -248,6 +276,8 @@ OPTS = [
                     help=_('Check for ICMPv6 header match support')),
     BoolOptCallback('vf_management', check_vf_management,
                     help=_('Check for VF management support')),
+    BoolOptCallback('vf_extended_management', check_vf_extended_management,
+                    help=_('Check for VF extended management support')),
     BoolOptCallback('read_netns', check_read_netns,
                     help=_('Check netns permission settings')),
     BoolOptCallback('dnsmasq_version', check_dnsmasq_version,
@@ -266,6 +296,9 @@ OPTS = [
                     help=_('Check ipset installation')),
     BoolOptCallback('ip6tables_installed', check_ip6tables,
                     help=_('Check ip6tables installation')),
+    BoolOptCallback('dhcp_release6', check_dhcp_release6,
+                    help=_('Check dhcp_release6 installation')),
+
 ]
 
 
@@ -307,6 +340,9 @@ def enable_tests_from_config():
         cfg.CONF.set_default('ipset_installed', True)
     if cfg.CONF.SECURITYGROUP.enable_security_group:
         cfg.CONF.set_default('ip6tables_installed', True)
+    if ('sriovnicswitch' in cfg.CONF.ml2.mechanism_drivers and
+        'qos' in cfg.CONF.ml2.extension_drivers):
+        cfg.CONF.set_default('vf_extended_management', True)
 
 
 def all_tests_passed():

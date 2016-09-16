@@ -33,10 +33,12 @@ from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
 from neutron.common import utils as common_utils
 from neutron.db import db_base_plugin_common
+from neutron.db.models import subnet_service_type as sst_model
 from neutron.db import models_v2
 from neutron.db import segments_db
 from neutron.extensions import portbindings
 from neutron.extensions import segment
+from neutron.ipam import exceptions as ipam_exceptions
 from neutron.ipam import utils as ipam_utils
 from neutron.objects import subnet as subnet_obj
 from neutron.services.segments import db as segment_svc_db
@@ -177,6 +179,19 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         del s['allocation_pools']
         return result_pools
 
+    def _update_subnet_service_types(self, context, subnet_id, s):
+        old_types = context.session.query(
+            sst_model.SubnetServiceType).filter_by(subnet_id=subnet_id)
+        for service_type in old_types:
+            context.session.delete(service_type)
+        updated_types = s.pop('service_types')
+        for service_type in updated_types:
+            new_type = sst_model.SubnetServiceType(
+                           subnet_id=subnet_id,
+                           service_type=service_type)
+            context.session.add(new_type)
+        return updated_types
+
     def update_db_subnet(self, context, subnet_id, s, oldpools):
         changes = {}
         if "dns_nameservers" in s:
@@ -190,6 +205,10 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
         if "allocation_pools" in s:
             changes['allocation_pools'] = (
                 self._update_subnet_allocation_pools(context, subnet_id, s))
+
+        if "service_types" in s:
+            changes['service_types'] = (
+                self._update_subnet_service_types(context, subnet_id, s))
 
         subnet = self._get_subnet(context, subnet_id)
         subnet.update(s)
@@ -398,21 +417,28 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
     def _get_changed_ips_for_port(self, context, original_ips,
                                   new_ips, device_owner):
         """Calculate changes in IPs for the port."""
+        # Collect auto addressed subnet ids that has to be removed on update
+        delete_subnet_ids = set(ip['subnet_id'] for ip in new_ips
+                                if ip.get('delete_subnet'))
+        ips = [ip for ip in new_ips
+               if ip.get('subnet_id') not in delete_subnet_ids]
         # the new_ips contain all of the fixed_ips that are to be updated
-        self._validate_max_ips_per_port(new_ips, device_owner)
+        self._validate_max_ips_per_port(ips, device_owner)
 
         add_ips = []
         remove_ips = []
+
         ips_map = {ip['ip_address']: ip
                    for ip in itertools.chain(new_ips, original_ips)
                    if 'ip_address' in ip}
 
         new = set()
         for ip in new_ips:
-            if 'ip_address' in ip:
-                new.add(ip['ip_address'])
-            else:
-                add_ips.append(ip)
+            if ip.get('subnet_id') not in delete_subnet_ids:
+                if 'ip_address' in ip:
+                    new.add(ip['ip_address'])
+                else:
+                    add_ips.append(ip)
 
         # Convert original ip addresses to sets
         orig = set(ip['ip_address'] for ip in original_ips)
@@ -427,11 +453,13 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
 
         # Mark ip for removing if it is not found in new_ips
         # and subnet requires ip to be set manually.
-        # For auto addresses leave ip unchanged
+        # For auto addressed subnet leave ip unchanged
+        # unless it is explicitly marked for delete.
         for ip in remove:
             subnet_id = ips_map[ip]['subnet_id']
-            if self._is_ip_required_by_subnet(context, subnet_id,
-                                              device_owner):
+            ip_required = self._is_ip_required_by_subnet(context, subnet_id,
+                                                         device_owner)
+            if ip_required or subnet_id in delete_subnet_ids:
                 remove_ips.append(ips_map[ip])
             else:
                 prev_ips.append(ips_map[ip])
@@ -463,6 +491,8 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                                            subnet_args['subnetpool_id'],
                                            subnet_args['ip_version'])
 
+        service_types = subnet_args.pop('service_types', [])
+
         subnet = models_v2.Subnet(**subnet_args)
         segment_id = subnet_args.get('segment_id')
         try:
@@ -489,6 +519,13 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                     destination=rt['destination'],
                     nexthop=rt['nexthop'])
                 context.session.add(route)
+
+        if validators.is_attr_set(service_types):
+            for service_type in service_types:
+                service_type_entry = sst_model.SubnetServiceType(
+                    subnet_id=subnet.id,
+                    service_type=service_type)
+                context.session.add(service_type_entry)
 
         self.save_allocation_pools(context, subnet,
                                    subnet_request.allocation_pools)
@@ -527,18 +564,50 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                 fixed_ip_list.append({'subnet_id': subnet['id']})
         return fixed_ip_list
 
-    def _ipam_get_subnets(self, context, network_id, host):
+    def _query_filter_service_subnets(self, query, service_type):
+        ServiceType = sst_model.SubnetServiceType
+        query = query.add_entity(ServiceType)
+        query = query.outerjoin(ServiceType)
+        query = query.filter(or_(ServiceType.service_type.is_(None),
+                                 ServiceType.service_type == service_type))
+        return query.from_self(models_v2.Subnet)
+
+    def _check_service_subnets(self, query, service_type):
+        """Raise an exception if empty subnet list is caused by service type"""
+        if not query.limit(1).count():
+            return
+        query = self._query_filter_service_subnets(query, service_type)
+        if query.limit(1).count():
+            return
+        raise ipam_exceptions.IpAddressGenerationFailureNoMatchingSubnet()
+
+    def _sort_service_subnets(self, subnets, query, service_type):
+        """Give priority to subnets with service_types"""
+        subnets = sorted(subnets,
+                         key=lambda subnet: not subnet.get('service_types'))
+        if not subnets:
+            # If we have an empty subnet list, check if it's caused by
+            # the service type.
+            self._check_service_subnets(query, service_type)
+        return subnets
+
+    def _ipam_get_subnets(self, context, network_id, host, service_type=None):
         Subnet = models_v2.Subnet
         SegmentHostMapping = segment_svc_db.SegmentHostMapping
 
-        query = self._get_collection_query(context, Subnet)
-        query = query.filter(Subnet.network_id == network_id)
+        unfiltered_query = self._get_collection_query(context, Subnet)
+        unfiltered_query = unfiltered_query.filter(
+                               Subnet.network_id == network_id)
+        query = self._query_filter_service_subnets(unfiltered_query,
+                                                   service_type)
         # Note:  This seems redundant, but its not.  It has to cover cases
         # where host is None, ATTR_NOT_SPECIFIED, or '' due to differences in
         # host binding implementations.
         if not validators.is_attr_set(host) or not host:
             query = query.filter(Subnet.segment_id.is_(None))
-            return [self._make_subnet_dict(c, context=context) for c in query]
+            return self._sort_service_subnets(
+                       [self._make_subnet_dict(c, context=context)
+                        for c in query], unfiltered_query, service_type)
 
         # A host has been provided.  Consider these two scenarios
         # 1. Not a routed network:  subnets are not on segments
@@ -565,6 +634,7 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
             query = query.filter(Subnet.network_id == network_id)
             query = query.filter(Subnet.segment_id.isnot(None))
             if query.count() == 0:
+                self._check_service_subnets(unfiltered_query, service_type)
                 return []
             # It is a routed network but no subnets found for host
             raise segment_exc.HostNotConnectedToAnySegment(
@@ -581,14 +651,18 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
             raise segment_exc.HostConnectedToMultipleSegments(
                 host=host, network_id=network_id)
 
-        return [self._make_subnet_dict(subnet, context=context)
-                for subnet, _mapping in results]
+        return self._sort_service_subnets(
+                   [self._make_subnet_dict(subnet, context=context)
+                    for subnet, _mapping in results],
+                   unfiltered_query, service_type)
 
     def _make_subnet_args(self, detail, subnet, subnetpool_id):
         args = super(IpamBackendMixin, self)._make_subnet_args(
             detail, subnet, subnetpool_id)
         if validators.is_attr_set(subnet.get(segment.SEGMENT_ID)):
             args['segment_id'] = subnet[segment.SEGMENT_ID]
+        if validators.is_attr_set(subnet.get('service_types')):
+            args['service_types'] = subnet['service_types']
         return args
 
     def update_port(self, context, old_port_db, old_port, new_port):
@@ -615,10 +689,21 @@ class IpamBackendMixin(db_base_plugin_common.DbBasePluginCommon):
                                             new_port.get('mac_address'))
 
         fixed_ips_requested = validators.is_attr_set(new_port.get('fixed_ips'))
+        old_ips = old_port.get('fixed_ips')
         deferred_ip_allocation = (host and not old_host
-                                  and not old_port.get('fixed_ips')
+                                  and not old_ips
                                   and not fixed_ips_requested)
         if not deferred_ip_allocation:
+            # Check that any existing IPs are valid on the new segment
+            new_host_requested = host and host != old_host
+            if old_ips and new_host_requested and not fixed_ips_requested:
+                valid_subnets = self._ipam_get_subnets(
+                    context, old_port['network_id'], host)
+                valid_subnet_ids = {s['id'] for s in valid_subnets}
+                for fixed_ip in old_ips:
+                    if fixed_ip['subnet_id'] not in valid_subnet_ids:
+                        raise segment_exc.HostNotCompatibleWithFixedIps(
+                            host=host, port_id=old_port['id'])
             return changes
 
         # Allocate as if this were the port create.

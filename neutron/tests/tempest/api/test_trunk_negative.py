@@ -21,17 +21,6 @@ from neutron.tests.tempest.api import test_trunk
 
 class TrunkTestJSON(test_trunk.TrunkTestJSONBase):
 
-    def tearDown(self):
-        # NOTE(tidwellr) These tests create networks and ports, clean them up
-        # after each test to avoid hitting quota limits
-        self.resource_cleanup()
-        super(TrunkTestJSON, self).tearDown()
-
-    @classmethod
-    @test.requires_ext(extension="trunk", service="network")
-    def resource_setup(cls):
-        super(test_trunk.TrunkTestJSONBase, cls).resource_setup()
-
     @test.attr(type='negative')
     @test.idempotent_id('1b5cf87a-1d3a-4a94-ba64-647153d54f32')
     def test_create_trunk_nonexistent_port_id(self):
@@ -139,6 +128,45 @@ class TrunkTestJSON(test_trunk.TrunkTestJSONBase):
                             'segmentation_id': 2}])
 
     @test.attr(type='negative')
+    @test.idempotent_id('7f132ccc-1380-42d8-9c44-50411612bd01')
+    def test_add_subport_port_id_disabled_trunk(self):
+        trunk = self._create_trunk_with_network_and_parent(
+            None, admin_state_up=False)
+        self.assertRaises(lib_exc.Conflict,
+            self.client.add_subports,
+            trunk['trunk']['id'],
+            [{'port_id': trunk['trunk']['port_id'],
+              'segmentation_type': 'vlan',
+              'segmentation_id': 2}])
+        self.client.update_trunk(
+            trunk['trunk']['id'], admin_state_up=True)
+
+    @test.attr(type='negative')
+    @test.idempotent_id('8f132ccc-1380-42d8-9c44-50411612bd01')
+    def test_remove_subport_port_id_disabled_trunk(self):
+        trunk = self._create_trunk_with_network_and_parent(
+            None, admin_state_up=False)
+        self.assertRaises(lib_exc.Conflict,
+            self.client.remove_subports,
+            trunk['trunk']['id'],
+            [{'port_id': trunk['trunk']['port_id'],
+              'segmentation_type': 'vlan',
+              'segmentation_id': 2}])
+        self.client.update_trunk(
+            trunk['trunk']['id'], admin_state_up=True)
+
+    @test.attr(type='negative')
+    @test.idempotent_id('9f132ccc-1380-42d8-9c44-50411612bd01')
+    def test_delete_trunk_disabled_trunk(self):
+        trunk = self._create_trunk_with_network_and_parent(
+            None, admin_state_up=False)
+        self.assertRaises(lib_exc.Conflict,
+            self.client.delete_trunk,
+            trunk['trunk']['id'])
+        self.client.update_trunk(
+            trunk['trunk']['id'], admin_state_up=True)
+
+    @test.attr(type='negative')
     @test.idempotent_id('00cb40bb-1593-44c8-808c-72b47e64252f')
     def test_add_subport_duplicate_segmentation_details(self):
         trunk = self._create_trunk_with_network_and_parent(None)
@@ -188,3 +216,22 @@ class TrunkTestJSON(test_trunk.TrunkTestJSONBase):
         trunk = self._create_trunk_with_network_and_parent([])
         self.assertRaises(lib_exc.NotFound, self.client.remove_subports,
                           trunk['trunk']['id'], [subport_data])
+
+    @test.attr(type='negative')
+    @test.idempotent_id('6c9c5126-4f61-11e6-8248-40a8f063c891')
+    def test_delete_port_in_use_by_trunk(self):
+        trunk = self._create_trunk_with_network_and_parent(None)
+        self.assertRaises(lib_exc.Conflict, self.client.delete_port,
+                          trunk['trunk']['port_id'])
+
+    @test.attr(type='negative')
+    @test.idempotent_id('343a03d0-4f7c-11e6-97fa-40a8f063c891')
+    def test_delete_port_in_use_by_subport(self):
+        network = self.create_network()
+        port = self.create_port(network)
+        subports = [{'port_id': port['id'],
+                     'segmentation_type': 'vlan',
+                     'segmentation_id': 2}]
+        self._create_trunk_with_network_and_parent(subports)
+        self.assertRaises(lib_exc.Conflict, self.client.delete_port,
+                          port['id'])

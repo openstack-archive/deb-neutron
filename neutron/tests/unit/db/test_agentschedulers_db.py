@@ -24,7 +24,6 @@ from oslo_utils import uuidutils
 from webob import exc
 
 from neutron.api import extensions
-from neutron.api.rpc.agentnotifiers import dhcp_rpc_agent_api
 from neutron.api.rpc.agentnotifiers import l3_rpc_agent_api
 from neutron.api.rpc.handlers import dhcp_rpc
 from neutron.api.rpc.handlers import l3_rpc
@@ -225,14 +224,17 @@ class OvsAgentSchedulerTestCaseBase(test_l3.L3NatTestCaseMixin,
                                     AgentSchedulerTestMixIn,
                                     test_plugin.NeutronDbPluginV2TestCase):
     fmt = 'json'
-    plugin_str = 'neutron.plugins.ml2.plugin.Ml2Plugin'
     l3_plugin = ('neutron.tests.unit.extensions.test_l3.'
                  'TestL3NatAgentSchedulingServicePlugin')
 
     def setUp(self):
         self.useFixture(tools.AttributeMapMemento())
         if self.l3_plugin:
-            service_plugins = {'l3_plugin_name': self.l3_plugin}
+            service_plugins = {
+                'l3_plugin_name': self.l3_plugin,
+                'flavors_plugin_name': 'neutron.services.flavors.'
+                                       'flavors_plugin.FlavorsPlugin'
+            }
         else:
             service_plugins = None
         # NOTE(ivasilevskaya) mocking this way allows some control over mocked
@@ -241,7 +243,7 @@ class OvsAgentSchedulerTestCaseBase(test_l3.L3NatTestCaseMixin,
         mock.patch('neutron.common.rpc.get_client'
                    ).start().return_value = self.client_mock
         super(OvsAgentSchedulerTestCaseBase, self).setUp(
-            self.plugin_str, service_plugins=service_plugins)
+            'ml2', service_plugins=service_plugins)
         mock.patch.object(
             self.plugin, 'filter_hosts_with_network_access',
             side_effect=lambda context, network_id, hosts: hosts).start()
@@ -1047,9 +1049,9 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 
     def test_dvr_router_csnat_rescheduling(self):
         helpers.register_l3_agent(
-            host=L3_HOSTA, agent_mode=n_const.L3_AGENT_MODE_DVR_SNAT)
+            host=L3_HOSTA, agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
         helpers.register_l3_agent(
-            host=L3_HOSTB, agent_mode=n_const.L3_AGENT_MODE_DVR_SNAT)
+            host=L3_HOSTB, agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
         with self.subnet() as s:
             net_id = s['subnet']['network_id']
             self._set_net_external(net_id)
@@ -1074,9 +1076,9 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 
     def test_dvr_router_manual_rescheduling(self):
         helpers.register_l3_agent(
-            host=L3_HOSTA, agent_mode=n_const.L3_AGENT_MODE_DVR_SNAT)
+            host=L3_HOSTA, agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
         helpers.register_l3_agent(
-            host=L3_HOSTB, agent_mode=n_const.L3_AGENT_MODE_DVR_SNAT)
+            host=L3_HOSTB, agent_mode=constants.L3_AGENT_MODE_DVR_SNAT)
         with self.subnet() as s:
             net_id = s['subnet']['network_id']
             self._set_net_external(net_id)
@@ -1292,15 +1294,14 @@ class OvsAgentSchedulerTestCase(OvsAgentSchedulerTestCaseBase):
 class OvsDhcpAgentNotifierTestCase(test_agent.AgentDBTestMixIn,
                                    AgentSchedulerTestMixIn,
                                    test_plugin.NeutronDbPluginV2TestCase):
-    plugin_str = 'neutron.plugins.ml2.plugin.Ml2Plugin'
-
     def setUp(self):
         self.useFixture(tools.AttributeMapMemento())
-        super(OvsDhcpAgentNotifierTestCase, self).setUp(self.plugin_str)
+        super(OvsDhcpAgentNotifierTestCase, self).setUp('ml2')
         mock.patch.object(
             self.plugin, 'filter_hosts_with_network_access',
             side_effect=lambda context, network_id, hosts: hosts).start()
-        self.dhcp_notifier = dhcp_rpc_agent_api.DhcpAgentNotifyAPI()
+        plugin = manager.NeutronManager.get_plugin()
+        self.dhcp_notifier = plugin.agent_notifiers[constants.AGENT_TYPE_DHCP]
         self.dhcp_notifier_cast = mock.patch(
             'neutron.api.rpc.agentnotifiers.dhcp_rpc_agent_api.'
             'DhcpAgentNotifyAPI._cast_message').start()
@@ -1437,7 +1438,6 @@ class OvsL3AgentNotifierTestCase(test_l3.L3NatTestCaseMixin,
                                  test_agent.AgentDBTestMixIn,
                                  AgentSchedulerTestMixIn,
                                  test_plugin.NeutronDbPluginV2TestCase):
-    plugin_str = 'neutron.plugins.ml2.plugin.Ml2Plugin'
     l3_plugin = ('neutron.tests.unit.extensions.test_l3.'
                  'TestL3NatAgentSchedulingServicePlugin')
 
@@ -1452,11 +1452,15 @@ class OvsL3AgentNotifierTestCase(test_l3.L3NatTestCaseMixin,
         self.useFixture(tools.AttributeMapMemento())
 
         if self.l3_plugin:
-            service_plugins = {'l3_plugin_name': self.l3_plugin}
+            service_plugins = {
+                'l3_plugin_name': self.l3_plugin,
+                'flavors_plugin_name': 'neutron.services.flavors.'
+                                       'flavors_plugin.FlavorsPlugin'
+            }
         else:
             service_plugins = None
         super(OvsL3AgentNotifierTestCase, self).setUp(
-            self.plugin_str, service_plugins=service_plugins)
+            'ml2', service_plugins=service_plugins)
         ext_mgr = extensions.PluginAwareExtensionManager.get_instance()
         self.ext_api = test_extensions.setup_extensions_middleware(ext_mgr)
         self.adminContext = context.get_admin_context()

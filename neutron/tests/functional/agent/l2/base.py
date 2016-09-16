@@ -24,11 +24,11 @@ from oslo_utils import uuidutils
 
 from neutron.agent.common import config as agent_config
 from neutron.agent.common import ovs_lib
-from neutron.agent.l2.extensions import manager as ext_manager
+from neutron.agent.l2 import l2_agent_extensions_manager as ext_manager
 from neutron.agent.linux import interface
 from neutron.agent.linux import polling
-from neutron.common import config as common_config
 from neutron.common import utils
+from neutron.conf import common as common_config
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.ml2.drivers.openvswitch.agent.common import config \
     as ovs_config
@@ -212,7 +212,7 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
                'physical_network': network.get('physical_network', 'physnet'),
                'segmentation_id': network.get('segmentation_id', 1),
                'fixed_ips': port['fixed_ips'],
-               'device_owner': 'compute',
+               'device_owner': n_const.DEVICE_OWNER_COMPUTE_PREFIX,
                'port_security_enabled': True,
                'security_groups': ['default'],
                'admin_state_up': True}
