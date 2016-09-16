@@ -1,0 +1,12 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Assaf Muller <amuller@redhat.com>
+Workflow+1: Assaf Muller <amuller@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Sep 2016 16:02:44 +0000
+Reviewed-on: https://review.openstack.org/371491
+Project: openstack/deb-neutron
+Branch: refs/heads/master
