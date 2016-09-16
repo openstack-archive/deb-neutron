@@ -20,14 +20,11 @@ from contextlib import contextmanager
 from oslo_config import cfg
 from oslo_config import fixture as config_fixture
 from oslo_db.sqlalchemy import test_migrations
-from oslo_db.sqlalchemy import utils as oslo_utils
 from oslotest import base as oslotest_base
 import six
 import sqlalchemy
 from sqlalchemy import event
 from sqlalchemy.sql import ddl as sqla_ddl
-import sqlalchemy.sql.expression as expr
-import sqlalchemy.types as types
 import subprocess
 
 from neutron.db.migration.alembic_migrations import external
@@ -35,9 +32,7 @@ from neutron.db.migration import cli as migration
 from neutron.db.migration.models import head as head_models
 from neutron.tests.unit import testlib_api
 
-cfg.CONF.import_opt('core_plugin', 'neutron.common.config')
-
-CORE_PLUGIN = 'neutron.plugins.ml2.plugin.Ml2Plugin'
+cfg.CONF.import_opt('core_plugin', 'neutron.conf.common')
 
 CREATION_OPERATIONS = {
     'sqla': (sqla_ddl.CreateIndex,
@@ -56,6 +51,12 @@ DROP_OPERATIONS = {
     'alembic': (alembic_ddl.DropColumn,
                 )
 }
+
+
+def upgrade(engine, alembic_config, branch_name='heads'):
+    cfg.CONF.set_override('connection', engine.url, group='database')
+    migration.do_alembic_command(alembic_config, 'upgrade',
+                                 branch_name)
 
 
 class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
@@ -121,6 +122,10 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
         - existing correct column parameters,
         - right value,
         - wrong value.
+
+    This class also contains tests for branches, like that correct operations
+    are used in contract and expand branches.
+
     '''
 
     BUILD_SCHEMA = False
@@ -128,13 +133,12 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
     def setUp(self):
         super(_TestModelsMigrations, self).setUp()
         self.cfg = self.useFixture(config_fixture.Config())
-        self.cfg.config(core_plugin=CORE_PLUGIN)
+        self.cfg.config(core_plugin='ml2')
         self.alembic_config = migration.get_neutron_config()
         self.alembic_config.neutron_config = cfg.CONF
 
     def db_sync(self, engine):
-        cfg.CONF.set_override('connection', engine.url, group='database')
-        migration.do_alembic_command(self.alembic_config, 'upgrade', 'heads')
+        upgrade(engine, self.alembic_config)
 
     def get_engine(self):
         return self.engine
@@ -152,30 +156,6 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
 
     def filter_metadata_diff(self, diff):
         return list(filter(self.remove_unrelated_errors, diff))
-
-    # TODO(akamyshnikova):when bug 1569262 fixed in oslo.db this won't be
-    # needed
-    @oslo_utils.DialectFunctionDispatcher.dispatch_for_dialect("*")
-    def _compare_server_default(bind, meta_col, insp_def, meta_def):
-        pass
-
-    @_compare_server_default.dispatch_for('mysql')
-    def _compare_server_default(bind, meta_col, insp_def, meta_def):
-        if isinstance(meta_col.type, sqlalchemy.Boolean):
-            if meta_def is None or insp_def is None:
-                return meta_def != insp_def
-            return not (
-                isinstance(meta_def.arg, expr.True_) and insp_def == "'1'" or
-                isinstance(meta_def.arg, expr.False_) and insp_def == "'0'"
-            )
-
-        impl_type = meta_col.type
-        if isinstance(impl_type, types.Variant):
-            impl_type = impl_type.load_dialect_impl(bind.dialect)
-        if isinstance(impl_type, (sqlalchemy.Integer, sqlalchemy.BigInteger)):
-            if meta_def is None or insp_def is None:
-                return meta_def != insp_def
-            return meta_def.arg != insp_def.split("'")[1]
 
     # Remove some difference that are not mistakes just specific of
     # dialects, etc
@@ -202,10 +182,17 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
                         return False
         return True
 
+    def test_upgrade_expand_branch(self):
+        # Verify that "command neutron-db-manage upgrade --expand" works
+        #  without errors. Check this for both MySQL and PostgreSQL.
+        upgrade(self.engine, self.alembic_config,
+                branch_name='%s@head' % migration.EXPAND_BRANCH)
 
-class TestModelsMigrationsMysql(testlib_api.MySQLTestCaseMixin,
-                                _TestModelsMigrations,
-                                testlib_api.SqlTestCaseLight):
+    def test_upgrade_contract_branch(self):
+        # Verify that "command neutron-db-manage upgrade --contract" works
+        # without errors. Check this for both MySQL and PostgreSQL.
+        upgrade(self.engine, self.alembic_config,
+                branch_name='%s@head' % migration.CONTRACT_BRANCH)
 
     @contextmanager
     def _listener(self, engine, listener_func):
@@ -296,7 +283,7 @@ class TestModelsMigrationsMysql(testlib_api.MySQLTestCaseMixin,
                           "command")
 
         find_migration_exceptions()
-        engine = self.get_engine()
+        engine = self.engine
         cfg.CONF.set_override('connection', engine.url, group='database')
         with engine.begin() as connection:
             self.alembic_config.attributes['connection'] = connection
@@ -312,6 +299,25 @@ class TestModelsMigrationsMysql(testlib_api.MySQLTestCaseMixin,
                 migration.do_alembic_command(
                     self.alembic_config, 'upgrade',
                     '%s@head' % migration.CONTRACT_BRANCH)
+
+    def _test_has_offline_migrations(self, revision, expected):
+        engine = self.get_engine()
+        cfg.CONF.set_override('connection', engine.url, group='database')
+        migration.do_alembic_command(self.alembic_config, 'upgrade', revision)
+        self.assertEqual(expected,
+                         migration.has_offline_migrations(self.alembic_config,
+                                                          'unused'))
+
+    def test_has_offline_migrations_pending_contract_scripts(self):
+        self._test_has_offline_migrations('kilo', True)
+
+    def test_has_offline_migrations_all_heads_upgraded(self):
+        self._test_has_offline_migrations('heads', False)
+
+
+class TestModelsMigrationsMysql(testlib_api.MySQLTestCaseMixin,
+                                _TestModelsMigrations,
+                                testlib_api.SqlTestCaseLight):
 
     def test_check_mysql_engine(self):
         engine = self.get_engine()
@@ -329,20 +335,6 @@ class TestModelsMigrationsMysql(testlib_api.MySQLTestCaseMixin,
                    insp.get_table_options(table)['mysql_engine'] != 'InnoDB'
                    and table != 'alembic_version']
             self.assertEqual(0, len(res), "%s non InnoDB tables created" % res)
-
-    def _test_has_offline_migrations(self, revision, expected):
-        engine = self.get_engine()
-        cfg.CONF.set_override('connection', engine.url, group='database')
-        migration.do_alembic_command(self.alembic_config, 'upgrade', revision)
-        self.assertEqual(expected,
-                         migration.has_offline_migrations(self.alembic_config,
-                                                          'unused'))
-
-    def test_has_offline_migrations_pending_contract_scripts(self):
-        self._test_has_offline_migrations('kilo', True)
-
-    def test_has_offline_migrations_all_heads_upgraded(self):
-        self._test_has_offline_migrations('heads', False)
 
 
 class TestModelsMigrationsPsql(testlib_api.PostgreSQLTestCaseMixin,
@@ -378,6 +370,27 @@ class TestSanityCheck(testlib_api.SqlTestCaseLight):
                 self.alembic_config)
             script = script_dir.get_revision("1df244e556f5").module
             self.assertRaises(script.DuplicateL3HARouterAgentPortBinding,
+                              script.check_sanity, conn)
+
+    def test_check_sanity_030a959ceafa(self):
+        routerports = sqlalchemy.Table(
+            'routerports', sqlalchemy.MetaData(),
+            sqlalchemy.Column('router_id', sqlalchemy.String(36)),
+            sqlalchemy.Column('port_id', sqlalchemy.String(36)),
+            sqlalchemy.Column('port_type', sqlalchemy.String(255)))
+
+        with self.engine.connect() as conn:
+            routerports.create(conn)
+            conn.execute(routerports.insert(), [
+                {'router_id': '1234', 'port_id': '12345',
+                 'port_type': '123'},
+                {'router_id': '12343', 'port_id': '12345',
+                 'port_type': '1232'}
+            ])
+            script_dir = alembic_script.ScriptDirectory.from_config(
+                self.alembic_config)
+            script = script_dir.get_revision("030a959ceafa").module
+            self.assertRaises(script.DuplicatePortRecordinRouterPortdatabase,
                               script.check_sanity, conn)
 
 

@@ -17,9 +17,11 @@ import importlib
 import itertools
 import os
 
+from neutron.conf.services import provider_configuration as prov_config
 from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_log import versionutils
 import stevedore
 
 from neutron._i18n import _, _LW
@@ -29,14 +31,10 @@ LOG = logging.getLogger(__name__)
 
 SERVICE_PROVIDERS = 'neutron.service_providers'
 
-serviceprovider_opts = [
-    cfg.MultiStrOpt('service_provider', default=[],
-                    help=_('Defines providers for advanced services '
-                           'using the format: '
-                           '<service_type>:<name>:<driver>[:default]'))
-]
+# TODO(HenryG): use MovedGlobals to deprecate this.
+serviceprovider_opts = prov_config.serviceprovider_opts
 
-cfg.CONF.register_opts(serviceprovider_opts, 'service_providers')
+prov_config.register_service_provider_opts()
 
 
 class NeutronModule(object):
@@ -66,7 +64,7 @@ class NeutronModule(object):
     def ini(self, neutron_dir=None):
         if self.repo['ini'] is None:
             ini_file = cfg.ConfigOpts()
-            ini_file.register_opts(serviceprovider_opts, 'service_providers')
+            prov_config.register_service_provider_opts(ini_file)
 
             if neutron_dir is not None:
                 neutron_dirs = [neutron_dir]
@@ -116,6 +114,11 @@ class NeutronModule(object):
         # necessary, if modules are loaded on the fly (DevStack may
         # be an example)
         if not providers:
+            versionutils.report_deprecated_feature(
+                LOG,
+                _LW('Implicit loading of service providers from '
+                    'neutron_*.conf files is deprecated and will be removed '
+                    'in Ocata release.'))
             providers = self.ini().service_providers.service_provider
 
         return providers

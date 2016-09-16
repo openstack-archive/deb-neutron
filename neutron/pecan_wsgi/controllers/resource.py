@@ -26,9 +26,12 @@ LOG = logging.getLogger(__name__)
 
 class ItemController(utils.NeutronPecanController):
 
-    def __init__(self, resource, item, plugin=None, resource_info=None):
+    def __init__(self, resource, item, plugin=None, resource_info=None,
+                 parent_resource=None, member_actions=None):
         super(ItemController, self).__init__(None, resource, plugin=plugin,
-                                             resource_info=resource_info)
+                                             resource_info=resource_info,
+                                             parent_resource=parent_resource,
+                                             member_actions=member_actions)
         self.item = item
 
     @utils.expose(generic=True)
@@ -36,11 +39,15 @@ class ItemController(utils.NeutronPecanController):
         return self.get(*args, **kwargs)
 
     def get(self, *args, **kwargs):
-        getter = getattr(self.plugin, 'get_%s' % self.resource)
         neutron_context = request.context['neutron_context']
+        getter_args = [neutron_context, self.item]
+        # NOTE(tonytan4ever): This implicitly forces the getter method
+        # uses the parent_id as the last argument, thus easy for future
+        # refactoring
+        if 'parent_id' in request.context:
+            getter_args.append(request.context['parent_id'])
         fields = request.context['query_params'].get('fields')
-        return {self.resource: getter(neutron_context, self.item,
-                                      fields=fields)}
+        return {self.resource: self.plugin_shower(*getter_args, fields=fields)}
 
     @utils.when(index, method='HEAD')
     @utils.when(index, method='POST')
@@ -53,19 +60,24 @@ class ItemController(utils.NeutronPecanController):
         neutron_context = request.context['neutron_context']
         resources = request.context['resources']
         # TODO(kevinbenton): bulk?
-        updater = getattr(self.plugin, 'update_%s' % self.resource)
         # Bulk update is not supported, 'resources' always contains a single
         # elemenet
         data = {self.resource: resources[0]}
-        return {self.resource: updater(neutron_context, self.item, data)}
+        updater_args = [neutron_context, self.item]
+        if 'parent_id' in request.context:
+            updater_args.append(request.context['parent_id'])
+        updater_args.append(data)
+        return {self.resource: self.plugin_updater(*updater_args)}
 
     @utils.when(index, method='DELETE')
     def delete(self):
         # TODO(kevinbenton): setting code could be in a decorator
         pecan.response.status = 204
         neutron_context = request.context['neutron_context']
-        deleter = getattr(self.plugin, 'delete_%s' % self.resource)
-        return deleter(neutron_context, self.item)
+        deleter_args = [neutron_context, self.item]
+        if 'parent_id' in request.context:
+            deleter_args.append(request.context['parent_id'])
+        return self.plugin_deleter(*deleter_args)
 
     @utils.expose()
     def _lookup(self, collection, *remainder):
@@ -73,9 +85,24 @@ class ItemController(utils.NeutronPecanController):
         controller = manager.NeutronManager.get_controller_for_resource(
             collection)
         if not controller:
-            LOG.warning(_LW("No controller found for: %s - returning response "
-                         "code 404"), collection)
-            pecan.abort(404)
+            if collection not in self._member_actions:
+                LOG.warning(_LW("No controller found for: %s - returning"
+                                "response code 404"), collection)
+                pecan.abort(404)
+            # collection is a member action, so we create a new controller
+            # for it.
+            method = self._member_actions[collection]
+            kwargs = {'plugin': self.plugin,
+                      'resource_info': self.resource_info}
+            if method == 'PUT':
+                kwargs['update_action'] = collection
+            elif method == 'GET':
+                kwargs['show_action'] = collection
+            controller = MemberActionController(
+                self.resource, self.item, self, **kwargs)
+        else:
+            request.context['parent_id'] = request.context['resource_id']
+        request.context['resource'] = controller.resource
         return controller, remainder
 
 
@@ -90,8 +117,11 @@ class CollectionsController(utils.NeutronPecanController):
         uri_identifier = '%s_id' % self.resource
         request.context['uri_identifiers'][uri_identifier] = item
         return (self.item_controller_class(
-            self.resource, item, resource_info=self.resource_info),
-                remainder)
+            self.resource, item, resource_info=self.resource_info,
+            # NOTE(tonytan4ever): item needs to share the same
+            # parent as collection
+            parent_resource=self.parent,
+            member_actions=self._member_actions), remainder)
 
     @utils.expose(generic=True)
     def index(self, *args, **kwargs):
@@ -99,12 +129,13 @@ class CollectionsController(utils.NeutronPecanController):
 
     def get(self, *args, **kwargs):
         # NOTE(blogan): these are set in the FieldsAndFiltersHoook
-        fields = request.context['query_params'].get('fields')
-        filters = request.context['query_params'].get('filters')
-        lister = getattr(self.plugin, 'get_%s' % self.collection)
+        query_params = request.context['query_params']
         neutron_context = request.context['neutron_context']
-        return {self.collection: lister(neutron_context,
-                fields=fields, filters=filters)}
+        lister_args = [neutron_context]
+        if 'parent_id' in request.context:
+            lister_args.append(request.context['parent_id'])
+        return {self.collection: self.plugin_lister(*lister_args,
+                **query_params)}
 
     @utils.when(index, method='HEAD')
     @utils.when(index, method='PATCH')
@@ -123,13 +154,73 @@ class CollectionsController(utils.NeutronPecanController):
     def create(self, resources):
         if len(resources) > 1:
             # Bulk!
-            method = 'create_%s_bulk' % self.resource
+            creator = self.plugin_bulk_creator
             key = self.collection
             data = {key: [{self.resource: res} for res in resources]}
         else:
-            method = 'create_%s' % self.resource
+            creator = self.plugin_creator
             key = self.resource
             data = {key: resources[0]}
-        creator = getattr(self.plugin, method)
         neutron_context = request.context['neutron_context']
-        return {key: creator(neutron_context, data)}
+        creator_args = [neutron_context]
+        if 'parent_id' in request.context:
+            creator_args.append(request.context['parent_id'])
+        creator_args.append(data)
+        return {key: creator(*creator_args)}
+
+
+class MemberActionController(ItemController):
+    @property
+    def plugin_shower(self):
+        # NOTE(blogan): Do an explicit check for the _show_action because
+        # pecan will see the plugin_shower property as a possible custom route
+        # and try to evaluate it, which causes the code block to be executed.
+        # If _show_action is None, getattr throws an exception and fails a
+        # request.
+        if self._show_action:
+            return getattr(self.plugin, self._show_action)
+
+    @property
+    def plugin_updater(self):
+        if self._update_action:
+            return getattr(self.plugin, self._update_action)
+
+    def __init__(self, resource, item, parent_controller, plugin=None,
+                 resource_info=None, show_action=None, update_action=None):
+        super(MemberActionController, self).__init__(
+            resource, item, plugin=plugin, resource_info=resource_info)
+        self._show_action = show_action
+        self._update_action = update_action
+        self.parent_controller = parent_controller
+
+    @utils.expose(generic=True)
+    def index(self, *args, **kwargs):
+        if not self._show_action:
+            pecan.abort(405)
+        neutron_context = request.context['neutron_context']
+        fields = request.context['query_params'].get('fields')
+        return self.plugin_shower(neutron_context, self.item, fields=fields)
+
+    @utils.when(index, method='PUT')
+    def put(self, *args, **kwargs):
+        if not self._update_action:
+            LOG.debug("Action %(action)s is not defined on resource "
+                      "%(resource)s",
+                      {'action': self._update_action,
+                       'resource': self.resource})
+            pecan.abort(405)
+        neutron_context = request.context['neutron_context']
+        LOG.debug("Processing member action %(action)s for resource "
+                  "%(resource)s identified by %(item)s",
+                  {'action': self._update_action,
+                   'resource': self.resource,
+                   'item': self.item})
+        return self.plugin_updater(neutron_context, self.item,
+                                   request.context['request_data'])
+
+    @utils.when(index, method='HEAD')
+    @utils.when(index, method='POST')
+    @utils.when(index, method='PATCH')
+    @utils.when(index, method='DELETE')
+    def not_supported(self):
+        return super(MemberActionController, self).not_supported()

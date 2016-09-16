@@ -6,9 +6,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 9.0.0.0b2.dev347\n"
+"Project-Id-Version: neutron 9.0.0.0b3.dev409\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-07-03 04:49+0000\n"
+"POT-Creation-Date: 2016-08-18 18:59+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -1367,15 +1367,6 @@ msgstr "Разновидность не включена."
 msgid "Floating IP %(floatingip_id)s could not be found"
 msgstr "Не найден нефиксированный IP-адрес %(floatingip_id)s"
 
-#, python-format
-msgid ""
-"Floating IP %(floatingip_id)s is associated with non-IPv4 address "
-"%s(internal_ip)s and therefore cannot be bound."
-msgstr ""
-"Нефиксированный IP-адрес %(floatingip_id)s связан с адресом,  "
-"%s(internal_ip)s, отличным от IPv4, и поэтому для него нельзя задать "
-"ограничение."
-
 msgid "For TCP/UDP protocols, port_range_min must be <= port_range_max"
 msgstr ""
 "Для протоколов TCP/UDP значение port_range_min должно быть <= port_range_max"
@@ -1850,9 +1841,6 @@ msgstr ""
 "Для создания одноуровневых сетей с произвольными именами физических сетей "
 "используйте символ *. Пустой список запрещает создание одноуровневых сетей."
 
-msgid "Local IP address of the VXLAN endpoints."
-msgstr "Локальный IP-адрес конечных точек VXLAN."
-
 msgid "Location for Metadata Proxy UNIX domain socket."
 msgstr "Расположение сокета домена UNIX прокси метаданных. "
 
@@ -1895,14 +1883,6 @@ msgstr ""
 "изменяет это значение. Для сетей с перекрытием, таких как VXLAN, Neutron "
 "автоматически вычитает байты, необходимые для протокола перекрытия, из этого "
 "значения. Значение по умолчанию: 1500, стандартное для Ethernet."
-
-msgid ""
-"MTU setting for device. This option will be removed in Newton. Please use "
-"the system-wide segment_mtu setting which the agents will take into account "
-"when wiring VIFs."
-msgstr ""
-"Параметр MTU для устройства. Будет удален в Newton. Используйте системное "
-"значение segment_mtu для агентов, работающих с VIF."
 
 msgid "MTU size of veth interfaces"
 msgstr "Размер MTU интерфейсов veth"
@@ -1982,9 +1962,6 @@ msgid ""
 msgstr ""
 "Правило метки измерения с remote_ip_prefix %(remote_ip_prefix)s "
 "перекрывается другим правилом"
-
-msgid "Method cannot be called within a transaction."
-msgstr "Метод нельзя вызывать внутри транзакции."
 
 msgid "Migration from distributed router to centralized is not supported"
 msgstr ""
@@ -2082,17 +2059,6 @@ msgstr "Имя '%s' не должно начинаться дефисом или
 
 msgid "Name of Open vSwitch bridge to use"
 msgstr "Имя используемого моста Open vSwitch"
-
-msgid ""
-"Name of bridge used for external network traffic. This should be set to an "
-"empty value for the Linux Bridge. When this parameter is set, each L3 agent "
-"can be associated with no more than one external network. This option is "
-"deprecated and will be removed in the M release."
-msgstr ""
-"Имя моста, используемого для передачи данных по внешней сети. Для Linux "
-"Bridge должно быть задано пустое значение. Если задан этот параметр, то "
-"каждый агент L3 может быть связан не более чем с одной внешней сетью. Эта "
-"опция устарела и будет удалена в выпуске M."
 
 msgid ""
 "Name of nova region to use. Useful if keystone manages more than one region."
@@ -2707,13 +2673,6 @@ msgstr ""
 
 msgid "Resource body required"
 msgstr "Требуется тело ресурса"
-
-msgid ""
-"Resource name(s) that are supported in quota features. This option is now "
-"deprecated for removal."
-msgstr ""
-"Имена ресурсов, которые поддерживаются в функциях квоты. Эта функция "
-"устарела и будет удалена."
 
 msgid "Resource not found."
 msgstr "Ресурс не найден."
@@ -3333,13 +3292,6 @@ msgid ""
 msgstr ""
 "К сети подключены маршрутизаторы, доступ к которым зависит от этой стратегии."
 
-msgid ""
-"This will choose the web framework in which to run the Neutron API server. "
-"'pecan' is a new experiemental rewrite of the API server."
-msgstr ""
-"Укажите веб-среду, а которой работает сервер API Neutron. 'pecan' - это "
-"новый экспериментальный вариант сервера API."
-
 msgid "Timeout"
 msgstr "Таймаут"
 
@@ -3912,14 +3864,6 @@ msgid ""
 msgstr ""
 "Недопустимый параметр конфигурации max_l3_agents_per_router %(max_agents)s. "
 "Он должен быть больше либо равен min_l3_agents_per_router %(min_agents)s."
-
-#, python-format
-msgid ""
-"min_l3_agents_per_router config parameter is not valid. It has to be equal "
-"to or more than %s for HA."
-msgstr ""
-"Недопустимый параметр конфигурации min_l3_agents_per_router. Он должен быть "
-"не меньше %s для высокой готовности."
 
 msgid "must provide exactly 2 arguments - cidr and MAC"
 msgstr "Необходимо задать ровно 2 аргумента - cidr и MAC"

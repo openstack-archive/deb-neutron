@@ -15,6 +15,7 @@ from oslo_config import cfg
 from oslo_utils import uuidutils
 
 from neutron.api.rpc.callbacks import events
+from neutron.conf.services import qos_driver_manager as driver_mgr_config
 from neutron import context
 from neutron.objects.qos import policy as policy_object
 from neutron.services.qos.notification_drivers import manager as driver_mgr
@@ -39,7 +40,7 @@ class TestQosDriversManagerBase(base.BaseQosTestCase):
         self.config_parse()
         self.setup_coreplugin()
         config = cfg.ConfigOpts()
-        config.register_opts(driver_mgr.QOS_PLUGIN_OPTS, "qos")
+        driver_mgr_config.register_qos_plugin_opts(config)
         self.policy_data = {'policy': {
                             'id': uuidutils.generate_uuid(),
                             'tenant_id': uuidutils.generate_uuid(),
@@ -66,7 +67,7 @@ class TestQosDriversManager(TestQosDriversManagerBase):
         self.driver_manager = driver_mgr.QosServiceNotificationDriverManager()
 
     def _validate_registry_params(self, event_type, policy):
-        self.rpc_api.push.assert_called_with(self.context, policy,
+        self.rpc_api.push.assert_called_with(self.context, [policy],
                                              event_type)
 
     def test_create_policy_default_configuration(self):
