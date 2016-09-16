@@ -18,6 +18,7 @@ import functools
 import netaddr
 from neutron_lib.api import validators
 from neutron_lib import constants
+from neutron_lib.db import model_base
 from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_db import exception as db_exc
@@ -36,9 +37,9 @@ from neutron.common import utils as n_utils
 from neutron.db import agents_db
 from neutron.db.availability_zone import router as router_az_db
 from neutron.db import common_db_mixin
+from neutron.db import l3_db
 from neutron.db import l3_dvr_db
 from neutron.db.l3_dvr_db import is_distributed_router
-from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import l3_ext_ha_mode as l3_ha
@@ -123,7 +124,7 @@ class L3HARouterAgentPortBinding(model_base.BASEV2):
                       server_default=n_const.HA_ROUTER_STATE_STANDBY)
 
 
-class L3HARouterNetwork(model_base.BASEV2):
+class L3HARouterNetwork(model_base.BASEV2, model_base.HasProjectPrimaryKey):
     """Host HA network for a tenant.
 
     One HA Network is used per tenant, all HA router ports are created
@@ -132,8 +133,6 @@ class L3HARouterNetwork(model_base.BASEV2):
 
     __tablename__ = 'ha_router_networks'
 
-    tenant_id = sa.Column(sa.String(attributes.TENANT_ID_MAX_LEN),
-                          primary_key=True, nullable=False)
     network_id = sa.Column(sa.String(36),
                            sa.ForeignKey('networks.id', ondelete="CASCADE"),
                            nullable=False, primary_key=True)
@@ -320,8 +319,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
 
         min_agents = cfg.CONF.min_l3_agents_per_router
         num_agents = len(self.get_l3_agents(context, active=True,
-            filters={'agent_modes': [n_const.L3_AGENT_MODE_LEGACY,
-                                     n_const.L3_AGENT_MODE_DVR_SNAT]}))
+            filters={'agent_modes': [constants.L3_AGENT_MODE_LEGACY,
+                                     constants.L3_AGENT_MODE_DVR_SNAT]}))
         max_agents = cfg.CONF.max_l3_agents_per_router
         if max_agents:
             if max_agents > num_agents:
@@ -340,6 +339,10 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
     def _create_ha_port_binding(self, context, router_id, port_id):
         try:
             with context.session.begin():
+                routerportbinding = l3_db.RouterPort(
+                    port_id=port_id, router_id=router_id,
+                    port_type=constants.DEVICE_OWNER_ROUTER_HA_INTF)
+                context.session.add(routerportbinding)
                 portbinding = L3HARouterAgentPortBinding(port_id=port_id,
                                                          router_id=router_id)
                 context.session.add(portbinding)
@@ -452,9 +455,10 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                                        context, router_db.tenant_id)
         dep_creator = functools.partial(self._create_ha_network,
                                         context, router_db.tenant_id)
+        dep_deleter = functools.partial(self._delete_ha_network, context)
         dep_id_attr = 'network_id'
         return n_utils.create_object_with_dependency(
-            creator, dep_getter, dep_creator, dep_id_attr)
+            creator, dep_getter, dep_creator, dep_id_attr, dep_deleter)
 
     def create_router(self, context, router):
         is_ha = self._is_ha(router['router'])
@@ -561,6 +565,10 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             self._set_vr_id(context, router_db, ha_network)
         else:
             self._delete_ha_interfaces(context, router_db.id)
+            # always attempt to cleanup the network as the router is
+            # deleted. the core plugin will stop us if its in use
+            self.safe_delete_ha_network(context, ha_network,
+                                        router_db.tenant_id)
 
         self.schedule_router(context, router_id)
         router_db = super(L3_HA_NAT_db_mixin, self)._update_router_db(
@@ -574,6 +582,26 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
         admin_ctx = context.elevated()
         self._core_plugin.delete_network(admin_ctx, net.network_id)
 
+    def safe_delete_ha_network(self, context, ha_network, tenant_id):
+        try:
+            self._delete_ha_network(context, ha_network)
+        except (n_exc.NetworkNotFound,
+                orm.exc.ObjectDeletedError):
+            LOG.debug(
+                "HA network for tenant %s was already deleted.", tenant_id)
+        except sa.exc.InvalidRequestError:
+            LOG.info(_LI("HA network %s can not be deleted."),
+                     ha_network.network_id)
+        except n_exc.NetworkInUse:
+            # network is still in use, this is normal so we don't
+            # log anything
+            pass
+        else:
+            LOG.info(_LI("HA network %(network)s was deleted as "
+                         "no HA routers are present in tenant "
+                         "%(tenant)s."),
+                     {'network': ha_network.network_id, 'tenant': tenant_id})
+
     def delete_router(self, context, id):
         router_db = self._get_router(context, id)
         super(L3_HA_NAT_db_mixin, self).delete_router(context, id)
@@ -584,30 +612,11 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             if ha_network:
                 self._delete_vr_id_allocation(
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
-                self._delete_ha_interfaces(context, router_db.id)
 
                 # always attempt to cleanup the network as the router is
                 # deleted. the core plugin will stop us if its in use
-                try:
-                    self._delete_ha_network(context, ha_network)
-                except (n_exc.NetworkNotFound,
-                        orm.exc.ObjectDeletedError):
-                    LOG.debug(
-                        "HA network for tenant %s was already deleted.",
-                        router_db.tenant_id)
-                except sa.exc.InvalidRequestError:
-                    LOG.info(_LI("HA network %s can not be deleted."),
-                             ha_network.network_id)
-                except n_exc.NetworkInUse:
-                    # network is still in use, this is normal so we don't
-                    # log anything
-                    pass
-                else:
-                    LOG.info(_LI("HA network %(network)s was deleted as "
-                                 "no HA routers are present in tenant "
-                                 "%(tenant)s."),
-                             {'network': ha_network.network_id,
-                              'tenant': router_db.tenant_id})
+                self.safe_delete_ha_network(context, ha_network,
+                                            router_db.tenant_id)
 
     def _unbind_ha_router(self, context, router_id):
         for agent in self.get_l3_agents_hosting_routers(context, [router_id]):
@@ -646,7 +655,8 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             dead_agents = [
                 binding.agent for binding in bindings
                 if binding.state == n_const.HA_ROUTER_STATE_ACTIVE and
-                not binding.agent.is_active]
+                not (binding.agent.is_active and binding.agent.admin_state_up)]
+
             for dead_agent in dead_agents:
                 self.update_routers_states(
                     context, {router_id: n_const.HA_ROUTER_STATE_STANDBY},
@@ -686,7 +696,15 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                                                     routers_dict.keys(),
                                                     host)
         for binding in bindings:
-            port_dict = self._core_plugin._make_port_dict(binding.port)
+            port = binding.port
+            if not port:
+                # Filter the HA router has no ha port here
+                LOG.info(_LI("HA router %s is missing HA router port "
+                             "bindings. Skipping it."),
+                         binding.router_id)
+                routers_dict.pop(binding.router_id)
+                continue
+            port_dict = self._core_plugin._make_port_dict(port)
 
             router = routers_dict.get(binding.router_id)
             router[constants.HA_INTERFACE_KEY] = port_dict
@@ -697,14 +715,16 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             if interface:
                 self._populate_mtu_and_subnets_for_ports(context, [interface])
 
+        # Could not filter the HA_INTERFACE_KEY here, because a DVR router
+        # with SNAT HA in DVR compute host also does not have that attribute.
         return list(routers_dict.values())
 
     @log_helpers.log_method_call
     def get_ha_sync_data_for_host(self, context, host, agent,
                                   router_ids=None, active=None):
         agent_mode = self._get_agent_mode(agent)
-        dvr_agent_mode = (agent_mode in [n_const.L3_AGENT_MODE_DVR_SNAT,
-                                         n_const.L3_AGENT_MODE_DVR])
+        dvr_agent_mode = (agent_mode in [constants.L3_AGENT_MODE_DVR_SNAT,
+                                         constants.L3_AGENT_MODE_DVR])
         if (dvr_agent_mode and n_utils.is_extension_supported(
                 self, constants.L3_DISTRIBUTED_EXT_ALIAS)):
             # DVR has to be handled differently

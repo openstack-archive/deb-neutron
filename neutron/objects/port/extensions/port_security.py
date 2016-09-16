@@ -1,5 +1,3 @@
-# Copyright 2013 VMware, Inc.  All rights reserved.
-#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -13,22 +11,16 @@
 #    under the License.
 
 from oslo_versionedobjects import base as obj_base
-from oslo_versionedobjects import fields as obj_fields
 
-from neutron.db import portsecurity_db_common as models
-from neutron.objects import base
+from neutron.db.port_security import models
+from neutron.objects.extensions import port_security as base_ps
 
 
 @obj_base.VersionedObjectRegistry.register
-class PortSecurity(base.NeutronDbObject):
+class PortSecurity(base_ps._PortSecurity):
     # Version 1.0: Initial version
     VERSION = "1.0"
 
+    fields_need_translation = {'id': 'port_id'}
+
     db_model = models.PortSecurityBinding
-
-    primary_keys = ['port_id']
-
-    fields = {
-        'port_id': obj_fields.UUIDField(),
-        'port_security_enabled': obj_fields.BooleanField(default=True),
-    }

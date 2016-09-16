@@ -15,6 +15,7 @@
 #    under the License.
 
 import collections
+import contextlib
 import sys
 import time
 
@@ -23,13 +24,17 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_service import loopingcall
 from oslo_service import service
+from oslo_utils import excutils
 from osprofiler import profiler
 
 from neutron._i18n import _LE, _LI
-from neutron.agent.l2.extensions import manager as ext_manager
+from neutron.agent.l2 import l2_agent_extensions_manager as ext_manager
 from neutron.agent import rpc as agent_rpc
 from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.api.rpc.callbacks import resources
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources as local_resources
 from neutron.common import config as common_config
 from neutron.common import constants as n_const
 from neutron.common import topics
@@ -167,7 +172,7 @@ class CommonAgentLoop(service.Service):
     def init_extension_manager(self, connection):
         ext_manager.register_opts(cfg.CONF)
         self.ext_manager = (
-            ext_manager.AgentExtensionsManager(cfg.CONF))
+            ext_manager.L2AgentExtensionsManager(cfg.CONF))
         self.ext_manager.initialize(
             connection, self.mgr.get_extension_driver_type())
 
@@ -216,7 +221,15 @@ class CommonAgentLoop(service.Service):
             return True
 
         for device_details in devices_details_list:
-            device = device_details['device']
+            self._process_device_if_exists(device_details)
+        # no resync is needed
+        return False
+
+    def _process_device_if_exists(self, device_details):
+        # ignore exceptions from devices that disappear because they will
+        # be handled as removed in the next iteration
+        device = device_details['device']
+        with self._ignore_missing_device_exceptions(device):
             LOG.debug("Port %s added", device)
 
             if 'port_id' in device_details:
@@ -293,10 +306,22 @@ class CommonAgentLoop(service.Service):
                                            device_details['port_id'],
                                            device_details['device'])
                 self.ext_manager.handle_port(self.context, device_details)
+                registry.notify(local_resources.PORT_DEVICE,
+                                events.AFTER_UPDATE, self,
+                                context=self.context,
+                                device_details=device_details)
             else:
                 LOG.info(_LI("Device %s not defined on plugin"), device)
-        # no resync is needed
-        return False
+
+    @contextlib.contextmanager
+    def _ignore_missing_device_exceptions(self, device):
+        try:
+            yield
+        except Exception:
+            with excutils.save_and_reraise_exception() as ectx:
+                if device not in self.mgr.get_all_devices():
+                    ectx.reraise = False
+                    LOG.debug("%s was removed during processing.", device)
 
     def treat_devices_removed(self, devices):
         resync = False
@@ -321,6 +346,9 @@ class CommonAgentLoop(service.Service):
             self.ext_manager.delete_port(self.context,
                                          {'device': device,
                                           'port_id': port_id})
+            registry.notify(local_resources.PORT_DEVICE, events.AFTER_DELETE,
+                            self, context=self.context, device=device,
+                            port_id=port_id)
         if self.prevent_arp_spoofing:
             self.mgr.delete_arp_spoofing_protection(devices)
         return resync

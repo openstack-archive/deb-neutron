@@ -15,11 +15,12 @@
 
 import sys
 
+from neutron_lib import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 
 from neutron._i18n import _, _LE, _LW
-from neutron.agent.l2 import agent_extension
+from neutron.agent.l2 import l2_agent_extension
 from neutron.agent.linux import bridge_lib
 from neutron.common import utils as n_utils
 from neutron.plugins.ml2.drivers.linuxbridge.agent.common import (
@@ -41,7 +42,8 @@ cfg.CONF.register_opts(fdb_population_opt, 'FDB')
 LOG = logging.getLogger(__name__)
 
 
-class FdbPopulationAgentExtension(agent_extension.AgentCoreResourceExtension):
+class FdbPopulationAgentExtension(
+        l2_agent_extension.L2AgentExtension):
     """The FDB population is an agent extension to OVS or linux bridge
     who's objective is to update the FDB table for existing instance
     using normal port, thus enabling communication between SR-IOV instances
@@ -54,11 +56,18 @@ class FdbPopulationAgentExtension(agent_extension.AgentCoreResourceExtension):
     # - device owner "compute": updates the FDB with normal port instances,
     #       required in order to enable communication between
     #       SR-IOV direct port instances and normal port instance.
-    # - device owner "router_interface": updates the FDB woth OVS/LB ports,
+    # - device owner "router_interface": updates the FDB with OVS/LB ports,
     #       required in order to enable communication for SR-IOV instances
     #       with floating ip that are located with the network node.
-    # - device owner "DHCP": not required because messages are broadcast.
-    PERMITTED_DEVICE_OWNERS = {'compute', 'network:router_interface'}
+    # - device owner "DHCP": updates the FDB with the dhcp server.
+    #       When the lease expires a unicast renew message is sent
+    #       to the dhcp server. In case the FDB is not updated
+    #       the message will be sent to the wire, causing the message
+    #       to get lost in case the sender uses direct port and is
+    #       located on the same hypervisor as the network node.
+    PERMITTED_DEVICE_OWNERS = {constants.DEVICE_OWNER_COMPUTE_PREFIX,
+                               constants.DEVICE_OWNER_ROUTER_INTF,
+                               constants.DEVICE_OWNER_DHCP}
 
     class FdbTableTracker(object):
         """FDB table tracker is a helper class
@@ -79,8 +88,8 @@ class FdbPopulationAgentExtension(agent_extension.AgentCoreResourceExtension):
                 self.device_to_macs[device] = _stdout.split()[::3]
 
         def update_port(self, device, port_id, mac):
-            # check if port id is updated
-            if self.portid_to_mac.get(port_id) == mac:
+            # check if device is updated
+            if self.device_to_macs.get(device) == mac:
                 return
             # delete invalid port_id's mac from the FDB,
             # in case the port was updated to another mac

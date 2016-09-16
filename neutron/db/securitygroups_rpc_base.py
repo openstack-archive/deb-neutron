@@ -16,12 +16,13 @@
 import netaddr
 from neutron_lib import constants as const
 from oslo_log import log as logging
+from oslo_utils import netutils
 from sqlalchemy.orm import exc
 
 from neutron._i18n import _, _LW
-from neutron.common import ipv6_utils as ipv6
 from neutron.common import utils
-from neutron.db.allowed_address_pairs import models as addr_pair
+from neutron.db.models import allowed_address_pair as aap_models
+from neutron.db.models import securitygroup as sg_models
 from neutron.db import models_v2
 from neutron.db import securitygroups_db as sg_db
 from neutron.extensions import securitygroup as ext_sg
@@ -234,8 +235,8 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
     def _select_sg_ids_for_ports(self, context, ports):
         if not ports:
             return []
-        sg_binding_port = sg_db.SecurityGroupPortBinding.port_id
-        sg_binding_sgid = sg_db.SecurityGroupPortBinding.security_group_id
+        sg_binding_port = sg_models.SecurityGroupPortBinding.port_id
+        sg_binding_sgid = sg_models.SecurityGroupPortBinding.security_group_id
         query = context.session.query(sg_binding_sgid)
         query = query.filter(sg_binding_port.in_(ports.keys()))
         return query.all()
@@ -243,14 +244,14 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
     def _select_rules_for_ports(self, context, ports):
         if not ports:
             return []
-        sg_binding_port = sg_db.SecurityGroupPortBinding.port_id
-        sg_binding_sgid = sg_db.SecurityGroupPortBinding.security_group_id
+        sg_binding_port = sg_models.SecurityGroupPortBinding.port_id
+        sg_binding_sgid = sg_models.SecurityGroupPortBinding.security_group_id
 
-        sgr_sgid = sg_db.SecurityGroupRule.security_group_id
+        sgr_sgid = sg_models.SecurityGroupRule.security_group_id
 
         query = context.session.query(sg_binding_port,
-                                      sg_db.SecurityGroupRule)
-        query = query.join(sg_db.SecurityGroupRule,
+                                      sg_models.SecurityGroupRule)
+        query = query.join(sg_models.SecurityGroupRule,
                            sgr_sgid == sg_binding_sgid)
         query = query.filter(sg_binding_port.in_(ports.keys()))
         return query.all()
@@ -263,21 +264,21 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
             ips_by_group[remote_group_id] = set()
 
         ip_port = models_v2.IPAllocation.port_id
-        sg_binding_port = sg_db.SecurityGroupPortBinding.port_id
-        sg_binding_sgid = sg_db.SecurityGroupPortBinding.security_group_id
+        sg_binding_port = sg_models.SecurityGroupPortBinding.port_id
+        sg_binding_sgid = sg_models.SecurityGroupPortBinding.security_group_id
 
         # Join the security group binding table directly to the IP allocation
         # table instead of via the Port table skip an unnecessary intermediary
         query = context.session.query(sg_binding_sgid,
                                       models_v2.IPAllocation.ip_address,
-                                      addr_pair.AllowedAddressPair.ip_address)
+                                      aap_models.AllowedAddressPair.ip_address)
         query = query.join(models_v2.IPAllocation,
                            ip_port == sg_binding_port)
         # Outerjoin because address pairs may be null and we still want the
         # IP for the port.
         query = query.outerjoin(
-            addr_pair.AllowedAddressPair,
-            sg_binding_port == addr_pair.AllowedAddressPair.port_id)
+            aap_models.AllowedAddressPair,
+            sg_binding_port == aap_models.AllowedAddressPair.port_id)
         query = query.filter(sg_binding_sgid.in_(remote_group_ids))
         # Each allowed address pair IP record for a port beyond the 1st
         # will have a duplicate regular IP in the query response since
@@ -318,7 +319,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
         for mac_address, network_id, ip in query:
             if (netaddr.IPAddress(ip).version == 6
                 and not netaddr.IPAddress(ip).is_link_local()):
-                ip = str(ipv6.get_ipv6_addr_by_EUI64(const.IPv6_LLA_PREFIX,
+                ip = str(netutils.get_ipv6_addr_by_EUI64(const.IPv6_LLA_PREFIX,
                     mac_address))
             if ip not in ips[network_id]:
                 ips[network_id].append(ip)
@@ -378,7 +379,7 @@ class SecurityGroupServerRpcMixin(sg_db.SecurityGroupDbMixin):
             LOG.warning(_LW('No valid gateway port on subnet %s is '
                             'found for IPv6 RA'), subnet['id'])
             return
-        lla_ip = str(ipv6.get_ipv6_addr_by_EUI64(
+        lla_ip = str(netutils.get_ipv6_addr_by_EUI64(
             const.IPv6_LLA_PREFIX,
             mac_address))
         return lla_ip

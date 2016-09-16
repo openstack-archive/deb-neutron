@@ -43,6 +43,12 @@ class RequestTestCase(base.BaseTestCase):
         result = request.get_content_type()
         self.assertEqual("application/json", result)
 
+    def test_content_type_with_partial_matched_string(self):
+        request = wsgi.Request.blank('/tests/123')
+        request.headers["Content-Type"] = "application/j"
+        result = request.best_match_content_type()
+        self.assertEqual("application/json", result)
+
     def test_content_type_from_accept(self):
         content_type = 'application/json'
         request = wsgi.Request.blank('/tests/123')
@@ -93,7 +99,7 @@ class RequestTestCase(base.BaseTestCase):
 
     def test_request_context_elevated(self):
         user_context = context.Context(
-            'fake_user', 'fake_project', admin=False)
+            'fake_user', 'fake_project', is_admin=False)
         self.assertFalse(user_context.is_admin)
         admin_context = user_context.elevated()
         self.assertFalse(user_context.is_admin)

@@ -15,16 +15,17 @@
 import math
 
 import netaddr
-from neutron_lib import constants as n_const
+from neutron_lib import constants
 from oslo_config import cfg
 
-from neutron.common import constants
 from neutron.common import utils
 from neutron import context
 from neutron.db import db_base_plugin_v2
 from neutron.extensions import dns
 from neutron import manager
+from neutron.plugins.ml2 import config
 from neutron.tests.unit.db import test_db_base_plugin_v2
+from neutron.tests.unit.plugins.ml2 import test_plugin
 
 
 class DnsExtensionManager(object):
@@ -49,15 +50,17 @@ class DnsExtensionTestPlugin(db_base_plugin_v2.NeutronDbPluginV2):
     supported_extension_aliases = ["dns-integration", "router"]
 
 
-class DnsExtensionTestCase(test_db_base_plugin_v2.TestNetworksV2):
+class DnsExtensionTestCase(test_plugin.Ml2PluginV2TestCase):
     """Test API extension dns attributes.
     """
 
+    _extension_drivers = ['dns']
+
     def setUp(self):
-        plugin = ('neutron.tests.unit.extensions.test_dns.' +
-                  'DnsExtensionTestPlugin')
-        ext_mgr = DnsExtensionManager()
-        super(DnsExtensionTestCase, self).setUp(plugin=plugin, ext_mgr=ext_mgr)
+        config.cfg.CONF.set_override('extension_drivers',
+                                     self._extension_drivers,
+                                     group='ml2')
+        super(DnsExtensionTestCase, self).setUp()
 
     def _create_network(self, fmt, name, admin_state_up,
                         arg_list=None, set_context=False, tenant_id=None,
@@ -88,7 +91,7 @@ class DnsExtensionTestCase(test_db_base_plugin_v2.TestNetworksV2):
                 data['port'][arg] = kwargs[arg]
         # create a dhcp port device id if one hasn't been supplied
         if ('device_owner' in kwargs and
-            kwargs['device_owner'] == n_const.DEVICE_OWNER_DHCP and
+            kwargs['device_owner'] == constants.DEVICE_OWNER_DHCP and
             'host' in kwargs and
             'device_id' not in kwargs):
             device_id = utils.get_dhcp_agent_device_id(net_id, kwargs['host'])
@@ -495,6 +498,16 @@ class DnsExtensionTestCase(test_db_base_plugin_v2.TestNetworksV2):
             res = self._create_port(self.fmt, net_id=network['network']['id'],
                                     dns_name=dns_name)
             self.assertEqual(201, res.status_code)
+
+
+class DnsExtensionTestNetworkDnsDomain(
+    test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
+    def setUp(self):
+        plugin = ('neutron.tests.unit.extensions.test_dns.' +
+                  'DnsExtensionTestPlugin')
+        ext_mgr = DnsExtensionManager()
+        super(DnsExtensionTestNetworkDnsDomain, self).setUp(
+            plugin=plugin, ext_mgr=ext_mgr)
 
     def test_update_network_dns_domain(self):
         with self.network() as network:
