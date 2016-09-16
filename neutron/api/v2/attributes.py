@@ -13,8 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import sys
-
 from debtcollector import moves
 from neutron_lib.api import converters as lib_converters
 from neutron_lib.api import validators as lib_validators
@@ -24,13 +22,12 @@ import webob.exc
 
 from neutron._i18n import _
 from neutron.common import _deprecate
-from neutron.common import constants as n_const
 
 
 # Defining a constant to avoid repeating string literal in several modules
 SHARED = 'shared'
 
-_deprecate._DeprecateSubset.and_also('UNLIMITED', lib_validators)
+_deprecate._moved_global('UNLIMITED', new_module=lib_validators)
 
 # TODO(HenryG): use DB field sizes (neutron-lib 0.1.1)
 NAME_MAX_LEN = 255
@@ -105,9 +102,9 @@ convert_none_to_empty_dict = _lib('convert_none_to_empty_dict')
 convert_to_list = _lib('convert_to_list')
 
 
-_deprecate._DeprecateSubset.and_also('MAC_PATTERN', lib_validators)
+_deprecate._moved_global('MAC_PATTERN', new_module=lib_validators)
 
-_deprecate._DeprecateSubset.and_also('validators', lib_validators)
+_deprecate._moved_global('validators', new_module=lib_validators)
 
 
 # Define constants for base resource name
@@ -280,12 +277,12 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'is_visible': True},
         'ipv6_ra_mode': {'allow_post': True, 'allow_put': False,
                          'default': constants.ATTR_NOT_SPECIFIED,
-                         'validate': {'type:values': n_const.IPV6_MODES},
+                         'validate': {'type:values': constants.IPV6_MODES},
                          'is_visible': True},
         'ipv6_address_mode': {'allow_post': True, 'allow_put': False,
                               'default': constants.ATTR_NOT_SPECIFIED,
                               'validate': {'type:values':
-                                           n_const.IPV6_MODES},
+                                           constants.IPV6_MODES},
                               'is_visible': True},
         SHARED: {'allow_post': False,
                  'allow_put': False,
@@ -430,8 +427,9 @@ def convert_value(attr_info, res_dict, exc_cls=ValueError):
         if 'validate' not in attr_vals:
             continue
         for rule in attr_vals['validate']:
-            res = lib_validators.validators[rule](res_dict[attr],
-                                                  attr_vals['validate'][rule])
+            validator = lib_validators.get_validator(rule)
+            res = validator(res_dict[attr], attr_vals['validate'][rule])
+
             if res:
                 msg_dict = dict(attr=attr, reason=res)
                 msg = _("Invalid input for %(attr)s. "
@@ -467,16 +465,8 @@ def verify_attributes(res_dict, attr_info):
 # ATTR_NOT_SPECIFIED
 # HEX_ELEM
 # UUID_PATTERN
-
-# Neutron-lib migration shim. This will wrap any constants that are moved
-# to that library in a deprecation warning, until they can be updated to
-# import directly from their new location.
-# If you're wondering why we bother saving _OLD_REF, it is because if we
-# do not, then the original module we are overwriting gets garbage collected,
-# and then you will find some super strange behavior with inherited classes
-# and the like. Saving a ref keeps it around.
-
-# WARNING: THESE MUST BE THE LAST TWO LINES IN THIS MODULE
-_OLD_REF = sys.modules[__name__]
-sys.modules[__name__] = _deprecate._DeprecateSubset(globals(), constants)
-# WARNING: THESE MUST BE THE LAST TWO LINES IN THIS MODULE
+#
+# Neutron-lib migration shim. This will emit a deprecation warning on any
+# reference to constants that have been moved out of this module and into
+# the neutron_lib.constants module.
+_deprecate._MovedGlobals(constants)

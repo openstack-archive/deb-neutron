@@ -7,9 +7,9 @@
 # Andreas Jaeger <jaegerandi@gmail.com>, 2016. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 9.0.0.0b2.dev347\n"
+"Project-Id-Version: neutron 9.0.0.0b3.dev409\n"
 "Report-Msgid-Bugs-To: https://bugs.launchpad.net/openstack-i18n/\n"
-"POT-Creation-Date: 2016-07-03 04:49+0000\n"
+"POT-Creation-Date: 2016-08-18 18:59+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -1399,14 +1399,6 @@ msgstr "El tipo no está habilitado."
 msgid "Floating IP %(floatingip_id)s could not be found"
 msgstr "No se ha podido encontrar la IP flotante %(floatingip_id)s."
 
-#, python-format
-msgid ""
-"Floating IP %(floatingip_id)s is associated with non-IPv4 address "
-"%s(internal_ip)s and therefore cannot be bound."
-msgstr ""
-"La IP flotante %(floatingip_id)s está asociada con una dirección no IPv4 "
-"%s(internal_ip)s y, por tanto, no se puede enlazar."
-
 msgid "For TCP/UDP protocols, port_range_min must be <= port_range_max"
 msgstr "Para los protocolos TCP/UDP, port_range_min debe ser <= port_range_max"
 
@@ -1892,9 +1884,6 @@ msgstr ""
 "con nombres de physical_network arbitrarios.  Utillice una lista vacía para "
 "deshabilitar las redes simples."
 
-msgid "Local IP address of the VXLAN endpoints."
-msgstr "Dirección IP local de puntos finales VXLAN."
-
 msgid "Location for Metadata Proxy UNIX domain socket."
 msgstr "Ubicación para socket de dominio UNIX de proxy de metadatos."
 
@@ -1941,15 +1930,6 @@ msgstr ""
 "VXLAN, neutron automáticamente sustrae el protocolo de superposición por "
 "encima de este valor. El valor predeterminado es 1500, que es el valor "
 "estándar para Ethernet."
-
-msgid ""
-"MTU setting for device. This option will be removed in Newton. Please use "
-"the system-wide segment_mtu setting which the agents will take into account "
-"when wiring VIFs."
-msgstr ""
-"Parámetro MTU para el dispositivo. Esta opción se eliminará en Newton. "
-"Utilice el parámetro system-wide segment_mtu, que los agentes tendrán en "
-"cuenta al conectar las VIF."
 
 msgid "MTU size of veth interfaces"
 msgstr "Tamaño de MTU de la interfaz de veth"
@@ -2030,9 +2010,6 @@ msgid ""
 msgstr ""
 "Regla de etiqueta de medición con remote_ip_prefix %(remote_ip_prefix)s se "
 "solapa otro"
-
-msgid "Method cannot be called within a transaction."
-msgstr "No se puede llamar a este método dentro de una transacción."
 
 msgid "Migration from distributed router to centralized is not supported"
 msgstr "No se admite migrar de un direccionador distribuido a uno centralizado"
@@ -2129,17 +2106,6 @@ msgstr "El nombre '%s' no debe comenzar o terminar con un guión."
 
 msgid "Name of Open vSwitch bridge to use"
 msgstr "Nombre de puente de Open vSwitch a utilizar"
-
-msgid ""
-"Name of bridge used for external network traffic. This should be set to an "
-"empty value for the Linux Bridge. When this parameter is set, each L3 agent "
-"can be associated with no more than one external network. This option is "
-"deprecated and will be removed in the M release."
-msgstr ""
-"Nombre del puente utilizado para el tráfico de red externa. Se debe "
-"establecer a un valor vacío para el puente Linux. Cuando este parámetro está "
-"definido, se puede asociar cada uno de los agentes L3 a no más de una red "
-"externa. Esta opción está en desuso y se eliminará en el release M. "
 
 msgid ""
 "Name of nova region to use. Useful if keystone manages more than one region."
@@ -2784,13 +2750,6 @@ msgstr ""
 msgid "Resource body required"
 msgstr "Se necesita cuerpo de recurso"
 
-msgid ""
-"Resource name(s) that are supported in quota features. This option is now "
-"deprecated for removal."
-msgstr ""
-"Nombres de recursos soportados en las características de cuota. Esta opción "
-"está en desuso para su eliminación."
-
 msgid "Resource not found."
 msgstr "Recurso no encontrado."
 
@@ -3432,14 +3391,6 @@ msgstr ""
 "Hay direccionadores conectados a esta red que dependen de esta política para "
 "su acceso."
 
-msgid ""
-"This will choose the web framework in which to run the Neutron API server. "
-"'pecan' is a new experiemental rewrite of the API server."
-msgstr ""
-"Con esta opción se elegirá la infraestructura web en la que ejecutar el "
-"servidor de la API Neutron. 'pecan' es una nueva reescritura experimental "
-"del servidor de API."
-
 msgid "Timeout"
 msgstr "Tiempo de espera"
 
@@ -4023,14 +3974,6 @@ msgid ""
 msgstr ""
 "El parámetro de configuración max_l3_agents_per_router %(max_agents)s no es "
 "válido. Debe ser mayor o igual que min_l3_agents_per_router %(min_agents)s."
-
-#, python-format
-msgid ""
-"min_l3_agents_per_router config parameter is not valid. It has to be equal "
-"to or more than %s for HA."
-msgstr ""
-"El parámetro de configuración min_l3_agents_per_router no es válido. Tiene "
-"que ser igual o mayor que %s para HA."
 
 msgid "must provide exactly 2 arguments - cidr and MAC"
 msgstr "debe dar exactamente 2 argumentos: cidr y MAC"

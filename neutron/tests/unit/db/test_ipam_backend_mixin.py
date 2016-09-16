@@ -18,7 +18,6 @@ import netaddr
 from neutron_lib import constants
 import webob.exc
 
-from neutron.common import constants as n_const
 from neutron.db import db_base_plugin_v2
 from neutron.db import ipam_backend_mixin
 from neutron.db import portbindings_db
@@ -41,18 +40,36 @@ class TestIpamBackendMixin(base.BaseTestCase):
         self.owner_router = constants.DEVICE_OWNER_ROUTER_INTF
 
     def _prepare_ips(self, ips):
-        return [{'ip_address': ip[1],
-                 'subnet_id': ip[0]} for ip in ips]
+        results = []
+        for ip in ips:
+            ip_dict = {'ip_address': ip[1],
+                       'subnet_id': ip[0]}
+            if len(ip) > 2:
+                ip_dict['delete_subnet'] = ip[2]
+            results.append(ip_dict)
+        return results
 
     def _mock_slaac_subnet_on(self):
-        slaac_subnet = {'ipv6_address_mode': n_const.IPV6_SLAAC,
-                        'ipv6_ra_mode': n_const.IPV6_SLAAC}
+        slaac_subnet = {'ipv6_address_mode': constants.IPV6_SLAAC,
+                        'ipv6_ra_mode': constants.IPV6_SLAAC}
         self.mixin._get_subnet = mock.Mock(return_value=slaac_subnet)
 
     def _mock_slaac_subnet_off(self):
         non_slaac_subnet = {'ipv6_address_mode': None,
                             'ipv6_ra_mode': None}
         self.mixin._get_subnet = mock.Mock(return_value=non_slaac_subnet)
+
+    def _mock_slaac_for_subnet_ids(self, subnet_ids):
+        """Mock incoming subnets as autoaddressed."""
+        def _get_subnet(context, subnet_id):
+            if subnet_id in subnet_ids:
+                return {'ipv6_address_mode': constants.IPV6_SLAAC,
+                        'ipv6_ra_mode': constants.IPV6_SLAAC}
+            else:
+                return {'ipv6_address_mode': None,
+                        'ipv6_ra_mode': None}
+
+        self.mixin._get_subnet = mock.Mock(side_effect=_get_subnet)
 
     def _test_get_changed_ips_for_port(self, expected_change, original_ips,
                                        new_ips, owner):
@@ -87,6 +104,26 @@ class TestIpamBackendMixin(base.BaseTestCase):
         self._test_get_changed_ips_for_port(expected_change, original_ips,
                                             new_ips, self.owner_non_router)
 
+    def test__get_changed_ips_for_port_remove_autoaddress(self):
+        new = (('id-5', '2000:1234:5678::12FF:FE34:5678', True),
+               ('id-1', '192.168.1.1'))
+        new_ips = self._prepare_ips(new)
+        reference_ips = [ip for ip in new_ips
+                         if ip['subnet_id'] == 'id-1']
+
+        original = (('id-5', '2000:1234:5678::12FF:FE34:5678'),)
+        original_ips = self._prepare_ips(original)
+
+        # mock ipv6 subnet as auto addressed and leave ipv4 as regular
+        self._mock_slaac_for_subnet_ids([new[0][0]])
+        # Autoaddressed ip allocation has to be removed
+        # if it has 'delete_subnet' flag set to True
+        expected_change = self.mixin.Changes(add=reference_ips,
+                                             original=[],
+                                             remove=original_ips)
+        self._test_get_changed_ips_for_port(expected_change, original_ips,
+                                            new_ips, self.owner_non_router)
+
     def test__get_changed_ips_for_port_autoaddress_ipv6_pd_enabled(self):
         owner_not_router = constants.DEVICE_OWNER_DHCP
         new_ips = self._prepare_ips(self.default_new_ips)
@@ -97,8 +134,8 @@ class TestIpamBackendMixin(base.BaseTestCase):
 
         # mock to test auto address part
         pd_subnet = {'subnetpool_id': constants.IPV6_PD_POOL_ID,
-                     'ipv6_address_mode': n_const.IPV6_SLAAC,
-                     'ipv6_ra_mode': n_const.IPV6_SLAAC}
+                     'ipv6_address_mode': constants.IPV6_SLAAC,
+                     'ipv6_ra_mode': constants.IPV6_SLAAC}
         self.mixin._get_subnet = mock.Mock(return_value=pd_subnet)
 
         # make a copy of original_ips
@@ -222,5 +259,4 @@ class TestPortUpdateIpam(test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
 
 class TestPortUpdateIpamML2(TestPortUpdateIpam):
     def setUp(self):
-        super(TestPortUpdateIpamML2, self).setUp(
-            plugin='neutron.plugins.ml2.plugin.Ml2Plugin')
+        super(TestPortUpdateIpamML2, self).setUp(plugin='ml2')

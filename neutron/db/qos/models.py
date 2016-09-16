@@ -13,18 +13,20 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron_lib.db import model_base
 import sqlalchemy as sa
 
 from neutron.api.v2 import attributes as attrs
-from neutron.db import model_base
+from neutron.common import constants
 from neutron.db import models_v2
 from neutron.db import rbac_db_models
+from neutron.db import standard_attr
 
 
-class QosPolicy(model_base.BASEV2, model_base.HasId, model_base.HasTenant):
+class QosPolicy(standard_attr.HasStandardAttributes, model_base.BASEV2,
+                model_base.HasId, model_base.HasProject):
     __tablename__ = 'qos_policies'
     name = sa.Column(sa.String(attrs.NAME_MAX_LEN))
-    description = sa.Column(sa.String(attrs.DESCRIPTION_MAX_LEN))
     rbac_entries = sa.orm.relationship(rbac_db_models.QosPolicyRBAC,
                                        backref='qos_policy', lazy='joined',
                                        cascade='all, delete, delete-orphan')
@@ -77,9 +79,11 @@ class QosBandwidthLimitRule(model_base.HasId, model_base.BASEV2):
                               unique=True)
     max_kbps = sa.Column(sa.Integer)
     max_burst_kbps = sa.Column(sa.Integer)
+    revises_on_change = ('qos_policy', )
+    qos_policy = sa.orm.relationship(QosPolicy)
 
 
-class QosDscpMarkingRule(models_v2.HasId, model_base.BASEV2):
+class QosDscpMarkingRule(model_base.HasId, model_base.BASEV2):
     __tablename__ = 'qos_dscp_marking_rules'
     qos_policy_id = sa.Column(sa.String(36),
                               sa.ForeignKey('qos_policies.id',
@@ -87,3 +91,29 @@ class QosDscpMarkingRule(models_v2.HasId, model_base.BASEV2):
                               nullable=False,
                               unique=True)
     dscp_mark = sa.Column(sa.Integer)
+    revises_on_change = ('qos_policy', )
+    qos_policy = sa.orm.relationship(QosPolicy)
+
+
+class QosMinimumBandwidthRule(models_v2.HasId, model_base.BASEV2):
+    __tablename__ = 'qos_minimum_bandwidth_rules'
+    qos_policy_id = sa.Column(sa.String(36),
+                              sa.ForeignKey('qos_policies.id',
+                                            ondelete='CASCADE'),
+                              nullable=False,
+                              index=True)
+    min_kbps = sa.Column(sa.Integer)
+    direction = sa.Column(sa.Enum(constants.EGRESS_DIRECTION,
+                                  constants.INGRESS_DIRECTION,
+                                  name='directions'),
+                          nullable=False,
+                          server_default=constants.EGRESS_DIRECTION)
+    revises_on_change = ('qos_policy', )
+    qos_policy = sa.orm.relationship(QosPolicy)
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            qos_policy_id, direction,
+            name='qos_minimum_bandwidth_rules0qos_policy_id0direction'),
+        model_base.BASEV2.__table_args__
+    )

@@ -15,16 +15,15 @@
 
 import mock
 from neutron_lib import constants
+from neutron_lib import exceptions
 from oslo_serialization import jsonutils
 import testtools
 
-from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron import context
 from neutron.extensions import portbindings
 from neutron.extensions import providernet as pnet
 from neutron import manager
-from neutron.plugins.ml2.common import exceptions as ml2_exc
 from neutron.plugins.ml2 import driver_context
 from neutron.plugins.ml2.drivers.l2pop import db as l2pop_db
 from neutron.plugins.ml2.drivers.l2pop import mech_driver as l2pop_mech_driver
@@ -435,7 +434,7 @@ class TestL2PopulationRpcTestCase(test_plugin.Ml2PluginV2TestCase):
                 cidr='2001:db8::/64',
                 ip_version=6,
                 gateway_ip='fe80::1',
-                ipv6_address_mode=n_const.IPV6_SLAAC) as subnet2:
+                ipv6_address_mode=constants.IPV6_SLAAC) as subnet2:
             with self.port(
                 subnet,
                 fixed_ips=[{'subnet_id': subnet['subnet']['id']},
@@ -912,7 +911,7 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
     def _test_create_agent_fdb(self, fdb_network_ports, agent_ips):
         mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
         tunnel_network_ports, tunnel_agent = (
-            self._mock_network_ports(HOST + '1', None))
+            self._mock_network_ports(HOST + '1', [None]))
         agent_ips[tunnel_agent] = '10.0.0.1'
 
         def agent_ip_side_effect(agent):
@@ -935,17 +934,17 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                                                  segment,
                                                  'network_id')
 
-    def _mock_network_ports(self, host_name, binding):
+    def _mock_network_ports(self, host_name, bindings):
         agent = mock.Mock()
         agent.host = host_name
-        return [(binding, agent)], agent
+        return [(binding, agent) for binding in bindings], agent
 
     def test_create_agent_fdb(self):
         binding = mock.Mock()
         binding.port = {'mac_address': '00:00:DE:AD:BE:EF',
                         'fixed_ips': [{'ip_address': '1.1.1.1'}]}
         fdb_network_ports, fdb_agent = (
-            self._mock_network_ports(HOST + '2', binding))
+            self._mock_network_ports(HOST + '2', [binding]))
         agent_ips = {fdb_agent: '20.0.0.1'}
 
         agent_fdb = self._test_create_agent_fdb(fdb_network_ports,
@@ -975,6 +974,33 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                             [constants.FLOODING_ENTRY]}}
         self.assertEqual(expected_result, result)
 
+    def test_create_agent_fdb_concurrent_port_deletion(self):
+        binding = mock.Mock()
+        binding.port = {'mac_address': '00:00:DE:AD:BE:EF',
+                        'fixed_ips': [{'ip_address': '1.1.1.1'}]}
+        binding2 = mock.Mock()
+        # the port was deleted
+        binding2.port = None
+        fdb_network_ports, fdb_agent = (
+            self._mock_network_ports(HOST + '2', [binding, binding2]))
+        agent_ips = {fdb_agent: '20.0.0.1'}
+
+        agent_fdb = self._test_create_agent_fdb(fdb_network_ports,
+                                                agent_ips)
+        result = agent_fdb['network_id']
+
+        expected_result = {'segment_id': 1,
+                           'network_type': 'vxlan',
+                           'ports':
+                           {'10.0.0.1':
+                            [constants.FLOODING_ENTRY],
+                            '20.0.0.1':
+                            [constants.FLOODING_ENTRY,
+                             l2pop_rpc.PortInfo(
+                                 mac_address='00:00:DE:AD:BE:EF',
+                                 ip_address='1.1.1.1')]}}
+        self.assertEqual(expected_result, result)
+
     def test_update_port_precommit_mac_address_changed_raises(self):
         port = {'status': u'ACTIVE',
                 'device_owner': DEVICE_OWNER_COMPUTE,
@@ -995,5 +1021,5 @@ class TestL2PopulationMechDriver(base.BaseTestCase):
                                              original_port=original_port)
 
         mech_driver = l2pop_mech_driver.L2populationMechanismDriver()
-        with testtools.ExpectedException(ml2_exc.MechanismDriverError):
+        with testtools.ExpectedException(exceptions.InvalidInput):
             mech_driver.update_port_precommit(ctx)

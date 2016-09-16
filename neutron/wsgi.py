@@ -16,14 +16,13 @@
 """
 Utility methods for working with WSGI servers
 """
-from __future__ import print_function
-
 import errno
 import socket
 import sys
 import time
 
 import eventlet.wsgi
+from neutron.conf import wsgi as wsgi_config
 from neutron_lib import exceptions as exception
 from oslo_config import cfg
 import oslo_i18n
@@ -46,22 +45,8 @@ from neutron import context
 from neutron.db import api
 from neutron import worker as neutron_worker
 
-socket_opts = [
-    cfg.IntOpt('backlog',
-               default=4096,
-               help=_("Number of backlog requests to configure "
-                      "the socket with")),
-    cfg.IntOpt('retry_until_window',
-               default=30,
-               help=_("Number of seconds to keep retrying to listen")),
-    cfg.BoolOpt('use_ssl',
-                default=False,
-                help=_('Enable SSL on the API server')),
-]
-
 CONF = cfg.CONF
-CONF.register_opts(socket_opts)
-wsgi.register_opts(CONF)
+wsgi_config.register_socket_opts()
 
 LOG = logging.getLogger(__name__)
 
@@ -203,7 +188,7 @@ class Server(object):
             # dispose the whole pool before os.fork, otherwise there will
             # be shared DB connections in child processes which may cause
             # DB errors.
-            api.dispose()
+            api.context_manager.dispose_pool()
             # The API service runs in a number of child processes.
             # Minimize the cost of checking for child exit by extending the
             # wait interval past the default of 0.01s.
@@ -267,7 +252,7 @@ class Request(wsgi.Request):
         return bm or 'application/json'
 
     def get_content_type(self):
-        allowed_types = ("application/json")
+        allowed_types = ("application/json",)
         if "Content-Type" not in self.headers:
             LOG.debug("Missing Content-Type")
             return None

@@ -55,15 +55,18 @@ Neutron Internals
    services_and_agents
    api_layer
    ml2_ext_manager
+   calling_ml2_plugin
    quota
    api_extensions
    plugin-api
    db_layer
+   db_models
    policy
    rpc_api
    rpc_callbacks
    layer3
    l2_agents
+   agent_extensions
    ovs_vhostuser
    quality_of_service
    service_extensions

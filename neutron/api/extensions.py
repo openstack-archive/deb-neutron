@@ -38,6 +38,27 @@ from neutron import wsgi
 LOG = logging.getLogger(__name__)
 
 
+EXTENSION_SUPPORTED_CHECK_MAP = {}
+_PLUGIN_AGNOSTIC_EXTENSIONS = set()
+
+
+def register_custom_supported_check(alias, f, plugin_agnostic=False):
+    '''Register a custom function to determine if extension is supported.
+
+    Consequent calls for the same alias replace the registered function.
+
+    :param alias: API extension alias name
+    :param f: custom check function that returns True if extension is supported
+    :param plugin_agnostic: if False, don't require a plugin to claim support
+    with supported_extension_aliases. If True, a plugin must claim the
+    extension is supported.
+    '''
+
+    EXTENSION_SUPPORTED_CHECK_MAP[alias] = f
+    if plugin_agnostic:
+        _PLUGIN_AGNOSTIC_EXTENSIONS.add(alias)
+
+
 @six.add_metaclass(abc.ABCMeta)
 class PluginInterface(object):
 
@@ -506,16 +527,29 @@ class ExtensionManager(object):
                           "their requirements. Some features will not "
                           "work as expected."),
                       ', '.join(unloadable_extensions))
-            # Fail gracefully for default extensions, just in case some out
-            # of tree plugins are not entirely up to speed
-            default_extensions = set(const.DEFAULT_SERVICE_PLUGINS.values())
-            if not unloadable_extensions <= default_extensions:
-                raise exceptions.ExtensionsNotFound(
-                    extensions=list(unloadable_extensions))
-
+            self._check_faulty_extensions(unloadable_extensions)
         # Extending extensions' attributes map.
         for ext in processed_exts.values():
             ext.update_attributes_map(attr_map)
+
+    def _check_faulty_extensions(self, faulty_extensions):
+        """Raise for non-default faulty extensions.
+
+        Gracefully fail for defective default extensions, which will be
+        removed from the list of loaded extensions.
+        """
+        default_extensions = set(const.DEFAULT_SERVICE_PLUGINS.values())
+        if not faulty_extensions <= default_extensions:
+            raise exceptions.ExtensionsNotFound(
+                extensions=list(faulty_extensions))
+        else:
+            # Remove the faulty extensions so that they do not show during
+            # ext-list
+            for ext in faulty_extensions:
+                try:
+                    del self.extensions[ext]
+                except KeyError:
+                    pass
 
     def _check_extension(self, extension):
         """Checks for required methods in extension objects."""
@@ -598,8 +632,14 @@ class PluginAwareExtensionManager(ExtensionManager):
         """Check if an extension is supported by any plugin."""
         extension_is_valid = super(PluginAwareExtensionManager,
                                    self)._check_extension(extension)
-        return (extension_is_valid and
-                self._plugins_support(extension) and
+        if not extension_is_valid:
+            return False
+
+        alias = extension.get_alias()
+        if alias in EXTENSION_SUPPORTED_CHECK_MAP:
+            return EXTENSION_SUPPORTED_CHECK_MAP[alias]()
+
+        return (self._plugins_support(extension) and
                 self._plugins_implement_interface(extension))
 
     def _plugins_support(self, extension):
@@ -650,6 +690,11 @@ class PluginAwareExtensionManager(ExtensionManager):
         aliases = set()
         for plugin in self.plugins.values():
             aliases |= self.get_plugin_supported_extension_aliases(plugin)
+        aliases |= {
+            alias
+            for alias, func in EXTENSION_SUPPORTED_CHECK_MAP.items()
+            if func()
+        }
         return aliases
 
     @classmethod
@@ -660,6 +705,7 @@ class PluginAwareExtensionManager(ExtensionManager):
         """Check if an extension supported by a plugin has been loaded."""
         plugin_extensions = self.get_supported_extension_aliases()
         missing_aliases = plugin_extensions - set(self.extensions)
+        missing_aliases -= _PLUGIN_AGNOSTIC_EXTENSIONS
         if missing_aliases:
             raise exceptions.ExtensionsNotFound(
                 extensions=list(missing_aliases))

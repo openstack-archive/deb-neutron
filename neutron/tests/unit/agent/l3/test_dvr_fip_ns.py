@@ -14,6 +14,7 @@
 
 import copy
 import mock
+from oslo_config import cfg
 from oslo_utils import uuidutils
 
 from neutron.agent.common import utils
@@ -30,7 +31,7 @@ class TestDvrFipNs(base.BaseTestCase):
     def setUp(self):
         super(TestDvrFipNs, self).setUp()
         self.conf = mock.Mock()
-        self.conf.state_path = '/tmp'
+        self.conf.state_path = cfg.CONF.state_path
         self.driver = mock.Mock()
         self.driver.DEV_NAME_LEN = 14
         self.net_id = _uuid()
@@ -164,10 +165,10 @@ class TestDvrFipNs(base.BaseTestCase):
     @mock.patch.object(ip_lib.IpNetnsCommand, 'exists')
     def _test_create(self, old_kernel, exists, execute, IPTables):
         exists.return_value = True
-        # There are up to four sysctl calls - two for ip_nonlocal_bind,
-        # and two to enable forwarding
-        execute.side_effect = [RuntimeError if old_kernel else None,
-                               None, None, None]
+        # There are up to four sysctl calls - two to enable forwarding,
+        # and two for ip_nonlocal_bind
+        execute.side_effect = [None, None,
+                               RuntimeError if old_kernel else None, None]
 
         self.fip_ns._iptables_manager = IPTables()
         self.fip_ns.create()
@@ -204,9 +205,12 @@ class TestDvrFipNs(base.BaseTestCase):
         ip_wrapper.get_devices.return_value = [dev1, dev2]
 
         with mock.patch.object(self.fip_ns.ip_wrapper_root.netns,
-                               'delete') as delete:
+                               'delete') as delete,\
+                mock.patch.object(self.fip_ns.ip_wrapper_root.netns,
+                                  'exists', return_value=True) as exists:
             self.fip_ns.delete()
-            delete.assert_called_once_with(mock.ANY)
+            exists.assert_called_once_with(self.fip_ns.name)
+            delete.assert_called_once_with(self.fip_ns.name)
 
         ext_net_bridge = self.conf.external_network_bridge
         ns_name = self.fip_ns.get_name()
@@ -216,6 +220,15 @@ class TestDvrFipNs(base.BaseTestCase):
                                                    namespace=ns_name)
         ip_wrapper.del_veth.assert_called_once_with('fpr-aaaa')
 
+    def test_destroy_no_namespace(self):
+        with mock.patch.object(self.fip_ns.ip_wrapper_root.netns,
+                               'delete') as delete,\
+                mock.patch.object(self.fip_ns.ip_wrapper_root.netns,
+                                  'exists', return_value=False) as exists:
+            self.fip_ns.delete()
+            exists.assert_called_once_with(self.fip_ns.name)
+            self.assertFalse(delete.called)
+
     @mock.patch.object(ip_lib, 'IPWrapper')
     @mock.patch.object(ip_lib, 'IPDevice')
     def _test_create_rtr_2_fip_link(self, dev_exists, addr_exists,
@@ -224,6 +237,7 @@ class TestDvrFipNs(base.BaseTestCase):
         ri.router_id = _uuid()
         ri.rtr_fip_subnet = None
         ri.ns_name = mock.sentinel.router_ns
+        ri.get_ex_gw_port.return_value = {'mtu': 2000}
 
         rtr_2_fip_name = self.fip_ns.get_rtr_ext_device_name(ri.router_id)
         fip_2_rtr_name = self.fip_ns.get_int_device_name(ri.router_id)
@@ -234,7 +248,6 @@ class TestDvrFipNs(base.BaseTestCase):
         allocator.allocate.return_value = pair
         addr_pair = pair.get_pair()
         ip_wrapper = IPWrapper()
-        self.conf.network_device_mtu = 2000
         ip_wrapper.add_veth.return_value = (IPDevice(), IPDevice())
         device = IPDevice()
         device.exists.return_value = dev_exists
