@@ -14,7 +14,7 @@ from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import fields as obj_fields
 
 from neutron.common import utils
-from neutron.db.allowed_address_pairs import models
+from neutron.db.models import allowed_address_pair as models
 from neutron.objects import base
 from neutron.objects import common_types
 
@@ -40,9 +40,9 @@ class AllowedAddressPair(base.NeutronDbObject):
     def modify_fields_to_db(cls, fields):
         result = super(AllowedAddressPair, cls).modify_fields_to_db(fields)
         if 'ip_address' in result:
-            result['ip_address'] = str(result['ip_address'])
+            result['ip_address'] = cls.filter_to_str(result['ip_address'])
         if 'mac_address' in result:
-            result['mac_address'] = str(result['mac_address'])
+            result['mac_address'] = cls.filter_to_str(result['mac_address'])
         return result
 
     # TODO(mhickey): get rid of it once we switch the db model to using

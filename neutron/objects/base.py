@@ -24,6 +24,7 @@ import six
 from neutron._i18n import _
 from neutron.db import api as db_api
 from neutron.db import model_base
+from neutron.db import standard_attr
 from neutron.objects.db import api as obj_db_api
 from neutron.objects.extensions import standardattributes
 
@@ -66,6 +67,10 @@ class NeutronPrimaryKeyMissing(exceptions.BadRequest):
 class NeutronSyntheticFieldMultipleForeignKeys(exceptions.NeutronException):
     message = _("Synthetic field %(field)s shouldn't have more than one "
                 "foreign key")
+
+
+class NeutronSyntheticFieldsForeignKeysNotFound(exceptions.NeutronException):
+    message = _("%(child)s does not define a foreign key for %(parent)s")
 
 
 def get_updatable_fields(cls, fields):
@@ -202,16 +207,33 @@ class NeutronObject(obj_base.VersionedObject,
     def delete(self):
         raise NotImplementedError()
 
+    @classmethod
+    def count(cls, context, **kwargs):
+        '''Count the number of objects matching filtering criteria.'''
+        return len(cls.get_objects(context, **kwargs))
+
 
 class DeclarativeObject(abc.ABCMeta):
 
     def __init__(cls, name, bases, dct):
         super(DeclarativeObject, cls).__init__(name, bases, dct)
+        if 'project_id' in cls.fields:
+            obj_extra_fields_set = set(cls.obj_extra_fields)
+            obj_extra_fields_set.add('tenant_id')
+            cls.obj_extra_fields = list(obj_extra_fields_set)
+            setattr(cls, 'tenant_id', property(lambda x: x.project_id))
+
+        fields_no_update_set = set(cls.fields_no_update)
         for base in itertools.chain([cls], bases):
+            keys_set = set()
             if hasattr(base, 'primary_keys'):
-                cls.fields_no_update += base.primary_keys
-        # avoid duplicate entries
-        cls.fields_no_update = list(set(cls.fields_no_update))
+                keys_set.update(base.primary_keys)
+            if hasattr(base, 'obj_extra_fields'):
+                keys_set.update(base.obj_extra_fields)
+            for key in keys_set:
+                if key in cls.fields or key in cls.obj_extra_fields:
+                    fields_no_update_set.add(key)
+        cls.fields_no_update = list(fields_no_update_set)
 
         # generate unique_keys from the model
         model = getattr(cls, 'db_model', None)
@@ -231,7 +253,7 @@ class DeclarativeObject(abc.ABCMeta):
                 cls.has_standard_attributes()):
             standardattributes.add_standard_attributes(cls)
         # Instantiate extra filters per class
-        cls.extra_filter_names = set()
+        cls.extra_filter_names = set(cls.extra_filter_names)
 
 
 @six.add_metaclass(DeclarativeObject)
@@ -258,7 +280,19 @@ class NeutronDbObject(NeutronObject):
     fields_no_update = []
 
     # dict with name mapping: {'field_name_in_object': 'field_name_in_db'}
+    # It can be used also as DB relationship mapping to synthetic fields name.
+    # It is needed to load synthetic fields with one SQL query using side
+    # loaded entities.
+    # Examples: {'synthetic_field_name': 'relationship_name_in_model'}
+    #           {'field_name_in_object': 'field_name_in_db'}
     fields_need_translation = {}
+
+    # obj_extra_fields defines properties that are not part of the model
+    # but we want to expose them for easier usage of the object.
+    # Handling of obj_extra_fields is in oslo.versionedobjects.
+    # The extra fields can be accessed as read only property and are exposed
+    # in to_dict()
+    # obj_extra_fields = []
 
     def from_db_object(self, *objs):
         db_objs = [self.modify_fields_from_db(db_obj) for db_obj in objs]
@@ -267,13 +301,15 @@ class NeutronDbObject(NeutronObject):
                 if field in db_obj and not self.is_synthetic(field):
                     setattr(self, field, db_obj[field])
                 break
-        self.load_synthetic_db_fields()
+        for obj in objs:
+            self.load_synthetic_db_fields(obj)
         self.obj_reset_changes()
 
     @classmethod
     def has_standard_attributes(cls):
         return bool(cls.db_model and
-                    issubclass(cls.db_model, model_base.HasStandardAttributes))
+                    issubclass(cls.db_model,
+                               standard_attr.HasStandardAttributes))
 
     @classmethod
     def modify_fields_to_db(cls, fields):
@@ -386,6 +422,12 @@ class NeutronDbObject(NeutronObject):
         return (context.is_admin or
                 context.tenant_id == db_obj.tenant_id)
 
+    @staticmethod
+    def filter_to_str(value):
+        if isinstance(value, list):
+            return [str(val) for val in value]
+        return str(value)
+
     def _get_changed_persistent_fields(self):
         fields = self.obj_get_changes()
         for field in self.synthetic_fields:
@@ -401,7 +443,7 @@ class NeutronDbObject(NeutronObject):
 
         return fields
 
-    def load_synthetic_db_fields(self):
+    def load_synthetic_db_fields(self, db_obj=None):
         """
         Load the synthetic fields that are stored in a different table from the
         main object.
@@ -409,6 +451,7 @@ class NeutronDbObject(NeutronObject):
         This method doesn't take care of loading synthetic fields that aren't
         stored in the DB, e.g. 'shared' in RBAC policy.
         """
+        clsname = self.__class__.__name__
 
         # TODO(rossella_s) Find a way to handle ObjectFields with
         # subclasses=True
@@ -426,16 +469,35 @@ class NeutronDbObject(NeutronObject):
                 # QosRule
                 continue
             objclass = objclasses[0]
-            if len(objclass.foreign_keys.keys()) > 1:
+            foreign_keys = objclass.foreign_keys.get(clsname)
+            if not foreign_keys:
+                raise NeutronSyntheticFieldsForeignKeysNotFound(
+                    parent=clsname, child=objclass.__name__)
+            if len(foreign_keys.keys()) > 1:
                 raise NeutronSyntheticFieldMultipleForeignKeys(field=field)
-            objs = objclass.get_objects(
-                self.obj_context, **{
-                    k: getattr(
-                        self, v) for k, v in objclass.foreign_keys.items()})
-            if isinstance(self.fields[field], obj_fields.ObjectField):
-                setattr(self, field, objs[0] if objs else None)
+
+            synthetic_field_db_name = (
+                self.fields_need_translation.get(field, field))
+            synth_db_objs = (db_obj.get(synthetic_field_db_name, None)
+                             if db_obj else None)
+
+            # synth_db_objs can be list, empty list or None, that is why
+            # we need 'is not None', because [] is valid case for 'True'
+            if synth_db_objs is not None:
+                if not isinstance(synth_db_objs, list):
+                    synth_db_objs = [synth_db_objs]
+                synth_objs = [objclass._load_object(self.obj_context,
+                                objclass.modify_fields_from_db(obj))
+                              for obj in synth_db_objs]
             else:
-                setattr(self, field, objs)
+                synth_objs = objclass.get_objects(
+                    self.obj_context, **{
+                        k: getattr(self, v)
+                        for k, v in foreign_keys.items()})
+            if isinstance(self.fields[field], obj_fields.ObjectField):
+                setattr(self, field, synth_objs[0] if synth_objs else None)
+            else:
+                setattr(self, field, synth_objs)
             self.obj_reset_changes([field])
 
     def create(self):
@@ -457,8 +519,8 @@ class NeutronDbObject(NeutronObject):
             keys[key] = getattr(self, key)
         return keys
 
-    def update_nonidentifying_fields(self, obj_data, reset_changes=False):
-        """Updates non-identifying fields of an object.
+    def update_fields(self, obj_data, reset_changes=False):
+        """Updates fields of an object that are not forbidden to be updated.
 
         :param obj_data: the full set of object data
         :type obj_data: dict
@@ -468,11 +530,10 @@ class NeutronDbObject(NeutronObject):
 
         :returns: None
         """
-
         if reset_changes:
             self.obj_reset_changes()
         for k, v in obj_data.items():
-            if k not in self.primary_keys:
+            if k not in self.fields_no_update:
                 setattr(self, k, v)
 
     def update(self):
@@ -492,3 +553,17 @@ class NeutronDbObject(NeutronObject):
         obj_db_api.delete_object(self.obj_context, self.db_model,
                                  **self.modify_fields_to_db(
                                      self._get_composite_keys()))
+
+    @classmethod
+    def count(cls, context, **kwargs):
+        """
+        Count the number of objects matching filtering criteria.
+
+        :param context:
+        :param kwargs: multiple keys defined by key=value pairs
+        :return: number of matching objects
+        """
+        cls.validate_filters(**kwargs)
+        return obj_db_api.count(
+            context, cls.db_model, **cls.modify_fields_to_db(kwargs)
+        )

@@ -1099,6 +1099,11 @@ class JSONV2TestCase(APIv2TestBase, testlib_api.WebTestCase):
         self._test_update(tenant_id + "bad", tenant_id,
                           exc.HTTPNotFound.code, expect_errors=True)
 
+    def test_update_keystone_no_tenant(self):
+        tenant_id = _uuid()
+        self._test_update(tenant_id, None,
+                          exc.HTTPNotFound.code, expect_errors=True)
+
     def test_update_readonly_field(self):
         data = {'network': {'status': "NANANA"}}
         res = self.api.put(_get_path('networks', id=_uuid()),
@@ -1329,6 +1334,11 @@ class NotificationTest(APIv2TestBase):
         for msg, event in zip(fake_notifier.NOTIFICATIONS, expected_events):
             self.assertEqual('INFO', msg['priority'])
             self.assertEqual(event, msg['event_type'])
+            if opname == 'delete' and event == 'network.delete.end':
+                self.assertIn('payload', msg)
+                resource = msg['payload']
+                self.assertIn('network_id', resource)
+                self.assertIn('network', resource)
 
         self.assertEqual(expected_code, res.status_int)
 

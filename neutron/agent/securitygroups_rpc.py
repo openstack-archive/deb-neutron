@@ -20,32 +20,16 @@ from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 
-from neutron._i18n import _, _LI, _LW
+from neutron._i18n import _LI, _LW
 from neutron.agent import firewall
 from neutron.api.rpc.handlers import securitygroups_rpc
+from neutron.conf.agent import securitygroups_rpc as sc_cfg
+
 
 LOG = logging.getLogger(__name__)
 
 
-security_group_opts = [
-    cfg.StrOpt(
-        'firewall_driver',
-        help=_('Driver for security groups firewall in the L2 agent')),
-    cfg.BoolOpt(
-        'enable_security_group',
-        default=True,
-        help=_(
-            'Controls whether the neutron security group API is enabled '
-            'in the server. It should be false when using no security '
-            'groups or using the nova security group API.')),
-    cfg.BoolOpt(
-        'enable_ipset',
-        default=True,
-        help=_('Use ipset to speed-up the iptables based security groups. '
-               'Enabling ipset support requires that ipset is installed on L2 '
-               'agent node.'))
-]
-cfg.CONF.register_opts(security_group_opts, 'SECURITYGROUP')
+sc_cfg.register_securitygroups_opts()
 
 
 #This is backward compatibility check for Havana
@@ -90,7 +74,6 @@ class SecurityGroupAgentRpc(object):
         self.context = context
         self.plugin_rpc = plugin_rpc
         self.init_firewall(defer_refresh_firewall, integration_bridge)
-        self.local_vlan_map = local_vlan_map
 
     def init_firewall(self, defer_refresh_firewall=False,
                       integration_bridge=None):

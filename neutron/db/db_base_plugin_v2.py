@@ -42,7 +42,6 @@ from neutron.common import ipv6_utils
 from neutron.common import utils
 from neutron import context as ctx
 from neutron.db import db_base_plugin_common
-from neutron.db import ipam_non_pluggable_backend
 from neutron.db import ipam_pluggable_backend
 from neutron.db import models_v2
 from neutron.db import rbac_db_mixin as rbac_mixin
@@ -213,10 +212,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             raise n_exc.InvalidSharedSetting(network=network_id)
 
     def set_ipam_backend(self):
-        if cfg.CONF.ipam_driver:
-            self.ipam = ipam_pluggable_backend.IpamPluggableBackend()
-        else:
-            self.ipam = ipam_non_pluggable_backend.IpamNonPluggableBackend()
+        self.ipam = ipam_pluggable_backend.IpamPluggableBackend()
 
     def _validate_host_route(self, route, ip_version):
         try:
@@ -353,7 +349,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                     'id': n.get('id') or uuidutils.generate_uuid(),
                     'name': n['name'],
                     'admin_state_up': n['admin_state_up'],
-                    'mtu': n.get('mtu', n_const.DEFAULT_NETWORK_MTU),
                     'status': n.get('status', constants.NET_STATUS_ACTIVE),
                     'description': n.get('description')}
             network = models_v2.Network(**args)
@@ -559,8 +554,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                        "subnets.")
             raise exc.BadRequest(resource='subnets', msg=reason)
 
-        mode_list = [n_const.IPV6_SLAAC,
-                     n_const.DHCPV6_STATELESS]
+        mode_list = [constants.IPV6_SLAAC,
+                     constants.DHCPV6_STATELESS]
 
         ra_mode = subnet.get('ipv6_ra_mode')
         if ra_mode not in mode_list:
@@ -667,14 +662,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
         subnetpool = self.get_default_subnetpool(context, ip_version)
         if subnetpool:
             return subnetpool['id']
-
-        # Until the default_subnet_pool config options are removed in the N
-        # release, check for them after get_default_subnetpool returns None.
-        # TODO(john-davidge): Remove after Mitaka release.
-        if ip_version == 4 and cfg.CONF.default_ipv4_subnet_pool:
-            return cfg.CONF.default_ipv4_subnet_pool
-        if ip_version == 6 and cfg.CONF.default_ipv6_subnet_pool:
-            return cfg.CONF.default_ipv6_subnet_pool
 
         msg = _('No default subnetpool found for IPv%s') % ip_version
         raise exc.BadRequest(resource='subnets', msg=msg)
@@ -814,6 +801,9 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                             # prefix when they find PD subnet_id in port's
                             # fixed_ip.
                             ip.pop('ip_address', None)
+                # FIXME(kevinbenton): this should not be calling update_port
+                # inside of a transaction.
+                setattr(context, 'GUARD_TRANSACTION', False)
                 self.update_port(context, port['id'], {'port': port})
             # Send router_update to l3_agent
             if routers:
@@ -1042,11 +1032,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             address_scope_changed = (
                 orig_sp.address_scope_id != reader.address_scope_id)
 
-            for k, v in dict(reader.subnetpool).items():
-                # TODO(ihrachys): we should probably have some helper method in
-                # base object to update just updatable fields
-                if k not in subnetpool_obj.SubnetPool.fields_no_update:
-                    orig_sp[k] = v
+            orig_sp.update_fields(reader.subnetpool)
             orig_sp.update()
 
         if address_scope_changed:
@@ -1105,43 +1091,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
     def create_port_bulk(self, context, ports):
         return self._create_bulk('port', context, ports)
 
-    def _get_dns_domain(self):
-        if not cfg.CONF.dns_domain:
-            return ''
-        if cfg.CONF.dns_domain.endswith('.'):
-            return cfg.CONF.dns_domain
-        return '%s.' % cfg.CONF.dns_domain
-
-    def _get_request_dns_name(self, port):
-        dns_domain = self._get_dns_domain()
-        if ((dns_domain and dns_domain != DNS_DOMAIN_DEFAULT)):
-            return port.get('dns_name', '')
-        return ''
-
-    def _get_dns_names_for_port(self, context, ips, request_dns_name):
-        dns_assignment = []
-        dns_domain = self._get_dns_domain()
-        if request_dns_name:
-            request_fqdn = request_dns_name
-            if not request_dns_name.endswith('.'):
-                request_fqdn = '%s.%s' % (request_dns_name, dns_domain)
-
-        for ip in ips:
-            if request_dns_name:
-                hostname = request_dns_name
-                fqdn = request_fqdn
-            else:
-                hostname = 'host-%s' % ip['ip_address'].replace(
-                    '.', '-').replace(':', '-')
-                fqdn = hostname
-                if dns_domain:
-                    fqdn = '%s.%s' % (hostname, dns_domain)
-            dns_assignment.append({'ip_address': ip['ip_address'],
-                                   'hostname': hostname,
-                                   'fqdn': fqdn})
-
-        return dns_assignment
-
     def _create_db_port_obj(self, context, port_data):
         mac_address = port_data.pop('mac_address', None)
         if mac_address:
@@ -1181,11 +1130,6 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                          description=p.get('description'))
         if p.get('mac_address') is not constants.ATTR_NOT_SPECIFIED:
             port_data['mac_address'] = p.get('mac_address')
-        if ('dns-integration' in self.supported_extension_aliases and
-            'dns_name' in p):
-            request_dns_name = self._get_request_dns_name(p)
-            port_data['dns_name'] = request_dns_name
-
         with context.session.begin(subtransactions=True):
             # Ensure that the network exists.
             self._get_network(context, network_id)
@@ -1194,15 +1138,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             db_port = self._create_db_port_obj(context, port_data)
             p['mac_address'] = db_port['mac_address']
 
-            ips = self.ipam.allocate_ips_for_port_and_store(context, port,
-                                                            port_id)
-            if ('dns-integration' in self.supported_extension_aliases and
-                'dns_name' in p):
-                dns_assignment = []
-                if ips:
-                    dns_assignment = self._get_dns_names_for_port(
-                        context, ips, request_dns_name)
-                db_port['dns_assignment'] = dns_assignment
+            self.ipam.allocate_ips_for_port_and_store(context, port, port_id)
         return db_port
 
     def _validate_port_for_update(self, context, db_port, new_port, new_mac):
@@ -1221,30 +1157,11 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             self._check_mac_addr_update(context, db_port,
                                         new_mac, current_owner)
 
-    def _get_dns_names_for_updated_port(self, context, original_ips,
-                                        original_dns_name, request_dns_name,
-                                        changes):
-        if changes.original or changes.add or changes.remove:
-            return self._get_dns_names_for_port(
-                context, changes.original + changes.add,
-                request_dns_name or original_dns_name)
-        if original_ips:
-            return self._get_dns_names_for_port(
-                context, original_ips,
-                request_dns_name or original_dns_name)
-        return []
-
     def update_port(self, context, id, port):
         new_port = port['port']
 
         with context.session.begin(subtransactions=True):
             db_port = self._get_port(context, id)
-            if 'dns-integration' in self.supported_extension_aliases:
-                original_ips = self._make_fixed_ip_dict(db_port['fixed_ips'])
-                original_dns_name = db_port.get('dns_name', '')
-                request_dns_name = self._get_request_dns_name(new_port)
-                if 'dns_name' in new_port and not request_dns_name:
-                    new_port['dns_name'] = ''
             new_mac = new_port.get('mac_address')
             self._validate_port_for_update(context, db_port, new_port, new_mac)
             # Note: _make_port_dict is called here to load extension data
@@ -1259,18 +1176,12 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
             # that in.  The problem is that db_base_plugin_common shouldn't
             # know anything about port binding.  This compromise sends IPAM a
             # port_dict with all of the extension data loaded.
-            changes = self.ipam.update_port(
+            self.ipam.update_port(
                 context,
                 old_port_db=db_port,
                 old_port=self._make_port_dict(db_port),
                 new_port=new_port)
-            if 'dns-integration' in self.supported_extension_aliases:
-                dns_assignment = self._get_dns_names_for_updated_port(
-                    context, original_ips, original_dns_name,
-                    request_dns_name, changes)
         result = self._make_port_dict(db_port)
-        if 'dns-integration' in self.supported_extension_aliases:
-            result['dns_assignment'] = dns_assignment
         return result
 
     def delete_port(self, context, id):
@@ -1293,19 +1204,8 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                           "The port has already been deleted.",
                           port_id)
 
-    def _get_dns_name_for_port_get(self, context, port):
-        if port['fixed_ips']:
-            return self._get_dns_names_for_port(
-                context, port['fixed_ips'],
-                port['dns_name'])
-        return []
-
     def get_port(self, context, id, fields=None):
         port = self._get_port(context, id)
-        if (('dns-integration' in self.supported_extension_aliases and
-             'dns_name' in port)):
-            port['dns_assignment'] = self._get_dns_name_for_port_get(context,
-                                                                     port)
         return self._make_port_dict(port, fields)
 
     def _get_ports_query(self, context, filters=None, sorts=None, limit=None,
@@ -1346,13 +1246,7 @@ class NeutronDbPluginV2(db_base_plugin_common.DbBasePluginCommon,
                                       sorts=sorts, limit=limit,
                                       marker_obj=marker_obj,
                                       page_reverse=page_reverse)
-        items = []
-        for c in query:
-            if (('dns-integration' in self.supported_extension_aliases and
-                 'dns_name' in c)):
-                c['dns_assignment'] = self._get_dns_name_for_port_get(context,
-                                                                      c)
-            items.append(self._make_port_dict(c, fields))
+        items = [self._make_port_dict(c, fields) for c in query]
         if limit and page_reverse:
             items.reverse()
         return items

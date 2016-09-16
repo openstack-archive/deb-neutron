@@ -17,6 +17,7 @@ import itertools
 
 from oslo_utils import versionutils
 from oslo_versionedobjects import base as obj_base
+from oslo_versionedobjects import exception
 from oslo_versionedobjects import fields as obj_fields
 from six import add_metaclass
 
@@ -38,7 +39,9 @@ from neutron.objects import rbac_db
 class QosPolicy(base.NeutronDbObject):
     # Version 1.0: Initial version
     # Version 1.1: QosDscpMarkingRule introduced
-    VERSION = '1.1'
+    # Version 1.2: Added QosMinimumBandwidthRule
+    # Version 1.3: Added standard attributes (created_at, revision, etc)
+    VERSION = '1.3'
 
     # required by RbacNeutronMetaclass
     rbac_db_model = QosPolicyRBAC
@@ -51,7 +54,6 @@ class QosPolicy(base.NeutronDbObject):
         'id': obj_fields.UUIDField(),
         'tenant_id': obj_fields.StringField(),
         'name': obj_fields.StringField(),
-        'description': obj_fields.StringField(),
         'shared': obj_fields.BooleanField(default=False),
         'rules': obj_fields.ListOfObjectsField('QosRule', subclasses=True),
     }
@@ -212,11 +214,24 @@ class QosPolicy(base.NeutronDbObject):
         return set(bound_tenants)
 
     def obj_make_compatible(self, primitive, target_version):
+        def filter_rules(obj_names, rules):
+            return filter(lambda rule:
+                          (rule['versioned_object.name'] in obj_names), rules)
+
         _target_version = versionutils.convert_version_to_tuple(target_version)
-        if _target_version < (1, 1):
-            if 'rules' in primitive:
-                bw_obj_name = rule_obj_impl.QosBandwidthLimitRule.obj_name()
-                primitive['rules'] = filter(
-                    lambda rule: (rule['versioned_object.name'] ==
-                                  bw_obj_name),
-                    primitive['rules'])
+        names = []
+        if _target_version >= (1, 0):
+            names.append(rule_obj_impl.QosBandwidthLimitRule.obj_name())
+        if _target_version >= (1, 1):
+            names.append(rule_obj_impl.QosDscpMarkingRule.obj_name())
+        if 'rules' in primitive and names:
+            primitive['rules'] = filter_rules(names, primitive['rules'])
+
+        if _target_version < (1, 3):
+            standard_fields = ['revision_number', 'created_at', 'updated_at']
+            for f in standard_fields:
+                primitive.pop(f)
+            if primitive['description'] is None:
+                # description was not nullable before
+                raise exception.IncompatibleObjectVersion(
+                    objver=target_version, objname='QoSPolicy')

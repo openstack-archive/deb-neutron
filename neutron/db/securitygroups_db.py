@@ -15,10 +15,7 @@
 import netaddr
 from neutron_lib.api import validators
 from neutron_lib import constants
-from oslo_log import log as logging
 from oslo_utils import uuidutils
-import sqlalchemy as sa
-from sqlalchemy import orm
 from sqlalchemy.orm import exc
 from sqlalchemy.orm import scoped_session
 
@@ -28,89 +25,18 @@ from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.common import _deprecate
 from neutron.common import constants as n_const
 from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.db import db_base_plugin_v2
-from neutron.db import model_base
-from neutron.db import models_v2
+from neutron.db.models import securitygroup as sg_models
 from neutron.extensions import securitygroup as ext_sg
 
 
-LOG = logging.getLogger(__name__)
-
-
-class SecurityGroup(model_base.HasStandardAttributes, model_base.BASEV2,
-                    model_base.HasId, model_base.HasTenant):
-    """Represents a v2 neutron security group."""
-
-    name = sa.Column(sa.String(attributes.NAME_MAX_LEN))
-
-
-class DefaultSecurityGroup(model_base.BASEV2):
-    __tablename__ = 'default_security_group'
-
-    tenant_id = sa.Column(sa.String(attributes.TENANT_ID_MAX_LEN),
-                          primary_key=True, nullable=False)
-    security_group_id = sa.Column(sa.String(36),
-                                  sa.ForeignKey("securitygroups.id",
-                                                ondelete="CASCADE"),
-                                  nullable=False)
-    security_group = orm.relationship(
-        SecurityGroup, lazy='joined',
-        backref=orm.backref('default_security_group', cascade='all,delete'),
-        primaryjoin="SecurityGroup.id==DefaultSecurityGroup.security_group_id",
-    )
-
-
-class SecurityGroupPortBinding(model_base.BASEV2):
-    """Represents binding between neutron ports and security profiles."""
-
-    port_id = sa.Column(sa.String(36),
-                        sa.ForeignKey("ports.id",
-                                      ondelete='CASCADE'),
-                        primary_key=True)
-    security_group_id = sa.Column(sa.String(36),
-                                  sa.ForeignKey("securitygroups.id"),
-                                  primary_key=True)
-
-    # Add a relationship to the Port model in order to instruct SQLAlchemy to
-    # eagerly load security group bindings
-    ports = orm.relationship(
-        models_v2.Port,
-        backref=orm.backref("security_groups",
-                            lazy='joined', cascade='delete'))
-
-
-class SecurityGroupRule(model_base.HasStandardAttributes, model_base.BASEV2,
-                        model_base.HasId, model_base.HasTenant):
-    """Represents a v2 neutron security group rule."""
-
-    security_group_id = sa.Column(sa.String(36),
-                                  sa.ForeignKey("securitygroups.id",
-                                                ondelete="CASCADE"),
-                                  nullable=False)
-
-    remote_group_id = sa.Column(sa.String(36),
-                                sa.ForeignKey("securitygroups.id",
-                                              ondelete="CASCADE"),
-                                nullable=True)
-
-    direction = sa.Column(sa.Enum('ingress', 'egress',
-                                  name='securitygrouprules_direction'))
-    ethertype = sa.Column(sa.String(40))
-    protocol = sa.Column(sa.String(40))
-    port_range_min = sa.Column(sa.Integer)
-    port_range_max = sa.Column(sa.Integer)
-    remote_ip_prefix = sa.Column(sa.String(255))
-    security_group = orm.relationship(
-        SecurityGroup,
-        backref=orm.backref('rules', cascade='all,delete', lazy='joined'),
-        primaryjoin="SecurityGroup.id==SecurityGroupRule.security_group_id")
-    source_group = orm.relationship(
-        SecurityGroup,
-        backref=orm.backref('source_rules', cascade='all,delete'),
-        primaryjoin="SecurityGroup.id==SecurityGroupRule.remote_group_id")
+_deprecate._moved_global('DefaultSecurityGroup', new_module=sg_models)
+_deprecate._moved_global('SecurityGroupPortBinding', new_module=sg_models)
+_deprecate._moved_global('SecurityGroupRule', new_module=sg_models)
 
 
 class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
@@ -156,20 +82,20 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             self._ensure_default_security_group(context, tenant_id)
 
         with db_api.autonested_transaction(context.session):
-            security_group_db = SecurityGroup(id=s.get('id') or (
+            security_group_db = sg_models.SecurityGroup(id=s.get('id') or (
                                               uuidutils.generate_uuid()),
                                               description=s['description'],
                                               tenant_id=tenant_id,
                                               name=s['name'])
             context.session.add(security_group_db)
             if default_sg:
-                context.session.add(DefaultSecurityGroup(
+                context.session.add(sg_models.DefaultSecurityGroup(
                     security_group=security_group_db,
                     tenant_id=security_group_db['tenant_id']))
             for ethertype in ext_sg.sg_supported_ethertypes:
                 if default_sg:
                     # Allow intercommunication
-                    ingress_rule = SecurityGroupRule(
+                    ingress_rule = sg_models.SecurityGroupRule(
                         id=uuidutils.generate_uuid(), tenant_id=tenant_id,
                         security_group=security_group_db,
                         direction='ingress',
@@ -177,7 +103,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                         source_group=security_group_db)
                     context.session.add(ingress_rule)
 
-                egress_rule = SecurityGroupRule(
+                egress_rule = sg_models.SecurityGroupRule(
                     id=uuidutils.generate_uuid(), tenant_id=tenant_id,
                     security_group=security_group_db,
                     direction='egress',
@@ -214,7 +140,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         marker_obj = self._get_marker_obj(context, 'security_group', limit,
                                           marker)
         return self._get_collection(context,
-                                    SecurityGroup,
+                                    sg_models.SecurityGroup,
                                     self._make_security_group_dict,
                                     filters=filters, fields=fields,
                                     sorts=sorts,
@@ -222,7 +148,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                                     page_reverse=page_reverse)
 
     def get_security_groups_count(self, context, filters=None):
-        return self._get_collection_count(context, SecurityGroup,
+        return self._get_collection_count(context, sg_models.SecurityGroup,
                                           filters=filters)
 
     def get_security_group(self, context, id, fields=None, tenant_id=None):
@@ -247,8 +173,8 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
     def _get_security_group(self, context, id):
         try:
-            query = self._model_query(context, SecurityGroup)
-            sg = query.filter(SecurityGroup.id == id).one()
+            query = self._model_query(context, sg_models.SecurityGroup)
+            sg = query.filter(sg_models.SecurityGroup.id == id).one()
 
         except exc.NoResultFound:
             raise ext_sg.SecurityGroupNotFound(id=id)
@@ -274,6 +200,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                               **kwargs)
 
         with context.session.begin(subtransactions=True):
+            # pass security_group_rule_ids to ensure
+            # consistency with deleted rules
+            kwargs['security_group_rule_ids'] = [r['id'] for r in sg.rules]
             self._registry_notify(resources.SECURITY_GROUP,
                                   events.PRECOMMIT_DELETE,
                                   exc_cls=ext_sg.SecurityGroupInUse, id=id,
@@ -330,21 +259,21 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
     def _create_port_security_group_binding(self, context, port_id,
                                             security_group_id):
         with context.session.begin(subtransactions=True):
-            db = SecurityGroupPortBinding(port_id=port_id,
+            db = sg_models.SecurityGroupPortBinding(port_id=port_id,
                                           security_group_id=security_group_id)
             context.session.add(db)
 
     def _get_port_security_group_bindings(self, context,
                                           filters=None, fields=None):
         return self._get_collection(context,
-                                    SecurityGroupPortBinding,
+                                    sg_models.SecurityGroupPortBinding,
                                     self._make_security_group_binding_dict,
                                     filters=filters, fields=fields)
 
     def _delete_port_security_group_bindings(self, context, port_id):
-        query = self._model_query(context, SecurityGroupPortBinding)
+        query = self._model_query(context, sg_models.SecurityGroupPortBinding)
         bindings = query.filter(
-            SecurityGroupPortBinding.port_id == port_id)
+            sg_models.SecurityGroupPortBinding.port_id == port_id)
         with context.session.begin(subtransactions=True):
             for binding in bindings:
                 context.session.delete(binding)
@@ -378,8 +307,6 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                                     validate=True):
         if validate:
             self._validate_security_group_rule(context, security_group_rule)
-            self._check_for_duplicate_rules_in_db(context, security_group_rule)
-
         rule_dict = security_group_rule['security_group_rule']
         kwargs = {
             'context': context,
@@ -390,7 +317,10 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                               exc_cls=ext_sg.SecurityGroupConflict, **kwargs)
 
         with context.session.begin(subtransactions=True):
-            db = SecurityGroupRule(
+            if validate:
+                self._check_for_duplicate_rules_in_db(context,
+                                                      security_group_rule)
+            db = sg_models.SecurityGroupRule(
                 id=(rule_dict.get('id') or uuidutils.generate_uuid()),
                 tenant_id=rule_dict['tenant_id'],
                 security_group_id=rule_dict['security_group_id'],
@@ -633,7 +563,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         marker_obj = self._get_marker_obj(context, 'security_group_rule',
                                           limit, marker)
         return self._get_collection(context,
-                                    SecurityGroupRule,
+                                    sg_models.SecurityGroupRule,
                                     self._make_security_group_rule_dict,
                                     filters=filters, fields=fields,
                                     sorts=sorts,
@@ -641,7 +571,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                                     page_reverse=page_reverse)
 
     def get_security_group_rules_count(self, context, filters=None):
-        return self._get_collection_count(context, SecurityGroupRule,
+        return self._get_collection_count(context, sg_models.SecurityGroupRule,
                                           filters=filters)
 
     def get_security_group_rule(self, context, id, fields=None):
@@ -650,8 +580,8 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
 
     def _get_security_group_rule(self, context, id):
         try:
-            query = self._model_query(context, SecurityGroupRule)
-            sgr = query.filter(SecurityGroupRule.id == id).one()
+            query = self._model_query(context, sg_models.SecurityGroupRule)
+            sgr = query.filter(sg_models.SecurityGroupRule.id == id).one()
         except exc.NoResultFound:
             raise ext_sg.SecurityGroupRuleNotFound(id=id)
         return sgr
@@ -666,8 +596,9 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
                               exc_cls=ext_sg.SecurityGroupRuleInUse, **kwargs)
 
         with context.session.begin(subtransactions=True):
-            query = self._model_query(context, SecurityGroupRule).filter(
-                SecurityGroupRule.id == id)
+            query = self._model_query(context,
+                                      sg_models.SecurityGroupRule).filter(
+                sg_models.SecurityGroupRule.id == id)
 
             self._registry_notify(resources.SECURITY_GROUP_RULE,
                                   events.PRECOMMIT_DELETE,
@@ -715,7 +646,7 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
         :returns: the default security group id for given tenant.
         """
         try:
-            query = self._model_query(context, DefaultSecurityGroup)
+            query = self._model_query(context, sg_models.DefaultSecurityGroup)
             default_group = query.filter_by(tenant_id=tenant_id).one()
             return default_group['security_group_id']
         except exc.NoResultFound:
@@ -813,3 +744,6 @@ class SecurityGroupDbMixin(ext_sg.SecurityGroupPluginBase):
             updated_port[ext_sg.SECURITYGROUPS] = (
                 original_port[ext_sg.SECURITYGROUPS])
         return need_notify
+
+
+_deprecate._MovedGlobals()

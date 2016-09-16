@@ -16,13 +16,14 @@
 from oslo_config import cfg
 from oslo_log import log as logging
 
-from neutron._i18n import _, _LI
+from neutron._i18n import _LI
 from neutron.agent.common import config as agent_config
 from neutron.agent.common import ovs_lib
-from neutron.agent.l3 import config as l3_config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import config
+from neutron.conf.agent import cmd
+from neutron.conf.agent.l3 import config as l3_config
 
 
 LOG = logging.getLogger(__name__)
@@ -34,18 +35,10 @@ def setup_conf():
     Use separate setup_conf for the utility because there are many options
     from the main config that do not apply during clean-up.
     """
-    opts = [
-        cfg.BoolOpt('ovs_all_ports',
-                    default=False,
-                    help=_('True to delete all ports on all the OpenvSwitch '
-                           'bridges. False to delete ports created by '
-                           'Neutron on integration and external network '
-                           'bridges.'))
-    ]
 
     conf = cfg.CONF
-    conf.register_cli_opts(opts)
-    conf.register_opts(l3_config.OPTS)
+    cmd.register_cmd_opts(cmd.ovs_opts, conf)
+    l3_config.register_l3_agent_config_opts(l3_config.OPTS, conf)
     conf.register_opts(interface.OPTS)
     agent_config.register_interface_driver_opts_helper(conf)
     return conf

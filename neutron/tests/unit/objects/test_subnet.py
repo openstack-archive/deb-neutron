@@ -13,7 +13,12 @@
 import itertools
 from operator import itemgetter
 
+from oslo_utils import uuidutils
+
+from neutron import context
+from neutron.db import rbac_db_models
 from neutron.objects import base as obj_base
+from neutron.objects.db import api as obj_db_api
 from neutron.objects import subnet
 from neutron.tests.unit.objects import test_base as obj_test_base
 from neutron.tests.unit import testlib_api
@@ -145,8 +150,10 @@ class SubnetDbObjectTestCase(obj_test_base.BaseDbObjectTestCase,
     def setUp(self):
         super(SubnetDbObjectTestCase, self).setUp()
         self._create_test_network()
+        self._create_test_segment(self._network)
         for obj in itertools.chain(self.db_objs, self.obj_fields):
             obj['network_id'] = self._network['id']
+            obj['segment_id'] = self._segment['id']
 
     def test_get_dns_nameservers_in_order(self):
         obj = self._make_object(self.obj_fields[0])
@@ -162,3 +169,78 @@ class SubnetDbObjectTestCase(obj_test_base.BaseDbObjectTestCase,
         self.assertEqual(1, new.dns_nameservers[0].order)
         self.assertEqual(2, new.dns_nameservers[1].order)
         self.assertEqual(4, new.dns_nameservers[-1].order)
+
+    def _create_shared_network_rbac_entry(self, network):
+        attrs = {
+            'object_id': network['id'],
+            'target_tenant': '*',
+            'action': rbac_db_models.ACCESS_SHARED
+        }
+        obj_db_api.create_object(self.context, rbac_db_models.NetworkRBAC,
+                                 attrs)
+
+    def test_get_subnet_shared_true(self):
+        network = self._create_network()
+        self._create_shared_network_rbac_entry(network)
+        subnet_data = dict(self.obj_fields[0])
+        subnet_data['network_id'] = network['id']
+
+        obj = self._make_object(subnet_data)
+        # check if shared will be load by 'obj_load_attr' and using extra query
+        # by RbacNeutronDbObjectMixin get_shared_with_tenant
+        self.assertTrue(obj.shared)
+        obj.create()
+        # here the shared should be load by is_network_shared
+        self.assertTrue(obj.shared)
+
+        new = self._test_class.get_object(self.context,
+                                          **obj._get_composite_keys())
+        # again, the shared should be load by is_network_shared
+        self.assertTrue(new.shared)
+
+    def test_filter_by_shared(self):
+        network = self._create_network()
+        self._create_shared_network_rbac_entry(network)
+
+        subnet_data = dict(self.obj_fields[0])
+        subnet_data['network_id'] = network['id']
+        obj = self._make_object(subnet_data)
+        obj.create()
+
+        result = self._test_class.get_objects(self.context, shared=True)
+
+        self.assertEqual(obj, result[0])
+
+    def test_get_shared_subnet_with_another_tenant(self):
+        network_shared = self._create_network()
+        self._create_shared_network_rbac_entry(network_shared)
+
+        subnet_data = dict(self.obj_fields[0])
+        subnet_data['network_id'] = network_shared['id']
+        shared_subnet = self._make_object(subnet_data)
+        shared_subnet.create()
+
+        priv_subnet = self._make_object(self.obj_fields[1])
+        priv_subnet.create()
+
+        # Situation here:
+        #   - we have one network with a subnet that are private
+        #   - shared network with its subnet
+        # creating new context, user should have access to one shared network
+
+        all_subnets = self._test_class.get_objects(self.context)
+        self.assertEqual(2, len(all_subnets))
+
+        # access with new tenant_id, should be able to access to one subnet
+        new_ctx = context.Context('', uuidutils.generate_uuid())
+        public_subnets = self._test_class.get_objects(new_ctx)
+        self.assertEqual([shared_subnet], public_subnets)
+
+        # test get_object to fetch the private and then the shared subnet
+        fetched_private_subnet = self._test_class.get_object(new_ctx,
+                                                             id=priv_subnet.id)
+        self.assertIsNone(fetched_private_subnet)
+
+        fetched_public_subnet = (
+            self._test_class.get_object(new_ctx, id=shared_subnet.id))
+        self.assertEqual(shared_subnet, fetched_public_subnet)

@@ -238,7 +238,7 @@ class QosExtensionRpcTestCase(QosExtensionBaseTestCase):
             self.qos_ext, '_process_update_policy') as update_mock:
 
             policy_obj = mock.Mock()
-            self.qos_ext._handle_notification(policy_obj, events.UPDATED)
+            self.qos_ext._handle_notification([policy_obj], events.UPDATED)
             update_mock.assert_called_with(policy_obj)
 
     def test__process_update_policy(self):
@@ -308,7 +308,7 @@ class QosExtensionInitializeTestCase(QosExtensionBaseTestCase):
                  resources_rpc.resource_type_versioned_topic(resource_type),
                  [rpc_mock()],
                  fanout=True)
-             for resource_type in self.qos_ext.SUPPORTED_RESOURCES]
+             for resource_type in self.qos_ext.SUPPORTED_RESOURCE_TYPES]
         )
         subscribe_mock.assert_called_with(mock.ANY, resources.QOS_POLICY)
 

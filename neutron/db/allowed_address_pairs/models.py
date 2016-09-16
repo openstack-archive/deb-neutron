@@ -10,21 +10,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import sqlalchemy as sa
-from sqlalchemy import orm
-
-from neutron.db import model_base
-from neutron.db import models_v2
+from neutron.common import _deprecate
+from neutron.db.models import allowed_address_pair as aap_models
 
 
-class AllowedAddressPair(model_base.BASEV2):
-    port_id = sa.Column(sa.String(36),
-                        sa.ForeignKey('ports.id', ondelete="CASCADE"),
-                        primary_key=True)
-    mac_address = sa.Column(sa.String(32), nullable=False, primary_key=True)
-    ip_address = sa.Column(sa.String(64), nullable=False, primary_key=True)
+_deprecate._moved_global('AllowedAddressPair', new_module=aap_models)
 
-    port = orm.relationship(
-        models_v2.Port,
-        backref=orm.backref("allowed_address_pairs",
-                            lazy="joined", cascade="delete"))
+
+_deprecate._MovedGlobals()
