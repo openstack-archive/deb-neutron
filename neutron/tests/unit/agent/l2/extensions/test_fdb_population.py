@@ -16,6 +16,7 @@
 import copy
 
 import mock
+from neutron_lib import constants
 from oslo_config import cfg
 import six
 
@@ -31,7 +32,7 @@ from neutron.tests import base
 
 class FdbPopulationExtensionTestCase(base.BaseTestCase):
 
-    UPDATE_MSG = {u'device_owner': u'network:router_interface',
+    UPDATE_MSG = {u'device_owner': constants.DEVICE_OWNER_ROUTER_INTF,
                   u'physical_network': u'physnet1',
                   u'mac_address': u'fa:16:3e:ba:bc:21',
                   u'port_id': u'17ceda02-43e1-48d8-beb6-35885b20cae6'}
@@ -128,7 +129,7 @@ class FdbPopulationExtensionTestCase(base.BaseTestCase):
         fdb_extension = self._get_fdb_extension(mock_execute, '')
         mock_execute.reset_mock()
         details = copy.deepcopy(self.UPDATE_MSG)
-        details['device_owner'] = 'network:dhcp'
+        details['device_owner'] = constants.DEVICE_OWNER_LOADBALANCER
         fdb_extension.handle_port(context=None, details=details)
         self.assertFalse(mock_execute.called)
         updated_macs_for_device = (
@@ -174,3 +175,18 @@ class FdbPopulationExtensionTestCase(base.BaseTestCase):
         cmd = ['bridge', 'fdb', 'delete', self.UPDATE_MSG['mac_address'],
                'dev', self.DEVICE]
         mock_execute.assert_called_once_with(cmd, run_as_root=True)
+
+    @mock.patch('neutron.agent.linux.utils.execute')
+    def test_multiple_devices(self, mock_execute):
+        cfg.CONF.set_override('shared_physical_device_mappings',
+                ['physnet1:p1p1', 'physnet1:p2p2'], 'FDB')
+
+        fdb_extension = self._get_fdb_extension(mock_execute, '')
+        fdb_extension.handle_port(context=None, details=self.UPDATE_MSG)
+        mac = self.UPDATE_MSG['mac_address']
+        calls = []
+        cmd = ['bridge', 'fdb', 'add', mac, 'dev', 'p1p1']
+        calls.append(mock.call(cmd, run_as_root=True))
+        cmd = ['bridge', 'fdb', 'add', mac, 'dev', 'p2p2']
+        calls.append(mock.call(cmd, run_as_root=True))
+        mock_execute.assert_has_calls(calls, any_order=True)

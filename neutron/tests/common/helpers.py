@@ -14,6 +14,7 @@
 
 import datetime
 import os
+import random
 
 from neutron_lib import constants
 from oslo_utils import timeutils
@@ -21,7 +22,6 @@ import six
 import testtools
 
 import neutron
-from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron import context
 from neutron.db import agents_db
@@ -78,7 +78,7 @@ def _register_agent(agent, plugin=None):
         admin_context, agent['agent_type'], agent['host'])
 
 
-def register_l3_agent(host=HOST, agent_mode=n_const.L3_AGENT_MODE_LEGACY,
+def register_l3_agent(host=HOST, agent_mode=constants.L3_AGENT_MODE_LEGACY,
                       internal_only=True, ext_net_id='', ext_bridge='',
                       az=DEFAULT_AZ):
     agent = _get_l3_agent_dict(host, agent_mode, internal_only, ext_net_id,
@@ -212,3 +212,11 @@ def requires_py2(testcase):
 
 def requires_py3(testcase):
     return testtools.skipUnless(six.PY3, "requires python 3.x")(testcase)
+
+
+def get_not_used_vlan(bridge, vlan_range):
+    port_vlans = bridge.ovsdb.db_find(
+        'Port', ('tag', '!=', []), columns=['tag']).execute()
+    used_vlan_tags = {val['tag'] for val in port_vlans}
+    available_vlans = vlan_range - used_vlan_tags
+    return random.choice(list(available_vlans))

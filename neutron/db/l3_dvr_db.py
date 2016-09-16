@@ -22,17 +22,18 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 import six
 
-from neutron._i18n import _, _LI, _LW
+from neutron._i18n import _, _LE, _LI, _LW
 from neutron.callbacks import events
 from neutron.callbacks import exceptions
 from neutron.callbacks import registry
 from neutron.callbacks import resources
 from neutron.common import constants as l3_const
 from neutron.common import utils as n_utils
-from neutron.db.allowed_address_pairs import models as addr_pair_db
+from neutron.db import api as db_api
 from neutron.db import l3_agentschedulers_db as l3_sched_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
+from neutron.db.models import allowed_address_pair as aap_models
 from neutron.db import models_v2
 from neutron.extensions import l3
 from neutron.extensions import portbindings
@@ -211,8 +212,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         """Return all active ports associated with the allowed_addr_pair ip."""
         query = context.session.query(
             models_v2.Port).filter(
-                models_v2.Port.id == addr_pair_db.AllowedAddressPair.port_id,
-                addr_pair_db.AllowedAddressPair.ip_address == fixed_ip,
+                models_v2.Port.id == aap_models.AllowedAddressPair.port_id,
+                aap_models.AllowedAddressPair.ip_address == fixed_ip,
                 models_v2.Port.network_id == network_id,
                 models_v2.Port.admin_state_up == True)  # noqa
         return query.all()
@@ -242,6 +243,10 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     # for the same host. Until we find a good solution for
                     # augmenting multiple server requests we should use the
                     # existing flow.
+                    # FIXME(kevinbenton): refactor so this happens outside
+                    # of floating IP transaction since it creates a port
+                    # via ML2.
+                    setattr(admin_ctx, 'GUARD_TRANSACTION', False)
                     fip_agent_port = (
                         self.create_fip_agent_gw_port_if_not_exists(
                             admin_ctx, external_port['network_id'],
@@ -307,6 +312,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
 
         # This should be True unless adding an IPv6 prefix to an existing port
         new_port = True
+        cleanup_port = False
 
         if add_by_port:
             port, subnets = self._add_interface_by_port(
@@ -314,31 +320,34 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         elif add_by_sub:
             port, subnets, new_port = self._add_interface_by_subnet(
                     context, router, interface_info['subnet_id'], device_owner)
+            cleanup_port = new_port
 
         subnet = subnets[0]
 
         if new_port:
-            if router.extra_attributes.distributed and router.gw_port:
-                try:
+            with p_utils.delete_port_on_error(self._core_plugin,
+                                              context, port['id']) as delmgr:
+                delmgr.delete_on_error = cleanup_port
+                if router.extra_attributes.distributed and router.gw_port:
                     admin_context = context.elevated()
                     self._add_csnat_router_interface_port(
                         admin_context, router, port['network_id'],
                         port['fixed_ips'][-1]['subnet_id'])
-                except Exception:
-                    with excutils.save_and_reraise_exception():
-                        # we need to preserve the original state prior
-                        # the request by rolling back the port creation
-                        # that led to new_port=True
-                        self._core_plugin.delete_port(
-                            admin_context, port['id'], l3_port_check=False)
 
-            with context.session.begin(subtransactions=True):
-                router_port = l3_db.RouterPort(
-                    port_id=port['id'],
-                    router_id=router.id,
-                    port_type=device_owner
-                )
-                context.session.add(router_port)
+                with context.session.begin(subtransactions=True):
+                    router_port = l3_db.RouterPort(
+                        port_id=port['id'],
+                        router_id=router.id,
+                        port_type=device_owner
+                    )
+                    context.session.add(router_port)
+                # Update owner after actual process again in order to
+                # make sure the records in routerports table and ports
+                # table are consistent.
+                self._core_plugin.update_port(
+                    context, port['id'], {'port': {
+                                         'device_id': router.id,
+                                         'device_owner': device_owner}})
 
         # NOTE: For IPv6 additional subnets added to the same
         # network we need to update the CSNAT port with respective
@@ -355,9 +364,41 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                 if cs_port:
                     fixed_ips = list(cs_port['port']['fixed_ips'])
                     fixed_ips.append(fixed_ip)
-                    updated_port = self._core_plugin.update_port(
-                        context.elevated(),
-                        cs_port['port_id'], {'port': {'fixed_ips': fixed_ips}})
+                    try:
+                        updated_port = self._core_plugin.update_port(
+                            context.elevated(),
+                            cs_port['port_id'],
+                            {'port': {'fixed_ips': fixed_ips}})
+                    except Exception:
+                        with excutils.save_and_reraise_exception():
+                            # we need to try to undo the updated router
+                            # interface from above so it's not out of sync
+                            # with the csnat port.
+                            # TODO(kevinbenton): switch to taskflow to manage
+                            # these rollbacks.
+                            @db_api.retry_db_errors
+                            def revert():
+                                # TODO(kevinbenton): even though we get the
+                                # port each time, there is a potential race
+                                # where we update the port with stale IPs if
+                                # another interface operation is occuring at
+                                # the same time. This can be fixed in the
+                                # future with a compare-and-swap style update
+                                # using the revision number of the port.
+                                p = self._core_plugin.get_port(
+                                    context.elevated(), port['id'])
+                                upd = {'port': {'fixed_ips': [
+                                    ip for ip in p['fixed_ips']
+                                    if ip['subnet_id'] != fixed_ip['subnet_id']
+                                ]}}
+                                self._core_plugin.update_port(
+                                    context.elevated(), port['id'], upd)
+                            try:
+                                revert()
+                            except Exception:
+                                LOG.exception(_LE("Failed to revert change "
+                                                  "to router port %s."),
+                                              port['id'])
                     LOG.debug("CSNAT port updated for IPv6 subnet: "
                               "%s", updated_port)
         router_interface_info = self._make_router_interface_info(
@@ -901,7 +942,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             filters={'id': ports}
         )
         for p in c_snat_ports:
-            if subnet_id is None:
+            if subnet_id is None or not p['fixed_ips']:
+                if not p['fixed_ips']:
+                    LOG.debug("CSNAT port has no IPs: %s", p)
                 self._core_plugin.delete_port(context,
                                               p['id'],
                                               l3_port_check=False)

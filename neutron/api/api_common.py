@@ -28,7 +28,6 @@ from webob import exc
 
 from neutron._i18n import _, _LW
 from neutron.common import constants
-from neutron.common import exceptions as n_exc
 from neutron import wsgi
 
 
@@ -184,6 +183,18 @@ def get_pagination_links(request, items, limit,
                       "href": get_previous_link(request, items,
                                                 key)})
     return links
+
+
+def is_native_pagination_supported(plugin):
+    native_pagination_attr_name = ("_%s__native_pagination_support"
+                                   % plugin.__class__.__name__)
+    return getattr(plugin, native_pagination_attr_name, False)
+
+
+def is_native_sorting_supported(plugin):
+    native_sorting_attr_name = ("_%s__native_sorting_support"
+                                % plugin.__class__.__name__)
+    return getattr(plugin, native_sorting_attr_name, False)
 
 
 class PaginationHelper(object):
@@ -374,7 +385,7 @@ class NeutronController(object):
 
 def convert_exception_to_http_exc(e, faults, language):
     serializer = wsgi.JSONDictSerializer()
-    if isinstance(e, n_exc.MultipleExceptions):
+    if isinstance(e, exceptions.MultipleExceptions):
         converted_exceptions = [
             convert_exception_to_http_exc(inner, faults, language)
             for inner in e.inner_exceptions]

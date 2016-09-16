@@ -21,6 +21,7 @@ from oslo_utils import uuidutils
 from neutron.agent import firewall
 from neutron.agent.linux import ip_lib
 from neutron.common import constants as n_consts
+from neutron.common import utils as common_utils
 from neutron.tests.common import machine_fixtures
 from neutron.tests.common import net_helpers
 
@@ -48,6 +49,23 @@ def _validate_direction(f):
     return wrap
 
 
+def _get_packets_sent_received(src_namespace, dst_ip, count):
+    pinger = net_helpers.Pinger(src_namespace, dst_ip, count=count)
+    pinger.start()
+    pinger.wait()
+    return pinger.sent, pinger.received
+
+
+def all_replied(src_ns, dst_ip, count):
+    sent, received = _get_packets_sent_received(src_ns, dst_ip, count)
+    return sent == received
+
+
+def all_lost(src_ns, dst_ip, count):
+    sent, received = _get_packets_sent_received(src_ns, dst_ip, count)
+    return received == 0
+
+
 class ConnectionTester(fixtures.Fixture):
     """Base class for testers
 
@@ -67,6 +85,8 @@ class ConnectionTester(fixtures.Fixture):
 
     def __init__(self, ip_cidr):
         self.ip_cidr = ip_cidr
+        self.icmp_count = 3
+        self.connectivity_timeout = 12
 
     def _setUp(self):
         self._protocol_to_method = {
@@ -316,8 +336,51 @@ class ConnectionTester(fixtures.Fixture):
                 'No Host Destination Unreachable packets were received when '
                 'sending icmp packets to %s' % destination)
 
+    def wait_for_connection(self, direction):
+        src_ns, dst_ip = self._get_namespace_and_address(
+            direction)
+        all_replied_predicate = functools.partial(
+            all_replied, src_ns, dst_ip, count=self.icmp_count)
+        common_utils.wait_until_true(
+            all_replied_predicate, timeout=self.connectivity_timeout,
+            exception=ConnectionTesterException(
+                "Not all ICMP packets replied from %s namespace to %s "
+                "address." % self._get_namespace_and_address(direction)))
 
-class OVSConnectionTester(ConnectionTester):
+    def wait_for_no_connection(self, direction):
+        src_ns, dst_ip = self._get_namespace_and_address(
+            direction)
+        all_lost_predicate = functools.partial(
+            all_lost, src_ns, dst_ip, count=self.icmp_count)
+        common_utils.wait_until_true(
+            all_lost_predicate, timeout=self.connectivity_timeout,
+            exception=ConnectionTesterException(
+                "At least one packet got reply from %s namespace to %s "
+                "address." % self._get_namespace_and_address(direction)))
+
+
+class OVSBaseConnectionTester(ConnectionTester):
+
+    @property
+    def peer_port_id(self):
+        return self._peer.port.id
+
+    @property
+    def vm_port_id(self):
+        return self._vm.port.id
+
+    @staticmethod
+    def set_tag(port_name, bridge, tag):
+        bridge.set_db_attribute('Port', port_name, 'tag', tag)
+        other_config = bridge.db_get_val(
+            'Port', port_name, 'other_config')
+        other_config['tag'] = tag
+        bridge.set_db_attribute(
+            'Port', port_name, 'other_config', other_config)
+
+
+class OVSConnectionTester(OVSBaseConnectionTester):
+
     """Tester with OVS bridge in the middle
 
     The endpoints are created as OVS ports attached to the OVS bridge.
@@ -331,9 +394,11 @@ class OVSConnectionTester(ConnectionTester):
     def _setUp(self):
         super(OVSConnectionTester, self)._setUp()
         self.bridge = self.useFixture(net_helpers.OVSBridgeFixture()).bridge
-        self._peer, self._vm = self.useFixture(
+        machines = self.useFixture(
             machine_fixtures.PeerMachines(
                 self.bridge, self.ip_cidr)).machines
+        self._peer = machines[0]
+        self._vm = machines[1]
         self._set_port_attrs(self._peer.port)
         self._set_port_attrs(self._vm.port)
 
@@ -347,27 +412,99 @@ class OVSConnectionTester(ConnectionTester):
         for column, value in attrs:
             self.bridge.set_db_attribute('Interface', port.name, column, value)
 
-    @property
-    def peer_port_id(self):
-        return self._peer.port.id
-
-    @property
-    def vm_port_id(self):
-        return self._vm.port.id
-
-    def set_tag(self, port_name, tag):
-        self.bridge.set_db_attribute('Port', port_name, 'tag', tag)
-        other_config = self.bridge.db_get_val(
-            'Port', port_name, 'other_config')
-        other_config['tag'] = tag
-        self.bridge.set_db_attribute(
-            'Port', port_name, 'other_config', other_config)
-
     def set_vm_tag(self, tag):
-        self.set_tag(self._vm.port.name, tag)
+        self.set_tag(self._vm.port.name, self.bridge, tag)
 
     def set_peer_tag(self, tag):
-        self.set_tag(self._peer.port.name, tag)
+        self.set_tag(self._peer.port.name, self.bridge, tag)
+
+
+class OVSTrunkConnectionTester(OVSBaseConnectionTester):
+    """Tester with OVS bridge and a trunk bridge
+
+    Two endpoints: one is a VM that is connected to a port associated with a
+    trunk (the port is created  on the trunk bridge), the other is a VM on the
+    same network (the port is on the integration bridge).
+
+    NOTE: The OVS ports are connected from the namespace. This connection is
+    currently not supported in OVS and may lead to unpredicted behavior:
+    https://bugzilla.redhat.com/show_bug.cgi?id=1160340
+
+    """
+
+    def __init__(self, ip_cidr, br_trunk_name):
+        super(OVSTrunkConnectionTester, self).__init__(ip_cidr)
+        self._br_trunk_name = br_trunk_name
+
+    def _setUp(self):
+        super(OVSTrunkConnectionTester, self)._setUp()
+        self.bridge = self.useFixture(
+            net_helpers.OVSBridgeFixture()).bridge
+        self.br_trunk = self.useFixture(
+            net_helpers.OVSTrunkBridgeFixture(self._br_trunk_name)).bridge
+        self._peer = self.useFixture(machine_fixtures.FakeMachine(
+                self.bridge, self.ip_cidr))
+        ip_cidr = net_helpers.increment_ip_cidr(self.ip_cidr, 1)
+
+        self._vm = self.useFixture(machine_fixtures.FakeMachine(
+            self.br_trunk, ip_cidr))
+
+    def add_vlan_interface_and_peer(self, vlan, ip_cidr):
+        """Create a sub_port and a peer
+
+        We create a sub_port that uses vlan as segmentation ID. In the vm
+        namespace we create a vlan subinterface on the same vlan.
+        A peer on the same network is created. When pinging from the peer
+        to the sub_port packets will be tagged using the internal vlan ID
+        of the network. The sub_port will remove that vlan tag and push the
+        vlan specified in the segmentation ID. The packets will finally reach
+        the vlan subinterface in the vm namespace.
+
+        """
+
+        ip_wrap = ip_lib.IPWrapper(self._vm.namespace)
+        dev_name = self._vm.port.name + ".%d" % vlan
+        ip_wrap.add_vlan(dev_name, self._vm.port.name, vlan)
+        dev = ip_wrap.device(dev_name)
+        dev.addr.add(ip_cidr)
+        dev.link.set_up()
+        self._ip_vlan = ip_cidr.partition('/')[0]
+        ip_cidr = net_helpers.increment_ip_cidr(ip_cidr, 1)
+        self._peer2 = self.useFixture(machine_fixtures.FakeMachine(
+            self.bridge, ip_cidr))
+
+    def set_vm_tag(self, tag):
+        self.set_tag(self._vm.port.name, self.br_trunk, tag)
+
+    def set_peer_tag(self, tag):
+        self.set_tag(self._peer.port.name, self.bridge, tag)
+
+    def _get_subport_namespace_and_address(self, direction):
+        if direction == self.INGRESS:
+            return self._peer2.namespace, self._ip_vlan
+        return self._vm.namespace, self._peer2.ip
+
+    def wait_for_sub_port_connectivity(self, direction):
+        src_ns, dst_ip = self._get_subport_namespace_and_address(
+            direction)
+        all_replied_predicate = functools.partial(
+            all_replied, src_ns, dst_ip, count=self.icmp_count)
+        common_utils.wait_until_true(
+            all_replied_predicate, timeout=self.connectivity_timeout,
+            exception=ConnectionTesterException(
+                "ICMP traffic from %s namespace to subport with address %s "
+                "can't get through." % (src_ns, dst_ip)))
+
+    def wait_for_sub_port_no_connectivity(self, direction):
+        src_ns, dst_ip = self._get_subport_namespace_and_address(
+            direction)
+        all_lost_predicate = functools.partial(
+            all_lost, src_ns, dst_ip, count=self.icmp_count)
+        common_utils.wait_until_true(
+            all_lost_predicate, timeout=self.connectivity_timeout,
+            exception=ConnectionTesterException(
+                "ICMP traffic from %s namespace to subport with address %s "
+                "can still get through." % (src_ns, dst_ip)))
 
 
 class LinuxBridgeConnectionTester(ConnectionTester):
@@ -381,9 +518,11 @@ class LinuxBridgeConnectionTester(ConnectionTester):
     def _setUp(self):
         super(LinuxBridgeConnectionTester, self)._setUp()
         self.bridge = self.useFixture(net_helpers.LinuxBridgeFixture()).bridge
-        self._peer, self._vm = self.useFixture(
+        machines = self.useFixture(
             machine_fixtures.PeerMachines(
                 self.bridge, self.ip_cidr)).machines
+        self._peer = machines[0]
+        self._vm = machines[1]
 
     @property
     def bridge_namespace(self):

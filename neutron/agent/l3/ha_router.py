@@ -189,17 +189,15 @@ class HaRouter(router.RouterInfo):
 
     def _add_default_gw_virtual_route(self, ex_gw_port, interface_name):
         gateway_ips = self._get_external_gw_ips(ex_gw_port)
-        if not gateway_ips:
-            return
 
         default_gw_rts = []
         instance = self._get_keepalived_instance()
         for gw_ip in gateway_ips:
-                # TODO(Carl) This is repeated everywhere.  A method would
-                # be nice.
-                default_gw = n_consts.IP_ANY[netaddr.IPAddress(gw_ip).version]
-                default_gw_rts.append(keepalived.KeepalivedVirtualRoute(
-                    default_gw, gw_ip, interface_name))
+            # TODO(Carl) This is repeated everywhere.  A method would
+            # be nice.
+            default_gw = n_consts.IP_ANY[netaddr.IPAddress(gw_ip).version]
+            default_gw_rts.append(keepalived.KeepalivedVirtualRoute(
+                default_gw, gw_ip, interface_name))
         instance.virtual_routes.gateway_routes = default_gw_rts
 
     def _add_extra_subnet_onlink_routes(self, ex_gw_port, interface_name):
@@ -354,6 +352,8 @@ class HaRouter(router.RouterInfo):
         self._plug_external_gateway(ex_gw_port, interface_name, self.ns_name)
         self._add_gateway_vip(ex_gw_port, interface_name)
         self._disable_ipv6_addressing_on_interface(interface_name)
+        if self.ha_state == 'master':
+            self._enable_ra_on_gw(ex_gw_port, self.ns_name, interface_name)
 
     def external_gateway_updated(self, ex_gw_port, interface_name):
         self._plug_external_gateway(
@@ -385,7 +385,9 @@ class HaRouter(router.RouterInfo):
     def process(self, agent):
         super(HaRouter, self).process(agent)
 
-        if self.ha_port:
+        self.ha_port = self.router.get(n_consts.HA_INTERFACE_KEY)
+        if (self.ha_port and
+                self.ha_port['status'] == n_consts.PORT_STATUS_ACTIVE):
             self.enable_keepalived()
 
     @common_utils.synchronized('enable_radvd')

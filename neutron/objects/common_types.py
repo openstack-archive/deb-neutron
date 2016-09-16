@@ -11,14 +11,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import itertools
+
 import netaddr
-from neutron_lib import constants as n_const
+from neutron_lib import constants as lib_constants
+from neutron_lib import exceptions
 from oslo_versionedobjects import fields as obj_fields
 import six
 
 from neutron._i18n import _
 from neutron.common import constants
-from neutron.common import exceptions
 
 
 class NeutronRangeConstrainedIntegerInvalidLimit(exceptions.NeutronException):
@@ -27,7 +29,7 @@ class NeutronRangeConstrainedIntegerInvalidLimit(exceptions.NeutronException):
 
 
 class IPV6ModeEnumField(obj_fields.AutoTypedField):
-    AUTO_TYPE = obj_fields.Enum(valid_values=constants.IPV6_MODES)
+    AUTO_TYPE = obj_fields.Enum(valid_values=lib_constants.IPV6_MODES)
 
 
 class RangeConstrainedInteger(obj_fields.Integer):
@@ -54,12 +56,22 @@ class IPNetworkPrefixLen(RangeConstrainedInteger):
     """IP network (CIDR) prefix length custom Enum"""
     def __init__(self, **kwargs):
         super(IPNetworkPrefixLen, self).__init__(
-              start=0, end=n_const.IPv6_BITS,
+              start=0, end=lib_constants.IPv6_BITS,
               **kwargs)
 
 
 class IPNetworkPrefixLenField(obj_fields.AutoTypedField):
     AUTO_TYPE = IPNetworkPrefixLen()
+
+
+class PortRange(RangeConstrainedInteger):
+    def __init__(self, **kwargs):
+        super(PortRange, self).__init__(start=constants.PORT_RANGE_MIN,
+                                        end=constants.PORT_RANGE_MAX, **kwargs)
+
+
+class PortRangeField(obj_fields.AutoTypedField):
+    AUTO_TYPE = PortRange()
 
 
 class ListOfIPNetworksField(obj_fields.AutoTypedField):
@@ -121,9 +133,21 @@ class EtherTypeEnumField(obj_fields.AutoTypedField):
     AUTO_TYPE = obj_fields.Enum(valid_values=constants.VALID_ETHERTYPES)
 
 
+class IpProtocolEnum(obj_fields.Enum):
+    """IP protocol number Enum"""
+    def __init__(self, **kwargs):
+        super(IpProtocolEnum, self).__init__(
+            valid_values=list(
+                itertools.chain(
+                    lib_constants.IP_PROTOCOL_MAP.keys(),
+                    [str(v) for v in lib_constants.IP_PROTOCOL_MAP.values()]
+                )
+            ),
+            **kwargs)
+
+
 class IpProtocolEnumField(obj_fields.AutoTypedField):
-    AUTO_TYPE = obj_fields.Enum(
-        valid_values=list(n_const.IP_PROTOCOL_MAP.keys()))
+    AUTO_TYPE = IpProtocolEnum()
 
 
 class MACAddress(obj_fields.FieldType):

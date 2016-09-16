@@ -16,7 +16,8 @@ import binascii
 import collections
 
 import netaddr
-from neutron_lib import constants as l3_constants
+from neutron_lib import constants as lib_constants
+from neutron_lib import exceptions
 from oslo_log import log as logging
 from oslo_utils import excutils
 import six
@@ -26,7 +27,6 @@ from neutron.agent.l3 import dvr_fip_ns
 from neutron.agent.l3 import dvr_router_base
 from neutron.agent.linux import ip_lib
 from neutron.common import constants as n_const
-from neutron.common import exceptions
 from neutron.common import utils as common_utils
 
 LOG = logging.getLogger(__name__)
@@ -77,23 +77,18 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
         rtr_2_fip_name = self.fip_ns.get_rtr_ext_device_name(self.router_id)
         mark_traffic_to_floating_ip = (
-            'floatingip', '-d %s -i %s -j MARK --set-xmark %s' % (
+            'floatingip', '-d %s/32 -i %s -j MARK --set-xmark %s' % (
                 floating_ip, rtr_2_fip_name, internal_mark))
         mark_traffic_from_fixed_ip = (
-            'FORWARD', '-s %s -j $float-snat' % fixed_ip)
+            'FORWARD', '-s %s/32 -j $float-snat' % fixed_ip)
         return [mark_traffic_to_floating_ip, mark_traffic_from_fixed_ip]
 
     def floating_ip_added_dist(self, fip, fip_cidr):
         """Add floating IP to FIP namespace."""
         floating_ip = fip['floating_ip_address']
         fixed_ip = fip['fixed_ip_address']
-        rule_pr = self.fip_ns.allocate_rule_priority(floating_ip)
-        self.floating_ips_dict[floating_ip] = rule_pr
+        self._add_floating_ip_rule(floating_ip, fixed_ip)
         fip_2_rtr_name = self.fip_ns.get_int_device_name(self.router_id)
-        ip_rule = ip_lib.IPRule(namespace=self.ns_name)
-        ip_rule.rule.add(ip=fixed_ip,
-                         table=dvr_fip_ns.FIP_RT_TBL,
-                         priority=rule_pr)
         #Add routing rule in fip namespace
         fip_ns_name = self.fip_ns.get_name()
         if self.rtr_fip_subnet is None:
@@ -112,6 +107,24 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         # update internal structures
         self.dist_fip_count = self.dist_fip_count + 1
 
+    def _add_floating_ip_rule(self, floating_ip, fixed_ip):
+        rule_pr = self.fip_ns.allocate_rule_priority(floating_ip)
+        self.floating_ips_dict[floating_ip] = rule_pr
+        ip_rule = ip_lib.IPRule(namespace=self.ns_name)
+        ip_rule.rule.add(ip=fixed_ip,
+                         table=dvr_fip_ns.FIP_RT_TBL,
+                         priority=rule_pr)
+
+    def _remove_floating_ip_rule(self, floating_ip):
+        if floating_ip in self.floating_ips_dict:
+            rule_pr = self.floating_ips_dict[floating_ip]
+            ip_rule = ip_lib.IPRule(namespace=self.ns_name)
+            ip_rule.rule.delete(ip=floating_ip,
+                                table=dvr_fip_ns.FIP_RT_TBL,
+                                priority=rule_pr)
+            self.fip_ns.deallocate_rule_priority(floating_ip)
+            #TODO(rajeev): Handle else case - exception/log?
+
     def floating_ip_removed_dist(self, fip_cidr):
         """Remove floating IP from FIP namespace."""
         floating_ip = fip_cidr.split('/')[0]
@@ -123,14 +136,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
         rtr_2_fip, fip_2_rtr = self.rtr_fip_subnet.get_pair()
         fip_ns_name = self.fip_ns.get_name()
-        if floating_ip in self.floating_ips_dict:
-            rule_pr = self.floating_ips_dict[floating_ip]
-            ip_rule = ip_lib.IPRule(namespace=self.ns_name)
-            ip_rule.rule.delete(ip=floating_ip,
-                                table=dvr_fip_ns.FIP_RT_TBL,
-                                priority=rule_pr)
-            self.fip_ns.deallocate_rule_priority(floating_ip)
-            #TODO(rajeev): Handle else case - exception/log?
+        self._remove_floating_ip_rule(floating_ip)
 
         device = ip_lib.IPDevice(fip_2_rtr_name, namespace=fip_ns_name)
 
@@ -147,18 +153,28 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             self.rtr_fip_subnet = None
             ns_ip.del_veth(fip_2_rtr_name)
 
+    def floating_ip_moved_dist(self, fip):
+        """Handle floating IP move between fixed IPs."""
+        floating_ip = fip['floating_ip_address']
+        self._remove_floating_ip_rule(floating_ip)
+        self._add_floating_ip_rule(floating_ip, fip['fixed_ip_address'])
+
     def add_floating_ip(self, fip, interface_name, device):
         # Special Handling for DVR - update FIP namespace
         ip_cidr = common_utils.ip_to_cidr(fip['floating_ip_address'])
         self.floating_ip_added_dist(fip, ip_cidr)
-        return l3_constants.FLOATINGIP_STATUS_ACTIVE
+        return lib_constants.FLOATINGIP_STATUS_ACTIVE
 
     def remove_floating_ip(self, device, ip_cidr):
         self.floating_ip_removed_dist(ip_cidr)
 
+    def move_floating_ip(self, fip):
+        self.floating_ip_moved_dist(fip)
+        return lib_constants.FLOATINGIP_STATUS_ACTIVE
+
     def _get_internal_port(self, subnet_id):
         """Return internal router port based on subnet_id."""
-        router_ports = self.router.get(l3_constants.INTERFACE_KEY, [])
+        router_ports = self.router.get(lib_constants.INTERFACE_KEY, [])
         for port in router_ports:
             fips = port['fixed_ips']
             for f in fips:
@@ -236,7 +252,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
         subnet_ports = self.agent.get_ports_by_subnet(subnet_id)
 
         for p in subnet_ports:
-            if p['device_owner'] not in l3_constants.ROUTER_INTERFACE_OWNERS:
+            if p['device_owner'] not in lib_constants.ROUTER_INTERFACE_OWNERS:
                 for fixed_ip in p['fixed_ips']:
                     self._update_arp_entry(fixed_ip['ip_address'],
                                            p['mac_address'],
@@ -275,6 +291,32 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                                         table=snat_idx)
         except exceptions.DeviceNotFoundError:
             pass
+
+    def _stale_ip_rule_cleanup(self, ns_ipr, ns_ipd, ip_version):
+        ip_rules_list = ns_ipr.rule.list_rules(ip_version)
+        snat_table_list = []
+        for ip_rule in ip_rules_list:
+            snat_table = ip_rule['table']
+            priority = ip_rule['priority']
+            if snat_table in ['local', 'default', 'main']:
+                continue
+            if (ip_version == lib_constants.IP_VERSION_4 and
+                snat_table in range(dvr_fip_ns.FIP_PR_START,
+                                    dvr_fip_ns.FIP_PR_END)):
+                continue
+            gateway_cidr = ip_rule['from']
+            ns_ipr.rule.delete(ip=gateway_cidr,
+                               table=snat_table,
+                               priority=priority)
+            snat_table_list.append(snat_table)
+        for tb in snat_table_list:
+            ns_ipd.route.flush(ip_version, table=tb)
+
+    def gateway_redirect_cleanup(self, rtr_interface):
+        ns_ipr = ip_lib.IPRule(namespace=self.ns_name)
+        ns_ipd = ip_lib.IPDevice(rtr_interface, namespace=self.ns_name)
+        self._stale_ip_rule_cleanup(ns_ipr, ns_ipd, lib_constants.IP_VERSION_4)
+        self._stale_ip_rule_cleanup(ns_ipr, ns_ipd, lib_constants.IP_VERSION_6)
 
     def _snat_redirect_modify(self, gateway, sn_port, sn_int, is_add):
         """Adds or removes rules and routes for SNAT redirection."""
@@ -410,14 +452,19 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             to_fip_interface_name = (
                 self.get_external_device_interface_name(ex_gw_port))
             self.process_floating_ip_addresses(to_fip_interface_name)
-        for p in self.internal_ports:
-            # NOTE: When removing the gateway port, pass in the snat_port
-            # cache along with the current ports.
-            gateway = self.get_snat_port_for_internal_port(p, self.snat_ports)
-            if not gateway:
-                continue
-            internal_interface = self.get_internal_device_name(p['id'])
-            self._snat_redirect_remove(gateway, p, internal_interface)
+        # NOTE:_snat_redirect_remove should be only called when the
+        # gateway is cleared and should not be called when the gateway
+        # is moved or rescheduled.
+        if not self.router.get('gw_port'):
+            for p in self.internal_ports:
+                # NOTE: When removing the gateway port, pass in the snat_port
+                # cache along with the current ports.
+                gateway = self.get_snat_port_for_internal_port(
+                    p, self.snat_ports)
+                if not gateway:
+                    continue
+                internal_interface = self.get_internal_device_name(p['id'])
+                self._snat_redirect_remove(gateway, p, internal_interface)
 
     def _handle_router_snat_rules(self, ex_gw_port, interface_name):
         """Configures NAT rules for Floating IPs for DVR."""
@@ -444,7 +491,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
     def _get_address_scope_mark(self):
         # Prepare address scope iptables rule for internal ports
-        internal_ports = self.router.get(l3_constants.INTERFACE_KEY, [])
+        internal_ports = self.router.get(lib_constants.INTERFACE_KEY, [])
         ports_scopemark = self._get_port_devicename_scopemark(
             internal_ports, self.get_internal_device_name)
         # DVR local router will use rfp port as external port
@@ -458,7 +505,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
         ext_scope = self._get_external_address_scope()
         ext_scope_mark = self.get_address_scope_mark_mask(ext_scope)
-        ports_scopemark[l3_constants.IP_VERSION_4][ext_device_name] = (
+        ports_scopemark[lib_constants.IP_VERSION_4][ext_device_name] = (
             ext_scope_mark)
         return ports_scopemark
 
@@ -520,7 +567,7 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
                 self.router_id)
         rtr_2_fip, _fip_2_rtr = self.rtr_fip_subnet.get_pair()
         exist_routes = device.route.list_routes(
-            l3_constants.IP_VERSION_4, via=str(rtr_2_fip.ip))
+            lib_constants.IP_VERSION_4, via=str(rtr_2_fip.ip))
         return {common_utils.ip_to_cidr(route['cidr'])
                 for route in exist_routes}
 

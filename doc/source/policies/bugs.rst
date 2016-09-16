@@ -135,29 +135,8 @@ It's also worth adding that some of these projects are part of the so
 called Neutron `stadium <http://governance.openstack.org/reference/projects/neutron.html#deliverables-and-tags>`_.
 Because of that, their release is managed centrally by the Neutron
 release team; requests for releases need to be funnelled and screened
-properly before they can happen. To this aim, the process to request a release
-is as follows:
-
-* Create a bug report to your Launchpad project: provide details as to what
-  you would like to release;
-
-  * If you provide an exact commit in the bug report then you need to be a bit
-    careful.  In most cases, you'll want to tag the *merge* commit that merges
-    your last commit in to the branch.  `This bug`__ shows an instance where
-    this mistake was caught.  Notice the difference between the `incorrect
-    commit`__ and the `correct one`__ which is the merge commit.  ``git log
-    6191994..22dd683 --oneline`` shows that the first one misses a handful of
-    important commits that the second one catches.  This is the nature of
-    merging to master.
-
-.. __: https://bugs.launchpad.net/neutron/+bug/1540633
-.. __: https://github.com/openstack/networking-infoblox/commit/6191994515
-.. __: https://github.com/openstack/networking-infoblox/commit/22dd683e1a
-
-* Add Neutron to the list of affected projects.
-* Add 'release-subproject' tag to the list of tags for the bug report.
-* The Neutron release management team will watch these bugs, and work with
-  you to have the request fulfilled by following the instructions found `here <http://docs.openstack.org/developer/neutron/devref/sub_project_guidelines.html#sub-project-release-process>`_.
+properly before they can happen. Release request process is described `here
+<http://docs.openstack.org/developer/neutron/stadium/sub_project_guidelines.html#sub-project-release-process>`_.
 
 
 .. _guidelines:
@@ -280,7 +259,7 @@ If the bug report is sound, move next:
 * Depending on ease of reproduction (or if the issue can be spotted in the
   code), mark it as 'Confirmed'. If you are unable to assess/triage the
   issue because you do not have access to a repro environment, consider
-  reaching out the `Lieutenant <http://docs.openstack.org/developer/neutron/policies/core-reviewers.html#core-review-hierarchy>`_,
+  reaching out the `Lieutenant <http://docs.openstack.org/developer/neutron/policies/neutron-teams.html#core-review-hierarchy>`_,
   go-to person for the affected component;
   he/she may be able to help: assign the bug to him/her for further
   screening. If the bug already has an assignee, check that a patch is
@@ -352,7 +331,7 @@ Proposing New Tags
 New tags, or changes in the meaning of existing tags (or deletion), are to be
 proposed via patch to this section. After discussion, and approval, a member of
 the bug team will create/delete the tag in Launchpad. Each tag covers an area
-with an identified go-to contact or `Lieutenant <http://docs.openstack.org/developer/neutron/policies/core-reviewers.html#core-review-hierarchy>`_,
+with an identified go-to contact or `Lieutenant <http://docs.openstack.org/developer/neutron/policies/neutron-teams.html#core-review-hierarchy>`_,
 who can provide further insight. Bug queries are provided below for convenience,
 more will be added over time if needed.
 
@@ -362,6 +341,8 @@ more will be added over time if needed.
 | access-control_               | A bug affecting RBAC and policy.json    | Kevin Benton         |
 +-------------------------------+-----------------------------------------+----------------------+
 | api_                          | A bug affecting the API layer           | Salvatore Orlando    |
++-------------------------------+-----------------------------------------+----------------------+
+| api-ref_                      | A bug affecting the API reference       | Akihiro Motoki       |
 +-------------------------------+-----------------------------------------+----------------------+
 | auto-allocated-topology_      | A bug affecting get-me-a-network        | Henry Gessau         |
 +-------------------------------+-----------------------------------------+----------------------+
@@ -428,9 +409,7 @@ more will be added over time if needed.
 +-------------------------------+-----------------------------------------+----------------------+
 | qos_                          | A bug affecting ML2/QoS                 | Miguel Ajo           |
 +-------------------------------+-----------------------------------------+----------------------+
-| released-neutronclient_       | A bug affecting released clients        | Kyle Mestery         |
-+-------------------------------+-----------------------------------------+----------------------+
-| release-subproject_           | A request to release a subproject       | Ihar Hrachyshka      |
+| release_                      | A request from a subproject             | Ihar Hrachyshka      |
 +-------------------------------+-----------------------------------------+----------------------+
 | rfe_                          | Feature enhancements being screened     | Drivers Team         |
 +-------------------------------+-----------------------------------------+----------------------+
@@ -439,6 +418,8 @@ more will be added over time if needed.
 | sg-fw_                        | A bug affecting security groups         | Kevin Benton         |
 +-------------------------------+-----------------------------------------+----------------------+
 | sriov-pci-pt_                 | A bug affecting Sriov/PCI PassThrough   | Moshe Levi           |
++-------------------------------+-----------------------------------------+----------------------+
+| tempest_                      | A bug in tempest subtree tests          | Assaf Muller         |
 +-------------------------------+-----------------------------------------+----------------------+
 | troubleshooting_              | An issue affecting ease of debugging    | Assaf Muller         |
 +-------------------------------+-----------------------------------------+----------------------+
@@ -467,6 +448,14 @@ API
 
 * `API - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=api>`_
 * `API - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=api>`_
+
+.. _api-ref:
+
+API Reference
++++++++++++++
+
+* `API Reference - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=api-ref>`_
+* `API Reference - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=api-ref>`_
 
 .. _auto-allocated-topology:
 
@@ -713,21 +702,13 @@ QoS
 * `QoS - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=qos>`_
 * `QoS - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=qos>`_
 
-.. _released-neutronclient:
+.. _release:
 
-Released Neutron Client
-+++++++++++++++++++++++
+Requests from Stadium Subprojects
++++++++++++++++++++++++++++++++++
 
-* `Released Neutron Client - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=released-neutronclient>`_
-* `Released Neutron Client - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=released-neutronclient>`_
-
-.. _release-subproject:
-
-Release Subproject
-++++++++++++++++++
-
-* `Release Subproject - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=release-subproject>`_
-* `Release Subproject - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=release-subproject>`_
+* `Requests from Stadium Subprojects - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=release>`_
+* `Requests from Stadium Subprojects - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=release>`_
 
 .. _rfe:
 
@@ -760,6 +741,15 @@ SG-FW
 
 * `Security groups - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=sg-fw>`_
 * `Security groups - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=sg-fw>`_
+
+.. _tempest:
+
+Tempest
++++++++
+
+* `Tempest - All bugs <https://bugs.launchpad.net/neutron/+bugs?field.tag=Tempest>`_
+* `Tempest - In progress <https://bugs.launchpad.net/neutron/+bugs?field.status%3Alist=INPROGRESS&field.tag=Tempest>`_
+
 
 .. _troubleshooting:
 

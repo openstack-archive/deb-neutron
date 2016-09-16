@@ -222,6 +222,9 @@ class RpcCallbacksTestCase(base.BaseTestCase):
     def test_update_device_up_with_device_not_bound_to_host(self):
         self.assertIsNone(self._test_update_device_not_bound_to_host(
             self.callbacks.update_device_up))
+        port = self.plugin._get_port.return_value
+        (self.plugin.nova_notifier.notify_port_active_direct.
+         assert_called_once_with(port))
 
     def test_update_device_down_with_device_not_bound_to_host(self):
         self.assertEqual(
@@ -309,7 +312,8 @@ class RpcCallbacksTestCase(base.BaseTestCase):
 class RpcApiTestCase(base.BaseTestCase):
 
     def _test_rpc_api(self, rpcapi, topic, method, rpc_method, **kwargs):
-        ctxt = oslo_context.RequestContext('fake_user', 'fake_project')
+        ctxt = oslo_context.RequestContext(user='fake_user',
+                                           tenant='fake_project')
         expected_retval = 'foo' if rpc_method == 'call' else None
         expected_version = kwargs.pop('version', None)
         fanout = kwargs.pop('fanout', False)
@@ -440,7 +444,8 @@ class RpcApiTestCase(base.BaseTestCase):
 
     def test_update_device_list_unsupported(self):
         rpcapi = agent_rpc.PluginApi(topics.PLUGIN)
-        ctxt = oslo_context.RequestContext('fake_user', 'fake_project')
+        ctxt = oslo_context.RequestContext(user='fake_user',
+                                           tenant='fake_project')
         devices_up = ['fake_device1', 'fake_device2']
         devices_down = ['fake_device3', 'fake_device4']
         expected_ret_val = {'devices_up': ['fake_device2'],
@@ -482,7 +487,8 @@ class RpcApiTestCase(base.BaseTestCase):
 
     def test_get_devices_details_list_and_failed_devices_unsupported(self):
         rpcapi = agent_rpc.PluginApi(topics.PLUGIN)
-        ctxt = oslo_context.RequestContext('fake_user', 'fake_project')
+        ctxt = oslo_context.RequestContext(user='fake_user',
+                                           tenant='fake_project')
         devices = ['fake_device1', 'fake_device2']
         dev2_details = {'device': 'fake_device2', 'network_id': 'net_id',
                         'port_id': 'port_id', 'admin_state_up': True}
