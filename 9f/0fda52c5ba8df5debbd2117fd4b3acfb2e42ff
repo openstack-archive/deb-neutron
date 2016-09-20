@@ -1,0 +1,11 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: garyk <gkotton@vmware.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Sep 2016 03:11:54 +0000
+Reviewed-on: https://review.openstack.org/371750
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton

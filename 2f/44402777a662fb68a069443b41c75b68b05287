@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: ShangXiao <shangxiaobj@inspur.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Sep 2016 05:25:47 +0000
+Reviewed-on: https://review.openstack.org/372595
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
