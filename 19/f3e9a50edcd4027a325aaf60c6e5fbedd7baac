@@ -1,0 +1,10 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Workflow+1: Henry Gessau <HenryG@gessau.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Sep 2016 01:18:32 +0000
+Reviewed-on: https://review.openstack.org/372423
+Project: openstack/deb-neutron
+Branch: refs/heads/master
