@@ -19,6 +19,8 @@ import testtools
 
 from neutron.callbacks import events
 from neutron.callbacks import registry
+from neutron.callbacks import resources
+from neutron.extensions import portbindings
 from neutron import manager
 from neutron.objects import trunk as trunk_objects
 from neutron.services.trunk import callbacks
@@ -26,6 +28,7 @@ from neutron.services.trunk import constants
 from neutron.services.trunk import drivers
 from neutron.services.trunk import exceptions as trunk_exc
 from neutron.services.trunk import plugin as trunk_plugin
+from neutron.services.trunk.seg_types import validators
 from neutron.tests.unit.plugins.ml2 import test_plugin
 from neutron.tests.unit.services.trunk import fakes
 
@@ -266,22 +269,84 @@ class TrunkPluginTestCase(test_plugin.Ml2PluginV2TestCase):
                 {'sub_ports': [{'port_id': subport['port']['id']}]})
             self.assertEqual(constants.DOWN_STATUS, trunk['status'])
 
+    def test__trigger_trunk_status_change_vif_type_changed_unbound(self):
+        with self.port() as parent:
+            parent[portbindings.VIF_TYPE] = portbindings.VIF_TYPE_UNBOUND
+            original_port = {portbindings.VIF_TYPE: 'fakeviftype'}
+            self._test__trigger_trunk_status_change(parent,
+                                                    original_port,
+                                                    constants.ACTIVE_STATUS,
+                                                    constants.DOWN_STATUS)
 
-class TrunkPluginDriversTestCase(test_plugin.Ml2PluginV2TestCase):
+    def test__trigger_trunk_status_change_vif_type_unchanged(self):
+        with self.port() as parent:
+            parent[portbindings.VIF_TYPE] = 'fakeviftype'
+            original_port = {portbindings.VIF_TYPE: 'fakeviftype'}
+            self._test__trigger_trunk_status_change(parent,
+                                                    original_port,
+                                                    constants.ACTIVE_STATUS,
+                                                    constants.ACTIVE_STATUS)
+
+    def test__trigger_trunk_status_change_vif_type_changed(self):
+        with self.port() as parent:
+            parent[portbindings.VIF_TYPE] = 'realviftype'
+            original_port = {portbindings.VIF_TYPE: 'fakeviftype'}
+            self._test__trigger_trunk_status_change(parent,
+                                                    original_port,
+                                                    constants.ACTIVE_STATUS,
+                                                    constants.ACTIVE_STATUS)
+
+    def _test__trigger_trunk_status_change(self, new_parent,
+                                           original_parent,
+                                           initial_trunk_status,
+                                           final_trunk_status):
+        trunk = self._create_test_trunk(new_parent)
+        trunk = self._get_trunk_obj(trunk['id'])
+        trunk.update(status=initial_trunk_status)
+        trunk_details = {'trunk_id': trunk.id}
+        new_parent['trunk_details'] = trunk_details
+        original_parent['trunk_details'] = trunk_details
+        kwargs = {'context': self.context, 'port': new_parent,
+                  'original_port': original_parent}
+        self.trunk_plugin._trigger_trunk_status_change(resources.PORT,
+                                                  events.AFTER_UPDATE,
+                                                  None, **kwargs)
+        trunk = self._get_trunk_obj(trunk.id)
+        self.assertEqual(final_trunk_status, trunk.status)
+
+
+class TrunkPluginCompatDriversTestCase(test_plugin.Ml2PluginV2TestCase):
 
     def setUp(self):
-        super(TrunkPluginDriversTestCase, self).setUp()
+        super(TrunkPluginCompatDriversTestCase, self).setUp()
         mock.patch.object(drivers, 'register').start()
 
-    def test_plugin_fails_to_start(self):
+    def test_plugin_fails_to_start_no_loaded_drivers(self):
         with testtools.ExpectedException(
                 trunk_exc.IncompatibleTrunkPluginConfiguration):
             trunk_plugin.TrunkPlugin()
 
+    def test_plugins_fails_to_start_seg_type_validator_not_found(self):
+        fakes.FakeDriver.create()
+        with mock.patch.object(
+                validators, 'get_validator', side_effect=KeyError), \
+            testtools.ExpectedException(
+                    trunk_exc.SegmentationTypeValidatorNotFound):
+                trunk_plugin.TrunkPlugin()
+
+    def test_plugins_fails_to_start_conflicting_seg_types(self):
+        fakes.FakeDriver.create()
+        fakes.FakeDriver2.create()
+        with testtools.ExpectedException(
+                trunk_exc.IncompatibleDriverSegmentationTypes):
+            trunk_plugin.TrunkPlugin()
+
     def test_plugin_with_fake_driver(self):
-        fake_driver = fakes.FakeDriver.create()
-        plugin = trunk_plugin.TrunkPlugin()
-        self.assertTrue(fake_driver.is_loaded)
-        self.assertEqual(set([]), plugin.supported_agent_types)
-        self.assertEqual(set(['foo_intfs']), plugin.supported_interfaces)
-        self.assertEqual([fake_driver], plugin.registered_drivers)
+        with mock.patch.object(validators, 'get_validator',
+                               return_value={'foo_seg_types': mock.ANY}):
+            fake_driver = fakes.FakeDriver.create()
+            plugin = trunk_plugin.TrunkPlugin()
+            self.assertTrue(fake_driver.is_loaded)
+            self.assertEqual(set([]), plugin.supported_agent_types)
+            self.assertEqual(set(['foo_intfs']), plugin.supported_interfaces)
+            self.assertEqual([fake_driver], plugin.registered_drivers)

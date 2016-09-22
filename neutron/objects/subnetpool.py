@@ -90,19 +90,15 @@ class SubnetPool(base.NeutronDbObject):
             return pool_obj
 
     @classmethod
-    def get_objects(cls, context, **kwargs):
+    def get_objects(cls, context, _pager=None, validate_filters=True,
+                    **kwargs):
         with db_api.autonested_transaction(context.session):
-            objs = super(SubnetPool, cls).get_objects(context, **kwargs)
+            objs = super(SubnetPool, cls).get_objects(context, _pager,
+                                                      validate_filters,
+                                                      **kwargs)
             for obj in objs:
                 obj.reload_prefixes()
             return objs
-
-    def _get_changed_synthetic_fields(self):
-        fields = self.obj_get_changes()
-        for field in self._get_changed_persistent_fields():
-            if field in fields:
-                del fields[field]
-        return fields
 
     # TODO(ihrachys): Consider extending base to trigger registered methods
     def create(self):

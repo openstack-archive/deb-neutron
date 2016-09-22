@@ -83,7 +83,7 @@ core_opts = [
     cfg.IntOpt('max_fixed_ips_per_port', default=5,
                deprecated_for_removal=True,
                help=_("Maximum number of fixed ips per port. This option "
-                      "is deprecated and will be removed in the N "
+                      "is deprecated and will be removed in the Ocata "
                       "release.")),
     cfg.BoolOpt('ipv6_pd_enabled', default=False,
                 help=_("Enables IPv6 Prefix Delegation for automatic subnet "
@@ -96,7 +96,6 @@ core_opts = [
                        "Note that enabling PD will override the behavior of "
                        "the default IPv6 subnetpool.")),
     cfg.IntOpt('dhcp_lease_duration', default=86400,
-               deprecated_name='dhcp_lease_time',
                help=_("DHCP lease duration (in seconds). Use -1 to tell "
                       "dnsmasq to use infinite lease times.")),
     cfg.StrOpt('dns_domain',

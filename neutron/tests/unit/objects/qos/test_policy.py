@@ -82,14 +82,16 @@ class QosPolicyObjectTestCase(test_base.BaseObjectIfaceTestCase):
         context_mock.assert_called_once_with()
         self.get_objects.assert_any_call(
             admin_context, self._test_class.db_model, _pager=None)
-        self._validate_objects(self.db_objs, objs)
+        self.assertItemsEqual(
+            [test_base.get_obj_db_fields(obj) for obj in self.objs],
+            [test_base.get_obj_db_fields(obj) for obj in objs])
 
     def test_get_objects_valid_fields(self):
         admin_context = self.context.elevated()
 
         with mock.patch.object(
             db_api, 'get_objects',
-            return_value=[self.db_obj]) as get_objects_mock:
+            return_value=[self.db_objs[0]]) as get_objects_mock:
 
             with mock.patch.object(
                 self.context,
@@ -103,21 +105,29 @@ class QosPolicyObjectTestCase(test_base.BaseObjectIfaceTestCase):
             get_objects_mock.assert_any_call(
                 admin_context, self._test_class.db_model, _pager=None,
                 **self.valid_field_filter)
-        self._validate_objects([self.db_obj], objs)
+        self._check_equal(objs[0], self.objs[0])
 
     def test_get_object(self):
         admin_context = self.context.elevated()
-        with mock.patch.object(db_api, 'get_object',
-                               return_value=self.db_obj) as get_object_mock:
+        with mock.patch.object(
+                db_api, 'get_object',
+                return_value=self.db_objs[0]) as get_object_mock:
             with mock.patch.object(self.context,
                                    'elevated',
                                    return_value=admin_context) as context_mock:
                 obj = self._test_class.get_object(self.context, id='fake_id')
                 self.assertTrue(self._is_test_class(obj))
-                self.assertEqual(self.db_obj, test_base.get_obj_db_fields(obj))
+                self._check_equal(obj, self.objs[0])
                 context_mock.assert_called_once_with()
                 get_object_mock.assert_called_once_with(
                     admin_context, self._test_class.db_model, id='fake_id')
+
+    def test_to_dict_makes_primitive_field_value(self):
+        # is_shared_with_tenant requires DB
+        with mock.patch.object(self._test_class, 'is_shared_with_tenant',
+                               return_value=False):
+            (super(QosPolicyObjectTestCase, self).
+             test_to_dict_makes_primitive_field_value())
 
 
 class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
@@ -139,9 +149,8 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         self._create_test_port(self._network)
 
     def _create_test_policy(self):
-        policy_obj = policy.QosPolicy(self.context, **self.db_obj)
-        policy_obj.create()
-        return policy_obj
+        self.objs[0].create()
+        return self.objs[0]
 
     def _create_test_policy_with_rules(self, rule_type, reload_rules=False):
         policy_obj = self._create_test_policy()
@@ -213,13 +222,13 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
 
     def test_attach_network_nonexistent_policy(self):
 
-        policy_obj = policy.QosPolicy(self.context, **self.db_obj)
+        policy_obj = policy.QosPolicy(self.context, **self.db_objs[0])
         self.assertRaises(n_exc.NetworkQosBindingNotFound,
                           policy_obj.attach_network, self._network['id'])
 
     def test_attach_port_nonexistent_policy(self):
 
-        policy_obj = policy.QosPolicy(self.context, **self.db_obj)
+        policy_obj = policy.QosPolicy(self.context, **self.db_objs[0])
         self.assertRaises(n_exc.PortQosBindingNotFound,
                           policy_obj.attach_port, self._port['id'])
 
@@ -300,12 +309,12 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
                           obj.detach_network, 'non-existent-port')
 
     def test_detach_port_nonexistent_policy(self):
-        policy_obj = policy.QosPolicy(self.context, **self.db_obj)
+        policy_obj = policy.QosPolicy(self.context, **self.db_objs[0])
         self.assertRaises(n_exc.PortQosBindingNotFound,
                           policy_obj.detach_port, self._port['id'])
 
     def test_detach_network_nonexistent_policy(self):
-        policy_obj = policy.QosPolicy(self.context, **self.db_obj)
+        policy_obj = policy.QosPolicy(self.context, **self.db_objs[0])
         self.assertRaises(n_exc.NetworkQosBindingNotFound,
                           policy_obj.detach_network, self._network['id'])
 
@@ -343,7 +352,7 @@ class QosPolicyDbObjectTestCase(test_base.BaseDbObjectTestCase,
         self.assertEqual(rule_dict, obj_dict['rules'][0])
 
     def test_shared_default(self):
-        obj = self._test_class(self.context, **self.db_obj)
+        obj = self._test_class(self.context, **self.db_objs[0])
         self.assertFalse(obj.shared)
 
     def test_delete_not_allowed_if_policy_in_use_by_port(self):

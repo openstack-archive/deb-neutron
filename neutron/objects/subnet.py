@@ -41,7 +41,8 @@ class DNSNameServer(base.NeutronDbObject):
     }
 
     @classmethod
-    def get_objects(cls, context, _pager=None, **kwargs):
+    def get_objects(cls, context, _pager=None, validate_filters=True,
+                    **kwargs):
         """Fetch DNSNameServer objects with default sort by 'order' field.
         """
         if not _pager:
@@ -50,6 +51,7 @@ class DNSNameServer(base.NeutronDbObject):
             # (NOTE) True means ASC, False is DESC
             _pager.sorts = [('order', True)]
         return super(DNSNameServer, cls).get_objects(context, _pager,
+                                                     validate_filters,
                                                      **kwargs)
 
 
@@ -209,10 +211,9 @@ class Subnet(base.NeutronDbObject):
         setattr(self, 'shared', shared)
         self.obj_reset_changes(['shared'])
 
-    def from_db_object(self, *objs):
-        super(Subnet, self).from_db_object(*objs)
-        for obj in objs:
-            self._load_shared(obj)
+    def from_db_object(self, db_obj):
+        super(Subnet, self).from_db_object(db_obj)
+        self._load_shared(db_obj)
 
     @classmethod
     def modify_fields_from_db(cls, db_obj):

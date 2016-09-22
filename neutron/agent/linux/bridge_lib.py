@@ -39,10 +39,11 @@ def is_bridged_interface(interface):
         return os.path.exists(BRIDGE_PORT_FS_FOR_DEVICE % interface)
 
 
-def get_interface_bridged_time(interface):
+def get_interface_ifindex(interface):
     try:
-        return os.stat(BRIDGE_PORT_FS_FOR_DEVICE % interface).st_mtime
-    except OSError:
+        with open(os.path.join(BRIDGE_FS, interface, 'ifindex'), 'r') as fh:
+            return int(fh.read().strip())
+    except (IOError, ValueError):
         pass
 
 
@@ -107,18 +108,31 @@ class FdbInterface(object):
     """provide basic functionality to edit the FDB table"""
 
     @classmethod
-    def add(cls, mac, dev):
-        return utils.execute(['bridge', 'fdb', 'add', mac, 'dev', dev],
-                run_as_root=True)
+    def _execute(cls, op, mac, dev, ip_dst, **kwargs):
+        cmd = ['bridge', 'fdb', op, mac, 'dev', dev]
+        if ip_dst is not None:
+            cmd += ['dst', ip_dst]
+        return utils.execute(cmd, run_as_root=True, **kwargs)
 
     @classmethod
-    def delete(cls, mac, dev):
-        return utils.execute(['bridge', 'fdb', 'delete', mac, 'dev', dev],
-                             run_as_root=True)
+    def add(cls, mac, dev, ip_dst=None, **kwargs):
+        return cls._execute('add', mac, dev, ip_dst, **kwargs)
 
     @classmethod
-    def show(cls, dev=None):
+    def append(cls, mac, dev, ip_dst=None, **kwargs):
+        return cls._execute('append', mac, dev, ip_dst, **kwargs)
+
+    @classmethod
+    def replace(cls, mac, dev, ip_dst=None, **kwargs):
+        return cls._execute('replace', mac, dev, ip_dst, **kwargs)
+
+    @classmethod
+    def delete(cls, mac, dev, ip_dst=None, **kwargs):
+        return cls._execute('delete', mac, dev, ip_dst, **kwargs)
+
+    @classmethod
+    def show(cls, dev=None, **kwargs):
         cmd = ['bridge', 'fdb', 'show']
         if dev:
             cmd += ['dev', dev]
-        return utils.execute(cmd, run_as_root=True)
+        return utils.execute(cmd, run_as_root=True, **kwargs)

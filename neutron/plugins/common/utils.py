@@ -19,6 +19,7 @@ Common utilities and helper functions for OpenStack Networking Plugins.
 import contextlib
 import hashlib
 
+import debtcollector
 from neutron_lib import constants as n_const
 from neutron_lib import exceptions
 from oslo_config import cfg
@@ -172,6 +173,10 @@ def create_network(core_plugin, context, net, check_allow_post=True):
     return core_plugin.create_network(context, {'network': net_data})
 
 
+@debtcollector.removals.remove(
+    message="This will be removed in the O cycle. "
+            "Please call update_network directly on the plugin."
+)
 def update_network(core_plugin, context, network_id, net_data):
     network = core_plugin.update_network(
         context, network_id, {resources.NETWORK: net_data})
@@ -197,24 +202,30 @@ def create_port(core_plugin, context, port, check_allow_post=True):
     return core_plugin.create_port(context, {'port': port_data})
 
 
-class _DelManager(object):
-    def __init__(self):
-        self.delete_on_error = True
-
-
 @contextlib.contextmanager
 def delete_port_on_error(core_plugin, context, port_id):
-    mgr = _DelManager()
     try:
-        yield mgr
+        yield
     except Exception:
         with excutils.save_and_reraise_exception():
             try:
-                if mgr.delete_on_error:
-                    core_plugin.delete_port(context, port_id,
-                                            l3_port_check=False)
+                core_plugin.delete_port(context, port_id,
+                                        l3_port_check=False)
             except Exception:
-                LOG.exception(_LE("Failed to cleanup port: %s"), port_id)
+                LOG.exception(_LE("Failed to delete port: %s"), port_id)
+
+
+@contextlib.contextmanager
+def update_port_on_error(core_plugin, context, port_id, revert_value):
+    try:
+        yield
+    except Exception:
+        with excutils.save_and_reraise_exception():
+            try:
+                core_plugin.update_port(context, port_id,
+                                        {'port': revert_value})
+            except Exception:
+                LOG.exception(_LE("Failed to update port: %s"), port_id)
 
 
 def get_interface_name(name, prefix='', max_len=n_const.DEVICE_NAME_MAX_LEN):

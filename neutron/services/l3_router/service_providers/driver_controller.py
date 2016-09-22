@@ -110,7 +110,7 @@ class DriverController(object):
         # attributes via the API.
         try:
             _ensure_driver_supports_request(drv, router)
-        except lib_exc.Invalid:
+        except lib_exc.InvalidInput:
             # the current driver does not support this request, we need to
             # migrate to a new provider. populate the distributed and ha
             # flags from the previous state if not in the update so we can
@@ -120,9 +120,9 @@ class DriverController(object):
             # the flavor will make things inconsistent. We can probably
             # update the flavor automatically in the future.
             if old_router['flavor_id']:
-                raise lib_exc.Invalid(_(
+                raise lib_exc.InvalidInput(error_message=_(
                     "Changing the 'ha' and 'distributed' attributes on a "
-                    "router associated with a flavor is not supported."))
+                    "router associated with a flavor is not supported"))
             if 'distributed' not in router:
                 router['distributed'] = old_router['distributed']
             if 'ha' not in router:
@@ -171,8 +171,9 @@ class DriverController(object):
 
     def _attrs_to_driver(self, router):
         """Get a provider driver handle based on the ha/distributed flags."""
-        distributed = _is_distributed(router['distributed'])
-        ha = _is_ha(router['ha'])
+        distributed = _is_distributed(
+            router.get('distributed', lib_const.ATTR_NOT_SPECIFIED))
+        ha = _is_ha(router.get('ha', lib_const.ATTR_NOT_SPECIFIED))
         drivers = self.drivers.values()
         # make sure default is tried before the rest if defined
         if self.default_provider:
@@ -184,6 +185,11 @@ class DriverController(object):
             _("Could not find a service provider that supports "
               "distributed=%(d)s and ha=%(h)s") % {'d': distributed, 'h': ha}
         )
+
+    def uses_scheduler(self, context, router_id):
+        """Returns True if the integrated L3 scheduler should be used."""
+        return (self._get_provider_for_router(context, router_id).
+                use_integrated_agent_scheduler)
 
 
 class _LegacyPlusProviderConfiguration(
@@ -244,6 +250,6 @@ def _ensure_driver_supports_request(drv, router_body):
         if flag not in [True, False]:
             continue  # not specified in body
         if not getattr(drv, attr).is_compatible(flag):
-            raise lib_exc.Invalid(
+            raise lib_exc.InvalidInput(error_message=(
                 _("Provider %(name)s does not support %(key)s=%(flag)s")
-                % dict(name=drv.name, key=key, flag=flag))
+                % dict(name=drv.name, key=key, flag=flag)))

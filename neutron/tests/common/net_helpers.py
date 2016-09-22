@@ -519,8 +519,8 @@ class NamespaceFixture(fixtures.Fixture):
     def _setUp(self):
         ip = ip_lib.IPWrapper()
         self.name = self.prefix + uuidutils.generate_uuid()
-        self.addCleanup(self.destroy)
         self.ip_wrapper = ip.ensure_namespace(self.name)
+        self.addCleanup(self.destroy)
 
     def destroy(self):
         if self.ip_wrapper.netns.exists(self.name):
@@ -857,10 +857,11 @@ class LinuxBridgePortFixture(PortFixture):
         super(LinuxBridgePortFixture, self)._setUp()
         br_port_name = self._get_port_name()
         if br_port_name:
-            self.br_port, self.port = self.useFixture(
-                NamedVethFixture(veth0_prefix=br_port_name)).ports
+            self.veth_fixture = self.useFixture(
+                NamedVethFixture(veth0_prefix=br_port_name))
         else:
-            self.br_port, self.port = self.useFixture(VethFixture()).ports
+            self.veth_fixture = self.useFixture(VethFixture())
+        self.br_port, self.port = self.veth_fixture.ports
 
         if self.mac:
             self.port.link.set_address(self.mac)

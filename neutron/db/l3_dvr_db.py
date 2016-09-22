@@ -71,11 +71,11 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
 
     def _create_router_db(self, context, router, tenant_id):
         """Create a router db object with dvr additions."""
-        router['distributed'] = is_distributed_router(router)
         with context.session.begin(subtransactions=True):
             router_db = super(
                 L3_NAT_with_dvr_db_mixin, self)._create_router_db(
                     context, router, tenant_id)
+            router['distributed'] = is_distributed_router(router)
             self._process_extra_attr_router_create(context, router_db, router)
             return router_db
 
@@ -139,6 +139,8 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     # router, make sure to create corresponding
                     # snat interface ports that are to be consumed by
                     # the Service Node.
+                    # TODO(haleyb): move this out of transaction
+                    setattr(context, 'GUARD_TRANSACTION', False)
                     if not self._create_snat_intf_ports_if_not_exists(
                         context.elevated(), router_db):
                         LOG.debug("SNAT interface ports not created: %s",
@@ -305,6 +307,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         floating_ip = fip_qry.filter_by(fixed_port_id=port_id)
         return floating_ip.first()
 
+    @db_api.retry_if_session_inactive()
     def add_router_interface(self, context, router_id, interface_info):
         add_by_port, add_by_sub = self._validate_interface_info(interface_info)
         router = self._get_router(context, router_id)
@@ -315,19 +318,32 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         cleanup_port = False
 
         if add_by_port:
-            port, subnets = self._add_interface_by_port(
-                    context, router, interface_info['port_id'], device_owner)
+            port_id = interface_info['port_id']
+            port = self._check_router_port(context, port_id, '')
+            revert_value = {'device_id': '',
+                            'device_owner': port['device_owner']}
+            with p_utils.update_port_on_error(
+                    self._core_plugin, context, port_id, revert_value):
+                port, subnets = self._add_interface_by_port(
+                    context, router, port_id, device_owner)
         elif add_by_sub:
             port, subnets, new_port = self._add_interface_by_subnet(
                     context, router, interface_info['subnet_id'], device_owner)
             cleanup_port = new_port
+            revert_value = {'device_id': '',
+                            'device_owner': port['device_owner']}
 
         subnet = subnets[0]
 
+        if cleanup_port:
+            mgr = p_utils.delete_port_on_error(
+                self._core_plugin, context, port['id'])
+        else:
+            mgr = p_utils.update_port_on_error(
+                self._core_plugin, context, port['id'], revert_value)
+
         if new_port:
-            with p_utils.delete_port_on_error(self._core_plugin,
-                                              context, port['id']) as delmgr:
-                delmgr.delete_on_error = cleanup_port
+            with mgr:
                 if router.extra_attributes.distributed and router.gw_port:
                     admin_context = context.elevated()
                     self._add_csnat_router_interface_port(
@@ -362,12 +378,12 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                         router, subnet['network_id'],
                         const.DEVICE_OWNER_ROUTER_SNAT))
                 if cs_port:
-                    fixed_ips = list(cs_port['port']['fixed_ips'])
+                    fixed_ips = list(cs_port['fixed_ips'])
                     fixed_ips.append(fixed_ip)
                     try:
                         updated_port = self._core_plugin.update_port(
                             context.elevated(),
-                            cs_port['port_id'],
+                            cs_port['id'],
                             {'port': {'fixed_ips': fixed_ips}})
                     except Exception:
                         with excutils.save_and_reraise_exception():
@@ -437,7 +453,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if (p['network_id'] == net_id and
                 p['device_owner'] == device_owner and
                 self._port_has_ipv6_address(p, csnat_port_check=False)):
-                return port
+                return self._core_plugin._make_port_dict(p, None)
 
     def _check_for_multiprefix_csnat_port_and_update(
         self, context, router, network_id, subnet_id):
@@ -457,10 +473,10 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             if cs_port:
                 fixed_ips = (
                     [fixedip for fixedip in
-                        cs_port['port']['fixed_ips']
+                        cs_port['fixed_ips']
                         if fixedip['subnet_id'] != subnet_id])
 
-                if len(fixed_ips) == len(cs_port['port']['fixed_ips']):
+                if len(fixed_ips) == len(cs_port['fixed_ips']):
                     # The subnet being detached from router is not part of
                     # ipv6 router port. No need to update the multiprefix.
                     return False
@@ -469,10 +485,11 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                     # multiple prefix port - delete prefix from port
                     self._core_plugin.update_port(
                         context.elevated(),
-                        cs_port['port_id'], {'port': {'fixed_ips': fixed_ips}})
+                        cs_port['id'], {'port': {'fixed_ips': fixed_ips}})
                     return True
         return False
 
+    @db_api.retry_if_session_inactive()
     def remove_router_interface(self, context, router_id, interface_info):
         router = self._get_router(context, router_id)
         if not router.extra_attributes.distributed:
@@ -955,6 +972,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                                                   p['id'],
                                                   l3_port_check=False)
 
+    @db_api.retry_if_session_inactive()
     def create_floatingip(self, context, floatingip,
                           initial_status=const.FLOATINGIP_STATUS_ACTIVE):
         floating_ip = self._create_floatingip(
@@ -990,6 +1008,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
         else:
             self.notify_router_updated(context, router_id)
 
+    @db_api.retry_if_session_inactive()
     def update_floatingip(self, context, id, floatingip):
         old_floatingip, floatingip = self._update_floatingip(
             context, id, floatingip)
@@ -999,6 +1018,7 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
             self._notify_floating_ip_change(context, floatingip)
         return floatingip
 
+    @db_api.retry_if_session_inactive()
     def delete_floatingip(self, context, id):
         floating_ip = self._delete_floatingip(context, id)
         self._notify_floating_ip_change(context, floating_ip)

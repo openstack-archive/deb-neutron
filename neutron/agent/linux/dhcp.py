@@ -475,6 +475,12 @@ class Dnsmasq(DhcpLocalProcess):
             LOG.debug('Killing dnsmasq for network since all subnets have '
                       'turned off DHCP: %s', self.network.id)
             return
+        if not self.interface_name:
+            # we land here if above has been called and we receive port
+            # delete notifications for the network
+            LOG.debug('Agent does not have an interface on this network '
+                      'anymore, skipping reload: %s', self.network.id)
+            return
 
         self._release_unused_leases()
         self._spawn_or_reload_process(reload_with_HUP=True)
@@ -771,6 +777,7 @@ class Dnsmasq(DhcpLocalProcess):
                             continue
                     parts = l.strip().split()
                     (iaid, ip, client_id) = parts[1], parts[2], parts[4]
+                    ip = ip.strip('[]')
                     if netaddr.IPAddress(ip).version == constants.IP_VERSION_4:
                         continue
                     leases[ip] = {'iaid': iaid,
@@ -810,8 +817,7 @@ class Dnsmasq(DhcpLocalProcess):
                 self._release_lease(mac, ip, client_id)
 
         if not dhcp_port_exists:
-            self.device_manager.driver.unplug(
-                self.interface_name, namespace=self.network.namespace)
+            self.device_manager.unplug(self.interface_name, self.network)
 
     def _output_addn_hosts_file(self):
         """Writes a dnsmasq compatible additional hosts file.
@@ -1272,7 +1278,10 @@ class DeviceManager(object):
         fixed_ips = [dict(subnet_id=fixed_ip.subnet_id,
                           ip_address=fixed_ip.ip_address,
                           subnet=dhcp_subnets[fixed_ip.subnet_id])
-                     for fixed_ip in dhcp_port.fixed_ips]
+                     for fixed_ip in dhcp_port.fixed_ips
+                     # we don't care about any ips on subnets irrelevant
+                     # to us (e.g. auto ipv6 addresses)
+                     if fixed_ip.subnet_id in dhcp_subnets]
 
         ips = [DictModel(item) if isinstance(item, dict) else item
                for item in fixed_ips]
@@ -1296,7 +1305,16 @@ class DeviceManager(object):
             # delete all devices except current active DHCP port device
             if d.name != dev_name:
                 LOG.debug("Found stale device %s, deleting", d.name)
-                self.driver.unplug(d.name, namespace=network.namespace)
+                self.unplug(d.name, network)
+
+    def plug(self, network, port, interface_name):
+        """Plug device settings for the network's DHCP on this host."""
+        self.driver.plug(network.id,
+                         port.id,
+                         interface_name,
+                         port.mac_address,
+                         namespace=network.namespace,
+                         mtu=network.get('mtu'))
 
     def setup(self, network):
         """Create and initialize a device for network's DHCP on this host."""
@@ -1309,12 +1327,7 @@ class DeviceManager(object):
             LOG.debug('Reusing existing device: %s.', interface_name)
         else:
             try:
-                self.driver.plug(network.id,
-                                 port.id,
-                                 interface_name,
-                                 port.mac_address,
-                                 namespace=network.namespace,
-                                 mtu=network.get('mtu'))
+                self.plug(network, port, interface_name)
             except Exception:
                 with excutils.save_and_reraise_exception():
                     LOG.exception(_LE('Unable to plug DHCP port for '
@@ -1362,10 +1375,14 @@ class DeviceManager(object):
         """Update device settings for the network's DHCP on this host."""
         self._set_default_route(network, device_name)
 
+    def unplug(self, device_name, network):
+        """Unplug device settings for the network's DHCP on this host."""
+        self.driver.unplug(device_name, namespace=network.namespace)
+
     def destroy(self, network, device_name):
         """Destroy the device used for the network's DHCP on this host."""
         if device_name:
-            self.driver.unplug(device_name, namespace=network.namespace)
+            self.unplug(device_name, network)
         else:
             LOG.debug('No interface exists for network %s', network.id)
 

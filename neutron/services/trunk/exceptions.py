@@ -41,6 +41,11 @@ class ParentPortInUse(n_exc.InUse):
                 "eligible for use as a parent port.")
 
 
+class SubPortMtuGreaterThanTrunkPortMtu(n_exc.Conflict):
+    message = _("MTU %(port_mtu)s of subport %(port_id)s cannot be greater "
+                "than MTU %(trunk_mtu)s of trunk %(trunk_id)s.")
+
+
 class PortInUseAsTrunkParent(n_exc.InUse):
     message = _("Port %(port_id)s is currently a parent port "
                 "for trunk %(trunk_id)s.")
@@ -67,6 +72,18 @@ class TrunkInErrorState(n_exc.Conflict):
 class IncompatibleTrunkPluginConfiguration(n_exc.NeutronException):
     message = _("Cannot load trunk plugin: no compatible core plugin "
                 "configuration is found.")
+
+
+class IncompatibleDriverSegmentationTypes(n_exc.NeutronException):
+    message = _("Cannot load trunk plugin: no compatible segmentation "
+                "type configuration can be found amongst list of loaded "
+                "drivers.")
+
+
+class SegmentationTypeValidatorNotFound(n_exc.NotFound):
+    message = _("Validator not found for segmentation type %(seg_type)s. "
+                "It must be registered before the plugin init can "
+                "proceed.")
 
 
 class TrunkPluginDriverConflict(n_exc.Conflict):

@@ -19,7 +19,6 @@ from oslo_utils import versionutils
 from oslo_versionedobjects import base as obj_base
 from oslo_versionedobjects import exception
 from oslo_versionedobjects import fields as obj_fields
-from six import add_metaclass
 
 from neutron._i18n import _
 from neutron.common import exceptions
@@ -28,15 +27,13 @@ from neutron.db import models_v2
 from neutron.db.qos import api as qos_db_api
 from neutron.db.qos import models as qos_db_model
 from neutron.db.rbac_db_models import QosPolicyRBAC
-from neutron.objects import base
 from neutron.objects.db import api as obj_db_api
 from neutron.objects.qos import rule as rule_obj_impl
 from neutron.objects import rbac_db
 
 
 @obj_base.VersionedObjectRegistry.register
-@add_metaclass(rbac_db.RbacNeutronMetaclass)
-class QosPolicy(base.NeutronDbObject):
+class QosPolicy(rbac_db.NeutronRbacObject):
     # Version 1.0: Initial version
     # Version 1.1: QosDscpMarkingRule introduced
     # Version 1.2: Added QosMinimumBandwidthRule
@@ -107,12 +104,14 @@ class QosPolicy(base.NeutronDbObject):
             return policy_obj
 
     @classmethod
-    def get_objects(cls, context, **kwargs):
+    def get_objects(cls, context, _pager=None, validate_filters=True,
+                    **kwargs):
         # We want to get the policy regardless of its tenant id. We'll make
         # sure the tenant has permission to access the policy later on.
         admin_context = context.elevated()
         with db_api.autonested_transaction(admin_context.session):
-            objs = super(QosPolicy, cls).get_objects(admin_context,
+            objs = super(QosPolicy, cls).get_objects(admin_context, _pager,
+                                                     validate_filters,
                                                      **kwargs)
             result = []
             for obj in objs:
@@ -215,8 +214,8 @@ class QosPolicy(base.NeutronDbObject):
 
     def obj_make_compatible(self, primitive, target_version):
         def filter_rules(obj_names, rules):
-            return filter(lambda rule:
-                          (rule['versioned_object.name'] in obj_names), rules)
+            return [rule for rule in rules if
+                    rule['versioned_object.name'] in obj_names]
 
         _target_version = versionutils.convert_version_to_tuple(target_version)
         names = []

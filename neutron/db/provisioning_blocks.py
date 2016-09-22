@@ -14,7 +14,6 @@
 #
 
 from neutron_lib.db import model_base
-from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import sqlalchemy as sa
 
@@ -49,6 +48,7 @@ def add_model_for_resource(resource, model):
     _RESOURCE_TO_MODEL_MAP[resource] = model
 
 
+@db_api.retry_if_session_inactive()
 def add_provisioning_component(context, object_id, object_type, entity):
     """Adds a provisioning block by an entity to a given object.
 
@@ -56,7 +56,7 @@ def add_provisioning_component(context, object_id, object_type, entity):
     of the entity that is doing the provisioning. While an object has these
     provisioning blocks present, this module will not emit any callback events
     indicating that provisioning has completed. Any logic that depends on
-    multiple disjoint components use these blocks and subscribe to the
+    multiple disjoint components may use these blocks and subscribe to the
     PROVISIONING_COMPLETE event to know when all components have completed.
 
     :param context: neutron api request context
@@ -69,22 +69,24 @@ def add_provisioning_component(context, object_id, object_type, entity):
     standard_attr_id = _get_standard_attr_id(context, object_id, object_type)
     if not standard_attr_id:
         return
-    try:
-        with db_api.autonested_transaction(context.session):
-            record = ProvisioningBlock(standard_attr_id=standard_attr_id,
-                                       entity=entity)
-            context.session.add(record)
-    except db_exc.DBDuplicateEntry:
+    record = context.session.query(ProvisioningBlock).filter_by(
+        standard_attr_id=standard_attr_id, entity=entity).first()
+    if record:
         # an entry could be leftover from a previous transition that hasn't
         # yet been provisioned. (e.g. multiple updates in a short period)
         LOG.debug("Ignored duplicate provisioning block setup for %(otype)s "
                   "%(oid)s by entity %(entity)s.", log_dict)
         return
+    with context.session.begin(subtransactions=True):
+        record = ProvisioningBlock(standard_attr_id=standard_attr_id,
+                                   entity=entity)
+        context.session.add(record)
     LOG.debug("Transition to ACTIVE for %(otype)s object %(oid)s "
               "will not be triggered until provisioned by entity %(entity)s.",
               log_dict)
 
 
+@db_api.retry_if_session_inactive()
 def remove_provisioning_component(context, object_id, object_type, entity,
                                   standard_attr_id=None):
     """Removes a provisioning block for an object with triggering a callback.
@@ -115,6 +117,7 @@ def remove_provisioning_component(context, object_id, object_type, entity,
         return False
 
 
+@db_api.retry_if_session_inactive()
 def provisioning_complete(context, object_id, object_type, entity):
     """Mark that the provisioning for object_id has been completed by entity.
 
@@ -153,6 +156,7 @@ def provisioning_complete(context, object_id, object_type, entity):
                         context=context, object_id=object_id)
 
 
+@db_api.retry_if_session_inactive()
 def is_object_blocked(context, object_id, object_type):
     """Return boolean indicating if object has a provisioning block.
 

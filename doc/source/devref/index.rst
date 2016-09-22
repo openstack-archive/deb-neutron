@@ -80,6 +80,8 @@ Neutron Internals
    network_ip_availability
    tag
    provisioning_blocks
+   retries
+   l3_agent_extensions
 
 Testing
 -------

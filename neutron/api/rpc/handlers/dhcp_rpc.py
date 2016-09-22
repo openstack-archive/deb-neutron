@@ -118,10 +118,14 @@ class DhcpRpcCallback(object):
                         pass
                     else:
                         ctxt.reraise = True
-                net_id = port['port']['network_id']
-                LOG.warning(_LW("Action %(action)s for network %(net_id)s "
-                                "could not complete successfully: %(reason)s"),
-                            {"action": action, "net_id": net_id, 'reason': e})
+                if ctxt.reraise:
+                    net_id = port['port']['network_id']
+                    LOG.warning(_LW("Action %(action)s for network %(net_id)s "
+                                    "could not complete successfully: "
+                                    "%(reason)s"),
+                                {"action": action,
+                                 "net_id": net_id,
+                                 'reason': e})
 
     def _group_by_network_id(self, res):
         grouped = {}
@@ -262,16 +266,23 @@ class DhcpRpcCallback(object):
         port['id'] = kwargs.get('port_id')
         port['port'][portbindings.HOST_ID] = host
         plugin = manager.NeutronManager.get_plugin()
-        old_port = plugin.get_port(context, port['id'])
-        if (old_port['device_id'] != n_const.DEVICE_ID_RESERVED_DHCP_PORT
-            and old_port['device_id'] !=
-            utils.get_dhcp_agent_device_id(port['port']['network_id'], host)):
-            raise n_exc.DhcpPortInUse(port_id=port['id'])
-        LOG.debug('Update dhcp port %(port)s '
-                  'from %(host)s.',
-                  {'port': port,
-                   'host': host})
-        return self._port_action(plugin, context, port, 'update_port')
+        try:
+            old_port = plugin.get_port(context, port['id'])
+            if (old_port['device_id'] != n_const.DEVICE_ID_RESERVED_DHCP_PORT
+                and old_port['device_id'] !=
+                utils.get_dhcp_agent_device_id(port['port']['network_id'],
+                                               host)):
+                raise n_exc.DhcpPortInUse(port_id=port['id'])
+            LOG.debug('Update dhcp port %(port)s '
+                      'from %(host)s.',
+                      {'port': port,
+                       'host': host})
+            return self._port_action(plugin, context, port, 'update_port')
+        except exceptions.PortNotFound:
+            LOG.debug('Host %(host)s tried to update port '
+                      '%(port_id)s which no longer exists.',
+                      {'host': host, 'port_id': port['id']})
+            return None
 
     @db_api.retry_db_errors
     def dhcp_ready_on_ports(self, context, port_ids):

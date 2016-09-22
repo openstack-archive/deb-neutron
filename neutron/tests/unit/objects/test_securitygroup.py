@@ -93,10 +93,10 @@ class SecurityGroupDbObjTestCase(test_base.BaseDbObjectTestCase,
     def test_get_objects_queries_constant(self):
         # TODO(electrocucaracha) SecurityGroup is using SecurityGroupRule
         # object to reload rules, which costs extra SQL query each time
-        # _load_is_default are called in get_object(s). SecurityGroup has
-        # defined relationship for SecurityGroupRules, so it should be possible
-        # to reuse side loaded values fo this. To be reworked in follow-up
-        # patch.
+        # is_default field is loaded as part of get_object(s). SecurityGroup
+        # has defined relationship for SecurityGroupRules, so it should be
+        # possible to reuse side loaded values fo this. To be reworked in
+        # follow-up patch.
         pass
 
 
@@ -118,7 +118,7 @@ class DefaultSecurityGroupDbObjTestCase(test_base.BaseDbObjectTestCase,
         self.sg_obj = securitygroup.SecurityGroup(
             self.context, **test_base.remove_timestamps_from_fields(sg_fields))
         self.sg_obj.create()
-        for obj in itertools.chain(self.db_objs, self.obj_fields):
+        for obj in itertools.chain(self.db_objs, self.obj_fields, self.objs):
             obj['security_group_id'] = self.sg_obj['id']
 
 
@@ -140,6 +140,6 @@ class SecurityGroupRuleDbObjTestCase(test_base.BaseDbObjectTestCase,
         self.sg_obj = securitygroup.SecurityGroup(
             self.context, **test_base.remove_timestamps_from_fields(sg_fields))
         self.sg_obj.create()
-        for obj in itertools.chain(self.db_objs, self.obj_fields):
+        for obj in itertools.chain(self.db_objs, self.obj_fields, self.objs):
             obj['security_group_id'] = self.sg_obj['id']
             obj['remote_group_id'] = self.sg_obj['id']

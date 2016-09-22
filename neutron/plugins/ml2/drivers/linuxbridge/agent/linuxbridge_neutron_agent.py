@@ -51,6 +51,10 @@ from neutron.plugins.ml2.drivers.linuxbridge.agent import arp_protect
 from neutron.plugins.ml2.drivers.linuxbridge.agent.common import config  # noqa
 from neutron.plugins.ml2.drivers.linuxbridge.agent.common \
     import constants as lconst
+from neutron.plugins.ml2.drivers.linuxbridge.agent.common \
+    import utils as lb_utils
+from neutron.plugins.ml2.drivers.linuxbridge.agent \
+    import linuxbridge_capabilities
 
 
 LOG = logging.getLogger(__name__)
@@ -173,12 +177,7 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
 
     @staticmethod
     def get_tap_device_name(interface_id):
-        if not interface_id:
-            LOG.warning(_LW("Invalid Interface ID, will lead to incorrect "
-                            "tap device name"))
-        tap_device_name = constants.TAP_DEVICE_PREFIX + \
-            interface_id[:lconst.RESOURCE_ID_LENGTH]
-        return tap_device_name
+        return lb_utils.get_tap_device_name(interface_id)
 
     def get_vxlan_device_name(self, segmentation_id):
         if 0 <= int(segmentation_id) <= p_const.MAX_VXLAN_VNI:
@@ -600,7 +599,12 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
             LOG.debug("Done deleting interface %s", interface)
 
     def get_devices_modified_timestamps(self, devices):
-        return {d: bridge_lib.get_interface_bridged_time(d) for d in devices}
+        # NOTE(kevinbenton): we aren't returning real timestamps here. We
+        # are returning interface indexes instead which change when the
+        # interface is removed/re-added. This works for the direct
+        # comparison the common agent loop performs with these.
+        # See bug/1622833 for details.
+        return {d: bridge_lib.get_interface_ifindex(d) for d in devices}
 
     def get_all_devices(self):
         devices = set()
@@ -633,10 +637,9 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
             return False
 
         try:
-            utils.execute(
-                cmd=['bridge', 'fdb', 'append', constants.FLOODING_ENTRY[0],
-                     'dev', test_iface, 'dst', '1.1.1.1'],
-                run_as_root=True, log_fail_as_error=False)
+            bridge_lib.FdbInterface.append(constants.FLOODING_ENTRY[0],
+                                           test_iface, '1.1.1.1',
+                                           log_fail_as_error=False)
             return True
         except RuntimeError:
             return False
@@ -678,8 +681,7 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
         return mac in entries
 
     def fdb_bridge_entry_exists(self, mac, interface, agent_ip=None):
-        entries = utils.execute(['bridge', 'fdb', 'show', 'dev', interface],
-                                run_as_root=True)
+        entries = bridge_lib.FdbInterface.show(interface)
         if not agent_ip:
             return mac in entries
 
@@ -693,38 +695,29 @@ class LinuxBridgeManager(amb.CommonAgentManagerBase):
         if cfg.CONF.VXLAN.arp_responder:
             ip_lib.IPDevice(interface).neigh.delete(ip, mac)
 
-    def add_fdb_bridge_entry(self, mac, agent_ip, interface, operation="add"):
-        utils.execute(['bridge', 'fdb', operation, mac, 'dev', interface,
-                       'dst', agent_ip],
-                      run_as_root=True,
-                      check_exit_code=False)
-
-    def remove_fdb_bridge_entry(self, mac, agent_ip, interface):
-        utils.execute(['bridge', 'fdb', 'del', mac, 'dev', interface,
-                       'dst', agent_ip],
-                      run_as_root=True,
-                      check_exit_code=False)
-
     def add_fdb_entries(self, agent_ip, ports, interface):
         for mac, ip in ports:
             if mac != constants.FLOODING_ENTRY[0]:
                 self.add_fdb_ip_entry(mac, ip, interface)
-                self.add_fdb_bridge_entry(mac, agent_ip, interface,
-                                          operation="replace")
+                bridge_lib.FdbInterface.replace(mac, interface, agent_ip,
+                                                check_exit_code=False)
             elif self.vxlan_mode == lconst.VXLAN_UCAST:
                 if self.fdb_bridge_entry_exists(mac, interface):
-                    self.add_fdb_bridge_entry(mac, agent_ip, interface,
-                                              "append")
+                    bridge_lib.FdbInterface.append(mac, interface, agent_ip,
+                                                   check_exit_code=False)
                 else:
-                    self.add_fdb_bridge_entry(mac, agent_ip, interface)
+                    bridge_lib.FdbInterface.add(mac, interface, agent_ip,
+                                                check_exit_code=False)
 
     def remove_fdb_entries(self, agent_ip, ports, interface):
         for mac, ip in ports:
             if mac != constants.FLOODING_ENTRY[0]:
                 self.remove_fdb_ip_entry(mac, ip, interface)
-                self.remove_fdb_bridge_entry(mac, agent_ip, interface)
+                bridge_lib.FdbInterface.delete(mac, interface, agent_ip,
+                                               check_exit_code=False)
             elif self.vxlan_mode == lconst.VXLAN_UCAST:
-                self.remove_fdb_bridge_entry(mac, agent_ip, interface)
+                bridge_lib.FdbInterface.delete(mac, interface, agent_ip,
+                                               check_exit_code=False)
 
     def get_agent_id(self):
         if self.bridge_mappings:
@@ -936,6 +929,7 @@ def main():
     LOG.info(_LI("Bridge mappings: %s"), bridge_mappings)
 
     manager = LinuxBridgeManager(bridge_mappings, interface_mappings)
+    linuxbridge_capabilities.register()
 
     polling_interval = cfg.CONF.AGENT.polling_interval
     quitting_rpc_timeout = cfg.CONF.AGENT.quitting_rpc_timeout

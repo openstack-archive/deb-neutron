@@ -80,7 +80,7 @@ class SegmentTestCase(test_db_base_plugin_v2.NeutronDbPluginV2TestCase):
     def _create_segment(self, fmt, expected_res_status=None, **kwargs):
         segment = {'segment': {}}
         for k, v in kwargs.items():
-            segment['segment'][k] = str(v)
+            segment['segment'][k] = None if v is None else str(v)
 
         segment_req = self.new_create_request(
             'segments', segment, fmt)
@@ -139,6 +139,73 @@ class SegmentTestPlugin(db_base_plugin_v2.NeutronDbPluginV2,
         self._process_portbindings_create_and_update(
             context, port['port'], port_dict)
         return port_dict
+
+
+class TestSegmentNameDescription(SegmentTestCase):
+    def setUp(self):
+        super(TestSegmentNameDescription, self).setUp()
+        with self.network() as network:
+            self.network = network['network']
+
+    def _test_create_segment(self, expected=None, **kwargs):
+        for d in (kwargs, expected):
+            if d is None:
+                continue
+            d.setdefault('network_id', self.network['id'])
+            d.setdefault('name', None)
+            d.setdefault('description', None)
+            d.setdefault('physical_network', 'phys_net')
+            d.setdefault('network_type', 'net_type')
+            d.setdefault('segmentation_id', 200)
+        return super(TestSegmentNameDescription, self)._test_create_segment(
+            expected, **kwargs)
+
+    def test_create_segment_no_name_description(self):
+        self._test_create_segment(expected={})
+
+    def test_create_segment_with_name(self):
+        expected_segment = {'name': 'segment_name'}
+        self._test_create_segment(name='segment_name',
+                                  expected=expected_segment)
+
+    def test_create_segment_with_description(self):
+        expected_segment = {'description': 'A segment'}
+        self._test_create_segment(description='A segment',
+                                  expected=expected_segment)
+
+    def test_update_segment_set_name(self):
+        segment = self._test_create_segment()
+        result = self._update('segments',
+                              segment['segment']['id'],
+                              {'segment': {'name': 'Segment name'}},
+                              expected_code=webob.exc.HTTPOk.code)
+        self.assertEqual('Segment name', result['segment']['name'])
+
+    def test_update_segment_set_description(self):
+        segment = self._test_create_segment()
+        result = self._update('segments',
+                              segment['segment']['id'],
+                              {'segment': {'description': 'Segment desc'}},
+                              expected_code=webob.exc.HTTPOk.code)
+        self.assertEqual('Segment desc', result['segment']['description'])
+
+    def test_update_segment_set_name_to_none(self):
+        segment = self._test_create_segment(
+            description='A segment', name='segment')
+        result = self._update('segments',
+                              segment['segment']['id'],
+                              {'segment': {'name': None}},
+                              expected_code=webob.exc.HTTPOk.code)
+        self.assertIsNone(result['segment']['name'])
+
+    def test_update_segment_set_description_to_none(self):
+        segment = self._test_create_segment(
+            description='A segment', name='segment')
+        result = self._update('segments',
+                              segment['segment']['id'],
+                              {'segment': {'description': None}},
+                              expected_code=webob.exc.HTTPOk.code)
+        self.assertIsNone(result['segment']['description'])
 
 
 class TestSegment(SegmentTestCase):
@@ -919,6 +986,46 @@ class TestSegmentAwareIpam(SegmentTestCase):
         # Gets bad request because there are no eligible subnets.
         self.assertEqual(webob.exc.HTTPBadRequest.code, response.status_int)
 
+    def _create_port_and_show(self, network, **kwargs):
+        response = self._create_port(
+            self.fmt,
+            net_id=network['network']['id'],
+            tenant_id=network['network']['tenant_id'],
+            **kwargs)
+        port = self.deserialize(self.fmt, response)
+        request = self.new_show_request('ports', port['port']['id'])
+        return self.deserialize(self.fmt, request.get_response(self.api))
+
+    def test_port_create_with_no_fixed_ips_no_ipam_on_routed_network(self):
+        """Ports requesting no fixed_ips not deferred, even on routed net"""
+        with self.network() as network:
+            segment = self._test_create_segment(
+                network_id=network['network']['id'],
+                physical_network='physnet',
+                network_type=p_constants.TYPE_VLAN)
+            with self.subnet(network=network,
+                             segment_id=segment['segment']['id']):
+                pass
+
+        # Create an unbound port requesting no IP addresses
+        response = self._create_port_and_show(network, fixed_ips=[])
+        self.assertEqual([], response['port']['fixed_ips'])
+        self.assertEqual(ip_allocation.IP_ALLOCATION_NONE,
+                         response['port'][ip_allocation.IP_ALLOCATION])
+
+    def test_port_create_with_no_fixed_ips_no_ipam(self):
+        """Ports without addresses on non-routed networks are not deferred"""
+        with self.network() as network:
+            with self.subnet(network=network):
+                pass
+
+        # Create an unbound port requesting no IP addresses
+        response = self._create_port_and_show(network, fixed_ips=[])
+
+        self.assertEqual([], response['port']['fixed_ips'])
+        self.assertEqual(ip_allocation.IP_ALLOCATION_NONE,
+                         response['port'][ip_allocation.IP_ALLOCATION])
+
     def test_port_without_ip_not_deferred(self):
         """Ports without addresses on non-routed networks are not deferred"""
         with self.network() as network:
@@ -934,6 +1041,18 @@ class TestSegmentAwareIpam(SegmentTestCase):
         request = self.new_show_request('ports', port['port']['id'])
         response = self.deserialize(self.fmt, request.get_response(self.api))
 
+        self.assertEqual([], response['port']['fixed_ips'])
+        self.assertEqual(ip_allocation.IP_ALLOCATION_IMMEDIATE,
+                         response['port'][ip_allocation.IP_ALLOCATION])
+
+    def test_port_without_ip_not_deferred_no_binding(self):
+        """Ports without addresses on non-routed networks are not deferred"""
+        with self.network() as network:
+            pass
+
+        # Create a unbound port with no IP address (since there is no subnet)
+        response = self._create_port_and_show(network)
+        self.assertEqual([], response['port']['fixed_ips'])
         self.assertEqual(ip_allocation.IP_ALLOCATION_IMMEDIATE,
                          response['port'][ip_allocation.IP_ALLOCATION])
 
@@ -959,7 +1078,6 @@ class TestSegmentAwareIpam(SegmentTestCase):
         # Create the subnet and try to update the port to get an IP
         with self.subnet(network=network,
                          segment_id=segment['segment']['id']) as subnet:
-            self._validate_deferred_ip_allocation(port['port']['id'])
             self._validate_l2_adjacency(network['network']['id'],
                                         is_adjacent=False)
             # Try requesting an IP (but the only subnet is on a segment)
@@ -1035,14 +1153,39 @@ class TestSegmentAwareIpam(SegmentTestCase):
         port = self._create_deferred_ip_port(network)
 
         # Create the subnet and try to update the port to get an IP
-        with self.subnet(network=network) as subnet:
+        with self.subnet(network=network):
             data = {'port': {portbindings.HOST_ID: 'fakehost'}}
             port_id = port['port']['id']
             port_req = self.new_update_request('ports', data, port_id)
             response = port_req.get_response(self.api)
 
         self.assertEqual(webob.exc.HTTPOk.code, response.status_int)
-        self._assert_one_ip_in_subnet(response, subnet['subnet']['cidr'])
+        res = self.deserialize(self.fmt, response)
+        self.assertEqual(0, len(res['port']['fixed_ips']))
+
+    def test_port_update_deferred_allocation_no_ipam(self):
+        """Binding information is provided on update. Don't allocate."""
+        with self.network() as network:
+            with self.subnet(network=network):
+                pass
+
+        response = self._create_port(self.fmt,
+                                     net_id=network['network']['id'],
+                                     tenant_id=network['network']['tenant_id'],
+                                     fixed_ips=[])
+        port = self.deserialize(self.fmt, response)
+        ips = port['port']['fixed_ips']
+        self.assertEqual(0, len(ips))
+
+        # Create the subnet and try to update the port to get an IP
+        data = {'port': {portbindings.HOST_ID: 'fakehost'}}
+        port_id = port['port']['id']
+        port_req = self.new_update_request('ports', data, port_id)
+        response = port_req.get_response(self.api)
+
+        self.assertEqual(webob.exc.HTTPOk.code, response.status_int)
+        res = self.deserialize(self.fmt, response)
+        self.assertEqual(0, len(res['port']['fixed_ips']))
 
     def test_port_update_deferred_allocation_no_segments_manual_alloc(self):
         """Binding information is provided, subnet created after port"""

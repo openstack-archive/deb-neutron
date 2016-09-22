@@ -110,13 +110,15 @@ class SubnetPoolsTest(SubnetPoolsTestBase):
         body = self._create_subnetpool(description='d1')
         self.assertEqual('d1', body['description'])
         sub_id = body['id']
-        body = filter(lambda x: x['id'] == sub_id,
-                      self.client.list_subnetpools()['subnetpools'])[0]
+        subnet_pools = [x for x in
+            self.client.list_subnetpools()['subnetpools'] if x['id'] == sub_id]
+        body = subnet_pools[0]
         self.assertEqual('d1', body['description'])
         body = self.client.update_subnetpool(sub_id, description='d2')
         self.assertEqual('d2', body['subnetpool']['description'])
-        body = filter(lambda x: x['id'] == sub_id,
-                      self.client.list_subnetpools()['subnetpools'])[0]
+        subnet_pools = [x for x in
+            self.client.list_subnetpools()['subnetpools'] if x['id'] == sub_id]
+        body = subnet_pools[0]
         self.assertEqual('d2', body['description'])
 
     @test.idempotent_id('741d08c2-1e3f-42be-99c7-0ea93c5b728c')
@@ -390,3 +392,7 @@ class SubnetPoolsSearchCriteriaTest(base.BaseSearchCriteriaTest,
     @test.idempotent_id('82a13efc-c18f-4249-b8ec-cec7cf26fbd6')
     def test_list_no_pagination_limit_0(self):
         self._test_list_no_pagination_limit_0()
+
+    @test.idempotent_id('27feb3f8-40f4-4e50-8cd2-7d0096a98682')
+    def test_list_validation_filters(self):
+        self._test_list_validation_filters()

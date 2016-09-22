@@ -1608,6 +1608,15 @@ class TestDnsmasq(TestBase):
                 exp_addn_name, exp_addn_data,
                 exp_opt_name, exp_opt_data,)
 
+    def test_reload_allocations_no_interface(self):
+        net = FakeDualNetwork()
+        ipath = '/dhcp/%s/interface' % net.id
+        self.useFixture(tools.OpenFixture(ipath))
+        test_pm = mock.Mock()
+        dm = self._get_dnsmasq(net, test_pm)
+        dm.reload_allocations()
+        self.assertFalse(test_pm.register.called)
+
     def test_reload_allocations(self):
         (exp_host_name, exp_host_data,
          exp_addn_name, exp_addn_data,
@@ -1617,7 +1626,7 @@ class TestDnsmasq(TestBase):
         hpath = '/dhcp/%s/host' % net.id
         ipath = '/dhcp/%s/interface' % net.id
         self.useFixture(tools.OpenFixture(hpath))
-        self.useFixture(tools.OpenFixture(ipath))
+        self.useFixture(tools.OpenFixture(ipath, 'tapdancingmice'))
         test_pm = mock.Mock()
         dm = self._get_dnsmasq(net, test_pm)
         dm.reload_allocations()
@@ -1654,7 +1663,7 @@ class TestDnsmasq(TestBase):
         dnsmasq._output_hosts_file = mock.Mock()
         dnsmasq._release_lease = mock.Mock()
         dnsmasq.network.ports = []
-        dnsmasq.device_manager.driver.unplug = mock.Mock()
+        dnsmasq.device_manager.unplug = mock.Mock()
 
         dnsmasq._release_unused_leases()
 
@@ -1666,9 +1675,8 @@ class TestDnsmasq(TestBase):
                                                            0xff),
                                                  ],
                                                 any_order=True)
-        dnsmasq.device_manager.driver.unplug.assert_has_calls(
-            [mock.call(dnsmasq.interface_name,
-                       namespace=dnsmasq.network.namespace)])
+        dnsmasq.device_manager.unplug.assert_has_calls(
+            [mock.call(dnsmasq.interface_name, dnsmasq.network)])
 
     def test_release_for_ipv6_lease(self):
         dnsmasq = self._get_dnsmasq(FakeDualNetwork())
@@ -1719,6 +1727,8 @@ class TestDnsmasq(TestBase):
         dnsmasq.device_manager.get_device_id = mock.Mock(
             return_value='fake_dhcp_port')
         dnsmasq._release_unused_leases()
+        self.assertFalse(
+            dnsmasq.device_manager.unplug.called)
         self.assertFalse(
             dnsmasq.device_manager.driver.unplug.called)
 
@@ -1856,11 +1866,11 @@ class TestDnsmasq(TestBase):
                 "1472673289 aa:bb:cc:00:00:01 192.168.1.3 host-192-168-1-3 *",
                 "1472673289 aa:bb:cc:00:00:01 192.168.1.4 host-192-168-1-4 *",
                 "duid 00:01:00:01:02:03:04:05:06:07:08:09:0a:0b",
-                "1472597740 1044800001 2001:DB8::a host-2001-db8--a "
+                "1472597740 1044800001 [2001:DB8::a] host-2001-db8--a "
                 "00:04:4a:d0:d2:34:19:2b:49:08:84:e8:34:bd:0c:dc:b9:3b",
-                "1472597823 1044800002 2001:DB8::b host-2001-db8--b "
+                "1472597823 1044800002 [2001:DB8::b] host-2001-db8--b "
                 "00:04:ce:96:53:3d:f2:c2:4c:4c:81:7d:db:c9:8d:d2:74:22:3b:0a",
-                "1472599048 1044800003 2001:DB8::c host-2001-db8--c "
+                "1472599048 1044800003 [2001:DB8::c] host-2001-db8--c "
                 "00:04:4f:f0:cd:ca:5e:77:41:bc:9d:7f:5c:33:31:37:5d:80:77:b4"
                  ]
         mock_open = self.useFixture(
@@ -2142,6 +2152,10 @@ class TestDeviceManager(TestConfBase):
                                     'ip_address': 'unique-IP-address'})
                     for ip in port.fixed_ips
                 ]
+                # server rudely gave us an extra address we didn't ask for
+                port.fixed_ips.append(dhcp.DictModel(
+                    {'subnet_id': 'ffffffff-6666-6666-6666-ffffffffffff',
+                     'ip_address': '2003::f816:3eff:fe45:e893'}))
                 return port
 
             plugin.create_dhcp_port.side_effect = mock_create

@@ -118,7 +118,10 @@ class IptablesRule(object):
             chain = '%s-%s' % (self.wrap_name, self.chain)
         else:
             chain = self.chain
-        return comment_rule('-A %s %s' % (chain, self.rule), self.comment)
+        rule = '-A %s %s' % (chain, self.rule)
+        # If self.rule is '' the above will cause a trailing space, which
+        # could cause us to not match on save/restore, so strip it now.
+        return comment_rule(rule.strip(), self.comment)
 
 
 class IptablesTable(object):
@@ -762,6 +765,11 @@ def _generate_chain_diff_iptables_commands(chain, old_chain_rules,
         elif line.startswith('+'):  # line added
             # strip the chain name since we have to add it before the index
             rule = line[5:].split(' ', 1)[-1]
+            # IptablesRule does not add trailing spaces for rules, so we
+            # have to detect that here by making sure this chain isn't
+            # referencing itself
+            if rule == chain:
+                rule = ''
             # rule inserted at this position
             statements.append('-I %s %d %s' % (chain, old_index, rule))
         old_index += 1

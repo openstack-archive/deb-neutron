@@ -23,6 +23,7 @@ NETWORK_API_EXTENSIONS="
     network_availability_zone, \
     pagination, \
     port-security, \
+    project-id, \
     provider, \
     qos, \
     quotas, \
@@ -37,6 +38,7 @@ NETWORK_API_EXTENSIONS="
     subnet_allocation, \
     tag, \
     timestamp_core, \
+    timestamp_ext, \
     trunk, \
     trunk-details"
 NETWORK_API_EXTENSIONS="$(echo $NETWORK_API_EXTENSIONS | tr -d ' ')"

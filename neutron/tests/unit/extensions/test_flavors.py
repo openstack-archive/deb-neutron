@@ -25,6 +25,7 @@ from neutron.api.v2 import attributes as attr
 from neutron import context
 from neutron.db import api as dbapi
 from neutron.db import flavors_db
+from neutron.db import l3_db
 from neutron.db import servicetype_db
 from neutron.extensions import flavors
 from neutron.plugins.common import constants
@@ -61,6 +62,7 @@ class FlavorExtensionTestCase(extension.ExtensionTestCase):
                            'service_type': constants.FLAVORS,
                            'description': 'the best flavor',
                            'tenant_id': tenant_id,
+                           'project_id': tenant_id,
                            'enabled': True}}
 
         expected = copy.deepcopy(data)
@@ -227,6 +229,7 @@ class FlavorExtensionTestCase(extension.ExtensionTestCase):
         expected = {'service_profile': {'description': 'the best sp',
                                         'driver': '',
                                         'tenant_id': tenant_id,
+                                        'project_id': tenant_id,
                                         'enabled': True,
                                         'metainfo': '{"data": "value"}'}}
 
@@ -373,7 +376,8 @@ class FlavorExtensionTestCase(extension.ExtensionTestCase):
     def test_associate_service_profile_with_flavor(self):
         tenant_id = uuidutils.generate_uuid()
         expected = {'service_profile': {'id': _uuid(),
-                                        'tenant_id': tenant_id}}
+                                        'tenant_id': tenant_id,
+                                        'project_id': tenant_id}}
         instance = self.plugin.return_value
         instance.create_flavor_service_profile.return_value = (
             expected['service_profile'])
@@ -660,6 +664,17 @@ class FlavorPluginTestCase(test_db_base_plugin_v2.NeutronDbPluginV2TestCase,
             self.plugin.delete_service_profile,
             self.ctx,
             sp['id'])
+
+    def test_delete_flavor_in_use(self):
+        # make use of router since it has a flavor id
+        fl, data = self._create_flavor()
+        with self.ctx.session.begin():
+            self.ctx.session.add(l3_db.Router(flavor_id=fl['id']))
+        self.assertRaises(
+            flavors.FlavorInUse,
+            self.plugin.delete_flavor,
+            self.ctx,
+            fl['id'])
 
     def test_get_flavor_next_provider_no_binding(self):
         fl, data = self._create_flavor()

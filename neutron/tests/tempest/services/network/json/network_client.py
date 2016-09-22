@@ -795,6 +795,29 @@ class NetworkClientJSON(service_client.RestClient):
         self.expected_success(204, resp.status)
         return service_client.ResponseBody(resp, body)
 
+    def create_flavor_service_profile(self, flavor_id, service_profile_id):
+        body = jsonutils.dumps({'service_profile': {'id': service_profile_id}})
+        uri = '%s/flavors/%s/service_profiles' % (self.uri_prefix, flavor_id)
+        resp, body = self.post(uri, body)
+        self.expected_success(201, resp.status)
+        body = jsonutils.loads(body)
+        return service_client.ResponseBody(resp, body)
+
+    def list_flavor_service_profiles(self, flavor_id):
+        uri = '%s/flavors/%s/service_profiles' % (self.uri_prefix, flavor_id)
+        resp, body = self.get(uri)
+        self.expected_success(200, resp.status)
+        body = jsonutils.loads(body)
+        return service_client.ResponseBody(resp, body)
+
+    def delete_flavor_service_profile(self, flavor_id, service_profile_id):
+        uri = '%s/flavors/%s/service_profiles/%s' % (self.uri_prefix,
+                                                     flavor_id,
+                                                     service_profile_id)
+        resp, body = self.delete(uri)
+        self.expected_success(204, resp.status)
+        return service_client.ResponseBody(resp, body)
+
     def create_security_group_rule(self, direction, security_group_id,
                                    **kwargs):
         post_body = {'security_group_rule': kwargs}
@@ -847,6 +870,19 @@ class NetworkClientJSON(service_client.RestClient):
         resp, body = self.post(uri, body)
         self.expected_success(201, resp.status)
         body = jsonutils.loads(body)
+        return service_client.ResponseBody(resp, body)
+
+    def create_network_keystone_v3(self, name, project_id):
+        uri = '%s/networks' % self.uri_prefix
+        post_data = {
+            'network': {
+                'name': name,
+                'project_id': project_id
+            }
+        }
+        resp, body = self.post(uri, self.serialize(post_data))
+        body = self.deserialize_single(body)
+        self.expected_success(201, resp.status)
         return service_client.ResponseBody(resp, body)
 
     def list_extensions(self, **filters):

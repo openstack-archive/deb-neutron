@@ -40,6 +40,7 @@ from neutron.common import constants as n_const
 from neutron.common import topics
 from neutron import context
 from neutron.plugins.ml2.drivers.agent import _agent_manager_base as amb
+from neutron.plugins.ml2.drivers.agent import capabilities
 from neutron.plugins.ml2.drivers.agent import config as cagt_config  # noqa
 
 LOG = logging.getLogger(__name__)
@@ -105,6 +106,7 @@ class CommonAgentLoop(service.Service):
                 self._report_state)
             heartbeat.start(interval=report_interval)
 
+        capabilities.notify_init_event(self.agent_type, self)
         # The initialization is complete; we can start receiving messages
         self.connection.consume_in_threads()
 
@@ -214,7 +216,7 @@ class CommonAgentLoop(service.Service):
     def treat_devices_added_updated(self, devices):
         try:
             devices_details_list = self.plugin_rpc.get_devices_details_list(
-                self.context, devices, self.agent_id)
+                self.context, devices, self.agent_id, host=cfg.CONF.host)
         except Exception:
             LOG.exception(_LE("Unable to get port details for %s"), devices)
             # resync is needed

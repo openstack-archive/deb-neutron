@@ -17,9 +17,11 @@ from neutron_lib.api import validators
 from neutron_lib import exceptions as n_exc
 
 from neutron._i18n import _
+from neutron.common import utils as n_utils
 from neutron.extensions import portbindings
 from neutron import manager
 from neutron.objects import trunk as trunk_objects
+from neutron.plugins.ml2 import driver_api as api
 from neutron.services.trunk import exceptions as trunk_exc
 from neutron.services.trunk import utils
 
@@ -58,8 +60,12 @@ class TrunkPortValidator(object):
         self.port_id = port_id
         self._port = None
 
-    def validate(self, context):
-        """Validate that the port can be used in a trunk."""
+    def validate(self, context, parent_port=True):
+        """Validate that the port can be used in a trunk.
+
+        :param parent_port: True if the port is intended for use
+                            as parent in a trunk.
+        """
         # TODO(tidwellr): there is a chance of a race between the
         # time these checks are performed and the time the trunk
         # creation is executed. To be revisited, if it bites.
@@ -75,8 +81,21 @@ class TrunkPortValidator(object):
         if trunks:
             raise trunk_exc.ParentPortInUse(port_id=self.port_id)
 
-        if not self.can_be_trunked(context):
-            raise trunk_exc.ParentPortInUse(port_id=self.port_id)
+        if parent_port:
+            # if the port is being used as a parent in a trunk, check if
+            # it can be trunked, i.e. if it is already associated to physical
+            # resources (namely it is bound). Bound ports may be used as
+            # trunk parents, but that depends on the underlying driver in
+            # charge.
+            if not self.can_be_trunked(context):
+                raise trunk_exc.ParentPortInUse(port_id=self.port_id)
+        else:
+            # if the port is being used as subport in a trunk, check if it is a
+            # port that is not actively used for other purposes, e.g. a router
+            # port, compute port, DHCP port etc. We have no clue what the side
+            # effects of connecting the port to a trunk would be, and it is
+            # better to err on the side of caution and prevent the operation.
+            self.check_not_in_use(context)
 
         return self.port_id
 
@@ -114,6 +133,18 @@ class TrunkPortValidator(object):
         else:
             return False
 
+    def check_not_in_use(self, context):
+        """Raises PortInUse for ports assigned for device purposes."""
+        core_plugin = manager.NeutronManager.get_plugin()
+        self._port = core_plugin.get_port(context, self.port_id)
+        # NOTE(armax): the trunk extension itself does not make use of the
+        # device_id field, because it has no reason to. If need be, this
+        # check can be altered to accommodate the change in logic.
+        if self._port['device_id']:
+            raise n_exc.PortInUse(net_id=self._port['network_id'],
+                                  port_id=self._port['id'],
+                                  device_id=self._port['device_id'])
+
 
 class SubPortsValidator(object):
 
@@ -131,17 +162,55 @@ class SubPortsValidator(object):
             msg = validators.validate_subports(self.subports)
             if msg:
                 raise n_exc.InvalidInput(error_message=msg)
+        trunk_port_mtu = self._get_port_mtu(context, self.trunk_port_id)
         if trunk_validation:
-            return [self._validate(context, s) for s in self.subports]
+            return [self._validate(context, s, trunk_port_mtu)
+                    for s in self.subports]
         else:
             return self.subports
 
-    def _validate(self, context, subport):
+    def _get_port_mtu(self, context, port_id):
+        """
+        Return MTU for the network where the given port belongs to.
+        If the network or port cannot be obtained, or if MTU is not defined,
+        returns None.
+        """
+        core_plugin = manager.NeutronManager.get_plugin()
+
+        if not n_utils.is_extension_supported(core_plugin, 'net-mtu'):
+            return
+
+        try:
+            port = core_plugin.get_port(context, port_id)
+            net = core_plugin.get_network(context, port['network_id'])
+        except (n_exc.PortNotFound, n_exc.NetworkNotFound):
+            # A concurrent request might have made the port or network
+            # disappear; though during DB insertion, the subport request
+            # will fail on integrity constraint, it is safer to return
+            # a None MTU here.
+            return
+
+        return net[api.MTU]
+
+    def _validate(self, context, subport, trunk_port_mtu):
         # Check that the subport doesn't reference the same port_id as a
         # trunk we may be in the middle of trying to create, in other words
         # make the validation idiot proof.
         if subport['port_id'] == self.trunk_port_id:
             raise trunk_exc.ParentPortInUse(port_id=subport['port_id'])
+
+        # Check MTU sanity - subport MTU must not exceed trunk MTU.
+        # If for whatever reason trunk_port_mtu is not available,
+        # the MTU sanity check cannot be enforced.
+        if trunk_port_mtu:
+            port_mtu = self._get_port_mtu(context, subport['port_id'])
+            if port_mtu and port_mtu > trunk_port_mtu:
+                raise trunk_exc.SubPortMtuGreaterThanTrunkPortMtu(
+                    port_id=subport['port_id'],
+                    port_mtu=port_mtu,
+                    trunk_id=self.trunk_port_id,
+                    trunk_mtu=trunk_port_mtu
+                )
 
         # If the segmentation details are missing, we will need to
         # figure out defaults when the time comes to support Ironic.
@@ -169,6 +238,7 @@ class SubPortsValidator(object):
             msg = _("Segmentation ID '%s' is not in range") % segmentation_id
             raise n_exc.InvalidInput(error_message=msg)
 
+        # Check if the subport is already participating in an active trunk
         trunk_validator = TrunkPortValidator(subport['port_id'])
-        trunk_validator.validate(context)
+        trunk_validator.validate(context, parent_port=False)
         return subport

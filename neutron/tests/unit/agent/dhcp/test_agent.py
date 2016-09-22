@@ -115,6 +115,7 @@ fake_port2 = dhcp.DictModel(dict(id='12345678-1234-aaaa-123456789000',
                             device_owner='',
                             mac_address='aa:bb:cc:dd:ee:99',
                             network_id='12345678-1234-5678-1234567890ab',
+                            revision=77,
                             fixed_ips=[fake_fixed_ip2]))
 
 fake_ipv6_port = dhcp.DictModel(dict(id='12345678-1234-aaaa-123456789000',
@@ -625,6 +626,7 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.cache_p = mock.patch('neutron.agent.dhcp.agent.NetworkCache')
         cache_cls = self.cache_p.start()
         self.cache = mock.Mock()
+        self.cache.is_port_message_stale.return_value = False
         cache_cls.return_value = self.cache
         self.mock_makedirs_p = mock.patch("os.makedirs")
         self.mock_makedirs = self.mock_makedirs_p.start()
@@ -1050,6 +1052,18 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.call_driver.assert_has_calls(
             [mock.call.call_driver('restart', fake_network)])
 
+    def test_port_update_change_ip_on_dhcp_agents_port_cache_miss(self):
+        self.cache.get_network_by_id.return_value = fake_network
+        self.cache.get_port_by_id.return_value = None
+        payload = dict(port=copy.deepcopy(fake_port1))
+        device_id = utils.get_dhcp_agent_device_id(
+            payload['port']['network_id'], self.dhcp.conf.host)
+        payload['port']['fixed_ips'][0]['ip_address'] = '172.9.9.99'
+        payload['port']['device_id'] = device_id
+        self.dhcp.port_update_end(None, payload)
+        self.call_driver.assert_has_calls(
+            [mock.call.call_driver('restart', fake_network)])
+
     def test_port_update_on_dhcp_agents_port_no_ip_change(self):
         self.cache.get_network_by_id.return_value = fake_network
         self.cache.get_port_by_id.return_value = fake_port1
@@ -1069,6 +1083,7 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.dhcp.port_delete_end(None, payload)
         self.cache.assert_has_calls(
             [mock.call.get_port_by_id(fake_port2.id),
+             mock.call.deleted_ports.add(fake_port2.id),
              mock.call.get_network_by_id(fake_network.id),
              mock.call.remove_port(fake_port2)])
         self.call_driver.assert_has_calls(
@@ -1125,6 +1140,21 @@ class TestDhcpPluginApiProxy(base.BaseTestCase):
 
 
 class TestNetworkCache(base.BaseTestCase):
+
+    def test_update_of_deleted_port_ignored(self):
+        nc = dhcp_agent.NetworkCache()
+        nc.put(fake_network)
+        nc.deleted_ports.add(fake_port2['id'])
+        self.assertTrue(nc.is_port_message_stale(fake_port2))
+
+    def test_stale_update_ignored(self):
+        nc = dhcp_agent.NetworkCache()
+        nc.put(fake_network)
+        nc.put_port(fake_port2)
+        stale = copy.copy(fake_port2)
+        stale['revision'] = 2
+        self.assertTrue(nc.is_port_message_stale(stale))
+
     def test_put_network(self):
         nc = dhcp_agent.NetworkCache()
         nc.put(fake_network)

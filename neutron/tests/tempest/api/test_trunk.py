@@ -58,33 +58,18 @@ class TrunkTestJSONBase(base.BaseAdminNetworkTest):
         trunks_cleanup(cls.client, cls.trunks)
         super(TrunkTestJSONBase, cls).resource_cleanup()
 
-    def _remove_timestamps(self, trunk):
-        # Let's make sure these fields exist, but let's not
-        # use them in the comparison, in case skews or
-        # roundups get in the way.
-        created_at = trunk.pop('created_at')
-        updated_at = trunk.pop('updated_at')
-        self.assertIsNotNone(created_at)
-        self.assertIsNotNone(updated_at)
-
     def _create_trunk_with_network_and_parent(self, subports, **kwargs):
         network = self.create_network()
         parent_port = self.create_port(network)
         trunk = self.client.create_trunk(parent_port['id'], subports, **kwargs)
         self.trunks.append(trunk['trunk'])
-        self._remove_timestamps(trunk['trunk'])
         return trunk
 
     def _show_trunk(self, trunk_id):
-        trunk = self.client.show_trunk(trunk_id)
-        self._remove_timestamps(trunk['trunk'])
-        return trunk
+        return self.client.show_trunk(trunk_id)
 
     def _list_trunks(self):
-        trunks = self.client.list_trunks()
-        for t in trunks['trunks']:
-            self._remove_timestamps(t)
-        return trunks
+        return self.client.list_trunks()
 
 
 class TrunkTestJSON(TrunkTestJSONBase):
@@ -116,15 +101,18 @@ class TrunkTestJSON(TrunkTestJSONBase):
     @test.idempotent_id('4ce46c22-a2b6-4659-bc5a-0ef2463cab32')
     def test_create_update_trunk(self):
         trunk = self._create_trunk_with_network_and_parent(None)
+        self.assertEqual(1, trunk['trunk']['revision_number'])
         trunk_id = trunk['trunk']['id']
         res = self._show_trunk(trunk_id)
         self.assertTrue(res['trunk']['admin_state_up'])
+        self.assertEqual(1, res['trunk']['revision_number'])
         self.assertEqual("", res['trunk']['name'])
         self.assertEqual("", res['trunk']['description'])
         res = self.client.update_trunk(
             trunk_id, name='foo', admin_state_up=False)
         self.assertFalse(res['trunk']['admin_state_up'])
         self.assertEqual("foo", res['trunk']['name'])
+        self.assertGreater(res['trunk']['revision_number'], 1)
         # enable the trunk so that it can be managed
         self.client.update_trunk(trunk_id, admin_state_up=True)
 

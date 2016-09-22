@@ -25,6 +25,7 @@ from neutron.db import api as db_api
 from neutron.db import common_db_mixin
 from neutron.db import db_base_plugin_common
 from neutron.db import db_base_plugin_v2
+from neutron.extensions import portbindings
 from neutron.objects import base as objects_base
 from neutron.objects import trunk as trunk_objects
 from neutron.services import service_base
@@ -33,6 +34,7 @@ from neutron.services.trunk import constants
 from neutron.services.trunk import drivers
 from neutron.services.trunk import exceptions as trunk_exc
 from neutron.services.trunk import rules
+from neutron.services.trunk.seg_types import validators
 
 LOG = logging.getLogger(__name__)
 
@@ -70,15 +72,54 @@ class TrunkPlugin(service_base.ServicePluginBase,
         drivers.register()
         registry.subscribe(rules.enforce_port_deletion_rules,
                            resources.PORT, events.BEFORE_DELETE)
+        # NOTE(tidwellr) Consider keying off of PRECOMMIT_UPDATE if we find
+        # AFTER_UPDATE to be problematic for setting trunk status when a
+        # a parent port becomes unbound.
+        registry.subscribe(self._trigger_trunk_status_change,
+                           resources.PORT, events.AFTER_UPDATE)
         registry.notify(constants.TRUNK_PLUGIN, events.AFTER_INIT, self)
         for driver in self._drivers:
             LOG.debug('Trunk plugin loaded with driver %s', driver.name)
         self.check_compatibility()
 
     def check_compatibility(self):
+        """Verify the plugin can load correctly and fail otherwise."""
+        self.check_driver_compatibility()
+        self.check_segmentation_compatibility()
+
+    def check_driver_compatibility(self):
         """Fail to load if no compatible driver is found."""
         if not any([driver.is_loaded for driver in self._drivers]):
             raise trunk_exc.IncompatibleTrunkPluginConfiguration()
+
+    def check_segmentation_compatibility(self):
+        """Fail to load if segmentation type conflicts are found.
+
+        In multi-driver deployments each loaded driver must support the same
+        set of segmentation types consistently.
+        """
+        # Get list of segmentation types for the loaded drivers.
+        list_of_driver_seg_types = [
+            set(driver.segmentation_types) for driver in self._drivers
+            if driver.is_loaded
+        ]
+
+        # If not empty, check that there is at least one we can use.
+        compat_segmentation_types = set()
+        if list_of_driver_seg_types:
+            compat_segmentation_types = (
+                set.intersection(*list_of_driver_seg_types))
+        if not compat_segmentation_types:
+            raise trunk_exc.IncompatibleDriverSegmentationTypes()
+
+        # If there is at least one, make sure the validator is defined.
+        try:
+            for seg_type in compat_segmentation_types:
+                self.add_segmentation_type(
+                    seg_type, validators.get_validator(seg_type))
+        except KeyError:
+            raise trunk_exc.SegmentationTypeValidatorNotFound(
+                seg_type=seg_type)
 
     def set_rpc_backend(self, backend):
         self._rpc_backend = backend
@@ -232,16 +273,18 @@ class TrunkPlugin(service_base.ServicePluginBase,
     @db_base_plugin_common.convert_result_to_dict
     def add_subports(self, context, trunk_id, subports):
         """Add one or more subports to trunk."""
-        # Check for basic validation since the request body here is not
-        # automatically validated by the API layer.
-        subports = subports['sub_ports']
-        subports_validator = rules.SubPortsValidator(
-            self._segmentation_types, subports)
-        subports = subports_validator.validate(context, basic_validation=True)
-        added_subports = []
-
         with db_api.autonested_transaction(context.session):
             trunk = self._get_trunk(context, trunk_id)
+
+            # Check for basic validation since the request body here is not
+            # automatically validated by the API layer.
+            subports = subports['sub_ports']
+            subports_validator = rules.SubPortsValidator(
+                self._segmentation_types, subports, trunk['port_id'])
+            subports = subports_validator.validate(
+                context, basic_validation=True)
+            added_subports = []
+
             rules.trunk_can_be_managed(context, trunk)
             original_trunk = copy.deepcopy(trunk)
             # NOTE(status_police): the trunk status should transition to
@@ -345,3 +388,22 @@ class TrunkPlugin(service_base.ServicePluginBase,
             raise trunk_exc.TrunkNotFound(trunk_id=trunk_id)
 
         return obj
+
+    def _trigger_trunk_status_change(self, resource, event, trigger, **kwargs):
+        updated_port = kwargs['port']
+        trunk_details = updated_port.get('trunk_details')
+        # If no trunk_details, the port is not the parent of a trunk.
+        if not trunk_details:
+            return
+
+        context = kwargs['context']
+        original_port = kwargs['original_port']
+        orig_vif_type = original_port.get(portbindings.VIF_TYPE)
+        new_vif_type = updated_port.get(portbindings.VIF_TYPE)
+        vif_type_changed = orig_vif_type != new_vif_type
+        if vif_type_changed and new_vif_type == portbindings.VIF_TYPE_UNBOUND:
+            trunk = self._get_trunk(context, trunk_details['trunk_id'])
+            # NOTE(status_police) Trunk status goes to DOWN when the parent
+            # port is unbound. This means there are no more physical resources
+            # associated with the logical resource.
+            trunk.update(status=constants.DOWN_STATUS)

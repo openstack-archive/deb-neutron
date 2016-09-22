@@ -116,11 +116,10 @@ class DhcpAgent(manager.Manager):
         except exceptions.Conflict:
             # No need to resync here, the agent will receive the event related
             # to a status update for the network
-            LOG.warning(_LW('Unable to %(action)s dhcp for %(net_id)s: there '
-                            'is a conflict with its current state; please '
-                            'check that the network and/or its subnet(s) '
-                            'still exist.'),
-                        {'net_id': network.id, 'action': action})
+            LOG.debug('Unable to %(action)s dhcp for %(net_id)s: there '
+                      'is a conflict with its current state; please '
+                      'check that the network and/or its subnet(s) '
+                      'still exist.', {'net_id': network.id, 'action': action})
         except Exception as e:
             if getattr(e, 'exc_type', '') != 'IpAddressGenerationFailure':
                 # Don't resync if port could not be created because of an IP
@@ -374,6 +373,9 @@ class DhcpAgent(manager.Manager):
     def port_update_end(self, context, payload):
         """Handle the port.update.end notification event."""
         updated_port = dhcp.DictModel(payload['port'])
+        if self.cache.is_port_message_stale(payload['port']):
+            LOG.debug("Discarding stale port update: %s", updated_port)
+            return
         network = self.cache.get_network_by_id(updated_port.network_id)
         if network:
             LOG.info(_LI("Trigger reload_allocations for port %s"),
@@ -382,6 +384,7 @@ class DhcpAgent(manager.Manager):
             if self._is_port_on_this_agent(updated_port):
                 orig = self.cache.get_port_by_id(updated_port['id'])
                 # assume IP change if not in cache
+                orig = orig or {'fixed_ips': []}
                 old_ips = {i['ip_address'] for i in orig['fixed_ips'] or []}
                 new_ips = {i['ip_address'] for i in updated_port['fixed_ips']}
                 if old_ips != new_ips:
@@ -402,6 +405,7 @@ class DhcpAgent(manager.Manager):
     def port_delete_end(self, context, payload):
         """Handle the port.delete.end notification event."""
         port = self.cache.get_port_by_id(payload['port_id'])
+        self.cache.deleted_ports.add(payload['port_id'])
         if port:
             network = self.cache.get_network_by_id(port.network_id)
             self.cache.remove_port(port)
@@ -534,6 +538,15 @@ class NetworkCache(object):
         self.cache = {}
         self.subnet_lookup = {}
         self.port_lookup = {}
+        self.deleted_ports = set()
+
+    def is_port_message_stale(self, payload):
+        orig = self.get_port_by_id(payload['id'])
+        if orig and orig.get('revision', 0) > payload.get('revision', 0):
+            return True
+        if payload['id'] in self.deleted_ports:
+            return True
+        return False
 
     def get_port_ids(self):
         return self.port_lookup.keys()
