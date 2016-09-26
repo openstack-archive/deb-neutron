@@ -1,0 +1,12 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Thomas Morin <tmmorin.orange@gmail.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Swaminathan Vasudevan <swaminathan.vasudevan@hpe.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Sep 2016 20:26:42 +0000
+Reviewed-on: https://review.openstack.org/369221
+Project: openstack/deb-neutron
+Branch: refs/heads/master
