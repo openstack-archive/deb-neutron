@@ -85,8 +85,8 @@ Build-Depends-Indep: alembic (>= 0.8.4),
 # python-ryu should be >= 4.5
 Standards-Version: 3.9.8
 Homepage: http://neutron.openstack.org/
-Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-neutron
-Vcs-Git: https://git.openstack.org/openstack/deb-neutron
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-neutron?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-neutron -b debian/newton
 
 Package: python-neutron
 Architecture: all
