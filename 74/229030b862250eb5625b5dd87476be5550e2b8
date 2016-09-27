@@ -1,0 +1,12 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: tonytan4ever <tony.tan@rackspace.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Sep 2016 23:11:22 +0000
+Reviewed-on: https://review.openstack.org/355662
+Project: openstack/deb-neutron
+Branch: refs/heads/master
