@@ -1,0 +1,13 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Alex Szarka <szarka@inf.u-szeged.hu>
+Code-Review+1: Hynek Mlnarik <hmlnarik@redhat.com>
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Sep 2016 13:50:00 +0000
+Reviewed-on: https://review.openstack.org/343312
+Project: openstack/deb-neutron
+Branch: refs/heads/master
