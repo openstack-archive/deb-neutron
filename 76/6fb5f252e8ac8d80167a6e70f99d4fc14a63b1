@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Rossella Sblendido <rsblendido@suse.com>
+Code-Review+1: Inessa Vasilevskaya <ivasilevskaya@mirantis.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Sep 2016 00:24:34 +0000
+Reviewed-on: https://review.openstack.org/376023
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton

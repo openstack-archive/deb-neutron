@@ -1,0 +1,15 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: garyk <gkotton@vmware.com>
+Code-Review+1: Inessa Vasilevskaya <ivasilevskaya@mirantis.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Jakub Libosvar <libosvar@redhat.com>
+Code-Review+1: IWAMOTO Toshihiro <iwamoto@valinux.co.jp>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Sep 2016 23:12:00 +0000
+Reviewed-on: https://review.openstack.org/375892
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton

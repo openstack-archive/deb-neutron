@@ -1,0 +1,11 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Sep 2016 00:36:06 +0000
+Reviewed-on: https://review.openstack.org/377089
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
