@@ -1,0 +1,10 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 29 Sep 2016 05:07:51 +0000
+Reviewed-on: https://review.openstack.org/379064
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
