@@ -50,12 +50,20 @@ override_dh_install:
 		--namespace neutron.ml2.linuxbridge.agent \
 		--namespace oslo.log
 
+	# macvtap_agent.ini
+	mkdir -p $(CURDIR)/debian/neutron-macvtap-agent/etc/neutron/plugins/ml2
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-macvtap-agent/etc/neutron/plugins/ml2/macvtap_agent.ini \
+		--wrap-width 140 \
+		--namespace neutron.ml2.macvtap.agent \
+		--namespace oslo.log
+
 	# metadata_agent.ini
 	mkdir -p $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator --output-file $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini \
 		--wrap-width 140 \
 		--namespace neutron.metadata.agent \
-		--namespace oslo.log
+		--namespace oslo.log \
+		--namespace oslo.cache
 	sed -i 's|^[ #\t]*nova_metadata_protocol[ \t]*=.*|nova_metadata_protocol = http|' $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 	sed -i 's|^[ #\t]*nova_metadata_ip[ \t]*=.*|nova_metadata_ip = 127.0.0.1|' $(CURDIR)/debian/neutron-metadata-agent/usr/share/neutron-metadata-agent/metadata_agent.ini
 
@@ -107,6 +115,7 @@ override_dh_install:
 		--namespace oslo.service.sslutils \
 		--namespace oslo.service.wsgi \
 		--namespace keystonemiddleware.auth_token
+
 	sed -i 's|^[ #\t]*core_plugin[ \t]*=.*|core_plugin = ml2|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*service_plugins[ \t]*=.*|service_plugins = router,metering,qos|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
 	sed -i 's|^[ #\t]*auth_strategy[ \t]*=.*|auth_strategy = keystone|' $(CURDIR)/debian/neutron-common/usr/share/neutron-common/neutron.conf
