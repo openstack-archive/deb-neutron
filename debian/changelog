@@ -9,6 +9,8 @@ neutron (2:9.0.0~rc1-2) UNRELEASED; urgency=medium
   * Fixed oslotest EPOCH.
   * Added a new neutron-macvtap-agent package.
   * Fixed oslo-config-gnenerator namespaces for a number of config file.
+  * Debconf translation:
+    - it (Closes: #838501).
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 28 Sep 2016 10:01:19 +0200
 
