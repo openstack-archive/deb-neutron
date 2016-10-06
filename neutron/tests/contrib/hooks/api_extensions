@@ -28,17 +28,16 @@ NETWORK_API_EXTENSIONS="
     qos, \
     quotas, \
     rbac-policies, \
-    revisions, \
     router, \
     router_availability_zone, \
     security-group, \
     service-type, \
     sorting, \
     standard-attr-description, \
+    standard-attr-revisions, \
+    standard-attr-timestamp, \
     subnet_allocation, \
     tag, \
-    timestamp_core, \
-    timestamp_ext, \
     trunk, \
     trunk-details"
 NETWORK_API_EXTENSIONS="$(echo $NETWORK_API_EXTENSIONS | tr -d ' ')"

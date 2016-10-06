@@ -30,6 +30,7 @@ import subprocess
 from neutron.db.migration.alembic_migrations import external
 from neutron.db.migration import cli as migration
 from neutron.db.migration.models import head as head_models
+from neutron.tests import base as test_base
 from neutron.tests.unit import testlib_api
 
 cfg.CONF.import_opt('core_plugin', 'neutron.conf.common')
@@ -129,6 +130,7 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
     '''
 
     BUILD_SCHEMA = False
+    TIMEOUT_SCALING_FACTOR = 4
 
     def setUp(self):
         super(_TestModelsMigrations, self).setUp()
@@ -136,6 +138,9 @@ class _TestModelsMigrations(test_migrations.ModelsMigrationsSync):
         self.cfg.config(core_plugin='ml2')
         self.alembic_config = migration.get_neutron_config()
         self.alembic_config.neutron_config = cfg.CONF
+
+        # Migration tests can take a long time
+        self.useFixture(test_base.Timeout(scaling=self.TIMEOUT_SCALING_FACTOR))
 
     def db_sync(self, engine):
         upgrade(engine, self.alembic_config)
@@ -393,7 +398,7 @@ class TestSanityCheck(testlib_api.SqlTestCaseLight):
             self.assertRaises(script.DuplicatePortRecordinRouterPortdatabase,
                               script.check_sanity, conn)
 
-    def test_check_sanity_6b461a21bcfc(self):
+    def test_check_sanity_6b461a21bcfc_dup_on_fixed_ip(self):
         floatingips = sqlalchemy.Table(
             'floatingips', sqlalchemy.MetaData(),
             sqlalchemy.Column('floating_network_id', sqlalchemy.String(36)),
@@ -415,6 +420,28 @@ class TestSanityCheck(testlib_api.SqlTestCaseLight):
             script = script_dir.get_revision("6b461a21bcfc").module
             self.assertRaises(script.DuplicateFloatingIPforOneFixedIP,
                               script.check_sanity, conn)
+
+    def test_check_sanity_6b461a21bcfc_dup_on_no_fixed_ip(self):
+        floatingips = sqlalchemy.Table(
+            'floatingips', sqlalchemy.MetaData(),
+            sqlalchemy.Column('floating_network_id', sqlalchemy.String(36)),
+            sqlalchemy.Column('fixed_port_id', sqlalchemy.String(36)),
+            sqlalchemy.Column('fixed_ip_address', sqlalchemy.String(64)))
+
+        with self.engine.connect() as conn:
+            floatingips.create(conn)
+            conn.execute(floatingips.insert(), [
+                {'floating_network_id': '12345',
+                 'fixed_port_id': '1234567',
+                 'fixed_ip_address': None},
+                {'floating_network_id': '12345',
+                 'fixed_port_id': '1234567',
+                 'fixed_ip_address': None}
+            ])
+            script_dir = alembic_script.ScriptDirectory.from_config(
+                self.alembic_config)
+            script = script_dir.get_revision("6b461a21bcfc").module
+            self.assertIsNone(script.check_sanity(conn))
 
 
 class TestWalkDowngrade(oslotest_base.BaseTestCase):

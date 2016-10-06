@@ -120,6 +120,10 @@ class DhcpAgent(manager.Manager):
                       'is a conflict with its current state; please '
                       'check that the network and/or its subnet(s) '
                       'still exist.', {'net_id': network.id, 'action': action})
+        except exceptions.SubnetMismatchForPort as e:
+            # FIXME(kevinbenton): get rid of this once bug/1627480 is fixed
+            LOG.debug("Error configuring DHCP port, scheduling resync: %s", e)
+            self.schedule_resync(e, network.id)
         except Exception as e:
             if getattr(e, 'exc_type', '') != 'IpAddressGenerationFailure':
                 # Don't resync if port could not be created because of an IP
@@ -387,7 +391,20 @@ class DhcpAgent(manager.Manager):
                 orig = orig or {'fixed_ips': []}
                 old_ips = {i['ip_address'] for i in orig['fixed_ips'] or []}
                 new_ips = {i['ip_address'] for i in updated_port['fixed_ips']}
-                if old_ips != new_ips:
+                old_subs = {i['subnet_id'] for i in orig['fixed_ips'] or []}
+                new_subs = {i['subnet_id'] for i in updated_port['fixed_ips']}
+                if new_subs != old_subs:
+                    # subnets being serviced by port have changed, this could
+                    # indicate a subnet_delete is in progress. schedule a
+                    # resync rather than an immediate restart so we don't
+                    # attempt to re-allocate IPs at the same time the server
+                    # is deleting them.
+                    self.schedule_resync("Agent port was modified",
+                                         updated_port.network_id)
+                    return
+                elif old_ips != new_ips:
+                    LOG.debug("Agent IPs on network %s changed from %s to %s",
+                              network.id, old_ips, new_ips)
                     driver_action = 'restart'
             self.cache.put_port(updated_port)
             self.call_driver(driver_action, network)
@@ -409,7 +426,14 @@ class DhcpAgent(manager.Manager):
         if port:
             network = self.cache.get_network_by_id(port.network_id)
             self.cache.remove_port(port)
-            self.call_driver('reload_allocations', network)
+            if self._is_port_on_this_agent(port):
+                # the agent's port has been deleted. disable the service
+                # and add the network to the resync list to create
+                # (or acquire a reserved) port.
+                self.call_driver('disable', network)
+                self.schedule_resync("Agent port was deleted", port.network_id)
+            else:
+                self.call_driver('reload_allocations', network)
 
     def enable_isolated_metadata_proxy(self, network):
 
@@ -541,8 +565,8 @@ class NetworkCache(object):
         self.deleted_ports = set()
 
     def is_port_message_stale(self, payload):
-        orig = self.get_port_by_id(payload['id'])
-        if orig and orig.get('revision', 0) > payload.get('revision', 0):
+        orig = self.get_port_by_id(payload['id']) or {}
+        if orig.get('revision_number', 0) > payload.get('revision_number', 0):
             return True
         if payload['id'] in self.deleted_ports:
             return True

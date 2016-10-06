@@ -85,6 +85,8 @@ fake_meta_subnet = dhcp.DictModel(dict(id='bbbbbbbb-1111-2222-bbbbbbbbbbbb',
 
 fake_fixed_ip1 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet1.id,
                                 ip_address='172.9.9.9'))
+fake_fixed_ip_subnet2 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet2.id,
+                                ip_address='172.9.8.9'))
 fake_fixed_ip2 = dhcp.DictModel(dict(id='', subnet_id=fake_subnet1.id,
                                 ip_address='172.9.9.10'))
 fake_fixed_ipv6 = dhcp.DictModel(dict(id='', subnet_id=fake_ipv6_subnet.id,
@@ -115,7 +117,7 @@ fake_port2 = dhcp.DictModel(dict(id='12345678-1234-aaaa-123456789000',
                             device_owner='',
                             mac_address='aa:bb:cc:dd:ee:99',
                             network_id='12345678-1234-5678-1234567890ab',
-                            revision=77,
+                            revision_number=77,
                             fixed_ips=[fake_fixed_ip2]))
 
 fake_ipv6_port = dhcp.DictModel(dict(id='12345678-1234-aaaa-123456789000',
@@ -1040,6 +1042,17 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.call_driver.assert_has_calls(
             [mock.call.call_driver('reload_allocations', fake_network)])
 
+    def test_port_update_change_subnet_on_dhcp_agents_port(self):
+        self.cache.get_network_by_id.return_value = fake_network
+        self.cache.get_port_by_id.return_value = fake_port1
+        payload = dict(port=copy.deepcopy(fake_port1))
+        device_id = utils.get_dhcp_agent_device_id(
+            payload['port']['network_id'], self.dhcp.conf.host)
+        payload['port']['fixed_ips'][0]['subnet_id'] = '77777-7777'
+        payload['port']['device_id'] = device_id
+        self.dhcp.port_update_end(None, payload)
+        self.assertFalse(self.call_driver.called)
+
     def test_port_update_change_ip_on_dhcp_agents_port(self):
         self.cache.get_network_by_id.return_value = fake_network
         self.cache.get_port_by_id.return_value = fake_port1
@@ -1061,8 +1074,8 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         payload['port']['fixed_ips'][0]['ip_address'] = '172.9.9.99'
         payload['port']['device_id'] = device_id
         self.dhcp.port_update_end(None, payload)
-        self.call_driver.assert_has_calls(
-            [mock.call.call_driver('restart', fake_network)])
+        self.schedule_resync.assert_called_once_with(mock.ANY,
+                                                     fake_port1.network_id)
 
     def test_port_update_on_dhcp_agents_port_no_ip_change(self):
         self.cache.get_network_by_id.return_value = fake_network
@@ -1097,6 +1110,17 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
 
         self.cache.assert_has_calls([mock.call.get_port_by_id('unknown')])
         self.assertEqual(self.call_driver.call_count, 0)
+
+    def test_port_delete_end_agents_port(self):
+        port = dhcp.DictModel(copy.deepcopy(fake_port1))
+        device_id = utils.get_dhcp_agent_device_id(
+            port.network_id, self.dhcp.conf.host)
+        port['device_id'] = device_id
+        self.cache.get_network_by_id.return_value = fake_network
+        self.cache.get_port_by_id.return_value = port
+        self.dhcp.port_delete_end(None, {'port_id': port.id})
+        self.call_driver.assert_has_calls(
+            [mock.call.call_driver('disable', fake_network)])
 
 
 class TestDhcpPluginApiProxy(base.BaseTestCase):
@@ -1152,7 +1176,7 @@ class TestNetworkCache(base.BaseTestCase):
         nc.put(fake_network)
         nc.put_port(fake_port2)
         stale = copy.copy(fake_port2)
-        stale['revision'] = 2
+        stale['revision_number'] = 2
         self.assertTrue(nc.is_port_message_stale(stale))
 
     def test_put_network(self):
@@ -1430,6 +1454,20 @@ class TestDeviceManager(base.BaseTestCase):
         expected = [mock.call.add_rule('POSTROUTING', rule)]
         self.mangle_inst.assert_has_calls(expected)
 
+    def test_setup_dhcp_port_doesnt_orphan_devices(self):
+        with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
+            plugin = mock.Mock()
+            device = mock.Mock()
+            mock_IPDevice.return_value = device
+            device.route.get_gateway.return_value = None
+            net = copy.deepcopy(fake_network)
+            plugin.create_dhcp_port.side_effect = exceptions.Conflict()
+            dh = dhcp.DeviceManager(cfg.CONF, plugin)
+            clean = mock.patch.object(dh, '_cleanup_stale_devices').start()
+            with testtools.ExpectedException(exceptions.Conflict):
+                dh.setup(net)
+            clean.assert_called_once_with(net, dhcp_port=None)
+
     def test_setup_create_dhcp_port(self):
         with mock.patch.object(dhcp.ip_lib, 'IPDevice') as mock_IPDevice:
             plugin = mock.Mock()
@@ -1495,13 +1533,26 @@ class TestDeviceManager(base.BaseTestCase):
                           [{'subnet_id': fake_fixed_ip1.subnet_id}],
                           'device_id': mock.ANY}})])
 
-    def test_create_dhcp_port_update_add_subnet(self):
+    def test_create_dhcp_port_update_add_subnet_bug_1627480(self):
+        # this can go away once bug/1627480 is fixed
         plugin = mock.Mock()
         dh = dhcp.DeviceManager(cfg.CONF, plugin)
         fake_network_copy = copy.deepcopy(fake_network)
         fake_network_copy.ports[0].device_id = dh.get_device_id(fake_network)
         fake_network_copy.subnets[1].enable_dhcp = True
         plugin.update_dhcp_port.return_value = fake_network.ports[0]
+        with testtools.ExpectedException(exceptions.SubnetMismatchForPort):
+            dh.setup_dhcp_port(fake_network_copy)
+
+    def test_create_dhcp_port_update_add_subnet(self):
+        plugin = mock.Mock()
+        dh = dhcp.DeviceManager(cfg.CONF, plugin)
+        fake_network_copy = copy.deepcopy(fake_network)
+        fake_network_copy.ports[0].device_id = dh.get_device_id(fake_network)
+        fake_network_copy.subnets[1].enable_dhcp = True
+        updated_port = copy.deepcopy(fake_network_copy.ports[0])
+        updated_port.fixed_ips.append(fake_fixed_ip_subnet2)
+        plugin.update_dhcp_port.return_value = updated_port
         dh.setup_dhcp_port(fake_network_copy)
         port_body = {'port': {
                      'network_id': fake_network.id,

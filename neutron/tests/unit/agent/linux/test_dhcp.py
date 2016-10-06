@@ -86,7 +86,9 @@ class FakeReservedPort(object):
         self.device_owner = constants.DEVICE_OWNER_DHCP
         self.fixed_ips = [
             FakeIPAllocation('192.168.0.6',
-                             'dddddddd-dddd-dddd-dddd-dddddddddddd')]
+                             'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+            FakeIPAllocation('fdca:3ba5:a17a:4ba3::2',
+                             'ffffffff-ffff-ffff-ffff-ffffffffffff')]
         self.mac_address = '00:00:80:aa:bb:ee'
         self.device_id = n_const.DEVICE_ID_RESERVED_DHCP_PORT
         self.extra_dhcp_opts = []
@@ -277,6 +279,23 @@ class FakeRouterPort(object):
         self.device_owner = dev_owner
         self.fixed_ips = [FakeIPAllocation(
             ip_address, 'dddddddd-dddd-dddd-dddd-dddddddddddd')]
+        self.dns_assignment = [FakeDNSAssignment(ip.ip_address, domain=domain)
+                               for ip in self.fixed_ips]
+
+
+class FakeRouterPortNoDHCP(object):
+    def __init__(self, dev_owner=constants.DEVICE_OWNER_ROUTER_INTF,
+                 ip_address='192.168.0.1', domain='openstacklocal'):
+        self.id = 'ssssssss-ssss-ssss-ssss-ssssssssssss'
+        self.admin_state_up = True
+        self.device_owner = constants.DEVICE_OWNER_ROUTER_INTF
+        self.mac_address = '00:00:0f:rr:rr:rr'
+        self.device_id = 'fake_router_port_no_dhcp'
+        self.dns_assignment = []
+        self.extra_dhcp_opts = []
+        self.device_owner = dev_owner
+        self.fixed_ips = [FakeIPAllocation(
+            ip_address, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee')]
         self.dns_assignment = [FakeDNSAssignment(ip.ip_address, domain=domain)
                                for ip in self.fixed_ips]
 
@@ -602,6 +621,15 @@ class FakeDualNetworkSingleDHCP(object):
         self.namespace = 'qdhcp-ns'
 
 
+class FakeDualNetworkSingleDHCPBothAttaced(object):
+    def __init__(self):
+        self.id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+        # dhcp-agent actually can't get the subnet with dhcp disabled
+        self.subnets = [FakeV4Subnet()]
+        self.ports = [FakePort1(), FakeRouterPortNoDHCP(), FakeRouterPort()]
+        self.namespace = 'qdhcp-ns'
+
+
 class FakeDualNetworkDualDHCP(object):
     def __init__(self):
         self.id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
@@ -850,6 +878,7 @@ class TestBase(TestConfBase):
 
         self.replace_p = mock.patch('neutron.common.utils.replace_file')
         self.execute_p = mock.patch('neutron.agent.common.utils.execute')
+        mock.patch('neutron.agent.linux.utils.execute').start()
         self.safe = self.replace_p.start()
         self.execute = self.execute_p.start()
 
@@ -1335,6 +1364,18 @@ class TestDnsmasq(TestBase):
 
         self._test_output_opts_file(expected, FakeDualNetworkSingleDHCP())
 
+    def test_output_opts_file_single_dhcp_both_not_isolated(self):
+        expected = (
+            'tag:tag0,option:dns-server,8.8.8.8\n'
+            'tag:tag0,option:classless-static-route,20.0.0.1/24,20.0.0.1,'
+            '169.254.169.254/32,192.168.0.1,0.0.0.0/0,192.168.0.1\n'
+            'tag:tag0,249,20.0.0.1/24,20.0.0.1,'
+            '169.254.169.254/32,192.168.0.1,0.0.0.0/0,192.168.0.1\n'
+            'tag:tag0,option:router,192.168.0.1').lstrip()
+
+        self._test_output_opts_file(expected,
+                                    FakeDualNetworkSingleDHCPBothAttaced())
+
     def test_output_opts_file_dual_dhcp_rfc3442(self):
         expected = (
             'tag:tag0,option:dns-server,8.8.8.8\n'
@@ -1531,6 +1572,15 @@ class TestDnsmasq(TestBase):
 
         self._test_output_opts_file(expected, FakeV6Network())
 
+    def test_output_opts_file_ipv6_address_force_metadata(self):
+        fake_v6 = '2001:0200:feed:7ac0::1'
+        expected = (
+            'tag:tag0,option6:dns-server,%s\n'
+            'tag:tag0,option6:domain-search,openstacklocal').lstrip() % (
+                '[' + fake_v6 + ']')
+        self.conf.force_metadata = True
+        self._test_output_opts_file(expected, FakeV6Network())
+
     @property
     def _test_no_dhcp_domain_alloc_data(self):
         exp_host_name = '/dhcp/cccccccc-cccc-cccc-cccc-cccccccccccc/host'
@@ -1675,8 +1725,6 @@ class TestDnsmasq(TestBase):
                                                            0xff),
                                                  ],
                                                 any_order=True)
-        dnsmasq.device_manager.unplug.assert_has_calls(
-            [mock.call(dnsmasq.interface_name, dnsmasq.network)])
 
     def test_release_for_ipv6_lease(self):
         dnsmasq = self._get_dnsmasq(FakeDualNetwork())
@@ -1706,6 +1754,26 @@ class TestDnsmasq(TestBase):
                                         run_as_root=True)])
         ipw.assert_has_calls([mock.call(['dhcp_release', None, ip2, mac2],
                              run_as_root=True), ])
+
+    def test_release_for_ipv6_lease_no_dhcp_release6(self):
+        dnsmasq = self._get_dnsmasq(FakeDualNetwork())
+
+        ip1 = 'fdca:3ba5:a17a::1'
+        mac1 = '00:00:80:aa:bb:cc'
+
+        old_leases = set([(ip1, mac1, None)])
+        dnsmasq._read_hosts_file_leases = mock.Mock(return_value=old_leases)
+        dnsmasq._read_v6_leases_file_leases = mock.Mock(
+            return_value={'fdca:3ba5:a17a::1': {'iaid': 0xff,
+                                                'client_id': 'client_id',
+                                                'server_id': 'server_id'}
+                          })
+        ipw = mock.patch(
+            'neutron.agent.linux.ip_lib.IpNetnsCommand.execute').start()
+        dnsmasq._IS_DHCP_RELEASE6_SUPPORTED = False
+        dnsmasq._release_unused_leases()
+        # Verify that dhcp_release6 is not called when it is not present
+        ipw.assert_not_called()
 
     def test_release_unused_leases_with_dhcp_port(self):
         dnsmasq = self._get_dnsmasq(FakeNetworkDhcpPort())
@@ -2240,11 +2308,11 @@ class TestDeviceManager(TestConfBase):
             plugin.update_dhcp_port.assert_called_with(reserved_port.id,
                                                        mock.ANY)
 
-            except_ips = ['192.168.0.6/24']
+            expect_ips = ['192.168.0.6/24', 'fdca:3ba5:a17a:4ba3::2/64']
             if enable_isolated_metadata or force_metadata:
-                except_ips.append(dhcp.METADATA_DEFAULT_CIDR)
+                expect_ips.append(dhcp.METADATA_DEFAULT_CIDR)
             mgr.driver.init_l3.assert_called_with('ns-XXX',
-                                                  except_ips,
+                                                  expect_ips,
                                                   namespace='qdhcp-ns')
 
     def test_setup_reserved_and_disable_metadata(self):
@@ -2312,9 +2380,9 @@ class TestDeviceManager(TestConfBase):
             plugin.update_dhcp_port.assert_called_with(reserved_port_2.id,
                                                        mock.ANY)
 
-            mgr.driver.init_l3.assert_called_with('ns-XXX',
-                                                  ['192.168.0.6/24'],
-                                                  namespace='qdhcp-ns')
+            mgr.driver.init_l3.assert_called_with(
+                'ns-XXX', ['192.168.0.6/24', 'fdca:3ba5:a17a:4ba3::2/64'],
+                namespace='qdhcp-ns')
 
 
 class TestDictModel(base.BaseTestCase):

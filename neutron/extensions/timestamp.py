@@ -1,4 +1,4 @@
-# Copyright 2016 HuaWei Technologies.
+# Copyright 2015 HuaWei Technologies.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -13,8 +13,8 @@
 #    under the License.
 
 from neutron.api import extensions
-from neutron.extensions import l3
-from neutron.extensions import securitygroup as sg
+from neutron.db import standard_attr
+
 
 # Attribute Map
 CREATED = 'created_at'
@@ -27,42 +27,34 @@ TIMESTAMP_BODY = {
               'is_visible': True, 'default': None
               },
 }
-EXTENDED_ATTRIBUTES_2_0 = {
-    l3.ROUTERS: TIMESTAMP_BODY,
-    l3.FLOATINGIPS: TIMESTAMP_BODY,
-    sg.SECURITYGROUPS: TIMESTAMP_BODY,
-    sg.SECURITYGROUPRULES: TIMESTAMP_BODY,
-}
 
 
-class Timestamp_ext(extensions.ExtensionDescriptor):
+class Timestamp(extensions.ExtensionDescriptor):
     """Extension class supporting timestamp.
 
     This class is used by neutron's extension framework for adding timestamp
-    to neutron extension resources.
+    to neutron core resources.
     """
 
     @classmethod
     def get_name(cls):
-        return "Standardattr Extension Timestamps"
+        return "Resource timestamps"
 
     @classmethod
     def get_alias(cls):
-        return "timestamp_ext"
+        return "standard-attr-timestamp"
 
     @classmethod
     def get_description(cls):
-        return ("This extension can be used for recording "
-                "create/update timestamps for ext resources "
-                "like router, floatingip, security_group, "
-                "security_group_rule.")
+        return ("Adds created_at and updated_at fields to all Neutron "
+                "resources that have Neutron standard attributes.")
 
     @classmethod
     def get_updated(cls):
-        return "2016-05-05T10:00:00-00:00"
+        return "2016-09-12T10:00:00-00:00"
 
     def get_extended_resources(self, version):
-        if version == "2.0":
-            return EXTENDED_ATTRIBUTES_2_0
-        else:
+        if version != "2.0":
             return {}
+        rs_map = standard_attr.get_standard_attr_resource_model_map()
+        return {resource: TIMESTAMP_BODY for resource in rs_map}

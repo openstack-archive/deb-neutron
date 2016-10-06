@@ -53,12 +53,12 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
                      'ovs_neutron_agent.OVSPluginApi')
         mock.patch(agent_rpc).start()
         mock.patch('neutron.agent.rpc.PluginReportStateAPI').start()
-        self.br_int = base.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
-                                         prefix='br-int')
-        self.br_tun = base.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
-                                         prefix='br-tun')
-        self.br_phys = base.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
-                                          prefix='br-phys')
+        self.br_int = utils.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
+                                          prefix='br-int')
+        self.br_tun = utils.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
+                                          prefix='br-tun')
+        self.br_phys = utils.get_rand_name(n_const.DEVICE_NAME_MAX_LEN,
+                                           prefix='br-phys')
         patch_name_len = n_const.DEVICE_NAME_MAX_LEN - len("-patch-tun")
         self.patch_tun = "%s-patch-tun" % self.br_int[patch_name_len:]
         self.patch_int = "%s-patch-int" % self.br_tun[patch_name_len:]
@@ -145,6 +145,10 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
             return {'added': filtered_ports, 'removed': events['removed']}
         polling_manager.get_events = mock.Mock(side_effect=filter_events)
 
+    def stop_agent(self, agent, rpc_loop_thread):
+        agent.run_daemon_loop = False
+        rpc_loop_thread.wait()
+
     def start_agent(self, agent, ports=None, unplug_ports=None):
         if unplug_ports is None:
             unplug_ports = []
@@ -159,13 +163,10 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
             polling_manager._monitor.is_active)
         agent.check_ovs_status = mock.Mock(
             return_value=constants.OVS_NORMAL)
-        t = eventlet.spawn(agent.rpc_loop, polling_manager)
+        self.agent_thread = eventlet.spawn(agent.rpc_loop,
+                                           polling_manager)
 
-        def stop_agent(agent, rpc_loop_thread):
-            agent.run_daemon_loop = False
-            rpc_loop_thread.wait()
-
-        self.addCleanup(stop_agent, agent, t)
+        self.addCleanup(self.stop_agent, agent, self.agent_thread)
         return polling_manager
 
     def _create_test_port_dict(self):
@@ -177,7 +178,7 @@ class OVSAgentTestFramework(base.BaseOVSLinuxTestCase):
                          random.randint(3, 254),
                          random.randint(3, 254),
                          random.randint(3, 254))}],
-                'vif_name': base.get_rand_name(
+                'vif_name': utils.get_rand_name(
                     self.driver.DEV_NAME_LEN, self.driver.DEV_NAME_PREFIX)}
 
     def _create_test_network_dict(self):

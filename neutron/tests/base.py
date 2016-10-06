@@ -20,12 +20,13 @@ import contextlib
 import gc
 import os
 import os.path
+import sys
 import weakref
 
+from debtcollector import moves
 import eventlet.timeout
 import fixtures
 import mock
-from neutron_lib import constants
 from oslo_concurrency.fixture import lockutils
 from oslo_config import cfg
 from oslo_messaging import conffixture as messaging_conffixture
@@ -67,43 +68,14 @@ def fake_use_fatal_exceptions(*args):
     return True
 
 
-def get_related_rand_names(prefixes, max_length=None):
-    """Returns a list of the prefixes with the same random characters appended
-
-    :param prefixes: A list of prefix strings
-    :param max_length: The maximum length of each returned string
-    :returns: A list with each prefix appended with the same random characters
-    """
-
-    if max_length:
-        length = max_length - max(len(p) for p in prefixes)
-        if length <= 0:
-            raise ValueError("'max_length' must be longer than all prefixes")
-    else:
-        length = 8
-    rndchrs = utils.get_random_string(length)
-    return [p + rndchrs for p in prefixes]
-
-
-def get_rand_name(max_length=None, prefix='test'):
-    """Return a random string.
-
-    The string will start with 'prefix' and will be exactly 'max_length'.
-    If 'max_length' is None, then exactly 8 random characters, each
-    hexadecimal, will be added. In case len(prefix) <= len(max_length),
-    ValueError will be raised to indicate the problem.
-    """
-    return get_related_rand_names([prefix], max_length)[0]
-
-
-def get_rand_device_name(prefix='test'):
-    return get_rand_name(
-        max_length=constants.DEVICE_NAME_MAX_LEN, prefix=prefix)
-
-
-def get_related_rand_device_names(prefixes):
-    return get_related_rand_names(prefixes,
-                                  max_length=constants.DEVICE_NAME_MAX_LEN)
+for _name in ('get_related_rand_names',
+              'get_rand_name',
+              'get_rand_device_name',
+              'get_related_rand_device_names'):
+    setattr(sys.modules[__name__], _name, moves.moved_function(
+        getattr(utils, _name), _name, __name__,
+        message='use "neutron.common.utils.%s" instead' % _name,
+        version='Newton', removal_version='Ocata'))
 
 
 def bool_from_env(key, strict=False, default=False):
@@ -454,3 +426,34 @@ class PluginFixture(fixtures.Fixture):
             if plugin() and not isinstance(plugin(), mock.Base):
                 raise AssertionError(
                     'The plugin for this test was not deallocated.')
+
+
+class Timeout(fixtures.Fixture):
+    """Setup per test timeouts.
+
+    In order to avoid test deadlocks we support setting up a test
+    timeout parameter read from the environment. In almost all
+    cases where the timeout is reached this means a deadlock.
+
+    A scaling factor allows extremely long tests to specify they
+    need more time.
+    """
+
+    def __init__(self, timeout=None, scaling=1):
+        super(Timeout, self).__init__()
+        if timeout is None:
+            timeout = os.environ.get('OS_TEST_TIMEOUT', 0)
+        try:
+            self.test_timeout = int(timeout)
+        except ValueError:
+            # If timeout value is invalid do not set a timeout.
+            self.test_timeout = 0
+        if scaling >= 1:
+            self.test_timeout *= scaling
+        else:
+            raise ValueError('scaling value must be >= 1')
+
+    def setUp(self):
+        super(Timeout, self).setUp()
+        if self.test_timeout > 0:
+            self.useFixture(fixtures.Timeout(self.test_timeout, gentle=True))

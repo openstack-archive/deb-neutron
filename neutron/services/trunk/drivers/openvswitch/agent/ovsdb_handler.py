@@ -17,7 +17,7 @@ import functools
 
 import eventlet
 from oslo_concurrency import lockutils
-from oslo_context import context
+from oslo_context import context as o_context
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_serialization import jsonutils
@@ -40,7 +40,7 @@ from neutron.services.trunk.rpc import agent
 
 LOG = logging.getLogger(__name__)
 
-WAIT_FOR_PORT_TIMEOUT = 60
+DEFAULT_WAIT_FOR_PORT_TIMEOUT = 60
 
 
 def lock_on_bridge_name(required_parameter):
@@ -67,6 +67,10 @@ def is_trunk_bridge(port_name):
     return port_name.startswith(t_const.TRUNK_BR_PREFIX)
 
 
+def is_subport(port_name):
+    return port_name.startswith(tman.SubPort.DEV_PREFIX)
+
+
 def is_trunk_service_port(port_name):
     """True if the port is any of the ports used to realize a trunk."""
     return is_trunk_bridge(port_name) or port_name[:2] in (
@@ -74,9 +78,8 @@ def is_trunk_service_port(port_name):
         tman.SubPort.DEV_PREFIX)
 
 
-def bridge_has_instance_port(bridge):
-    """True if there is an OVS port that doesn't have bridge or patch ports
-       prefix.
+def bridge_has_port(bridge, is_port_predicate):
+    """True if there is an OVS port for which is_port_predicate is True.
     """
     try:
         ifaces = bridge.get_iface_name_list()
@@ -87,8 +90,21 @@ def bridge_has_instance_port(bridge):
                    'err': e})
         return False
 
-    return any(iface for iface in ifaces
-               if not is_trunk_service_port(iface))
+    return any(iface for iface in ifaces if is_port_predicate(iface))
+
+
+def bridge_has_instance_port(bridge):
+    """True if there is an OVS port that doesn't have bridge or patch ports
+       prefix.
+    """
+    is_instance_port = lambda p: not is_trunk_service_port(p)
+    return bridge_has_port(bridge, is_instance_port)
+
+
+def bridge_has_service_port(bridge):
+    """True if there is an OVS port that is used to implement a trunk.
+    """
+    return bridge_has_port(bridge, is_trunk_service_port)
 
 
 class OVSDBHandler(object):
@@ -98,6 +114,7 @@ class OVSDBHandler(object):
     """
 
     def __init__(self, trunk_manager):
+        self.timeout = DEFAULT_WAIT_FOR_PORT_TIMEOUT
         self._context = n_context.get_admin_context_without_session()
         self.trunk_manager = trunk_manager
         self.trunk_rpc = agent.TrunkStub()
@@ -108,7 +125,7 @@ class OVSDBHandler(object):
 
     @property
     def context(self):
-        self._context.request_id = context.generate_request_id()
+        self._context.request_id = o_context.generate_request_id()
         return self._context
 
     def process_trunk_port_events(
@@ -139,11 +156,7 @@ class OVSDBHandler(object):
 
         :param bridge_name: Name of the created trunk bridge.
         """
-        # Wait for the VM's port, i.e. the trunk parent port, to show up.
-        # If the VM fails to show up, i.e. this fails with a timeout,
-        # then we clean the dangling bridge.
         bridge = ovs_lib.OVSBridge(bridge_name)
-
         # Handle condition when there was bridge in both added and removed
         # events and handle_trunk_remove greenthread was executed before
         # handle_trunk_add
@@ -152,25 +165,24 @@ class OVSDBHandler(object):
                       bridge_name)
             return
 
-        bridge_has_port_predicate = functools.partial(
-            bridge_has_instance_port, bridge)
-        try:
-            common_utils.wait_until_true(
-                bridge_has_port_predicate,
-                timeout=WAIT_FOR_PORT_TIMEOUT)
-        except eventlet.TimeoutError:
-            LOG.error(
-                _LE('No port appeared on trunk bridge %(br_name)s '
-                    'in %(timeout)d seconds. Cleaning up the bridge'),
-                {'br_name': bridge.br_name,
-                 'timeout': WAIT_FOR_PORT_TIMEOUT})
-            bridge.destroy()
+        # Determine the state of the trunk bridge by looking for the VM's port,
+        # i.e. the trunk parent port and/or patch ports to be present. If the
+        # VM is absent, then we clean the dangling bridge. If the VM is present
+        # the value of 'rewire' tells us whether or not the bridge was dealt
+        # with in a previous added event, and thus it has active patch ports.
+        if not self._is_vm_connected(bridge):
+            LOG.debug("No instance port associated to bridge %s could be "
+                      "found. Deleting bridge and its resources.", bridge_name)
+            self.trunk_manager.dispose_trunk(bridge)
             return
 
+        # Check if the trunk was provisioned in a previous run. This can happen
+        # at agent startup when existing trunks are notified as added events.
+        rewire = bridge_has_service_port(bridge)
         # Once we get hold of the trunk parent port, we can provision
         # the OVS dataplane for the trunk.
         try:
-            self._wire_trunk(bridge, self._get_parent_port(bridge))
+            self._wire_trunk(bridge, self._get_parent_port(bridge), rewire)
         except oslo_messaging.MessagingException as e:
             LOG.error(_LE("Got messaging error while processing trunk bridge "
                           "%(bridge_name)s: %(err)s"),
@@ -195,8 +207,14 @@ class OVSDBHandler(object):
         :param port: Parent port dict.
         """
         try:
+            # TODO(jlibosva): Investigate how to proceed during removal of
+            # trunk bridge that doesn't have metadata stored.
             parent_port_id, trunk_id, subport_ids = self._get_trunk_metadata(
                 port)
+            # NOTE(status_police): we do not report changes in trunk status on
+            # removal to avoid potential races between agents in case the event
+            # is due to a live migration or reassociation of a trunk to a new
+            # VM.
             self.unwire_subports_for_trunk(trunk_id, subport_ids)
             self.trunk_manager.remove_trunk(trunk_id, parent_port_id)
         except tman.TrunkManagerError as te:
@@ -210,6 +228,23 @@ class OVSDBHandler(object):
         """True if this OVSDB handler manages trunk based on given ID."""
         bridge_name = utils.gen_trunk_br_name(trunk_id)
         return ovs_lib.BaseOVS().bridge_exists(bridge_name)
+
+    def get_connected_subports_for_trunk(self, trunk_id):
+        """Return the list of subports present on the trunk bridge."""
+        bridge = ovs_lib.OVSBridge(utils.gen_trunk_br_name(trunk_id))
+        if not bridge.bridge_exists(bridge.br_name):
+            return []
+        try:
+            ports = bridge.get_ports_attributes(
+                            'Interface', columns=['name', 'external_ids'])
+            return [
+                self.trunk_manager.get_port_uuid_from_external_ids(port)
+                for port in ports if is_subport(port['name'])
+            ]
+        except (RuntimeError, tman.TrunkManagerError) as e:
+            LOG.error(_LE("Failed to get subports for bridge %(bridge)s: "
+                          "%(err)s"), {'bridge': bridge.br_name, 'err': e})
+            return []
 
     def wire_subports_for_trunk(self, context, trunk_id, subports,
                                 trunk_bridge=None, parent_port=None):
@@ -238,43 +273,51 @@ class OVSDBHandler(object):
                 subport_ids.append(subport.port_id)
 
         try:
-            self._set_trunk_metadata(
+            self._update_trunk_metadata(
                 trunk_bridge, parent_port, trunk_id, subport_ids)
         except RuntimeError:
-            LOG.error(_LE("Failed to set metadata for trunk %s"), trunk_id)
-            # NOTE(status_police): Trunk bridge has missing metadata now, it
-            # will cause troubles during deletion.
-            # TODO(jlibosva): Investigate how to proceed during removal of
-            # trunk bridge that doesn't have metadata stored and whether it's
-            # wise to set DEGRADED status in case we don't have metadata
-            # present on the bridge.
-            self.trunk_rpc.update_trunk_status(
-                context, trunk_id, constants.DEGRADED_STATUS)
-            return
-
-        # Set trunk status to DEGRADED if not all subports were created
-        # succesfully
-        status = (constants.ACTIVE_STATUS if len(subport_ids) == len(subports)
-                  else constants.DEGRADED_STATUS)
-        # NOTE(status_police): Set trunk status to ACTIVE if all subports were
-        # added successfully. If some port wasn't added, trunk is set to
-        # DEGRADED.
-        self.trunk_rpc.update_trunk_status(
-            context, trunk_id, status)
+            LOG.error(_LE("Failed to store metadata for trunk %s"), trunk_id)
+            # NOTE(status_police): Trunk bridge has stale metadata now, it
+            # might cause troubles during deletion. Signal a DEGRADED status;
+            # if the user undo/redo the operation things may go back to
+            # normal.
+            return constants.DEGRADED_STATUS
 
         LOG.debug("Added trunk: %s", trunk_id)
+        return self._get_current_status(subports, subport_ids)
 
     def unwire_subports_for_trunk(self, trunk_id, subport_ids):
         """Destroy OVS ports associated to the logical subports."""
+        ids = []
         for subport_id in subport_ids:
             try:
                 self.trunk_manager.remove_sub_port(trunk_id, subport_id)
+                ids.append(subport_id)
             except tman.TrunkManagerError as te:
                 LOG.error(_LE("Removing subport %(subport_id)s from trunk "
                               "%(trunk_id)s failed: %(err)s"),
                           {'subport_id': subport_id,
                            'trunk_id': trunk_id,
                            'err': te})
+        try:
+            # OVS bridge and port to be determined by _update_trunk_metadata
+            bridge = None
+            port = None
+            self._update_trunk_metadata(
+                bridge, port, trunk_id, subport_ids, wire=False)
+        except RuntimeError:
+            # NOTE(status_police): Trunk bridge has stale metadata now, it
+            # might cause troubles during deletion. Signal a DEGRADED status;
+            # if the user undo/redo the operation things may go back to
+            # normal.
+            LOG.error(_LE("Failed to store metadata for trunk %s"), trunk_id)
+            return constants.DEGRADED_STATUS
+
+        return self._get_current_status(subport_ids, ids)
+
+    def report_trunk_status(self, context, trunk_id, status):
+        """Report trunk status to the server."""
+        self.trunk_rpc.update_trunk_status(context, trunk_id, status)
 
     def _get_parent_port(self, trunk_bridge):
         """Return the OVS trunk parent port plugged on trunk_bridge."""
@@ -288,14 +331,19 @@ class OVSDBHandler(object):
             "Can't find parent port for trunk bridge %s" %
             trunk_bridge.br_name)
 
-    def _wire_trunk(self, trunk_br, port):
+    def _wire_trunk(self, trunk_br, port, rewire=False):
         """Wire trunk bridge with integration bridge.
 
         The method calls into trunk manager to create patch ports for trunk and
-        patch ports for all subports associated with this trunk.
+        patch ports for all subports associated with this trunk. If rewire is
+        True, a diff is performed between desired state (the one got from the
+        server) and actual state (the patch ports present on the trunk bridge)
+        and subports are wired/unwired accordingly.
 
         :param trunk_br: OVSBridge object representing the trunk bridge.
         :param port: Parent port dict.
+        :param rewire: True if local trunk state must be reconciled with
+            server's state.
         """
         ctx = self.context
         try:
@@ -320,13 +368,26 @@ class OVSDBHandler(object):
                        'err': te})
             # NOTE(status_police): Trunk couldn't be created so it ends in
             # ERROR status and resync can fix that later.
-            self.trunk_rpc.update_trunk_status(context, trunk.id,
-                                               constants.ERROR_STATUS)
+            self.report_trunk_status(ctx, trunk.id, constants.ERROR_STATUS)
             return
 
-        self.wire_subports_for_trunk(
-            ctx, trunk.id, trunk.sub_ports, trunk_bridge=trunk_br,
-            parent_port=port)
+        # We need to remove stale subports
+        if rewire:
+            old_subport_ids = self.get_connected_subports_for_trunk(trunk.id)
+            subports = {p['port_id'] for p in trunk.sub_ports}
+            subports_to_delete = set(old_subport_ids) - subports
+            if subports_to_delete:
+                self.unwire_subports_for_trunk(trunk.id, subports_to_delete)
+
+        # NOTE(status_police): inform the server whether the operation
+        # was a partial or complete success. Do not inline status.
+        # NOTE: in case of rewiring we readd ports that are already present on
+        # the bridge because e.g. the segmentation ID might have changed (e.g.
+        # agent crashed, port was removed and readded with a different seg ID)
+        status = self.wire_subports_for_trunk(
+            ctx, trunk.id, trunk.sub_ports,
+            trunk_bridge=trunk_br, parent_port=port)
+        self.report_trunk_status(ctx, trunk.id, status)
 
     def _set_trunk_metadata(self, trunk_bridge, port, trunk_id, subport_ids):
         """Set trunk metadata in OVS port for trunk parent port."""
@@ -347,7 +408,60 @@ class OVSDBHandler(object):
         """Get trunk metadata from OVS port."""
         parent_port_id = (
             self.trunk_manager.get_port_uuid_from_external_ids(port))
-        trunk_id = port['external_ids']['trunk_id']
-        subport_ids = jsonutils.loads(port['external_ids']['subport_ids'])
+        trunk_id = port['external_ids'].get('trunk_id')
+        subport_ids = jsonutils.loads(
+            port['external_ids'].get('subport_ids', '[]'))
 
         return parent_port_id, trunk_id, subport_ids
+
+    def _update_trunk_metadata(self, trunk_bridge, port,
+                               trunk_id, subport_ids, wire=True):
+        """Update trunk metadata.
+
+        :param trunk_bridge: OVS trunk bridge.
+        :param port: OVS parent port.
+        :param trunk_id: trunk ID.
+        :param subport_ids: subports affecting the metadata.
+        :param wire: if True subport_ids are added, otherwise removed.
+        """
+        trunk_bridge = trunk_bridge or ovs_lib.OVSBridge(
+            utils.gen_trunk_br_name(trunk_id))
+        port = port or self._get_parent_port(trunk_bridge)
+        _port_id, _trunk_id, old_subports = self._get_trunk_metadata(port)
+        if wire:
+            new_subports = set(old_subports) | set(subport_ids)
+        else:
+            new_subports = set(old_subports) - set(subport_ids)
+        self._set_trunk_metadata(trunk_bridge, port, trunk_id, new_subports)
+
+    def _get_current_status(self, expected_subports, actual_subports):
+        """Return the current status of the trunk.
+
+        If the number of expected subports to be processed does not match the
+        number of subports successfully processed, the status returned is
+        DEGRADED, ACTIVE otherwise.
+        """
+        # NOTE(status_police): a call to this method should be followed by
+        # a trunk_update_status to report the latest trunk status, but there
+        # can be exceptions (e.g. unwire_subports_for_trunk).
+        if len(expected_subports) != len(actual_subports):
+            return constants.DEGRADED_STATUS
+        else:
+            return constants.ACTIVE_STATUS
+
+    def _is_vm_connected(self, bridge):
+        """True if an instance is connected to bridge, False otherwise."""
+        bridge_has_port_predicate = functools.partial(
+            bridge_has_instance_port, bridge)
+        try:
+            common_utils.wait_until_true(
+                bridge_has_port_predicate,
+                timeout=self.timeout)
+            return True
+        except eventlet.TimeoutError:
+            LOG.error(
+                _LE('No port present on trunk bridge %(br_name)s '
+                    'in %(timeout)d seconds.'),
+                {'br_name': bridge.br_name,
+                 'timeout': self.timeout})
+        return False
