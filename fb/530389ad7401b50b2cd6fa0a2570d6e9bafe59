@@ -1,0 +1,11 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 05 Oct 2016 13:40:31 +0000
+Reviewed-on: https://review.openstack.org/381165
+Project: openstack/deb-neutron
+Branch: refs/heads/master
