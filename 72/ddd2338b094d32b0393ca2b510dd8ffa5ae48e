@@ -1,0 +1,13 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Mohit Malik <mohit.malik@intel.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 07 Oct 2016 17:23:45 +0000
+Reviewed-on: https://review.openstack.org/352226
+Project: openstack/deb-neutron
+Branch: refs/heads/master
