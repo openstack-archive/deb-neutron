@@ -1,0 +1,21 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Hao Chen <Chenh1987@gmail.com>
+Code-Review+1: Rafael Rivero <rafael.rivero@emc.com>
+Code-Review+1: Tushar Kalra <tk@alumni.stanford.edu>
+Code-Review+1: Eoin Brady <eoinpbrady@cloudscaling.com>
+Code-Review+1: Brad Pugh <pughbrad@gmail.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Abhishek Chanda <abhishek.becs@gmail.com>
+Code-Review+1: Imran Hayder Malik <imran.malik@emc.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: garyk <gkotton@vmware.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 06 Oct 2016 23:05:36 +0000
+Reviewed-on: https://review.openstack.org/381829
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
