@@ -5,10 +5,10 @@
 # Américo Monteiro <a_monteiro@gmx.com>, 2013 - 2016.
 msgid ""
 msgstr ""
-"Project-Id-Version: neutron 2.8.0.0-1\n"
-"Report-Msgid-Bugs-To: neutron@packages.debian.org\n"
-"POT-Creation-Date: 2016-06-06 00:25+0200\n"
-"PO-Revision-Date: 2016-04-15 00:52+0100\n"
+"Project-Id-Version: neutron 2.9.0.0-1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2016-10-07 14:28+0000\n"
+"PO-Revision-Date: 2016-10-07 21:23+0100\n"
 "Last-Translator: Américo Monteiro <a_monteiro@gmx.com>\n"
 "Language-Team: Portuguese <traduz@debianpt.org>\n"
 "Language: pt\n"
@@ -16,7 +16,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
-"X-Generator: Lokalize 1.4\n"
+"X-Generator: Lokalize 1.5\n"
 
 #. Type: string
 #. Description
@@ -77,86 +77,46 @@ msgstr ""
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "OpenVSwitch"
-msgstr "OpenVSwitch"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "LinuxBridge"
-msgstr "LinuxBridge"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
 msgid "ml2"
 msgstr "ml2"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "Brocade"
-msgstr "Brocade"
+msgid "plumgrid"
+msgstr "plumgrid"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "Nicira"
-msgstr "Nicira"
+#| msgid "Midonet"
+msgid "midonet"
+msgstr "midonet"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "Midonet"
-msgstr "Midonet"
+#| msgid "Midonet"
+msgid "midonet_v2"
+msgstr "midonet_v2"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "NEC"
-msgstr "NEC"
+msgid "nec"
+msgstr "nec"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "Mellanox"
-msgstr "Mellanox"
+msgid "vmware"
+msgstr "vmware"
 
 #. Type: select
 #. Choices
 #: ../neutron-common.templates:6001
-msgid "Hyper-V"
-msgstr "Hyper-V"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "RYU"
-msgstr "RYU"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "MetaPlugin"
-msgstr "MetaPlugin"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "BigSwitch"
-msgstr "BigSwitch"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "Cisco"
-msgstr "Cisco"
-
-#. Type: select
-#. Choices
-#: ../neutron-common.templates:6001
-msgid "PLUMgrid"
-msgstr "PLUMgrid"
+msgid "other"
+msgstr "outro"
 
 #. Type: select
 #. Description
@@ -667,6 +627,42 @@ msgstr ""
 "comunicação entre o agente proxy de meta-dados do Neutron e o servidor de "
 "meta-dados do Nova. A mesma palavra passe partilhada deve ser usada quando "
 "configurar o pacote nova-common."
+
+#~ msgid "OpenVSwitch"
+#~ msgstr "OpenVSwitch"
+
+#~ msgid "LinuxBridge"
+#~ msgstr "LinuxBridge"
+
+#~ msgid "Brocade"
+#~ msgstr "Brocade"
+
+#~ msgid "Nicira"
+#~ msgstr "Nicira"
+
+#~ msgid "NEC"
+#~ msgstr "NEC"
+
+#~ msgid "Mellanox"
+#~ msgstr "Mellanox"
+
+#~ msgid "Hyper-V"
+#~ msgstr "Hyper-V"
+
+#~ msgid "RYU"
+#~ msgstr "RYU"
+
+#~ msgid "MetaPlugin"
+#~ msgstr "MetaPlugin"
+
+#~ msgid "BigSwitch"
+#~ msgstr "BigSwitch"
+
+#~ msgid "Cisco"
+#~ msgstr "Cisco"
+
+#~ msgid "PLUMgrid"
+#~ msgstr "PLUMgrid"
 
 #~ msgid "Auth server username:"
 #~ msgstr "Nome de utilizador do servidor de autenticação:"
