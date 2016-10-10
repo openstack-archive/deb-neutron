@@ -1,0 +1,11 @@
+# This is an example of DNS integration with designate
+#[designate]
+# URL of your designate endpoint
+#url = http://55.114.111.93:9001/v2
+#admin_auth_url = http://127.0.0.1:35357/v2.0
+#admin_username = neutron
+#admin_password = XXXXXXXX
+#admin_tenant_name = service
+#allow_reverse_dns_lookup = True
+#ipv4_ptr_zone_prefix_size = 24
+#ipv6_ptr_zone_prefix_size = 116
