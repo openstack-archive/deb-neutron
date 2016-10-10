@@ -1,8 +1,13 @@
+neutron (2:9.0.0-3) unstable; urgency=medium
+
+  * Add a [designate] configuration example (Closes: #831697).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 10 Oct 2016 16:12:34 +0200
+
 neutron (2:9.0.0-2) unstable; urgency=medium
 
   * Debconf translation:
     - pt (Closes: #840059).
-  * Add a [designate] configuration example (Closes: #831697).
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 10 Oct 2016 13:36:10 +0200
 
