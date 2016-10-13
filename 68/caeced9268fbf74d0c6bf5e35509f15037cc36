@@ -1,0 +1,14 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 12 Oct 2016 15:59:34 +0000
+Reviewed-on: https://review.openstack.org/383713
+Project: openstack/deb-neutron
+Branch: refs/heads/master
