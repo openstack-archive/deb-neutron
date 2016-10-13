@@ -1,0 +1,13 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Code-Review+1: lidong <lidongbj@inspur.com>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 12 Oct 2016 12:28:19 +0000
+Reviewed-on: https://review.openstack.org/385234
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
