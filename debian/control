@@ -168,6 +168,7 @@ Depends: adduser,
          python-openstackclient,
          q-text-as-data,
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Description: OpenStack virtual network service - server
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -239,6 +240,7 @@ Depends: adduser,
          neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Recommends: openvswitch-switch,
 Conflicts: neutron-vpn-agent,
@@ -258,6 +260,7 @@ Depends: adduser,
          neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Description: OpenStack virtual network service - DHCP agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -272,6 +275,7 @@ Architecture: all
 Depends: adduser,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Description: OpenStack virtual network service - metadata agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -288,6 +292,7 @@ Depends: adduser,
          lsb-base,
          neutron-common (= ${source:Version}),
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Provides: neutron-plugin-metering-agent,
 Description: OpenStack virtual network service - metering agent
@@ -307,6 +312,7 @@ Provides: neutron-plugin-openvswitch-agent,
 Depends: neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Recommends: openvswitch-datapath-dkms,
 Description: OpenStack virtual network service - Open vSwitch agent
@@ -329,6 +335,7 @@ Depends: bridge-utils,
          neutron-common (= ${source:Version}),
          sudo,
          ${misc:Depends},
+         ${ostack-lsb-base},
          ${python:Depends},
 Description: OpenStack virtual network service - Linux bridge agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -368,6 +375,7 @@ Architecture: all
 Depends: neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
+         ${ostack-lsb-base},
          ${shlibs:Depends},
 Description: OpenStack virtual network service - SR-IOV agent
  Neutron provides an API to dynamically request and configure virtual networks.
@@ -382,6 +390,7 @@ Architecture: all
 Depends: neutron-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
+         ${ostack-lsb-base},
          ${shlibs:Depends},
 Description: OpenStack virtual network service - MacVTap Agent
  Neutron provides an API to dynamically request and configure virtual networks.

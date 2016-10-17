@@ -11,10 +11,7 @@
 # Description:       Agent to use within neutron linuxbridge client
 ### END INIT INFO
 
-# Author: Ghe Rivero <ghe.rivero@stackops.com>
-
-# PATH should only include /usr/* if it runs after the mountnfs.sh script
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
+# Author: Thomas Goirand <zigo@debian.org>
 DESC="Openstack Neutron LinuxBridge Plugin Agent"
 PROJECT_NAME=neutron
 NAME=${PROJECT_NAME}-linuxbridge-agent
@@ -25,5 +22,5 @@ NAME=${PROJECT_NAME}-linuxbridge-agent
 # replaced by ml2 as core_plugin and lb as agent. Making ml2 mandatory
 # to use this agent
 
-DAEMON_ARGS="--config-file=/etc/neutron/plugins/linuxbridge/linuxbridge_conf.ini --config-file=/etc/neutron/plugins/ml2/linuxbridge_agent.ini"
+DAEMON_ARGS="--config-file=/etc/neutron/plugins/ml2/ml2_conf.ini --config-file=/etc/neutron/plugins/ml2/linuxbridge_agent.ini"
 
