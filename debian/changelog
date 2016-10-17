@@ -1,3 +1,9 @@
+neutron (2:9.0.0-4) unstable; urgency=medium
+
+  * Fixed path of linuxbridge_agent.ini in startup file.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 17 Oct 2016 11:13:41 +0200
+
 neutron (2:9.0.0-3) unstable; urgency=medium
 
   * Add a [designate] configuration example (Closes: #831697).
