@@ -1,0 +1,9 @@
+Code-Review+1: Tom Fifield <tom@openstack.org>
+Code-Review+2: Thomas Goirand <thomas@goirand.fr>
+Workflow+1: Thomas Goirand <thomas@goirand.fr>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 17 Oct 2016 13:39:22 +0000
+Reviewed-on: https://review.openstack.org/387290
+Project: openstack/deb-neutron
+Branch: refs/heads/debian/newton
