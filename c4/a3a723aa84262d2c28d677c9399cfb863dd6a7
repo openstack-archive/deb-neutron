@@ -1,0 +1,17 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+1: lilintan <lintan.li@easystack.cn>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Reedip <reedip.banerjee@nectechnologies.in>
+Code-Review+1: kangyufei <kangyf@inspur.com>
+Code-Review+2: Carl Baldwin <carl@ecbaldwin.net>
+Workflow+1: Carl Baldwin <carl@ecbaldwin.net>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 17 Oct 2016 21:10:20 +0000
+Reviewed-on: https://review.openstack.org/384385
+Project: openstack/deb-neutron
+Branch: refs/heads/master
