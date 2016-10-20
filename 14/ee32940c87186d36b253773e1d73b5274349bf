@@ -1,0 +1,15 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Jakub Libosvar <libosvar@redhat.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review-1: garyk <gkotton@vmware.com>
+Code-Review+2: Rossella Sblendido <rsblendido@suse.com>
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Workflow+1: Miguel Angel Ajo <mangelajo@redhat.com>
+Code-Review+1: Luis Tomas Bolivar <ltomasbo@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 20 Oct 2016 14:21:04 +0000
+Reviewed-on: https://review.openstack.org/388467
+Project: openstack/deb-neutron
+Branch: refs/heads/master
