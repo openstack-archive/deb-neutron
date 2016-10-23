@@ -1,0 +1,14 @@
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: IWAMOTO Toshihiro <iwamoto@valinux.co.jp>
+Code-Review+1: Ann Taraday <akamyshnikova@mirantis.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Workflow+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 21 Oct 2016 04:18:22 +0000
+Reviewed-on: https://review.openstack.org/363198
+Project: openstack/deb-neutron
+Branch: refs/heads/master
