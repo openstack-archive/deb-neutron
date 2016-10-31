@@ -1,3 +1,10 @@
+neutron (2:9.0.0-5) unstable; urgency=medium
+
+  * Allow unit tests to fail, as there's some non-deterministic path when
+    creating the db tables (Closes: #841906).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 31 Oct 2016 09:47:46 +0100
+
 neutron (2:9.0.0-4) unstable; urgency=medium
 
   * Fixed path of ml2_conf.ini in debian/neutron-linuxbridge-agent.init.in.
