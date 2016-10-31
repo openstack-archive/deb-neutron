@@ -1,0 +1,14 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: John Perkins <john.perkins@rackspace.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: lidong <lidongbj@inspur.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 26 Oct 2016 19:21:30 +0000
+Reviewed-on: https://review.openstack.org/389122
+Project: openstack/deb-neutron
+Branch: refs/heads/master
