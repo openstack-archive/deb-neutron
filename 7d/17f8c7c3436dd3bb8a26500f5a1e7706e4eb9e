@@ -1,0 +1,9 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Ann Taraday <akamyshnikova@mirantis.com>
+Workflow+1: Ann Taraday <akamyshnikova@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 10 Nov 2016 08:40:06 +0000
+Reviewed-on: https://review.openstack.org/379651
+Project: openstack/deb-neutron
+Branch: refs/heads/master
