@@ -1,0 +1,10 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+1: Mohit Malik <mohit.malik@intel.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 14 Nov 2016 09:23:51 +0000
+Reviewed-on: https://review.openstack.org/392572
+Project: openstack/deb-neutron
+Branch: refs/heads/master
