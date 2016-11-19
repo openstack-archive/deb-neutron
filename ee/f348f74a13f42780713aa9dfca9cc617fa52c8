@@ -1,0 +1,12 @@
+Verified+1: Microsoft Hyper-V CI <hyper-v_ci@microsoft.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 19 Nov 2016 00:14:43 +0000
+Reviewed-on: https://review.openstack.org/399511
+Project: openstack/deb-neutron
+Branch: refs/heads/master
