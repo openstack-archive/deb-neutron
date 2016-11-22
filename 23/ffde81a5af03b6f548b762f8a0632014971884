@@ -1,0 +1,13 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 21 Nov 2016 18:13:31 +0000
+Reviewed-on: https://review.openstack.org/391260
+Project: openstack/deb-neutron
+Branch: refs/heads/master
