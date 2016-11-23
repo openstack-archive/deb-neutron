@@ -1,3 +1,9 @@
+neutron (2:9.0.0-6) UNRELEASED; urgency=medium
+
+  * Bumped debhelper compat version to 10
+
+ -- Ondřej Nový <onovy@debian.org>  Thu, 24 Nov 2016 00:01:55 +0100
+
 neutron (2:9.0.0-5) unstable; urgency=medium
 
   * Allow unit tests to fail, as there's some non-deterministic path when
