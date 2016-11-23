@@ -1,0 +1,10 @@
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 23 Nov 2016 01:23:51 +0000
+Reviewed-on: https://review.openstack.org/315389
+Project: openstack/deb-neutron
+Branch: refs/heads/master

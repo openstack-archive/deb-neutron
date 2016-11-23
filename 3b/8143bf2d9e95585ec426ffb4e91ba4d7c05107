@@ -1,0 +1,10 @@
+Code-Review+2: Henry Gessau <HenryG@gessau.net>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+1: Intel NFV CI <openstack-nfv-ci@intel.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 23 Nov 2016 01:42:42 +0000
+Reviewed-on: https://review.openstack.org/397037
+Project: openstack/deb-neutron
+Branch: refs/heads/master
