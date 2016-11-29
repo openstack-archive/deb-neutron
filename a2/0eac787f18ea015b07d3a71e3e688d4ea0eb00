@@ -1,0 +1,9 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Rossella Sblendido <rsblendido@suse.com>
+Workflow+1: Rossella Sblendido <rsblendido@suse.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 28 Nov 2016 20:38:48 +0000
+Reviewed-on: https://review.openstack.org/375536
+Project: openstack/deb-neutron
+Branch: refs/heads/master

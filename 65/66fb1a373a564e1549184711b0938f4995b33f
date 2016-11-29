@@ -1,0 +1,12 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+1: Intel NFV CI <openstack-nfv-ci@intel.com>
+Code-Review+1: Zhigang Li <li.zhigang3@zte.com.cn>
+Code-Review+1: melissaml <ma.lei@99cloud.net>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 27 Nov 2016 10:54:59 +0000
+Reviewed-on: https://review.openstack.org/365472
+Project: openstack/deb-neutron
+Branch: refs/heads/master

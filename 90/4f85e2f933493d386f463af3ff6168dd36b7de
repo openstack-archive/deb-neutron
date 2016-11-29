@@ -1,0 +1,13 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Jens Rosenboom <j.rosenboom@x-ion.de>
+Code-Review+1: Zhigang Li <li.zhigang3@zte.com.cn>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: garyk <gkotton@vmware.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 28 Nov 2016 23:45:41 +0000
+Reviewed-on: https://review.openstack.org/386687
+Project: openstack/deb-neutron
+Branch: refs/heads/master
