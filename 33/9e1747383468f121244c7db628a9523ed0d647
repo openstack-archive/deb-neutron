@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: 李平 <liping@awcloud.com>
+Code-Review+1: Mohit Malik <mohit.malik@intel.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 29 Nov 2016 03:04:51 +0000
+Reviewed-on: https://review.openstack.org/397049
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka
