@@ -1,0 +1,11 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: John Davidge <john.davidge@rackspace.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+1: boden <bodenvmw@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 01 Dec 2016 17:54:29 +0000
+Reviewed-on: https://review.openstack.org/404872
+Project: openstack/deb-neutron
+Branch: refs/heads/master
