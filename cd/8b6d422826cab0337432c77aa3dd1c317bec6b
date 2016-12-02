@@ -1,0 +1,9 @@
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 01 Dec 2016 16:24:21 +0000
+Reviewed-on: https://review.openstack.org/405151
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
