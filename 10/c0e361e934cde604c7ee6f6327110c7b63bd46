@@ -1,0 +1,10 @@
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Zhigang Li <li.zhigang3@zte.com.cn>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Dec 2016 08:51:01 +0000
+Reviewed-on: https://review.openstack.org/404020
+Project: openstack/deb-neutron
+Branch: refs/heads/master
