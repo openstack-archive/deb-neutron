@@ -40,6 +40,7 @@ OPTS = [
 
 
 LOOPBACK_DEVNAME = 'lo'
+GRE_TUNNEL_DEVICE_NAMES = ['gre0', 'gretap0']
 
 SYS_NET_PATH = '/sys/class/net'
 DEFAULT_GW_PATTERN = re.compile(r"via (\S+)")
@@ -118,18 +119,27 @@ class IPWrapper(SubProcessBase):
     def device(self, name):
         return IPDevice(name, namespace=self.namespace)
 
-    def get_devices(self, exclude_loopback=False):
+    def get_devices(self, exclude_loopback=False, exclude_gre_devices=False):
         retval = []
         if self.namespace:
             # we call out manually because in order to avoid screen scraping
             # iproute2 we use find to see what is in the sysfs directory, as
             # suggested by Stephen Hemminger (iproute2 dev).
-            output = utils.execute(['ip', 'netns', 'exec', self.namespace,
-                                    'find', SYS_NET_PATH, '-maxdepth', '1',
-                                    '-type', 'l', '-printf', '%f '],
-                                   run_as_root=True,
-                                   log_fail_as_error=self.log_fail_as_error
-                                   ).split()
+            try:
+                cmd = ['ip', 'netns', 'exec', self.namespace,
+                       'find', SYS_NET_PATH, '-maxdepth', '1',
+                       '-type', 'l', '-printf', '%f ']
+                output = utils.execute(
+                    cmd,
+                    run_as_root=True,
+                    log_fail_as_error=self.log_fail_as_error).split()
+            except RuntimeError:
+                # We could be racing with a cron job deleting namespaces.
+                # Just return a empty list if the namespace is deleted.
+                with excutils.save_and_reraise_exception() as ctx:
+                    if not self.netns.exists(self.namespace):
+                        ctx.reraise = False
+                        return []
         else:
             output = (
                 i for i in os.listdir(SYS_NET_PATH)
@@ -137,7 +147,8 @@ class IPWrapper(SubProcessBase):
             )
 
         for name in output:
-            if exclude_loopback and name == LOOPBACK_DEVNAME:
+            if (exclude_loopback and name == LOOPBACK_DEVNAME or
+                    exclude_gre_devices and name in GRE_TUNNEL_DEVICE_NAMES):
                 continue
             retval.append(IPDevice(name, namespace=self.namespace))
 
@@ -201,7 +212,8 @@ class IPWrapper(SubProcessBase):
         return ip
 
     def namespace_is_empty(self):
-        return not self.get_devices(exclude_loopback=True)
+        return not self.get_devices(exclude_loopback=True,
+                                    exclude_gre_devices=True)
 
     def garbage_collect_namespace(self):
         """Conditionally destroy the namespace if it is empty."""
@@ -255,7 +267,7 @@ class IPWrapper(SubProcessBase):
 class IPDevice(SubProcessBase):
     def __init__(self, name, namespace=None):
         super(IPDevice, self).__init__(namespace=namespace)
-        self.name = name
+        self._name = name
         self.link = IpLinkCommand(self)
         self.addr = IpAddrCommand(self)
         self.route = IpRouteCommand(self)
@@ -346,6 +358,16 @@ class IPDevice(SubProcessBase):
         sysctl_name = re.sub(r'\.', '/', self.name)
         cmd = 'net.ipv6.conf.%s.disable_ipv6=1' % sysctl_name
         return self._sysctl([cmd])
+
+    @property
+    def name(self):
+        if self._name:
+            return self._name[:constants.DEVICE_NAME_MAX_LEN]
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
 
 
 class IpCommandBase(object):
@@ -933,6 +955,41 @@ def device_exists_with_ips_and_mac(device_name, ip_cidrs, mac, namespace=None):
         return True
 
 
+_IP_ROUTE_PARSE_KEYS = {
+    'via': 'nexthop',
+    'dev': 'device',
+    'scope': 'scope'
+}
+
+
+def _parse_ip_route_line(line):
+    """Parse a line output from ip route.
+    Example for output from 'ip route':
+    default via 192.168.3.120 dev wlp3s0  proto static  metric 1024
+    10.0.0.0/8 dev tun0  proto static  scope link  metric 1024
+    10.0.1.0/8 dev tun1  proto static  scope link  metric 1024 linkdown
+    The first column is the destination, followed by key/value pairs and flags.
+    @param line A line output from ip route
+    @return: a dictionary representing a route.
+    """
+    line = line.split()
+    result = {
+        'destination': line[0],
+        'nexthop': None,
+        'device': None,
+        'scope': None
+    }
+    idx = 1
+    while idx < len(line):
+        field = _IP_ROUTE_PARSE_KEYS.get(line[idx])
+        if not field:
+            idx = idx + 1
+        else:
+            result[field] = line[idx + 1]
+            idx = idx + 2
+    return result
+
+
 def get_routing_table(ip_version, namespace=None):
     """Return a list of dictionaries, each representing a route.
 
@@ -950,24 +1007,8 @@ def get_routing_table(ip_version, namespace=None):
         ['ip', '-%s' % ip_version, 'route'],
         check_exit_code=True)
 
-    routes = []
-    # Example for route_lines:
-    # default via 192.168.3.120 dev wlp3s0  proto static  metric 1024
-    # 10.0.0.0/8 dev tun0  proto static  scope link  metric 1024
-    # The first column is the destination, followed by key/value pairs.
-    # The generator splits the routing table by newline, then strips and splits
-    # each individual line.
-    route_lines = (line.split() for line in table.split('\n') if line.strip())
-    for route in route_lines:
-        network = route[0]
-        # Create a dict of key/value pairs (For example - 'dev': 'tun0')
-        # excluding the first column.
-        data = dict(route[i:i + 2] for i in range(1, len(route), 2))
-        routes.append({'destination': network,
-                       'nexthop': data.get('via'),
-                       'device': data.get('dev'),
-                       'scope': data.get('scope')})
-    return routes
+    return [_parse_ip_route_line(line)
+            for line in table.split('\n') if line.strip()]
 
 
 def ensure_device_is_ready(device_name, namespace=None):

@@ -282,6 +282,34 @@ class TestIpWrapper(base.BaseTestCase):
         self.assertTrue(fake_str.split.called)
         self.assertEqual(retval, [ip_lib.IPDevice('lo', namespace='foo')])
 
+    @mock.patch('neutron.agent.common.utils.execute')
+    def test_get_devices_namespaces_ns_not_exists(self, mocked_execute):
+        mocked_execute.side_effect = RuntimeError(
+            "Cannot open network namespace")
+        with mock.patch.object(ip_lib.IpNetnsCommand, 'exists',
+                               return_value=False):
+            retval = ip_lib.IPWrapper(namespace='foo').get_devices()
+            self.assertEqual([], retval)
+
+    @mock.patch('neutron.agent.common.utils.execute')
+    def test_get_devices_namespaces_ns_exists(self, mocked_execute):
+        mocked_execute.side_effect = RuntimeError(
+            "Cannot open network namespace")
+        with mock.patch.object(ip_lib.IpNetnsCommand, 'exists',
+                               return_value=True):
+            self.assertRaises(RuntimeError,
+                              ip_lib.IPWrapper(namespace='foo').get_devices)
+
+    @mock.patch('neutron.agent.common.utils.execute')
+    def test_get_devices_exclude_loopback_and_gre(self, mocked_execute):
+        device_name = 'somedevice'
+        mocked_execute.return_value = 'lo gre0 gretap0 ' + device_name
+        devices = ip_lib.IPWrapper(namespace='foo').get_devices(
+            exclude_loopback=True, exclude_gre_devices=True)
+        somedevice = devices.pop()
+        self.assertEqual(device_name, somedevice.name)
+        self.assertFalse(devices)
+
     def test_get_namespaces_non_root(self):
         self.config(group='AGENT', use_helper_for_ns_read=False)
         self.execute.return_value = '\n'.join(NETNS_SAMPLE)
@@ -389,7 +417,7 @@ class TestIpWrapper(base.BaseTestCase):
             get_devices.return_value = []
 
             self.assertTrue(ip.namespace_is_empty())
-            get_devices.assert_called_once_with(exclude_loopback=True)
+            self.assertTrue(get_devices.called)
 
     def test_namespace_is_empty(self):
         ip = ip_lib.IPWrapper(namespace='ns')
@@ -397,7 +425,7 @@ class TestIpWrapper(base.BaseTestCase):
             get_devices.return_value = [mock.Mock()]
 
             self.assertFalse(ip.namespace_is_empty())
-            get_devices.assert_called_once_with(exclude_loopback=True)
+            self.assertTrue(get_devices.called)
 
     def test_garbage_collect_namespace_does_not_exist(self):
         with mock.patch.object(ip_lib, 'IpNetnsCommand') as ip_ns_cmd_cls:
@@ -1276,6 +1304,57 @@ class TestDeviceExists(base.BaseTestCase):
             # device doesn't exists
             ip_lib_mock.link.set_up.side_effect = RuntimeError
             self.assertFalse(ip_lib.ensure_device_is_ready("eth0"))
+
+
+class TestGetRoutingTable(base.BaseTestCase):
+    @mock.patch.object(ip_lib, 'IPWrapper')
+    def _test_get_routing_table(self, version, ip_route_output, expected,
+                                mock_ipwrapper):
+        instance = mock_ipwrapper.return_value
+        mock_netns = instance.netns
+        mock_execute = mock_netns.execute
+        mock_execute.return_value = ip_route_output
+        self.assertEqual(expected, ip_lib.get_routing_table(version))
+
+    def test_get_routing_table_4(self):
+        ip_route_output = ("""
+default via 192.168.3.120 dev wlp3s0  proto static  metric 1024
+10.0.0.0/8 dev tun0  proto static  scope link  metric 1024
+10.0.1.0/8 dev tun1  proto static  scope link  metric 1024 linkdown
+""")
+        expected = [{'destination': 'default',
+                     'nexthop': '192.168.3.120',
+                     'device': 'wlp3s0',
+                     'scope': None},
+                    {'destination': '10.0.0.0/8',
+                     'nexthop': None,
+                     'device': 'tun0',
+                     'scope': 'link'},
+                    {'destination': '10.0.1.0/8',
+                     'nexthop': None,
+                     'device': 'tun1',
+                     'scope': 'link'}]
+        self._test_get_routing_table(4, ip_route_output, expected)
+
+    def test_get_routing_table_6(self):
+        ip_route_output = ("""
+2001:db8:0:f101::/64 dev tap-1  proto kernel  metric 256  pref medium
+2001:db8:0:f102::/64 dev tap-2  proto kernel  metric 256  pref medium linkdown
+default via 2001:db8:0:f101::4 dev tap-1  metric 1024  pref medium
+""")
+        expected = [{'destination': '2001:db8:0:f101::/64',
+                     'nexthop': None,
+                     'device': 'tap-1',
+                     'scope': None},
+                    {'destination': '2001:db8:0:f102::/64',
+                     'nexthop': None,
+                     'device': 'tap-2',
+                     'scope': None},
+                    {'destination': 'default',
+                     'nexthop': '2001:db8:0:f101::4',
+                     'device': 'tap-1',
+                     'scope': None}]
+        self._test_get_routing_table(6, ip_route_output, expected)
 
 
 class TestIpNeighCommand(TestIPCmdBase):

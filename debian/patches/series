@@ -1,2 +1,3 @@
 fix-requirements.txt.patch
 flake8-legacy.patch
+allow-sqla-1.1.patch

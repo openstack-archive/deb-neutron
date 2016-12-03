@@ -122,7 +122,7 @@ class AgentUtilsExecuteTest(base.BaseTestCase):
         self.mock_popen.return_value = ('', '')
         self.process.return_value.returncode = 1
         with mock.patch.object(utils, 'LOG') as log:
-            self.assertRaises(RuntimeError, utils.execute,
+            self.assertRaises(utils.ProcessExecutionError, utils.execute,
                               ['ls'], log_fail_as_error=False)
             self.assertFalse(log.error.called)
 
@@ -185,7 +185,8 @@ class TestFindChildPids(base.BaseTestCase):
 
     def test_returns_empty_list_for_exit_code_1(self):
         with mock.patch.object(utils, 'execute',
-                               side_effect=RuntimeError('Exit code: 1')):
+                               side_effect=utils.ProcessExecutionError(
+                                   '', returncode=1)):
             self.assertEqual([], utils.find_child_pids(-1))
 
     def test_returns_empty_list_for_no_output(self):
@@ -377,9 +378,9 @@ class TestUnixDomainWSGIServer(base.BaseTestCase):
         super(TestUnixDomainWSGIServer, self).setUp()
         self.eventlet_p = mock.patch.object(utils, 'eventlet')
         self.eventlet = self.eventlet_p.start()
-        self.server = utils.UnixDomainWSGIServer('test')
 
     def test_start(self):
+        self.server = utils.UnixDomainWSGIServer('test')
         mock_app = mock.Mock()
         with mock.patch.object(self.server, '_launch') as launcher:
             self.server.start(mock_app, '/the/path', workers=5, backlog=128)
@@ -393,6 +394,7 @@ class TestUnixDomainWSGIServer(base.BaseTestCase):
             launcher.assert_called_once_with(mock_app, workers=5)
 
     def test_run(self):
+        self.server = utils.UnixDomainWSGIServer('test')
         self.server._run('app', 'sock')
 
         self.eventlet.wsgi.server.assert_called_once_with(
@@ -401,4 +403,18 @@ class TestUnixDomainWSGIServer(base.BaseTestCase):
             protocol=utils.UnixDomainHttpProtocol,
             log=mock.ANY,
             max_size=self.server.num_threads
+        )
+
+    def test_num_threads(self):
+        num_threads = 8
+        self.server = utils.UnixDomainWSGIServer('test',
+                                                 num_threads=num_threads)
+        self.server._run('app', 'sock')
+
+        self.eventlet.wsgi.server.assert_called_once_with(
+            'sock',
+            'app',
+            protocol=utils.UnixDomainHttpProtocol,
+            log=mock.ANY,
+            max_size=num_threads
         )

@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
 import functools
 
 import mock
@@ -22,6 +23,7 @@ from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import uuidutils
 import testtools
+import textwrap
 
 from neutron.agent.common import config as agent_config
 from neutron.agent.common import ovs_lib
@@ -29,6 +31,7 @@ from neutron.agent.l3 import agent as neutron_l3_agent
 from neutron.agent import l3_agent as l3_agent_main
 from neutron.agent.linux import external_process
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import keepalived
 from neutron.common import utils as common_utils
 from neutron.conf import common as common_config
 from neutron.tests.common import l3_test_common
@@ -44,6 +47,8 @@ def get_ovs_bridge(br_name):
 
 
 class L3AgentTestFramework(base.BaseSudoTestCase):
+    INTERFACE_DRIVER = 'neutron.agent.linux.interface.OVSInterfaceDriver'
+
     def setUp(self):
         super(L3AgentTestFramework, self).setUp()
         self.mock_plugin_api = mock.patch(
@@ -64,9 +69,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
     def _configure_agent(self, host, agent_mode='dvr_snat'):
         conf = self._get_config_opts()
         l3_agent_main.register_opts(conf)
-        conf.set_override(
-            'interface_driver',
-            'neutron.agent.linux.interface.OVSInterfaceDriver')
+        conf.set_override('interface_driver', self.INTERFACE_DRIVER)
 
         br_int = self.useFixture(net_helpers.OVSBridgeFixture()).bridge
         br_ex = self.useFixture(net_helpers.OVSBridgeFixture()).bridge
@@ -218,11 +221,12 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
         self.assertEqual('2', ra_state)
 
     def _router_lifecycle(self, enable_ha, ip_version=4,
-                          dual_stack=False, v6_ext_gw_with_sub=True):
-        router_info = self.generate_router_info(enable_ha, ip_version,
-                                                dual_stack=dual_stack,
-                                                v6_ext_gw_with_sub=(
-                                                    v6_ext_gw_with_sub))
+                          dual_stack=False, v6_ext_gw_with_sub=True,
+                          router_info=None):
+        router_info = router_info or self.generate_router_info(
+            enable_ha, ip_version, dual_stack=dual_stack,
+            v6_ext_gw_with_sub=(v6_ext_gw_with_sub))
+        return_copy = copy.deepcopy(router_info)
         router = self.manage_router(self.agent, router_info)
 
         # Add multiple-IPv6-prefix internal router port
@@ -290,6 +294,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
         self._assert_router_does_not_exist(router)
         if enable_ha:
             self.assertFalse(router.keepalived_manager.get_process().active)
+        return return_copy
 
     def manage_router(self, agent, router):
         self.addCleanup(agent._safe_router_removed, router['id'])
@@ -348,7 +353,7 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
         ha_device_name = router.get_ha_device_name()
         external_port = router.get_ex_gw_port()
         ex_port_ipv6 = ip_lib.get_ipv6_lladdr(external_port['mac_address'])
-        external_device_name = router.get_external_device_name(
+        ex_device_name = router.get_external_device_name(
             external_port['id'])
         external_device_cidr = self._port_first_ip_cidr(external_port)
         internal_port = router.router[constants.INTERFACE_KEY][0]
@@ -360,35 +365,42 @@ class L3AgentTestFramework(base.BaseSudoTestCase):
             router.get_floating_ips()[0]['floating_ip_address'])
         default_gateway_ip = external_port['subnets'][0].get('gateway_ip')
         extra_subnet_cidr = external_port['extra_subnets'][0].get('cidr')
-        return """vrrp_instance VR_1 {
-    state BACKUP
-    interface %(ha_device_name)s
-    virtual_router_id 1
-    priority 50
-    garp_master_delay 60
-    nopreempt
-    advert_int 2
-    track_interface {
-        %(ha_device_name)s
-    }
-    virtual_ipaddress {
-        169.254.0.1/24 dev %(ha_device_name)s
-    }
-    virtual_ipaddress_excluded {
-        %(floating_ip_cidr)s dev %(external_device_name)s
-        %(external_device_cidr)s dev %(external_device_name)s
-        %(internal_device_cidr)s dev %(internal_device_name)s
-        %(ex_port_ipv6)s dev %(external_device_name)s scope link
-        %(int_port_ipv6)s dev %(internal_device_name)s scope link
-    }
-    virtual_routes {
-        0.0.0.0/0 via %(default_gateway_ip)s dev %(external_device_name)s
-        8.8.8.0/24 via 19.4.4.4
-        %(extra_subnet_cidr)s dev %(external_device_name)s scope link
-    }
-}""" % {
+        return textwrap.dedent("""\
+            global_defs {
+                notification_email_from %(email_from)s
+                router_id %(router_id)s
+            }
+            vrrp_instance VR_1 {
+                state BACKUP
+                interface %(ha_device_name)s
+                virtual_router_id 1
+                priority 50
+                garp_master_delay 60
+                nopreempt
+                advert_int 2
+                track_interface {
+                    %(ha_device_name)s
+                }
+                virtual_ipaddress {
+                    169.254.0.1/24 dev %(ha_device_name)s
+                }
+                virtual_ipaddress_excluded {
+                    %(floating_ip_cidr)s dev %(ex_device_name)s
+                    %(external_device_cidr)s dev %(ex_device_name)s
+                    %(internal_device_cidr)s dev %(internal_device_name)s
+                    %(ex_port_ipv6)s dev %(ex_device_name)s scope link
+                    %(int_port_ipv6)s dev %(internal_device_name)s scope link
+                }
+                virtual_routes {
+                    0.0.0.0/0 via %(default_gateway_ip)s dev %(ex_device_name)s
+                    8.8.8.0/24 via 19.4.4.4
+                    %(extra_subnet_cidr)s dev %(ex_device_name)s scope link
+                }
+            }""") % {
+            'email_from': keepalived.KEEPALIVED_EMAIL_FROM,
+            'router_id': keepalived.KEEPALIVED_ROUTER_ID,
             'ha_device_name': ha_device_name,
-            'external_device_name': external_device_name,
+            'ex_device_name': ex_device_name,
             'external_device_cidr': external_device_cidr,
             'internal_device_name': internal_device_name,
             'internal_device_cidr': internal_device_cidr,

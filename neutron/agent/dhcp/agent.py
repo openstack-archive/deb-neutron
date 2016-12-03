@@ -175,7 +175,7 @@ class DhcpAgent(manager.Manager):
             pool.waitall()
             # we notify all ports in case some were created while the agent
             # was down
-            self.dhcp_ready_ports |= set(self.cache.get_port_ids())
+            self.dhcp_ready_ports |= set(self.cache.get_port_ids(only_nets))
             LOG.info(_LI('Synchronizing state complete'))
 
         except Exception as e:
@@ -270,32 +270,16 @@ class DhcpAgent(manager.Manager):
         if not network.admin_state_up:
             return
 
-        enable_metadata = self.dhcp_driver_cls.should_enable_metadata(
-                self.conf, network)
-        dhcp_network_enabled = False
-
         for subnet in network.subnets:
             if subnet.enable_dhcp:
                 if self.call_driver('enable', network):
-                    dhcp_network_enabled = True
+                    self.update_isolated_metadata_proxy(network)
                     self.cache.put(network)
                     # After enabling dhcp for network, mark all existing
                     # ports as ready. So that the status of ports which are
                     # created before enabling dhcp can be updated.
                     self.dhcp_ready_ports |= {p.id for p in network.ports}
                 break
-
-        if enable_metadata and dhcp_network_enabled:
-            for subnet in network.subnets:
-                if subnet.ip_version == 4 and subnet.enable_dhcp:
-                    self.enable_isolated_metadata_proxy(network)
-                    break
-        elif (not self.conf.force_metadata and
-              not self.conf.enable_isolated_metadata):
-            # In the case that the dhcp agent ran with metadata enabled,
-            # and dhcp agent now starts with metadata disabled, check and
-            # delete any metadata_proxy.
-            self.disable_isolated_metadata_proxy(network)
 
     def disable_dhcp_helper(self, network_id):
         """Disable DHCP for a network known to the agent."""
@@ -335,6 +319,12 @@ class DhcpAgent(manager.Manager):
             self.cache.put(network)
         elif self.call_driver('restart', network):
             self.cache.put(network)
+        # mark all ports as active in case the sync included
+        # new ports that we hadn't seen yet.
+        self.dhcp_ready_ports |= {p.id for p in network.ports}
+
+        # Update the metadata proxy after the dhcp driver has been updated
+        self.update_isolated_metadata_proxy(network)
 
     @utils.synchronized('dhcp-agent')
     def network_create_end(self, context, payload):
@@ -434,6 +424,20 @@ class DhcpAgent(manager.Manager):
                 self.schedule_resync("Agent port was deleted", port.network_id)
             else:
                 self.call_driver('reload_allocations', network)
+
+    def update_isolated_metadata_proxy(self, network):
+        """Spawn or kill metadata proxy.
+
+        According to return from driver class, spawn or kill the metadata
+        proxy process. Spawn an existing metadata proxy or kill a nonexistent
+        metadata proxy will just silently return.
+        """
+        should_enable_metadata = self.dhcp_driver_cls.should_enable_metadata(
+            self.conf, network)
+        if should_enable_metadata:
+            self.enable_isolated_metadata_proxy(network)
+        else:
+            self.disable_isolated_metadata_proxy(network)
 
     def enable_isolated_metadata_proxy(self, network):
 
@@ -572,8 +576,11 @@ class NetworkCache(object):
             return True
         return False
 
-    def get_port_ids(self):
-        return self.port_lookup.keys()
+    def get_port_ids(self, network_ids=None):
+        if not network_ids:
+            return self.port_lookup.keys()
+        return (p_id for p_id, net in self.port_lookup.items()
+                if net in network_ids)
 
     def get_network_ids(self):
         return self.cache.keys()

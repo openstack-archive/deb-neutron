@@ -667,12 +667,10 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
             self.external_process.assert_has_calls([
                 self._process_manager_constructor_call(),
                 mock.call().enable()])
-        elif not enable_isolated_metadata:
+        else:
             self.external_process.assert_has_calls([
                 self._process_manager_constructor_call(ns=None),
                 mock.call().disable()])
-        else:
-            self.assertFalse(self.external_process.call_count)
 
     def test_enable_dhcp_helper_enable_metadata_isolated_network(self):
         self._enable_dhcp_helper(isolated_network,
@@ -978,6 +976,9 @@ class TestDhcpAgentEventHandler(base.BaseTestCase):
         self.cache.assert_has_calls([mock.call.put(fake_network)])
         self.call_driver.assert_called_once_with('reload_allocations',
                                                  fake_network)
+        # ensure all ports flagged as ready
+        self.assertEqual({p.id for p in fake_network.ports},
+                         self.dhcp.dhcp_ready_ports)
 
     def test_subnet_update_end_restart(self):
         new_state = dhcp.NetModel(dict(id=fake_network.id,
@@ -1255,6 +1256,30 @@ class TestNetworkCache(base.BaseTestCase):
         nc.put_port(fake_port2)
         self.assertEqual(set([fake_port1['id'], fake_port2['id']]),
                          set(nc.get_port_ids()))
+
+    def test_get_port_ids_limited_nets(self):
+        fake_net = dhcp.NetModel(
+            dict(id='12345678-1234-5678-1234567890ab',
+                 tenant_id='aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                 subnets=[fake_subnet1],
+                 ports=[fake_port1]))
+        fake_port2 = copy.deepcopy(fake_port1)
+        fake_port2['id'] = 'fp2'
+        fake_port2['network_id'] = '12345678-1234-5678-1234567890ac'
+        fake_net2 = dhcp.NetModel(
+            dict(id='12345678-1234-5678-1234567890ac',
+                 tenant_id='aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                 subnets=[fake_subnet1],
+                 ports=[fake_port2]))
+        nc = dhcp_agent.NetworkCache()
+        nc.put(fake_net)
+        nc.put(fake_net2)
+        self.assertEqual(set([fake_port1['id']]),
+                         set(nc.get_port_ids([fake_net.id, 'net2'])))
+        self.assertEqual(set(),
+                         set(nc.get_port_ids(['net2'])))
+        self.assertEqual(set([fake_port2['id']]),
+                         set(nc.get_port_ids([fake_port2.network_id, 'net2'])))
 
     def test_put_port(self):
         fake_net = dhcp.NetModel(
