@@ -1,0 +1,10 @@
+Code-Review+2: Brandon Logan <brandon.logan@rackspace.com>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 07 Dec 2016 21:15:13 +0000
+Reviewed-on: https://review.openstack.org/345592
+Project: openstack/deb-neutron
+Branch: refs/heads/master
