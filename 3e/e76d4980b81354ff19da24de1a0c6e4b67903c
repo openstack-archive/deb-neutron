@@ -1,0 +1,12 @@
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Dec 2016 16:14:23 +0000
+Reviewed-on: https://review.openstack.org/407058
+Project: openstack/deb-neutron
+Branch: refs/heads/master

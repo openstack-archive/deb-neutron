@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: John Davidge <john.davidge@rackspace.com>
+Code-Review+1: Swaminathan Vasudevan <swaminathan.vasudevan@hpe.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Dec 2016 16:14:45 +0000
+Reviewed-on: https://review.openstack.org/398016
+Project: openstack/deb-neutron
+Branch: refs/heads/master
