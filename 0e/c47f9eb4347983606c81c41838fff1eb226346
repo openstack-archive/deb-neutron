@@ -1,0 +1,14 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Artur Korzeniewski <artur.korzeniewski@intel.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: John Davidge <john.davidge@rackspace.com>
+Code-Review+1: Aradhana Singh <aradhana1.singh@intel.com>
+Code-Review+2: Rossella Sblendido <rsblendido@suse.com>
+Workflow+1: Rossella Sblendido <rsblendido@suse.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 15 Dec 2016 14:40:56 +0000
+Reviewed-on: https://review.openstack.org/403832
+Project: openstack/deb-neutron
+Branch: refs/heads/master
