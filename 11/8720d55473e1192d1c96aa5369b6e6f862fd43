@@ -1,0 +1,10 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Brandon Logan <brandon.logan@rackspace.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Dec 2016 10:40:52 +0000
+Reviewed-on: https://review.openstack.org/409915
+Project: openstack/deb-neutron
+Branch: refs/heads/master

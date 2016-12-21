@@ -1,0 +1,14 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Artur Korzeniewski <artur.korzeniewski@intel.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Dolph Mathews <dolph.mathews@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Dec 2016 10:43:10 +0000
+Reviewed-on: https://review.openstack.org/411864
+Project: openstack/deb-neutron
+Branch: refs/heads/master
