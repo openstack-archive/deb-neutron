@@ -1,0 +1,9 @@
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Workflow+1: Miguel Angel Ajo <mangelajo@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 23 Dec 2016 11:09:58 +0000
+Reviewed-on: https://review.openstack.org/414311
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,12 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Workflow+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: wanghongtaozz <wanghongtaozz@inspur.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 30 Dec 2016 02:16:03 +0000
+Reviewed-on: https://review.openstack.org/415429
+Project: openstack/deb-neutron
+Branch: refs/heads/master

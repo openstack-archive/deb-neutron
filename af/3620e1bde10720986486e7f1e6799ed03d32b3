@@ -1,0 +1,12 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: John Davidge <john.davidge@rackspace.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 23 Dec 2016 10:36:41 +0000
+Reviewed-on: https://review.openstack.org/414222
+Project: openstack/deb-neutron
+Branch: refs/heads/master
