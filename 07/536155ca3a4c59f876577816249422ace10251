@@ -1,0 +1,10 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 04 Jan 2017 04:24:25 +0000
+Reviewed-on: https://review.openstack.org/414911
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
