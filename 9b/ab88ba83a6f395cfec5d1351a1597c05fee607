@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Workflow+1: Jakub Libosvar <libosvar@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 04 Jan 2017 13:20:38 +0000
+Reviewed-on: https://review.openstack.org/410780
+Project: openstack/deb-neutron
+Branch: refs/heads/master
