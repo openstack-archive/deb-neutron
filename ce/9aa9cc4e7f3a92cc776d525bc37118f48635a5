@@ -1,0 +1,11 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+1: Artur Korzeniewski <artur.korzeniewski@intel.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Workflow+1: Miguel Lavalle <malavall@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 05 Jan 2017 13:34:46 +0000
+Reviewed-on: https://review.openstack.org/415322
+Project: openstack/deb-neutron
+Branch: refs/heads/master

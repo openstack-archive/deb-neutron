@@ -1,0 +1,10 @@
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 06 Jan 2017 17:50:42 +0000
+Reviewed-on: https://review.openstack.org/416998
+Project: openstack/deb-neutron
+Branch: refs/heads/master
