@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 07 Jan 2017 00:48:26 +0000
+Reviewed-on: https://review.openstack.org/417524
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka
