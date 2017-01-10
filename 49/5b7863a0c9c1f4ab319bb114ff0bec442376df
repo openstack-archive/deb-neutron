@@ -1,0 +1,10 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 10 Jan 2017 15:55:38 +0000
+Reviewed-on: https://review.openstack.org/417878
+Project: openstack/deb-neutron
+Branch: refs/heads/master
