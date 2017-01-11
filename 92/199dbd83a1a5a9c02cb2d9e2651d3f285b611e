@@ -1,0 +1,9 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 11 Jan 2017 11:59:14 +0000
+Reviewed-on: https://review.openstack.org/413475
+Project: openstack/deb-neutron
+Branch: refs/heads/master
