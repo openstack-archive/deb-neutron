@@ -1,0 +1,11 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 12 Jan 2017 04:14:42 +0000
+Reviewed-on: https://review.openstack.org/418119
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka
