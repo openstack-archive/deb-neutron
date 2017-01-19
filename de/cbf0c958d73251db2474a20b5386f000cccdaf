@@ -1,0 +1,12 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 18 Jan 2017 12:50:24 +0000
+Reviewed-on: https://review.openstack.org/404182
+Project: openstack/deb-neutron
+Branch: refs/heads/master
