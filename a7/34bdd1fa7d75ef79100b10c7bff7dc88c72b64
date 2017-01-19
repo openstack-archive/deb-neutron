@@ -1,0 +1,10 @@
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: John Schwarz <jschwarz@redhat.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Ann Taraday <akamyshnikova@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 19 Jan 2017 11:14:44 +0000
+Reviewed-on: https://review.openstack.org/417699
+Project: openstack/deb-neutron
+Branch: refs/heads/master

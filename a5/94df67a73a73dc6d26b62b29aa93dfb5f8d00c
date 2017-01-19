@@ -1,0 +1,12 @@
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: LIU Yulong <liuyulong@letv.com>
+Code-Review+1: Jianghua Wang <jianghua.wang@citrix.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 19 Jan 2017 12:00:19 +0000
+Reviewed-on: https://review.openstack.org/386086
+Project: openstack/deb-neutron
+Branch: refs/heads/master
