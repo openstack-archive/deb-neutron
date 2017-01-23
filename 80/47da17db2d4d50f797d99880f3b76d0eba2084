@@ -1,0 +1,11 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Huan Xie <huan.xie@citrix.com>
+Code-Review+1: Bob Ball <bob.ball@citrix.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 21 Jan 2017 02:18:20 +0000
+Reviewed-on: https://review.openstack.org/390931
+Project: openstack/deb-neutron
+Branch: refs/heads/master
