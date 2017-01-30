@@ -1,0 +1,10 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 28 Jan 2017 06:17:10 +0000
+Reviewed-on: https://review.openstack.org/422339
+Project: openstack/deb-neutron
+Branch: refs/heads/master
