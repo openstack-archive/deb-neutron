@@ -1,0 +1,10 @@
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 01 Feb 2017 09:40:13 +0000
+Reviewed-on: https://review.openstack.org/426745
+Project: openstack/deb-neutron
+Branch: refs/heads/master
