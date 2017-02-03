@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Jakub Libosvar <libosvar@redhat.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 02 Feb 2017 23:32:22 +0000
+Reviewed-on: https://review.openstack.org/427956
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/mitaka
