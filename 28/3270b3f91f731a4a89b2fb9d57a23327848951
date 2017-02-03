@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Bernard Cafarelli <bcafarel@redhat.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 03 Feb 2017 03:03:51 +0000
+Reviewed-on: https://review.openstack.org/428073
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
