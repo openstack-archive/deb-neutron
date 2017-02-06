@@ -1,0 +1,10 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 05 Feb 2017 11:53:43 +0000
+Reviewed-on: https://review.openstack.org/428038
+Project: openstack/deb-neutron
+Branch: refs/heads/master
