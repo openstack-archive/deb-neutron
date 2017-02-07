@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+1: Isaku Yamahata <isaku.yamahata@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Brian Haley <brian.haley@hpe.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 07 Feb 2017 05:16:11 +0000
+Reviewed-on: https://review.openstack.org/428652
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
