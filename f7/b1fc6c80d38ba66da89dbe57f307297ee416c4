@@ -1,0 +1,12 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+1: Andreas Scheuring <andreas.scheuring@de.ibm.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 07 Feb 2017 19:39:23 +0000
+Reviewed-on: https://review.openstack.org/429794
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
