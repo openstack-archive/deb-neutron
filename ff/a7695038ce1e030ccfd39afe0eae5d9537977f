@@ -1,0 +1,14 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 08 Feb 2017 09:51:24 +0000
+Reviewed-on: https://review.openstack.org/423581
+Project: openstack/deb-neutron
+Branch: refs/heads/master
