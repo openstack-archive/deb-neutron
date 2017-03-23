@@ -1,0 +1,15 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Ann Taraday <akamyshnikova@mirantis.com>
+Code-Review+1: Dariusz Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: wujun <wujun@awcloud.com>
+Code-Review+1: 黎岳衡 <liyh@awcloud.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 02 Mar 2017 17:33:10 +0000
+Reviewed-on: https://review.openstack.org/434200
+Project: openstack/deb-neutron
+Branch: refs/heads/master

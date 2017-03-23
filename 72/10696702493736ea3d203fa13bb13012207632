@@ -1,0 +1,10 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: IWAMOTO Toshihiro <iwamoto@valinux.co.jp>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 28 Feb 2017 19:32:26 +0000
+Reviewed-on: https://review.openstack.org/437041
+Project: openstack/deb-neutron
+Branch: refs/heads/master

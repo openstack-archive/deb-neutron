@@ -1,0 +1,16 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Neil Jerram <neil@tigera.io>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+1: Dariusz Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: venkata anil <anilvenkata@redhat.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 22 Feb 2017 01:27:08 +0000
+Reviewed-on: https://review.openstack.org/434679
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,12 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Ann Taraday <akamyshnikova@mirantis.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 21 Mar 2017 01:24:47 +0000
+Reviewed-on: https://review.openstack.org/446152
+Project: openstack/deb-neutron
+Branch: refs/heads/master

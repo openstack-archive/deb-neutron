@@ -1,0 +1,11 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Miguel Angel Ajo <mangelajo@redhat.com>
+Workflow+1: Miguel Angel Ajo <mangelajo@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 14 Mar 2017 20:44:32 +0000
+Reviewed-on: https://review.openstack.org/445560
+Project: openstack/deb-neutron
+Branch: refs/heads/master

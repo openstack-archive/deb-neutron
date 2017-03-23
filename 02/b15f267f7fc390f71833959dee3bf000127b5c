@@ -1,0 +1,15 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+1: Dariusz Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+1: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Victor Morales <victor.morales@intel.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: boden <bodenvmw@gmail.com>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 01 Mar 2017 22:03:51 +0000
+Reviewed-on: https://review.openstack.org/433034
+Project: openstack/deb-neutron
+Branch: refs/heads/master

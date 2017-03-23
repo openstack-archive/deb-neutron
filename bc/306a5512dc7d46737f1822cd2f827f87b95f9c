@@ -1,0 +1,11 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 21 Feb 2017 07:09:16 +0000
+Reviewed-on: https://review.openstack.org/435748
+Project: openstack/deb-neutron
+Branch: refs/heads/master

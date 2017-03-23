@@ -1,0 +1,14 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Ching Sun <chingsun@gmail.com>
+Code-Review+1: Louis Fourie <louis.fourie@huawei.com>
+Code-Review+1: cathy <cathy.h.zhang@huawei.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 22 Mar 2017 10:49:49 +0000
+Reviewed-on: https://review.openstack.org/434644
+Project: openstack/deb-neutron
+Branch: refs/heads/master

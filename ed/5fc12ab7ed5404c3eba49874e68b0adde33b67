@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 08 Mar 2017 03:02:52 +0000
+Reviewed-on: https://review.openstack.org/439727
+Project: openstack/deb-neutron
+Branch: refs/heads/master

@@ -1,0 +1,10 @@
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 08 Mar 2017 06:55:59 +0000
+Reviewed-on: https://review.openstack.org/442219
+Project: openstack/deb-neutron
+Branch: refs/heads/master
