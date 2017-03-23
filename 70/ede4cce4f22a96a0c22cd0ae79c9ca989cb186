@@ -1,0 +1,10 @@
+Verified+1: Ryu CI <ryu-openstack-review@lists.sourceforge.net>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 11 Mar 2017 04:23:59 +0000
+Reviewed-on: https://review.openstack.org/439615
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
