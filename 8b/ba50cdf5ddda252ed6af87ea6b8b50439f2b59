@@ -1,0 +1,10 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Rossella Sblendido <rsblendido@suse.com>
+Workflow+1: Rossella Sblendido <rsblendido@suse.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 23 Mar 2017 21:18:11 +0000
+Reviewed-on: https://review.openstack.org/440342
+Project: openstack/deb-neutron
+Branch: refs/heads/master
