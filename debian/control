@@ -164,6 +164,7 @@ Architecture: all
 Depends: adduser,
          debconf,
          lsb-base,
+         net-tools,
          neutron-common (= ${source:Version}),
          python-openstackclient,
          q-text-as-data,
