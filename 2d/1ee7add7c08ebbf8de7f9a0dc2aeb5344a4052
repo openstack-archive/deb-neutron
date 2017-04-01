@@ -1,0 +1,16 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+1: Slawek Kaplonski <slawek@kaplonski.pl>
+Code-Review+1: Anindita Das <anindita.das@intel.com>
+Code-Review+1: David Shaughnessy <david.shaughnessy@intel.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 01 Apr 2017 12:57:08 +0000
+Reviewed-on: https://review.openstack.org/425218
+Project: openstack/deb-neutron
+Branch: refs/heads/master
