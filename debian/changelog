@@ -1,3 +1,11 @@
+neutron (2:9.1.1-3) unstable; urgency=medium
+
+  * Team upload.
+  * Revert net-tools dependency.
+  * Bump build dependency on openstack-pkg-tools (Closes: #858706).
+
+ -- David Rabel <david.rabel@noresoft.com>  Sat, 01 Apr 2017 11:57:49 +0200
+
 neutron (2:9.1.1-2) unstable; urgency=medium
 
   * Team upload.
