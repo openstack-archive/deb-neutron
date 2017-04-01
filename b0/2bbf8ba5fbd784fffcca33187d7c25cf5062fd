@@ -1,0 +1,12 @@
+Verified+1: Nuage CI <nuage-ci@nuagenetworks.net>
+Code-Review+2: Ann Taraday <akamyshnikova@mirantis.com>
+Code-Review+1: Michael Bayer <mike_mp@zzzcomputing.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 01 Apr 2017 12:07:26 +0000
+Reviewed-on: https://review.openstack.org/451595
+Project: openstack/deb-neutron
+Branch: refs/heads/master
