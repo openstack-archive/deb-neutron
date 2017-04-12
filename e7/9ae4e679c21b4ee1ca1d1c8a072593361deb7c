@@ -1,0 +1,11 @@
+Code-Review+1: Daniel Mellado <dmellado@redhat.com>
+Code-Review+1: Genadi Chereshnya <gcheresh@redhat.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 12 Apr 2017 19:05:09 +0000
+Reviewed-on: https://review.openstack.org/454594
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
