@@ -1,0 +1,11 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Code-Review+1: Eric Lei <leiyashuai@inspur.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 13 Apr 2017 18:05:43 +0000
+Reviewed-on: https://review.openstack.org/436307
+Project: openstack/deb-neutron
+Branch: refs/heads/master
