@@ -1,0 +1,9 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Workflow+1: Jakub Libosvar <libosvar@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 18 Apr 2017 17:32:40 +0000
+Reviewed-on: https://review.openstack.org/457515
+Project: openstack/deb-neutron
+Branch: refs/heads/master
