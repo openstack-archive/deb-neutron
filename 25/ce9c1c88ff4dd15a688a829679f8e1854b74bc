@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Huan Xie <huan.xie@citrix.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 18 Apr 2017 06:03:54 +0000
+Reviewed-on: https://review.openstack.org/457422
+Project: openstack/deb-neutron
+Branch: refs/heads/master
