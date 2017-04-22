@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Slawek Kaplonski <slawek@kaplonski.pl>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 22 Apr 2017 13:10:02 +0000
+Reviewed-on: https://review.openstack.org/451704
+Project: openstack/deb-neutron
+Branch: refs/heads/master
