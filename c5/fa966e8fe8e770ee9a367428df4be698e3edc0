@@ -1,0 +1,9 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 28 Apr 2017 17:30:43 +0000
+Reviewed-on: https://review.openstack.org/456745
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
