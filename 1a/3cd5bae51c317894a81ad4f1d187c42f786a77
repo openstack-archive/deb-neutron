@@ -1,0 +1,9 @@
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 03 May 2017 18:13:02 +0000
+Reviewed-on: https://review.openstack.org/462046
+Project: openstack/deb-neutron
+Branch: refs/heads/master
