@@ -1,0 +1,9 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 17 May 2017 10:03:30 +0000
+Reviewed-on: https://review.openstack.org/465177
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
