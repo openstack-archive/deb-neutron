@@ -1,0 +1,10 @@
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Ann Taraday <akamyshnikova@mirantis.com>
+Workflow+1: Ann Taraday <akamyshnikova@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 17 May 2017 12:53:28 +0000
+Reviewed-on: https://review.openstack.org/464110
+Project: openstack/deb-neutron
+Branch: refs/heads/master
