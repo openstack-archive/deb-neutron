@@ -1,0 +1,11 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+1: David Shaughnessy <david.shaughnessy@intel.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 17 May 2017 10:00:31 +0000
+Reviewed-on: https://review.openstack.org/462937
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
