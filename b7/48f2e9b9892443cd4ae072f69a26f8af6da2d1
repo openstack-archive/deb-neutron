@@ -1,0 +1,14 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Swaminathan Vasudevan <SVasudevan@suse.com>
+Code-Review+1: Dongcan Ye <yedongcan@yeah.net>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+1: Ann Taraday <akamyshnikova@mirantis.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 23 May 2017 02:15:31 +0000
+Reviewed-on: https://review.openstack.org/465740
+Project: openstack/deb-neutron
+Branch: refs/heads/master
