@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 26 May 2017 01:43:54 +0000
+Reviewed-on: https://review.openstack.org/460912
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
