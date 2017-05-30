@@ -1,0 +1,13 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Code-Review+1: Lujin Luo <luo.lujin@jp.fujitsu.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 30 May 2017 00:36:26 +0000
+Reviewed-on: https://review.openstack.org/434682
+Project: openstack/deb-neutron
+Branch: refs/heads/master
