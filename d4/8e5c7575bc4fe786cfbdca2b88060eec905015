@@ -1,0 +1,9 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Workflow+1: Brian Haley <haleyb.dev@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Jun 2017 23:04:41 +0000
+Reviewed-on: https://review.openstack.org/470335
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/newton
