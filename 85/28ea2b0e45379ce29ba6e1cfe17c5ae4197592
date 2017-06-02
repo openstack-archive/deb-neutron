@@ -1,0 +1,11 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Jun 2017 19:22:21 +0000
+Reviewed-on: https://review.openstack.org/463268
+Project: openstack/deb-neutron
+Branch: refs/heads/master
