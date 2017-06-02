@@ -1,0 +1,10 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Code-Review+2: Jakub Libosvar <libosvar@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Jun 2017 23:14:14 +0000
+Reviewed-on: https://review.openstack.org/468056
+Project: openstack/deb-neutron
+Branch: refs/heads/master
