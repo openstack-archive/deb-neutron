@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Code-Review+1: Nguyen Phuong An <AnNP@vn.fujitsu.com>
+Workflow+1: Miguel Lavalle <malavall@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 06 Jun 2017 22:11:18 +0000
+Reviewed-on: https://review.openstack.org/466899
+Project: openstack/deb-neutron
+Branch: refs/heads/master
