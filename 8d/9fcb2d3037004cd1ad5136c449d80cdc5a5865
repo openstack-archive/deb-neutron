@@ -1,0 +1,9 @@
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 08 Jun 2017 11:16:43 +0000
+Reviewed-on: https://review.openstack.org/469491
+Project: openstack/deb-neutron
+Branch: refs/heads/master
