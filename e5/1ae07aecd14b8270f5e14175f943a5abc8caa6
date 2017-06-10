@@ -1,0 +1,11 @@
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+1: Nguyen Phuong An <AnNP@vn.fujitsu.com>
+Code-Review+1: Huan Xie <huan.xie@citrix.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 10 Jun 2017 00:12:55 +0000
+Reviewed-on: https://review.openstack.org/472473
+Project: openstack/deb-neutron
+Branch: refs/heads/master
