@@ -1,0 +1,9 @@
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: Jakub Libosvar <jlibosva-redhat@email.cz>
+Workflow+1: Jakub Libosvar <jlibosva-redhat@email.cz>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 14 Jun 2017 12:25:23 +0000
+Reviewed-on: https://review.openstack.org/474063
+Project: openstack/deb-neutron
+Branch: refs/heads/master
