@@ -1,0 +1,11 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Manjeet Singh Bhatia <manjeet.s.bhatia@intel.com>
+Code-Review+1: boden <bodenvmw@gmail.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Jun 2017 22:33:01 +0000
+Reviewed-on: https://review.openstack.org/474575
+Project: openstack/deb-neutron
+Branch: refs/heads/master
