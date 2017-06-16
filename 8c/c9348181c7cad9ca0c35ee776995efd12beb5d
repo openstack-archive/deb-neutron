@@ -1,0 +1,9 @@
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Workflow+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Jun 2017 05:13:25 +0000
+Reviewed-on: https://review.openstack.org/472324
+Project: openstack/deb-neutron
+Branch: refs/heads/master
