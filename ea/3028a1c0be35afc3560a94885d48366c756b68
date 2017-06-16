@@ -1,0 +1,11 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Oleg Bondarev <obondarev@mirantis.com>
+Workflow+1: Oleg Bondarev <obondarev@mirantis.com>
+Code-Review+1: Hieu LE <hieulq@vn.fujitsu.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Jun 2017 04:14:15 +0000
+Reviewed-on: https://review.openstack.org/472765
+Project: openstack/deb-neutron
+Branch: refs/heads/master
