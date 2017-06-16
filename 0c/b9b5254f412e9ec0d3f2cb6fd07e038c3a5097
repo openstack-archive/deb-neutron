@@ -1,0 +1,13 @@
+Code-Review+2: Jakub Libosvar <jlibosva-redhat@email.cz>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 16 Jun 2017 06:14:00 +0000
+Reviewed-on: https://review.openstack.org/472509
+Project: openstack/deb-neutron
+Branch: refs/heads/master
