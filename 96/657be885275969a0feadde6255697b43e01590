@@ -1,0 +1,10 @@
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+1: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 17 Jun 2017 10:12:22 +0000
+Reviewed-on: https://review.openstack.org/473304
+Project: openstack/deb-neutron
+Branch: refs/heads/stable/ocata
