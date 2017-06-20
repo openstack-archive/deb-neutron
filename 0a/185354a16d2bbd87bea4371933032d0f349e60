@@ -1,0 +1,12 @@
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Dongcan Ye <yedongcan@yeah.net>
+Code-Review+1: David Shaughnessy <david.shaughnessy@intel.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Workflow+1: Brian Haley <haleyb.dev@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 20 Jun 2017 21:30:35 +0000
+Reviewed-on: https://review.openstack.org/474244
+Project: openstack/deb-neutron
+Branch: refs/heads/master
