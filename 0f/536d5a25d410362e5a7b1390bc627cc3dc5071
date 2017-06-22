@@ -1,0 +1,9 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Ann Taraday <akamyshnikova@mirantis.com>
+Workflow+1: Ann Taraday <akamyshnikova@mirantis.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 22 Jun 2017 09:35:13 +0000
+Reviewed-on: https://review.openstack.org/475650
+Project: openstack/deb-neutron
+Branch: refs/heads/master
