@@ -1,0 +1,10 @@
+Code-Review+1: ZhaoBo <zhaobo6@huawei.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Jun 2017 13:06:13 +0000
+Reviewed-on: https://review.openstack.org/476419
+Project: openstack/deb-neutron
+Branch: refs/heads/master
