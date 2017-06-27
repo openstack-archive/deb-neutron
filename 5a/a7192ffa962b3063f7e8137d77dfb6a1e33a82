@@ -1,0 +1,10 @@
+Code-Review+2: Miguel Lavalle <malavall@us.ibm.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Jun 2017 11:43:17 +0000
+Reviewed-on: https://review.openstack.org/474166
+Project: openstack/deb-neutron
+Branch: refs/heads/master
