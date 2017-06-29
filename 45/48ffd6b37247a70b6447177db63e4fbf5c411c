@@ -1,0 +1,10 @@
+Code-Review+1: ZhaoBo <zhaobo6@huawei.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 29 Jun 2017 20:50:08 +0000
+Reviewed-on: https://review.openstack.org/476491
+Project: openstack/deb-neutron
+Branch: refs/heads/master

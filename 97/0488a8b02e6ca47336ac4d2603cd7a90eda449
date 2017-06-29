@@ -1,0 +1,11 @@
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Rodolfo Alonso Hernandez <rodolfo.alonso.hernandez@intel.com>
+Workflow+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 29 Jun 2017 21:20:34 +0000
+Reviewed-on: https://review.openstack.org/477681
+Project: openstack/deb-neutron
+Branch: refs/heads/master
