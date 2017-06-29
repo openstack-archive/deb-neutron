@@ -1,0 +1,9 @@
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 29 Jun 2017 16:53:12 +0000
+Reviewed-on: https://review.openstack.org/478462
+Project: openstack/deb-neutron
+Branch: refs/heads/master
