@@ -1,0 +1,12 @@
+Code-Review+1: Lenny Verkhovsky <lennyb@mellanox.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+1: Igor Duarte Cardoso <igor.duarte.cardoso@intel.com>
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sun, 09 Jul 2017 10:11:53 +0000
+Reviewed-on: https://review.openstack.org/480947
+Project: openstack/deb-neutron
+Branch: refs/heads/master
