@@ -1,0 +1,11 @@
+Code-Review+1: Lujin Luo <luo.lujin@jp.fujitsu.com>
+Code-Review+2: Hirofumi Ichihara <ichihara.hirofumi@lab.ntt.co.jp>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Workflow+1: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Jul 2017 08:34:54 +0000
+Reviewed-on: https://review.openstack.org/483734
+Project: openstack/deb-neutron
+Branch: refs/heads/master
