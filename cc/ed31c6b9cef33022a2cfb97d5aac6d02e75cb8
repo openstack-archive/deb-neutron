@@ -1,0 +1,12 @@
+Code-Review+2: Brian Haley <haleyb.dev@gmail.com>
+Code-Review+1: David Shaughnessy <david.shaughnessy@intel.com>
+Verified+1: Arista CI <arista-openstack-test@aristanetworks.com>
+Verified+1: Mellanox CI <mlnx-openstack-ci@dev.mellanox.co.il>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 20 Jul 2017 23:57:59 +0000
+Reviewed-on: https://review.openstack.org/466434
+Project: openstack/deb-neutron
+Branch: refs/heads/master
