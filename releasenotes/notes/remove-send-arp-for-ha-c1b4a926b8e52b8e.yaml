@@ -1,5 +1,0 @@
----
-upgrade:
-  - |
-    The ``send_arp_for_ha`` configuration option is removed. Neutron now always
-    sends three gratuitous ARP requests on address assigned to a port.

@@ -1,4 +1,0 @@
----
-features:
-  - Resource tag mechanism now supports subnet, port, subnetpool and
-    router resources.

@@ -1,7 +1,0 @@
----
-prelude: >
-   Core configuration files are automatically generated.
-features:
-  - Neutron no longer includes static example configuration files. Instead,
-    use tools/generate_config_file_samples.sh to generate them. The files are
-    generated with a .sample extension.

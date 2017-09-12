@@ -1,6 +1,0 @@
----
-upgrade:
-  - After upgrade, a macvtap agent without
-    physical_interface_mappings configured can not
-    be started. Specify a valid mapping to be able
-    to start and use the macvtap agent.

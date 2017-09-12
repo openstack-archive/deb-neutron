@@ -1,4 +1,0 @@
----
-deprecations:
-  - The 'force_gateway_on_subnet' option is deprecated and
-    will be removed in the 'Newton' cycle.

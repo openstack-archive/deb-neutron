@@ -1,5 +1,0 @@
----
-upgrade:
-  - |
-    tenant_id column has been renamed to project_id.
-    This database migration is required to be applied as offline migration.

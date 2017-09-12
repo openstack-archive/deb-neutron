@@ -1,4 +1,0 @@
-upgrade:
-  - The ``dhcp_domain`` DHCP agent configuration option was deprecated in
-    Liberty cycle, and now is no longer used. The ``dns_domain`` option should
-    be used instead.

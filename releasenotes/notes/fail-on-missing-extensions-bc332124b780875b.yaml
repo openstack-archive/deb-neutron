@@ -1,5 +1,0 @@
----
-fixes:
-  - The server will fail to start if any of the declared required
-    extensions, as needed by core and service plugins, are not
-    properly configured.

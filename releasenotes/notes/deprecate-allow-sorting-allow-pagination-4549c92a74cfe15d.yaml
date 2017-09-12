@@ -1,4 +1,0 @@
----
-deprecations:
-  - The ``allow_sorting`` and ``allow_pagination`` configuration options
-    are deprecated and will be removed in a future release.
